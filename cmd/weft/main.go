@@ -268,7 +268,7 @@ continuity (same sockets, same registry on-disk layout).`,
 	cmd.Flags().StringVar(&sshAuthorizedKeys, "ssh-authorized-keys", defaultAuthorizedKeys, "Path to authorized_keys for SSH client authentication")
 	cmd.Flags().StringVar(&oidcIssuer, "oidc-issuer", "", "OIDC issuer URL (empty = dev mode, no token validation)")
 	cmd.Flags().StringVar(&oidcClientID, "oidc-client-id", "", "OIDC audience that tokens must be issued for")
-	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", `Registry persistence backend: "file" (dev, local disk) or "etcd" (prod, 3-DC cluster). Empty = HCL config decides; HCL empty = "file".`)
+	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", `Registry persistence backend: "file" (dev, local disk), "etcd" (prod, 3-DC cluster), or "embed-etcd" (single-host, in-process etcd under <configDir>/etcd-embed). Empty = HCL config decides; HCL empty = "file".`)
 	cmd.Flags().StringVar(&eventBusBackend, "event-bus", "", `Event-bus backend: "local" (dev, in-process channels) or "nats" (prod, 3-DC cluster). Empty = HCL config decides; HCL empty = "local".`)
 	cmd.Flags().StringVar(&hypervisor, "hypervisor", "", `Local hypervisor driver: "" / "apple-vz" (default) or "qemu" (QEMU/TCG — pure emulation, works without nested virt).`)
 	cmd.Flags().BoolVar(&serverMode, "server", false, "Run as control-plane server (no per-host driver dispatch). Default mode includes both.")
