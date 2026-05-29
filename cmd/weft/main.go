@@ -385,6 +385,10 @@ func run(t fileConfigTargets) error {
 	if err != nil {
 		return fmt.Errorf("load script registry: %w", err)
 	}
+	vmPropReg, err := weft.LoadVMPropertyRegistry(context.Background(), a.RegistryStorage("vm-properties"))
+	if err != nil {
+		return fmt.Errorf("load vm-property registry: %w", err)
+	}
 	vzdv1.RegisterWeftAgentServer(srv, &vzdServer{
 		cfgDir:        t.configDir,
 		mc:            mc,
@@ -393,6 +397,7 @@ func run(t fileConfigTargets) error {
 		localHostUUID: localHostUUID(a),
 		flavors:       flavorReg,
 		scripts:       scriptReg,
+		vmProps:       vmPropReg,
 	})
 	vzdv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 
@@ -454,6 +459,9 @@ type vzdServer struct {
 	// Same shape as flavors. nil in tests ; RPCs guard via
 	// scriptsReady.
 	scripts *weft.ScriptRegistry
+	// vmProps is the per-VM host-set annotations registry. Pairs
+	// with the guest's pkg/properties NATS subscriber.
+	vmProps *weft.VMPropertyRegistry
 }
 
 func (s *vzdServer) ListVMs(ctx context.Context, req *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
@@ -1542,6 +1550,103 @@ func scriptToProto(s weft.Script) *vzdv1.Script {
 		Name: s.Name, Description: s.Description, Body: s.Body,
 		UpdatedAt: ts, UpdatedBy: s.UpdatedBy,
 	}
+}
+
+// ---- VM properties (per-VM host-set annotations) ------------------
+//
+// (vm_name, project) addresses one VM ; key is the operator-chosen
+// label inside that VM. guest_readable opts the entry into the
+// in-guest weft-vm-agent's NATS read surface. Admin-only writes ;
+// every authenticated caller can read (the dashboard's Properties
+// drawer tab is open to operators with project membership).
+
+func (s *vzdServer) vmPropsReady() error {
+	if s.vmProps == nil {
+		return status.Error(codes.Unavailable, "vm-properties registry not wired on this build")
+	}
+	return nil
+}
+
+func (s *vzdServer) ListVMProperties(_ context.Context, req *vzdv1.ListVMPropertiesRequest) (*vzdv1.ListVMPropertiesResponse, error) {
+	if err := s.vmPropsReady(); err != nil {
+		return nil, err
+	}
+	if req.VmName == "" {
+		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
+	}
+	all := s.vmProps.ListForVM(req.Project, req.VmName)
+	out := &vzdv1.ListVMPropertiesResponse{Properties: make([]*vzdv1.VMProperty, 0, len(all))}
+	for _, p := range all {
+		out.Properties = append(out.Properties, vmPropToProto(p))
+	}
+	return out, nil
+}
+
+func (s *vzdServer) SetVMProperty(ctx context.Context, req *vzdv1.SetVMPropertyRequest) (*vzdv1.SetVMPropertyResponse, error) {
+	if err := s.vmPropsReady(); err != nil {
+		return nil, err
+	}
+	if req.Property == nil {
+		return nil, status.Error(codes.InvalidArgument, "property is required")
+	}
+	if req.VmName == "" {
+		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
+	}
+	if err := weft.RequireAdmin(ctx, "set vm property"); err != nil {
+		return nil, err
+	}
+	in := req.Property
+	if err := s.vmProps.Set(weft.VMProperty{
+		VMName: req.VmName, Project: req.Project,
+		Key: in.Key, Value: in.Value, GuestReadable: in.GuestReadable,
+	}); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "set vm property: %v", err)
+	}
+	// Re-fetch to return the stamped UpdatedAt the registry just wrote.
+	resolved := pickProperty(s.vmProps.ListForVM(req.Project, req.VmName), in.Key)
+	logger.Printf("SetVMProperty vm=%s/%s key=%s guest=%t", req.Project, req.VmName, in.Key, in.GuestReadable)
+	return &vzdv1.SetVMPropertyResponse{Property: vmPropToProto(resolved)}, nil
+}
+
+func (s *vzdServer) DeleteVMProperty(ctx context.Context, req *vzdv1.DeleteVMPropertyRequest) (*vzdv1.DeleteVMPropertyResponse, error) {
+	if err := s.vmPropsReady(); err != nil {
+		return nil, err
+	}
+	if req.VmName == "" || req.Key == "" {
+		return nil, status.Error(codes.InvalidArgument, "vm_name and key are required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete vm property"); err != nil {
+		return nil, err
+	}
+	if err := s.vmProps.Delete(req.Project, req.VmName, req.Key); err != nil {
+		return nil, status.Errorf(codes.Internal, "delete vm property: %v", err)
+	}
+	logger.Printf("DeleteVMProperty vm=%s/%s key=%s", req.Project, req.VmName, req.Key)
+	return &vzdv1.DeleteVMPropertyResponse{Deleted: req.Key}, nil
+}
+
+func vmPropToProto(p weft.VMProperty) *vzdv1.VMProperty {
+	ts := ""
+	if !p.UpdatedAt.IsZero() {
+		ts = p.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+	}
+	return &vzdv1.VMProperty{
+		Key: p.Key, Value: p.Value,
+		GuestReadable: p.GuestReadable, UpdatedAt: ts,
+	}
+}
+
+// pickProperty returns the entry with the given Key from a slice, or
+// a zero-value VMProperty when none matches. Used by SetVMProperty
+// to recover the registry-stamped UpdatedAt without re-locking the
+// registry mutex.
+func pickProperty(list []weft.VMProperty, key string) weft.VMProperty {
+	for _, p := range list {
+		if p.Key == key {
+			return p
+		}
+	}
+	return weft.VMProperty{}
 }
 
 // AddProjectMember grants project access to a user-UUID. Admin-
