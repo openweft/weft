@@ -1,0 +1,17 @@
+version: '3'
+
+tasks:
+  test:
+    desc: "Run tests with coverage"
+    cmds:
+      - go test -mod=mod -cover ./...
+
+  build:
+    desc: "Build (library — compile check only)"
+    cmds:
+      - go build -mod=mod ./...
+
+  lint:
+    desc: "Vet the package"
+    cmds:
+      - go vet -mod=mod ./...

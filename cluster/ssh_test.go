@@ -1,0 +1,130 @@
+package cluster
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/openweft/weft/infra"
+)
+
+func TestTarget_DefaultsAndSSHBlock(t *testing.T) {
+	c := &Cluster{Hosts: []Host{
+		{ID: "a", Address: "192.0.2.1"},
+		{ID: "b", Address: "192.0.2.2", SSH: &SSH{User: "ops", Key: "/k/id"}},
+	}}
+	if tg := c.Target(c.Hosts[0]); tg.User != "root" || tg.KeyPath != "" {
+		t.Errorf("default target = %+v, want user=root no key", tg)
+	}
+	if tg := c.Target(c.Hosts[1]); tg.User != "ops" || tg.KeyPath != "/k/id" {
+		t.Errorf("ssh-block target = %+v", tg)
+	}
+}
+
+func TestSeed_IsFirstHost(t *testing.T) {
+	c := threeHostCluster()
+	if c.Seed().ID != "h1" {
+		t.Errorf("seed = %s, want h1 (first host)", c.Seed().ID)
+	}
+}
+
+func TestDrivers_Env(t *testing.T) {
+	if env := (*Drivers)(nil).Env(); env != nil {
+		t.Errorf("nil Drivers.Env() = %v, want nil", env)
+	}
+	d := &Drivers{Registry: "ghcr.io/acme", Version: "v2", QemuRef: "ghcr.io/acme/q:edge"}
+	got := strings.Join(d.Env(), " ")
+	want := "WEFT_DRIVER_REGISTRY=ghcr.io/acme WEFT_DRIVER_VERSION=v2 WEFT_DRIVER_QEMU_REF=ghcr.io/acme/q:edge"
+	if got != want {
+		t.Errorf("Env() =\n %q\nwant\n %q", got, want)
+	}
+}
+
+// TestRenderSSH_DriversEnvPropagated: the drivers block is prepended to the
+// agent-start commands so each host pulls the configured plugin image.
+func TestRenderSSH_DriversEnvPropagated(t *testing.T) {
+	c := threeHostCluster()
+	c.Drivers = &Drivers{Registry: "ghcr.io/openweft", Version: "v1.0.0"}
+	p, err := Build(c, []*infra.Plan{etcdPlan()}, State{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	hps := RenderSSH(c, p)
+	// Seed agent-start carries the registry+version env before `weft agent`.
+	seedStep := hps[0].Steps[0]
+	if !strings.Contains(seedStep, "WEFT_DRIVER_REGISTRY=ghcr.io/openweft WEFT_DRIVER_VERSION=v1.0.0 weft agent --server") {
+		t.Errorf("seed step missing driver env prefix: %q", seedStep)
+	}
+	// A joining host carries it too.
+	var joinedWithEnv bool
+	for _, hp := range hps[1:] {
+		for _, s := range hp.Steps {
+			if strings.Contains(s, "WEFT_DRIVER_REGISTRY=ghcr.io/openweft") && strings.Contains(s, "weft agent --client") {
+				joinedWithEnv = true
+			}
+		}
+	}
+	if !joinedWithEnv {
+		t.Error("joining host agent-start missing driver env prefix")
+	}
+}
+
+func TestRenderSSH_RolesAndPlacement(t *testing.T) {
+	c := threeHostCluster()
+	// Give each host a hypervisor so the flag shows.
+	for i := range c.Hosts {
+		c.Hosts[i].Hypervisor = "qemu"
+	}
+	p, err := Build(c, []*infra.Plan{etcdPlan()}, State{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	hps := RenderSSH(c, p)
+	if len(hps) != 3 {
+		t.Fatalf("host plans = %d, want 3", len(hps))
+	}
+	// First host plan is the seed and starts the control-plane agent.
+	if hps[0].Target.HostID != "h1" {
+		t.Errorf("first host plan = %s, want seed h1", hps[0].Target.HostID)
+	}
+	if !strings.Contains(hps[0].Steps[0], "weft agent --server") {
+		t.Errorf("seed first step = %q, want agent --server", hps[0].Steps[0])
+	}
+	if !strings.Contains(hps[0].Steps[0], "--hypervisor=qemu") {
+		t.Errorf("seed step missing hypervisor flag: %q", hps[0].Steps[0])
+	}
+	// A non-seed host joins the seed.
+	var joined bool
+	for _, hp := range hps[1:] {
+		for _, s := range hp.Steps {
+			if strings.Contains(s, "--client --control-plane=192.0.2.1") {
+				joined = true
+			}
+		}
+	}
+	if !joined {
+		t.Error("expected a non-seed host to join --control-plane=192.0.2.1")
+	}
+	// Each host deploys its etcd replica.
+	for _, hp := range hps {
+		found := false
+		for _, s := range hp.Steps {
+			if strings.Contains(s, "weft infra deploy etcd") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("host %s missing etcd deploy step: %v", hp.Target.HostID, hp.Steps)
+		}
+	}
+}
+
+func TestRenderAction_CrossHostAnchoredOnSeed(t *testing.T) {
+	c := threeHostCluster()
+	// mesh-sync and grow-quorum run on the seed and are notes (not exec'd).
+	if id, cmd := renderAction(c, Action{Kind: MeshSync, Hosts: []string{"h1", "h2", "h3"}}); id != "h1" || !strings.HasPrefix(cmd, "#") {
+		t.Errorf("mesh-sync render = (%s,%q), want seed note", id, cmd)
+	}
+	if id, cmd := renderAction(c, Action{Kind: GrowQuorum, Service: "etcd", From: 1, To: 3}); id != "h1" || !strings.Contains(cmd, "1→3") {
+		t.Errorf("grow render = (%s,%q)", id, cmd)
+	}
+}

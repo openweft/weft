@@ -1,0 +1,254 @@
+syntax = "proto3";
+
+// guest.proto defines the guest-side transport between weft-init
+// (PID 1 inside an openweft micro-VM) and weft-agent (running on
+// the hypervisor host).
+//
+// Two services live here:
+//
+//   * `GuestPodPlane` — what the guest dials on the host side.
+//     The host listens on AF_VSOCK ; the guest opens a long-lived
+//     bidirectional stream and reports pod / container events,
+//     log chunks, and replies to control requests the host injects.
+//
+//   * `PodLifecycle` (future, not yet wired) — what the operator-
+//     facing weft-agent surfaces upward to the control plane to
+//     drive pod creation / mutation. Kept here so the type system
+//     for PodSpec stays single-sourced.
+//
+// Mirrors agent.proto's split: machine-to-machine RPCs live in
+// their own file with their own auth boundary (vsock identity is
+// implicit — the guest's CID identifies the VM, the host enforces
+// per-VM access policy in weft-agent before responding).
+//
+// See [[openweft-module-layout]] for placement.
+
+package weft.guest.v1;
+
+option go_package = "github.com/openweft/weft-proto/guestv1;guestv1";
+
+// --- PodSpec ------------------------------------------------
+//
+// Mirrors github.com/openweft/weft-microvm-init/pkg/pod.Spec. The Go
+// types in weft-microvm-init are the in-process source of truth for
+// the init binary ; this proto is the source of truth on the
+// wire. They must stay in lockstep.
+
+message PodSpec {
+  string pod_id           = 1;
+  repeated Container containers = 2;
+  repeated Share     shares     = 3;
+  Network network         = 4;
+  map<string, string> labels = 5;
+  WireGuard wireguard     = 6;
+  repeated ShareMount share_mounts = 7;
+}
+
+// ShareMount is one multi-attach POSIX share (CubeFS-backed) mounted in
+// the guest. Doubles as the dynamic mount/unmount payload an operator
+// publishes on the event bus. Mirrors weft-microvm-init/pkg/pod.ShareMount.
+// (Note: the dynamic path travels as JSON on NATS, not protobuf; this
+// message keeps the on-wire PodSpec a faithful mirror for GuestHelloAck.)
+message ShareMount {
+  string id          = 1;
+  string action      = 2;   // "" / "mount" | "unmount"
+  string backend     = 3;   // "cubefs" (default)
+  string mount_point = 4;
+  bool   readonly    = 5;
+  CubeFSMount cubefs = 6;
+}
+
+// CubeFSMount is the CubeFS connection detail the in-guest cfs-client needs.
+message CubeFSMount {
+  string volume            = 1;
+  repeated string masters  = 2;   // master node "host:port" list
+  string owner             = 3;
+  string access_key        = 4;
+  string secret_key        = 5;
+  string subdir            = 6;
+}
+
+// WireGuard is the optional kernel WireGuard overlay weft-init brings up
+// after eth0. Keys are base64-encoded 32-byte Curve25519 values. Mirrors
+// weft-microvm-init/pkg/pod.WireGuard.
+message WireGuard {
+  string interface   = 1;   // default "wg0"
+  string private_key = 2;   // base64, 32 bytes
+  uint32 listen_port = 3;   // UDP underlay port; 0 = ephemeral
+  string address     = 4;   // overlay CIDR, e.g. "10.9.0.1/24"
+  repeated WGPeer peers = 5;
+}
+
+message WGPeer {
+  string public_key           = 1;   // base64, 32 bytes
+  string endpoint             = 2;   // underlay "host:port"
+  repeated string allowed_ips = 3;   // overlay CIDRs routed to this peer
+  uint32 persistent_keepalive = 4;   // seconds; 0 = disabled
+}
+
+message Container {
+  string id          = 1;
+  string rootfs_tag  = 2;   // matches a Share.tag (virtio-fs) OR a path under /run/weft/rootfs/<id>
+  repeated string command = 3;
+  repeated string args    = 4;
+  map<string, string> env = 5;
+  string workdir     = 6;
+  string user        = 7;   // "uid:gid" or username
+  RestartPolicy restart = 8;
+  repeated Mount mounts = 9;
+  Resources resources   = 10;
+  bool privileged    = 11;
+}
+
+message Share {
+  string tag         = 1;
+  string mount_point = 2;
+  bool   readonly    = 3;
+}
+
+message Network {
+  string interface = 1;   // default "eth0"
+  string address   = 2;   // CIDR, e.g. "10.0.2.15/24"
+  string gateway   = 3;
+  repeated string dns = 4;
+  string hostname  = 5;
+}
+
+message Mount {
+  string source      = 1;
+  string destination = 2;
+  string type        = 3;
+  repeated string options = 4;
+}
+
+message Resources {
+  uint64 cpu_shares = 1;
+  uint64 mem_bytes  = 2;
+  int64  pids_max   = 3;
+}
+
+enum RestartPolicy {
+  RESTART_NEVER       = 0;
+  RESTART_ON_FAILURE  = 1;
+  RESTART_ALWAYS      = 2;
+}
+
+// --- GuestPodPlane (bidirectional stream) -------------------
+
+// Attach is the long-lived bidi stream weft-init opens to weft-agent
+// over vsock. The first frame is always `GuestHello` from the guest ;
+// after that, both sides exchange `GuestFrame`s.
+//
+// Topology: 1 guest VM = 1 stream. weft-agent multiplexes per CID.
+
+service GuestPodPlane {
+  rpc Attach (stream GuestFrame) returns (stream GuestFrame);
+}
+
+message GuestFrame {
+  oneof body {
+    GuestHello       hello        = 1;  // guest → host, always first
+    GuestHelloAck    hello_ack    = 2;  // host → guest
+    PodStatus        pod_status   = 3;  // guest → host, periodic
+    ContainerEvent   ctr_event    = 4;  // guest → host, on every state change
+    LogChunk         log          = 5;  // guest → host, stream of stdio
+    ControlRequest   control_req  = 6;  // host → guest
+    ControlResponse  control_resp = 7;  // guest → host
+  }
+}
+
+message GuestHello {
+  string pod_id     = 1;
+  string init_version = 2;   // build SHA / semver of weft-init
+  string kernel     = 3;     // uname -r
+  string architecture = 4;   // "amd64" | "arm64"
+}
+
+message GuestHelloAck {
+  // The host's authoritative PodSpec ; the guest reconciles its
+  // view against this. If the spec embedded at boot (cloud-init
+  // ISO / virtio-fs / cmdline) is already current, this echoes
+  // it back ; if the host has a newer revision, the guest
+  // applies the delta.
+  PodSpec spec = 1;
+}
+
+message PodStatus {
+  string pod_id = 1;
+  repeated ContainerStatus containers = 2;
+  uint64 uptime_ms = 3;
+}
+
+message ContainerStatus {
+  string id            = 1;
+  string state         = 2;   // "created" | "running" | "stopped"
+  int32  pid           = 3;
+  int32  exit_code     = 4;
+  bool   signaled      = 5;
+  int32  signal        = 6;
+  int32  restart_count = 7;
+  int64  started_at_ms = 8;
+  int64  exited_at_ms  = 9;
+}
+
+message ContainerEvent {
+  string id     = 1;
+  string kind   = 2;          // "created" | "started" | "exited" | "oom"
+  ContainerStatus status = 3;
+}
+
+message LogChunk {
+  string container_id = 1;
+  Stream stream       = 2;
+  bytes  data         = 3;
+  int64  timestamp_ms = 4;
+}
+
+enum Stream {
+  STREAM_UNSPECIFIED = 0;
+  STREAM_STDOUT      = 1;
+  STREAM_STDERR      = 2;
+}
+
+// ControlRequest is host → guest. The guest answers with a
+// matching ControlResponse carrying the same call_id.
+message ControlRequest {
+  uint64 call_id = 1;
+  oneof op {
+    StopPod         stop_pod    = 10;
+    KillContainer   kill        = 11;
+    ExecInContainer exec        = 12;
+    UpdateContainer update      = 13;  // future: live restart with new env / cmd
+  }
+}
+
+message ControlResponse {
+  uint64 call_id = 1;
+  string error   = 2;   // empty on success
+  oneof payload {
+    ExecResult exec_result = 10;
+  }
+}
+
+message StopPod {
+  uint32 grace_seconds = 1;
+}
+
+message KillContainer {
+  string container_id = 1;
+  string signal       = 2;   // "TERM" | "KILL" | …
+}
+
+message ExecInContainer {
+  string container_id = 1;
+  repeated string command = 2;
+  map<string, string> env = 3;
+  bool tty            = 4;
+}
+
+message ExecResult {
+  int32 exit_code = 1;
+  bool  signaled  = 2;
+  bytes stdout    = 3;   // small payloads only ; streaming exec uses a future side-channel
+  bytes stderr    = 4;
+}

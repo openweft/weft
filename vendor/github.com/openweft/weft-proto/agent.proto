@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+// agent.proto defines the control-plane ↔ agent transport. One
+// `AgentControlPlane` service that the agent dials at startup ;
+// one `AttachDrivers` bidirectional stream the control plane
+// uses to dispatch driver calls (Hypervisor / Network / Volume
+// / Image) back into the agent.
+//
+// Why a separate file from vzd.proto:
+//
+//   * `VzdService` is the public operator API (CLI, dashboard,
+//     terraform-provider). It carries operator-side
+//     RegisterHost/Heartbeat too — but those are operator
+//     intent, surfaced under operator auth.
+//   * `AgentControlPlane` is internal traffic, machine-to-
+//     machine, with agent-identity auth (mTLS client cert, in
+//     the simplest setup). Keeping it in its own .proto file +
+//     its own service name makes the security policy easy to
+//     state ("operators don't speak AgentControlPlane ; only
+//     vzd-agents do").
+//
+// See [[openweft-module-layout]] for the broader naming map and
+// [[vzd-driver-registry-split]] for why each driver type
+// surfaces here individually.
+
+package weft.agent.v1;
+
+option go_package = "github.com/openweft/weft-proto/agentv1;agentv1";
+
+// --- HostRegistration ---------------------------------------
+
+// HostRegistration is the agent's identity statement: who it
+// is, what host it runs on, what capabilities the host has.
+// Mirrors weft/agent.HostRegistration.
+message HostRegistration {
+  // UUID is the agent's persisted host-uuid. Empty means
+  // "mint a new one" ; set means "I am this host, refresh my
+  // entry idempotently".
+  string uuid             = 1;
+  string hostname         = 2;
+  string az               = 3;
+  string rack             = 4;
+  string endpoint         = 5;  // host:port the control plane can dial back if needed
+  string hypervisor       = 6;
+  string architecture     = 7;
+  repeated string network_types   = 8;
+  repeated string volume_backends = 9;
+  map<string, string> labels      = 10;
+}
+
+message RegisterAgentRequest  { HostRegistration registration = 1; }
+message RegisterAgentResponse {
+  // assigned_uuid is the UUID the control plane registered the
+  // host under. Matches request.registration.uuid in the
+  // idempotent re-register case ; differs only when the request
+  // came in with an empty uuid (the CP minted a fresh one).
+  string assigned_uuid = 1;
+}
+
+// HeartbeatRequest is what the agent sends on its heartbeat
+// timer. The control plane bumps last_seen and flips the host's
+// state Down → Active if applicable.
+message HeartbeatRequest  { string host_uuid = 1; }
+message HeartbeatResponse {}
+
+// --- AttachDrivers (bidirectional stream) -------------------
+
+// AttachDrivers is the long-lived bidi stream the control plane
+// uses to dispatch driver calls back into the agent. The agent
+// initiates the stream ; the control plane sends `Dispatch`
+// frames ; the agent answers with `Result` frames.
+//
+// The first message on the stream is always `AttachDriversInit`
+// from the agent, naming itself + the driver types it serves.
+// After that, both sides exchange `AttachDriversFrame`s.
+
+message AttachDriversInit {
+  string host_uuid = 1;
+  // Capability advertisement: which driver kinds this agent
+  // can serve calls for. Control plane uses this to populate
+  // the dispatch table's per-host driver tuple.
+  repeated string driver_kinds = 2;  // {"hypervisor", "network", "volume", "image"}
+}
+
+// AttachDriversFrame is the multiplexed envelope. The first
+// frame on the stream is always init ; after that, dispatch +
+// result alternate.
+message AttachDriversFrame {
+  oneof body {
+    AttachDriversInit  init     = 1;
+    DriverDispatchCall dispatch = 2;  // CP → agent
+    DriverDispatchResult result  = 3;  // agent → CP
+    // disconnect frames close the stream cleanly. Either side
+    // can send ; the other side acks then drops.
+    AgentDisconnect    disconnect = 4;
+  }
+}
+
+// DriverDispatchCall identifies which driver method on which
+// driver kind the control plane wants the agent to invoke.
+// The payload is opaque protobuf bytes — the agent decodes it
+// against the per-method request type for the kind.
+message DriverDispatchCall {
+  // call_id is a per-stream monotonic counter the agent echoes
+  // back in DriverDispatchResult. Lets the CP correlate
+  // concurrent calls on the same stream.
+  uint64 call_id     = 1;
+  string driver_kind = 2;  // "hypervisor" | "network" | "volume" | "image"
+  string method_name = 3;  // "CreateVM" | "AttachPort" | "EnsureVolume" | …
+  bytes  payload     = 4;  // marshalled per-method request proto
+}
+
+message DriverDispatchResult {
+  uint64 call_id    = 1;
+  // Exactly one of {payload, error_message} is set.
+  bytes  payload    = 2;  // marshalled per-method response proto
+  string error_message = 3;
+  // error_kind helps the caller distinguish driver-typed
+  // errors from transport errors. Empty when no error.
+  string error_kind = 4;  // "" | "unsupported" | "not_applicable" | "not_found" | "internal"
+}
+
+message AgentDisconnect {
+  string reason = 1;
+}
+
+// --- Service ------------------------------------------------
+
+service AgentControlPlane {
+  // RegisterAgent + Heartbeat are the lifecycle calls. Unary
+  // RPCs because they're rare + need explicit success/failure.
+  rpc RegisterAgent (RegisterAgentRequest) returns (RegisterAgentResponse);
+  rpc Heartbeat    (HeartbeatRequest)     returns (HeartbeatResponse);
+
+  // AttachDrivers is the long-lived bidi stream the CP uses to
+  // dispatch driver calls. Agent → first frame is the init
+  // message ; after that, the stream is fully bidi.
+  rpc AttachDrivers (stream AttachDriversFrame) returns (stream AttachDriversFrame);
+}

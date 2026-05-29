@@ -1,0 +1,26 @@
+version: '3'
+
+tasks:
+  test:
+    desc: "Run tests with coverage (requires mke2fs from e2fsprogs)"
+    cmds:
+      - go test -mod=mod -cover -timeout 120s ./...
+
+  build:
+    desc: "Build (library — compile check only)"
+    cmds:
+      - go build -mod=mod ./...
+
+  lint:
+    desc: "Vet the package"
+    cmds:
+      - go vet -mod=mod ./...
+
+  install-deps:
+    desc: "Install mke2fs (required for some tests)"
+    cmds:
+      - brew install e2fsprogs
+  test-stress:
+    desc: "Run stress tests (requires 'stress' build tag)"
+    cmds:
+      - go test -mod=mod -v -tags=test,stress ./...

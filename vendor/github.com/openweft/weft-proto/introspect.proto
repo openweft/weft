@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+// introspect.proto defines the read-only introspection service a
+// micro-VM exposes directly to an operator's CLI over the WireGuard
+// overlay (wg0). Unlike guest.proto's GuestPodPlane — which the guest
+// dials OUT to weft-agent over vsock — Introspect is a server the guest
+// LISTENS on, bound to its wg0 address. The CLI reaches it end-to-end
+// encrypted via github.com/openweft/weft-client/wgdial, so the traffic
+// is confidential even from the hypervisor host.
+//
+// Kept in its own file/package (introspectv1) so it generates and
+// versions independently of the vsock plane.
+
+package weft.introspect.v1;
+
+option go_package = "github.com/openweft/weft-proto/introspectv1;introspectv1";
+
+// Introspect is the VM-side read-only inspection API.
+service Introspect {
+  // ListProcesses returns the VM's process table — the gRPC equivalent
+  // of `ps aux`, sourced from the guest's /proc.
+  rpc ListProcesses(ListProcessesRequest) returns (ListProcessesResponse);
+}
+
+message ListProcessesRequest {}
+
+message ListProcessesResponse {
+  repeated Process processes = 1;
+}
+
+// Process mirrors one row of `ps aux`.
+message Process {
+  int32  pid          = 1;
+  int32  ppid         = 2;
+  string user         = 3;   // resolved from /proc/<pid>/status Uid; falls back to the numeric uid
+  string state        = 4;   // single-letter Linux process state (R, S, D, Z, T, …)
+  double cpu_percent  = 5;   // lifetime-average %CPU, same definition ps uses
+  double mem_percent  = 6;   // RSS / MemTotal * 100
+  uint64 vsz_kb       = 7;   // virtual size (VmSize)
+  uint64 rss_kb       = 8;   // resident set size (VmRSS)
+  string tty          = 9;   // controlling terminal, "?" when none
+  int64  start_time_ms = 10; // process start, unix epoch milliseconds
+  string command      = 11;  // full cmdline (NUL-joined argv), or [comm] for kernel threads
+}

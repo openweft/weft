@@ -1,0 +1,17 @@
+version: '3'
+
+tasks:
+  build:
+    desc: "Build the hclconfig package"
+    cmds:
+      - go build ./...
+
+  test:
+    desc: "Run tests for the hclconfig package"
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: "Vet the hclconfig package"
+    cmds:
+      - go vet ./...
