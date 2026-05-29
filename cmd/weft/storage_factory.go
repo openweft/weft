@@ -19,6 +19,14 @@ package main
 //     wired onto the shared client. Closing the connection is the
 //     factory's caller's responsibility — main keeps the *Closer
 //     around until shutdown.
+//
+//   * "embed-etcd" — in-process embed.Etcd booted under
+//     <configDir>/etcd-embed, dialled over loopback TCP on a
+//     kernel-picked free port. Same downstream code path as "etcd"
+//     (EtcdStorage on a real clientv3 connection) ; the only
+//     difference is who owns the server. Intended for single-host
+//     operator deploys that want the real prod backend without
+//     standing up a separate cluster.
 
 import (
 	"context"
@@ -53,39 +61,71 @@ func buildStorageFactory(t fileConfigTargets) (*storageFactory, error) {
 		return &storageFactory{new: nil, close: func() error { return nil }}, nil
 	case "etcd":
 		if len(t.etcdEndpoints) == 0 {
-			return nil, fmt.Errorf("storage backend = etcd but no endpoints configured (set storage.etcd.endpoints in vzd.hcl)")
+			return nil, fmt.Errorf("storage backend = etcd but no endpoints configured (set storage.etcd.endpoints in vzd.hcl, or use embed-etcd for in-process)")
 		}
-		dialCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		cli, err := clientv3.New(clientv3.Config{
-			Endpoints:        append([]string(nil), t.etcdEndpoints...),
-			Username:         t.etcdUsername,
-			Password:         t.etcdPassword,
-			DialTimeout:      5 * time.Second,
-			AutoSyncInterval: 30 * time.Second,
-			Context:          dialCtx,
-		})
+		return newEtcdStorageFactory(append([]string(nil), t.etcdEndpoints...), t.etcdUsername, t.etcdPassword, t.etcdKeyPrefix, nil)
+	case "embed-etcd":
+		// Spin the in-process etcd under <configDir>/etcd-embed,
+		// then dial it like any other etcd. configDir is the natural
+		// rooting point — same place vzd.hcl lives, so the embedded
+		// data dir travels with the operator's config.
+		embed, err := startEmbedEtcd(t.configDir)
 		if err != nil {
-			return nil, fmt.Errorf("etcd dial %v: %w", t.etcdEndpoints, err)
+			return nil, err
 		}
-		prefix := t.etcdKeyPrefix
-		return &storageFactory{
-			new: func(name string) weft.Storage {
-				return weft.NewEtcdStorageWithClient(cli, prefix, name)
-			},
-			close: cli.Close,
-		}, nil
+		return newEtcdStorageFactory(embed.endpoints, "", "", t.etcdKeyPrefix, embed)
 	default:
-		return nil, fmt.Errorf("unknown storage backend %q (want file or etcd)", backend)
+		return nil, fmt.Errorf("unknown storage backend %q (want file, etcd, or embed-etcd)", backend)
 	}
+}
+
+// newEtcdStorageFactory is the shared tail of the "etcd" and
+// "embed-etcd" cases — open one clientv3, return a per-registry
+// factory + close hook. The optional embed handle is closed after
+// the client so in-flight requests drain cleanly.
+func newEtcdStorageFactory(endpoints []string, username, password, prefix string, embed *embedEtcdHandle) (*storageFactory, error) {
+	dialCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:        endpoints,
+		Username:         username,
+		Password:         password,
+		DialTimeout:      5 * time.Second,
+		AutoSyncInterval: 30 * time.Second,
+		Context:          dialCtx,
+	})
+	if err != nil {
+		if embed != nil {
+			_ = embed.Close()
+		}
+		return nil, fmt.Errorf("etcd dial %v: %w", endpoints, err)
+	}
+	return &storageFactory{
+		new: func(name string) weft.Storage {
+			return weft.NewEtcdStorageWithClient(cli, prefix, name)
+		},
+		close: func() error {
+			err := cli.Close()
+			if embed != nil {
+				if cerr := embed.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}
+			return err
+		},
+	}, nil
 }
 
 // displayStorageBackend returns the human-readable backend name
 // for the startup log line. Empty / "file" both render as "file"
 // since they mean the same thing operationally.
 func displayStorageBackend(b string) string {
-	if b == "" {
+	switch b {
+	case "":
 		return "file"
+	case "embed-etcd":
+		return "embed-etcd (in-process)"
+	default:
+		return b
 	}
-	return b
 }
