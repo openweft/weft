@@ -69,6 +69,11 @@ type VZAdapter interface {
 	SetEventBus(b EventBus)
 	VMDir(name string) string
 	VMDirFor(project, name string) string
+	// RegistryStorage returns the Storage backing the named
+	// registry blob. Cmd/weft uses this to construct catalogues
+	// (flavors, future scripts/sshkeys etc.) without going
+	// through the adapter's project/user APIs.
+	RegistryStorage(name string) Storage
 	// Project registry surface.
 	Projects() []Project
 	ProjectByUUID(uuid string) (Project, bool)
@@ -1582,6 +1587,19 @@ func (a *Adapter) vmsDir() string {
 		return a.vmsPath
 	}
 	return filepath.Join(a.stateDir, "vz")
+}
+
+// RegistryStorage returns the Storage backing the named registry
+// blob (projects, users, flavors, …). Exported so cmd/weft can
+// construct the FlavorRegistry alongside the adapter's own
+// registries — flavors don't need to live on the adapter itself
+// (no per-call ACL like projects), but they DO need the same
+// Storage configuration (file backend in dev, etcd in prod).
+func (a *Adapter) RegistryStorage(name string) Storage {
+	if a.storageFactory != nil {
+		return a.storageFactory(name)
+	}
+	return NewFileStorageInDir(a.vmsDir(), name)
 }
 
 // DefaultProjectUUID returns the UUID of the auto-created project
