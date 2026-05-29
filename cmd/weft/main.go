@@ -371,12 +371,23 @@ func run(t fileConfigTargets) error {
 			logger.Printf("agent-dispatch: demote host %s to down: %v", hostUUID, err)
 		}
 	}
+	// Cluster-wide compute-envelope catalogue. Loaded once at
+	// startup via the adapter's registry-storage factory (file in
+	// single-host dev, etcd in HA when embed.Etcd lands). A failure
+	// to load is fatal — the dashboard's CreateVMModal can't work
+	// without flavors, and silently starting with an empty
+	// catalogue would mask an operator hand-edit gone wrong.
+	flavorReg, err := weft.LoadFlavorRegistry(context.Background(), a.RegistryStorage("flavors"))
+	if err != nil {
+		return fmt.Errorf("load flavor registry: %w", err)
+	}
 	vzdv1.RegisterWeftAgentServer(srv, &vzdServer{
 		cfgDir:        t.configDir,
 		mc:            mc,
 		adp:           a,
 		dispatch:      dispatchSrv,
 		localHostUUID: localHostUUID(a),
+		flavors:       flavorReg,
 	})
 	vzdv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 
@@ -429,6 +440,11 @@ type vzdServer struct {
 	// self-registered local host (e.g. integration tests). Used
 	// to decide local-vs-remote in RegisterMicroVM dispatch.
 	localHostUUID string
+	// flavors is the cluster-wide compute-envelope catalogue.
+	// Constructed at startup against the configured Storage (file
+	// in single-host dev, etcd in HA). nil in tests that don't
+	// need it — every RPC checks before deref.
+	flavors *weft.FlavorRegistry
 }
 
 func (s *vzdServer) ListVMs(ctx context.Context, req *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
@@ -1329,6 +1345,99 @@ func (s *vzdServer) DeleteProject(ctx context.Context, req *vzdv1.DeleteProjectR
 	}
 	logger.Printf("DeleteProject uuid=%s", req.Uuid)
 	return &vzdv1.DeleteProjectResponse{}, nil
+}
+
+// ---- Flavors (compute-envelope catalogue) -------------------------
+//
+// Cluster-wide catalogue backed by weft.FlavorRegistry. Read RPCs
+// are open to any authenticated caller (the catalogue is needed in
+// every CreateVMModal) ; write RPCs are admin-only (operators with
+// RequireAdmin per the existing convention).
+//
+// The registry is constructed at startup against the configured
+// Storage — file backend for single-host dev, etcd backend for HA.
+// nil during integration tests that don't need it ; every RPC
+// guards via flavorsReady.
+
+func (s *vzdServer) flavorsReady() error {
+	if s.flavors == nil {
+		return status.Error(codes.Unavailable, "flavors registry not wired on this build")
+	}
+	return nil
+}
+
+func (s *vzdServer) ListFlavors(_ context.Context, _ *vzdv1.ListFlavorsRequest) (*vzdv1.ListFlavorsResponse, error) {
+	if err := s.flavorsReady(); err != nil {
+		return nil, err
+	}
+	all := s.flavors.List()
+	out := &vzdv1.ListFlavorsResponse{Flavors: make([]*vzdv1.Flavor, 0, len(all))}
+	for _, f := range all {
+		out.Flavors = append(out.Flavors, &vzdv1.Flavor{
+			Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
+			EphemeralGb: int32(f.EphemeralGB), Gpu: f.GPU,
+		})
+	}
+	return out, nil
+}
+
+func (s *vzdServer) GetFlavor(_ context.Context, req *vzdv1.GetFlavorRequest) (*vzdv1.GetFlavorResponse, error) {
+	if err := s.flavorsReady(); err != nil {
+		return nil, err
+	}
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	f, ok := s.flavors.Get(req.Name)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "no such flavor: %s", req.Name)
+	}
+	return &vzdv1.GetFlavorResponse{Flavor: &vzdv1.Flavor{
+		Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
+		EphemeralGb: int32(f.EphemeralGB), Gpu: f.GPU,
+	}}, nil
+}
+
+func (s *vzdServer) SetFlavor(ctx context.Context, req *vzdv1.SetFlavorRequest) (*vzdv1.SetFlavorResponse, error) {
+	if err := s.flavorsReady(); err != nil {
+		return nil, err
+	}
+	if req.Flavor == nil {
+		return nil, status.Error(codes.InvalidArgument, "flavor is required")
+	}
+	if err := weft.RequireAdmin(ctx, "set flavor"); err != nil {
+		return nil, err
+	}
+	in := req.Flavor
+	if err := s.flavors.Set(weft.Flavor{
+		Name: in.Name, VCPU: int(in.Vcpu), RAM: in.Ram,
+		EphemeralGB: int(in.EphemeralGb), GPU: in.Gpu,
+	}); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "set flavor: %v", err)
+	}
+	saved, _ := s.flavors.Get(in.Name)
+	logger.Printf("SetFlavor name=%s vcpu=%d ram=%s", saved.Name, saved.VCPU, saved.RAM)
+	return &vzdv1.SetFlavorResponse{Flavor: &vzdv1.Flavor{
+		Name: saved.Name, Vcpu: int32(saved.VCPU), Ram: saved.RAM,
+		EphemeralGb: int32(saved.EphemeralGB), Gpu: saved.GPU,
+	}}, nil
+}
+
+func (s *vzdServer) DeleteFlavor(ctx context.Context, req *vzdv1.DeleteFlavorRequest) (*vzdv1.DeleteFlavorResponse, error) {
+	if err := s.flavorsReady(); err != nil {
+		return nil, err
+	}
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete flavor"); err != nil {
+		return nil, err
+	}
+	if err := s.flavors.Delete(req.Name); err != nil {
+		return nil, status.Errorf(codes.Internal, "delete flavor: %v", err)
+	}
+	logger.Printf("DeleteFlavor name=%s", req.Name)
+	return &vzdv1.DeleteFlavorResponse{Deleted: req.Name}, nil
 }
 
 // AddProjectMember grants project access to a user-UUID. Admin-
