@@ -29,6 +29,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/admin"
 	"github.com/openweft/weft/cmd/weft/clean"
 	"github.com/openweft/weft/cmd/weft/events"
+	"github.com/openweft/weft/cmd/weft/flavor"
 	"github.com/openweft/weft/cmd/weft/host"
 	"github.com/openweft/weft/cmd/weft/image"
 	"github.com/openweft/weft/cmd/weft/instance"
@@ -122,6 +123,7 @@ running agent.`,
 		microvm.Command(&socketPath, &sshSocket, &sshKey),
 		image.Command(&socketPath, &sshSocket, &sshKey),
 		project.Command(&socketPath, &sshSocket, &sshKey),
+		flavor.Command(&socketPath, &sshSocket, &sshKey),
 		volume.Command(&socketPath, &sshSocket, &sshKey),
 		network.Command(&socketPath, &sshSocket, &sshKey),
 		securitygroup.Command(&socketPath, &sshSocket, &sshKey),

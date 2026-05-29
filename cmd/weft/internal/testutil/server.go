@@ -91,6 +91,10 @@ type Server struct {
 	SetHostStateFn                    func(context.Context, *vzdv1.SetHostStateRequest) (*vzdv1.SetHostStateResponse, error)
 	SetHostLabelsFn                   func(context.Context, *vzdv1.SetHostLabelsRequest) (*vzdv1.SetHostLabelsResponse, error)
 	DeleteHostFn                      func(context.Context, *vzdv1.DeleteHostRequest) (*vzdv1.DeleteHostResponse, error)
+	ListFlavorsFn                     func(context.Context, *vzdv1.ListFlavorsRequest) (*vzdv1.ListFlavorsResponse, error)
+	GetFlavorFn                       func(context.Context, *vzdv1.GetFlavorRequest) (*vzdv1.GetFlavorResponse, error)
+	SetFlavorFn                       func(context.Context, *vzdv1.SetFlavorRequest) (*vzdv1.SetFlavorResponse, error)
+	DeleteFlavorFn                    func(context.Context, *vzdv1.DeleteFlavorRequest) (*vzdv1.DeleteFlavorResponse, error)
 }
 
 // NewServer stands up a grpc.Server on a unix socket and registers
@@ -529,6 +533,34 @@ func (s *Server) DeleteHost(ctx context.Context, in *vzdv1.DeleteHostRequest) (*
 		return s.DeleteHostFn(ctx, in)
 	}
 	return &vzdv1.DeleteHostResponse{}, nil
+}
+
+func (s *Server) ListFlavors(ctx context.Context, in *vzdv1.ListFlavorsRequest) (*vzdv1.ListFlavorsResponse, error) {
+	if s.ListFlavorsFn != nil {
+		return s.ListFlavorsFn(ctx, in)
+	}
+	return &vzdv1.ListFlavorsResponse{}, nil
+}
+
+func (s *Server) GetFlavor(ctx context.Context, in *vzdv1.GetFlavorRequest) (*vzdv1.GetFlavorResponse, error) {
+	if s.GetFlavorFn != nil {
+		return s.GetFlavorFn(ctx, in)
+	}
+	return &vzdv1.GetFlavorResponse{Flavor: &vzdv1.Flavor{Name: in.Name}}, nil
+}
+
+func (s *Server) SetFlavor(ctx context.Context, in *vzdv1.SetFlavorRequest) (*vzdv1.SetFlavorResponse, error) {
+	if s.SetFlavorFn != nil {
+		return s.SetFlavorFn(ctx, in)
+	}
+	return &vzdv1.SetFlavorResponse{Flavor: in.Flavor}, nil
+}
+
+func (s *Server) DeleteFlavor(ctx context.Context, in *vzdv1.DeleteFlavorRequest) (*vzdv1.DeleteFlavorResponse, error) {
+	if s.DeleteFlavorFn != nil {
+		return s.DeleteFlavorFn(ctx, in)
+	}
+	return &vzdv1.DeleteFlavorResponse{Deleted: in.Name}, nil
 }
 
 // randomSuffix returns a per-test unique-ish suffix (test name +
