@@ -99,6 +99,15 @@ type Server struct {
 	GetScriptFn                       func(context.Context, *vzdv1.GetScriptRequest) (*vzdv1.GetScriptResponse, error)
 	SetScriptFn                       func(context.Context, *vzdv1.SetScriptRequest) (*vzdv1.SetScriptResponse, error)
 	DeleteScriptFn                    func(context.Context, *vzdv1.DeleteScriptRequest) (*vzdv1.DeleteScriptResponse, error)
+	ListVMPropertiesFn                func(context.Context, *vzdv1.ListVMPropertiesRequest) (*vzdv1.ListVMPropertiesResponse, error)
+	SetVMPropertyFn                   func(context.Context, *vzdv1.SetVMPropertyRequest) (*vzdv1.SetVMPropertyResponse, error)
+	DeleteVMPropertyFn                func(context.Context, *vzdv1.DeleteVMPropertyRequest) (*vzdv1.DeleteVMPropertyResponse, error)
+	ListUEFIVarsFn                    func(context.Context, *vzdv1.ListUEFIVarsRequest) (*vzdv1.ListUEFIVarsResponse, error)
+	SetUEFIVarFn                      func(context.Context, *vzdv1.SetUEFIVarRequest) (*vzdv1.SetUEFIVarResponse, error)
+	DeleteUEFIVarFn                   func(context.Context, *vzdv1.DeleteUEFIVarRequest) (*vzdv1.DeleteUEFIVarResponse, error)
+	ListVMSSHKeysFn                   func(context.Context, *vzdv1.ListVMSSHKeysRequest) (*vzdv1.ListVMSSHKeysResponse, error)
+	AddVMSSHKeyFn                     func(context.Context, *vzdv1.AddVMSSHKeyRequest) (*vzdv1.AddVMSSHKeyResponse, error)
+	RemoveVMSSHKeyFn                  func(context.Context, *vzdv1.RemoveVMSSHKeyRequest) (*vzdv1.RemoveVMSSHKeyResponse, error)
 }
 
 // NewServer stands up a grpc.Server on a unix socket and registers
@@ -593,6 +602,69 @@ func (s *Server) DeleteScript(ctx context.Context, in *vzdv1.DeleteScriptRequest
 		return s.DeleteScriptFn(ctx, in)
 	}
 	return &vzdv1.DeleteScriptResponse{Deleted: in.Name}, nil
+}
+
+func (s *Server) ListVMProperties(ctx context.Context, in *vzdv1.ListVMPropertiesRequest) (*vzdv1.ListVMPropertiesResponse, error) {
+	if s.ListVMPropertiesFn != nil {
+		return s.ListVMPropertiesFn(ctx, in)
+	}
+	return &vzdv1.ListVMPropertiesResponse{}, nil
+}
+
+func (s *Server) SetVMProperty(ctx context.Context, in *vzdv1.SetVMPropertyRequest) (*vzdv1.SetVMPropertyResponse, error) {
+	if s.SetVMPropertyFn != nil {
+		return s.SetVMPropertyFn(ctx, in)
+	}
+	return &vzdv1.SetVMPropertyResponse{Property: in.Property}, nil
+}
+
+func (s *Server) DeleteVMProperty(ctx context.Context, in *vzdv1.DeleteVMPropertyRequest) (*vzdv1.DeleteVMPropertyResponse, error) {
+	if s.DeleteVMPropertyFn != nil {
+		return s.DeleteVMPropertyFn(ctx, in)
+	}
+	return &vzdv1.DeleteVMPropertyResponse{}, nil
+}
+
+func (s *Server) ListUEFIVars(ctx context.Context, in *vzdv1.ListUEFIVarsRequest) (*vzdv1.ListUEFIVarsResponse, error) {
+	if s.ListUEFIVarsFn != nil {
+		return s.ListUEFIVarsFn(ctx, in)
+	}
+	return &vzdv1.ListUEFIVarsResponse{}, nil
+}
+
+func (s *Server) SetUEFIVar(ctx context.Context, in *vzdv1.SetUEFIVarRequest) (*vzdv1.SetUEFIVarResponse, error) {
+	if s.SetUEFIVarFn != nil {
+		return s.SetUEFIVarFn(ctx, in)
+	}
+	return &vzdv1.SetUEFIVarResponse{Var: in.Var}, nil
+}
+
+func (s *Server) DeleteUEFIVar(ctx context.Context, in *vzdv1.DeleteUEFIVarRequest) (*vzdv1.DeleteUEFIVarResponse, error) {
+	if s.DeleteUEFIVarFn != nil {
+		return s.DeleteUEFIVarFn(ctx, in)
+	}
+	return &vzdv1.DeleteUEFIVarResponse{}, nil
+}
+
+func (s *Server) ListVMSSHKeys(ctx context.Context, in *vzdv1.ListVMSSHKeysRequest) (*vzdv1.ListVMSSHKeysResponse, error) {
+	if s.ListVMSSHKeysFn != nil {
+		return s.ListVMSSHKeysFn(ctx, in)
+	}
+	return &vzdv1.ListVMSSHKeysResponse{}, nil
+}
+
+func (s *Server) AddVMSSHKey(ctx context.Context, in *vzdv1.AddVMSSHKeyRequest) (*vzdv1.AddVMSSHKeyResponse, error) {
+	if s.AddVMSSHKeyFn != nil {
+		return s.AddVMSSHKeyFn(ctx, in)
+	}
+	return &vzdv1.AddVMSSHKeyResponse{}, nil
+}
+
+func (s *Server) RemoveVMSSHKey(ctx context.Context, in *vzdv1.RemoveVMSSHKeyRequest) (*vzdv1.RemoveVMSSHKeyResponse, error) {
+	if s.RemoveVMSSHKeyFn != nil {
+		return s.RemoveVMSSHKeyFn(ctx, in)
+	}
+	return &vzdv1.RemoveVMSSHKeyResponse{}, nil
 }
 
 // randomSuffix returns a per-test unique-ish suffix (test name +
