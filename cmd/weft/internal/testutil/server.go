@@ -4,7 +4,7 @@
 // Each weft subcommand calls shared.Client(socketPath, …) which dials
 // a unix socket. To exercise the RunE callbacks end-to-end the tests
 // stand up a real grpc.Server on a t.TempDir-rooted unix socket,
-// register an overridable VzdServiceServer impl, and point the
+// register an overridable WeftAgentServer impl, and point the
 // command at that socket. No cgo, no real vzd needed.
 //
 // Tests are expected to mutate fields on the returned *Server to
@@ -28,7 +28,7 @@ import (
 // response for that RPC (or, for the streaming WatchEvents, close
 // the stream immediately).
 type Server struct {
-	vzdv1.UnimplementedVzdServiceServer
+	vzdv1.UnimplementedWeftAgentServer
 
 	socket string
 	server *grpc.Server
@@ -94,7 +94,7 @@ type Server struct {
 }
 
 // NewServer stands up a grpc.Server on a unix socket and registers
-// itself as the VzdServiceServer. The socket lives in t.TempDir so
+// itself as the WeftAgentServer. The socket lives in t.TempDir so
 // the OS reaps it when the test ends. Stop() is registered via
 // t.Cleanup so callers only ever need NewServer.
 func NewServer(t *testing.T) *Server {
@@ -107,7 +107,7 @@ func NewServer(t *testing.T) *Server {
 	_ = dir
 	srv := grpc.NewServer()
 	s := &Server{socket: socket, server: srv}
-	vzdv1.RegisterVzdServiceServer(srv, s)
+	vzdv1.RegisterWeftAgentServer(srv, s)
 	lis, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatalf("listen unix %s: %v", socket, err)
