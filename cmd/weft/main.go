@@ -393,6 +393,10 @@ func run(t fileConfigTargets) error {
 	if err != nil {
 		return fmt.Errorf("load uefi-var registry: %w", err)
 	}
+	sshKeyReg, err := weft.LoadVMSSHKeyRegistry(context.Background(), a.RegistryStorage("vm-sshkeys"))
+	if err != nil {
+		return fmt.Errorf("load vm-sshkey registry: %w", err)
+	}
 	vzdv1.RegisterWeftAgentServer(srv, &vzdServer{
 		cfgDir:        t.configDir,
 		mc:            mc,
@@ -403,6 +407,7 @@ func run(t fileConfigTargets) error {
 		scripts:       scriptReg,
 		vmProps:       vmPropReg,
 		uefiVars:      uefiReg,
+		vmKeys:        sshKeyReg,
 	})
 	vzdv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 
@@ -470,6 +475,10 @@ type vzdServer struct {
 	// uefiVars is the per-VM UEFI NVRAM editor. Hypervisor (vz /
 	// qemu drivers) writes the OVMF VARS file from it at boot.
 	uefiVars *weft.UEFIVarRegistry
+	// vmKeys is the per-VM authorised SSH-keys store. Consumed by
+	// the in-guest pkg/sshkeys subscriber (writes authorized_keys +
+	// feeds the embedded sshd AuthStore).
+	vmKeys *weft.VMSSHKeyRegistry
 }
 
 func (s *vzdServer) ListVMs(ctx context.Context, req *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
@@ -1747,6 +1756,81 @@ func uefiVarToProto(v weft.UEFIVar) *vzdv1.UEFIVar {
 	return &vzdv1.UEFIVar{
 		Namespace: v.Namespace, Name: v.Name,
 		ValueHex: v.ValueHex, Attributes: v.Attributes, UpdatedAt: ts,
+	}
+}
+
+// ---- Per-VM SSH keys ----------------------------------------------
+//
+// Server parses the OpenSSH line + computes the fingerprint server-
+// side ; that's the stable identity for Remove. Idempotent on
+// re-add (same fingerprint = no duplication). Admin-only writes ;
+// reads open to any authenticated caller.
+
+func (s *vzdServer) vmKeysReady() error {
+	if s.vmKeys == nil {
+		return status.Error(codes.Unavailable, "vm-sshkey registry not wired on this build")
+	}
+	return nil
+}
+
+func (s *vzdServer) ListVMSSHKeys(_ context.Context, req *vzdv1.ListVMSSHKeysRequest) (*vzdv1.ListVMSSHKeysResponse, error) {
+	if err := s.vmKeysReady(); err != nil {
+		return nil, err
+	}
+	if req.VmName == "" {
+		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
+	}
+	all := s.vmKeys.ListForVM(req.Project, req.VmName)
+	out := &vzdv1.ListVMSSHKeysResponse{Keys: make([]*vzdv1.VMSSHKey, 0, len(all))}
+	for _, k := range all {
+		out.Keys = append(out.Keys, vmKeyToProto(k))
+	}
+	return out, nil
+}
+
+func (s *vzdServer) AddVMSSHKey(ctx context.Context, req *vzdv1.AddVMSSHKeyRequest) (*vzdv1.AddVMSSHKeyResponse, error) {
+	if err := s.vmKeysReady(); err != nil {
+		return nil, err
+	}
+	if req.VmName == "" || req.PublicKey == "" {
+		return nil, status.Error(codes.InvalidArgument, "vm_name and public_key are required")
+	}
+	if err := weft.RequireAdmin(ctx, "add vm ssh key"); err != nil {
+		return nil, err
+	}
+	entry, err := s.vmKeys.Add(req.Project, req.VmName, req.PublicKey)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "add vm ssh key: %v", err)
+	}
+	logger.Printf("AddVMSSHKey vm=%s/%s fp=%s", req.Project, req.VmName, entry.Fingerprint)
+	return &vzdv1.AddVMSSHKeyResponse{Key: vmKeyToProto(entry)}, nil
+}
+
+func (s *vzdServer) RemoveVMSSHKey(ctx context.Context, req *vzdv1.RemoveVMSSHKeyRequest) (*vzdv1.RemoveVMSSHKeyResponse, error) {
+	if err := s.vmKeysReady(); err != nil {
+		return nil, err
+	}
+	if req.VmName == "" || req.Fingerprint == "" {
+		return nil, status.Error(codes.InvalidArgument, "vm_name and fingerprint are required")
+	}
+	if err := weft.RequireAdmin(ctx, "remove vm ssh key"); err != nil {
+		return nil, err
+	}
+	if err := s.vmKeys.Remove(req.Project, req.VmName, req.Fingerprint); err != nil {
+		return nil, status.Errorf(codes.Internal, "remove vm ssh key: %v", err)
+	}
+	logger.Printf("RemoveVMSSHKey vm=%s/%s fp=%s", req.Project, req.VmName, req.Fingerprint)
+	return &vzdv1.RemoveVMSSHKeyResponse{Removed: req.Fingerprint}, nil
+}
+
+func vmKeyToProto(k weft.VMSSHKey) *vzdv1.VMSSHKey {
+	ts := ""
+	if !k.AddedAt.IsZero() {
+		ts = k.AddedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+	}
+	return &vzdv1.VMSSHKey{
+		Fingerprint: k.Fingerprint, Type: k.Type,
+		PublicKey: k.PublicKey, Comment: k.Comment, AddedAt: ts,
 	}
 }
 
