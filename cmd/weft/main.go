@@ -356,7 +356,7 @@ func run(t fileConfigTargets) error {
 		grpc.UnaryInterceptor(weft.UnaryAuthInterceptor(validator, userPersister(a))),
 		grpc.StreamInterceptor(weft.StreamAuthInterceptor(validator, userPersister(a))),
 	)
-	// Share one agentDispatchServer between the VzdService
+	// Share one agentDispatchServer between the WeftAgent
 	// handlers (so RegisterMicroVM-and-friends can dispatch to
 	// remote hosts) and the AgentDispatch service (so connecting
 	// agents register their streams in the same registry).
@@ -371,7 +371,7 @@ func run(t fileConfigTargets) error {
 			logger.Printf("agent-dispatch: demote host %s to down: %v", hostUUID, err)
 		}
 	}
-	vzdv1.RegisterVzdServiceServer(srv, &vzdServer{
+	vzdv1.RegisterWeftAgentServer(srv, &vzdServer{
 		cfgDir:        t.configDir,
 		mc:            mc,
 		adp:           a,
@@ -414,7 +414,7 @@ func run(t fileConfigTargets) error {
 // ---- gRPC server -----------------------------------------------------------
 
 type vzdServer struct {
-	vzdv1.UnimplementedVzdServiceServer
+	vzdv1.UnimplementedWeftAgentServer
 	cfgDir string
 	mc     imock.MockBlock
 	adp    weft.VZAdapter
@@ -1185,7 +1185,7 @@ func (s *vzdServer) VMLogs(ctx context.Context, req *vzdv1.VMLogsRequest) (*vzdv
 // than blocking publishers (per [[vzd-event-bus]]). A consumer
 // that needs guaranteed delivery should pair WatchEvents with
 // occasional VMTimings reads.
-func (s *vzdServer) WatchEvents(req *vzdv1.WatchEventsRequest, stream vzdv1.VzdService_WatchEventsServer) error {
+func (s *vzdServer) WatchEvents(req *vzdv1.WatchEventsRequest, stream vzdv1.WeftAgent_WatchEventsServer) error {
 	ctx := stream.Context()
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {

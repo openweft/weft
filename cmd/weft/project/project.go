@@ -154,7 +154,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 // display name. A name that doesn't match any project errors out
 // rather than silently auto-creating — `rename`/`rm` should never
 // invent a project.
-func resolveProjectArg(c vzdv1.VzdServiceClient, arg string) (string, error) {
+func resolveProjectArg(c vzdv1.WeftAgentClient, arg string) (string, error) {
 	if looksLikeUUID(arg) {
 		return arg, nil
 	}

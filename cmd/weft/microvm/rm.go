@@ -73,7 +73,7 @@ func resolveName(raw string) string {
 
 // removeOne stops + deletes a single VM. Stop is best-effort (an
 // already-stopped VM is fine); Delete is authoritative.
-func removeOne(c vzdv1.VzdServiceClient, project, vmName string, force bool) error {
+func removeOne(c vzdv1.WeftAgentClient, project, vmName string, force bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if !force {

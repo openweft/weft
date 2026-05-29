@@ -40,7 +40,7 @@ import (
 
 // HostRegistryClient is the slim slice of the gRPC client this
 // stub needs : the two Host-registry methods. Defining it here
-// (rather than taking the full `vzdv1.VzdServiceClient`) keeps
+// (rather than taking the full `vzdv1.WeftAgentClient`) keeps
 // tests trivial — mock just these two — and avoids dragging
 // dozens of unrelated methods into the agent's import surface.
 // The real generated client satisfies this interface structurally.

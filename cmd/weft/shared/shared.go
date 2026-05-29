@@ -29,9 +29,9 @@ func Dial(socketPath, sshSocket, sshKey string) (*grpc.ClientConn, error) {
 	return vzclient.Dial(socketPath, opts...)
 }
 
-// Client creates a gRPC connection and returns the VzdServiceClient.
+// Client creates a gRPC connection and returns the WeftAgentClient.
 // Thin wrapper over vzclient.Client.
-func Client(socketPath, sshSocket, sshKey string) (vzdv1.VzdServiceClient, *grpc.ClientConn, error) {
+func Client(socketPath, sshSocket, sshKey string) (vzdv1.WeftAgentClient, *grpc.ClientConn, error) {
 	var opts []vzclient.Option
 	if sshKey != "" {
 		opts = append(opts, vzclient.WithSSH(sshSocket, sshKey))

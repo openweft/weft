@@ -189,7 +189,7 @@ func runMicroVM(a Args) error {
 // security needed). Default socket path matches vzc's default
 // (`~/.vzd/vzd.sock`) so a single running daemon serves both
 // clients.
-func dialVzd(socketPath string) (vzdv1.VzdServiceClient, *grpc.ClientConn, error) {
+func dialVzd(socketPath string) (vzdv1.WeftAgentClient, *grpc.ClientConn, error) {
 	return vzclient.Client(socketPath)
 }
 

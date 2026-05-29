@@ -18,7 +18,7 @@ import (
 // dial connects to the server's unix socket via the same path
 // production weft uses. Returns the typed client + a deferred
 // cleanup function.
-func dial(t *testing.T, s *Server) (vzdv1.VzdServiceClient, func()) {
+func dial(t *testing.T, s *Server) (vzdv1.WeftAgentClient, func()) {
 	t.Helper()
 	c, conn, err := vzclient.Client(s.Socket())
 	if err != nil {

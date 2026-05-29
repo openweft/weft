@@ -52,7 +52,7 @@ func runClient(t fileConfigTargets) error {
 	}
 	defer conn.Close()
 
-	cpClient := vzdv1.NewVzdServiceClient(conn)
+	cpClient := vzdv1.NewWeftAgentClient(conn)
 	dispatchClient := vzdv1.NewAgentDispatchClient(conn)
 	cp := agent.NewGRPCControlPlane(cpClient, logger)
 	logger.Printf("weft agent --client: dialed control plane at %s", t.controlPlaneURL)
