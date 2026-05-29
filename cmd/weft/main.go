@@ -389,6 +389,10 @@ func run(t fileConfigTargets) error {
 	if err != nil {
 		return fmt.Errorf("load vm-property registry: %w", err)
 	}
+	uefiReg, err := weft.LoadUEFIVarRegistry(context.Background(), a.RegistryStorage("uefi-vars"))
+	if err != nil {
+		return fmt.Errorf("load uefi-var registry: %w", err)
+	}
 	vzdv1.RegisterWeftAgentServer(srv, &vzdServer{
 		cfgDir:        t.configDir,
 		mc:            mc,
@@ -398,6 +402,7 @@ func run(t fileConfigTargets) error {
 		flavors:       flavorReg,
 		scripts:       scriptReg,
 		vmProps:       vmPropReg,
+		uefiVars:      uefiReg,
 	})
 	vzdv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 
@@ -462,6 +467,9 @@ type vzdServer struct {
 	// vmProps is the per-VM host-set annotations registry. Pairs
 	// with the guest's pkg/properties NATS subscriber.
 	vmProps *weft.VMPropertyRegistry
+	// uefiVars is the per-VM UEFI NVRAM editor. Hypervisor (vz /
+	// qemu drivers) writes the OVMF VARS file from it at boot.
+	uefiVars *weft.UEFIVarRegistry
 }
 
 func (s *vzdServer) ListVMs(ctx context.Context, req *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
@@ -1647,6 +1655,99 @@ func pickProperty(list []weft.VMProperty, key string) weft.VMProperty {
 		}
 	}
 	return weft.VMProperty{}
+}
+
+// ---- UEFI variables (per-VM NVRAM editor) -------------------------
+//
+// Hex-encoded byte blobs keyed by (project, vm, namespace, name).
+// Admin-only writes ; reads open to authenticated callers (the
+// drawer's UEFI tab is operator-discoverable). Empty namespace from
+// the wire defaults to EFI Global ; the registry normalises before
+// storing.
+
+func (s *vzdServer) uefiVarsReady() error {
+	if s.uefiVars == nil {
+		return status.Error(codes.Unavailable, "uefi-vars registry not wired on this build")
+	}
+	return nil
+}
+
+func (s *vzdServer) ListUEFIVars(_ context.Context, req *vzdv1.ListUEFIVarsRequest) (*vzdv1.ListUEFIVarsResponse, error) {
+	if err := s.uefiVarsReady(); err != nil {
+		return nil, err
+	}
+	if req.VmName == "" {
+		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
+	}
+	all := s.uefiVars.ListForVM(req.Project, req.VmName)
+	out := &vzdv1.ListUEFIVarsResponse{Vars: make([]*vzdv1.UEFIVar, 0, len(all))}
+	for _, v := range all {
+		out.Vars = append(out.Vars, uefiVarToProto(v))
+	}
+	return out, nil
+}
+
+func (s *vzdServer) SetUEFIVar(ctx context.Context, req *vzdv1.SetUEFIVarRequest) (*vzdv1.SetUEFIVarResponse, error) {
+	if err := s.uefiVarsReady(); err != nil {
+		return nil, err
+	}
+	if req.Var == nil || req.VmName == "" {
+		return nil, status.Error(codes.InvalidArgument, "vm_name and var are required")
+	}
+	if err := weft.RequireAdmin(ctx, "set uefi var"); err != nil {
+		return nil, err
+	}
+	in := req.Var
+	if err := s.uefiVars.Set(weft.UEFIVar{
+		VMName: req.VmName, Project: req.Project,
+		Namespace: in.Namespace, Name: in.Name,
+		ValueHex: in.ValueHex, Attributes: in.Attributes,
+	}); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "set uefi var: %v", err)
+	}
+	// Re-fetch to recover the stamped UpdatedAt + the normalised
+	// namespace (empty → EFI Global).
+	saved := weft.UEFIVar{}
+	wantNS := in.Namespace
+	if wantNS == "" {
+		wantNS = weft.EFIGlobalNS
+	}
+	for _, v := range s.uefiVars.ListForVM(req.Project, req.VmName) {
+		if v.Namespace == wantNS && v.Name == in.Name {
+			saved = v
+			break
+		}
+	}
+	logger.Printf("SetUEFIVar vm=%s/%s var=%s/%s", req.Project, req.VmName, wantNS, in.Name)
+	return &vzdv1.SetUEFIVarResponse{Var: uefiVarToProto(saved)}, nil
+}
+
+func (s *vzdServer) DeleteUEFIVar(ctx context.Context, req *vzdv1.DeleteUEFIVarRequest) (*vzdv1.DeleteUEFIVarResponse, error) {
+	if err := s.uefiVarsReady(); err != nil {
+		return nil, err
+	}
+	if req.VmName == "" || req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "vm_name and name are required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete uefi var"); err != nil {
+		return nil, err
+	}
+	if err := s.uefiVars.Delete(req.Project, req.VmName, req.Namespace, req.Name); err != nil {
+		return nil, status.Errorf(codes.Internal, "delete uefi var: %v", err)
+	}
+	logger.Printf("DeleteUEFIVar vm=%s/%s var=%s/%s", req.Project, req.VmName, req.Namespace, req.Name)
+	return &vzdv1.DeleteUEFIVarResponse{Deleted: req.Name}, nil
+}
+
+func uefiVarToProto(v weft.UEFIVar) *vzdv1.UEFIVar {
+	ts := ""
+	if !v.UpdatedAt.IsZero() {
+		ts = v.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+	}
+	return &vzdv1.UEFIVar{
+		Namespace: v.Namespace, Name: v.Name,
+		ValueHex: v.ValueHex, Attributes: v.Attributes, UpdatedAt: ts,
+	}
 }
 
 // AddProjectMember grants project access to a user-UUID. Admin-
