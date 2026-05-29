@@ -1,0 +1,139 @@
+package weft
+
+// host_self.go owns vzd-control's "I am running here too" logic:
+//
+//   1. Load (or create + persist) the stable host UUID from
+//      `<stateDir>/host-uuid`. The file's content survives
+//      restarts so the same physical host always shows up as the
+//      same Host registry entry, even after a vzd binary upgrade.
+//
+//   2. On startup, register (or idempotently refresh) the Host
+//      entry for the local machine using:
+//        - persisted UUID
+//        - os.Hostname()
+//        - runtime.GOARCH for the Architecture
+//        - "apple-vz" as the Hypervisor (this is the macOS
+//          single-host build; future multi-host vzd-agent binaries
+//          will report their own hypervisor here)
+//
+// Today vzd-control and vzd-agent are the same process: control
+// plane + local driver bundle. The Host entry gets created
+// regardless. When vzd-agent splits into its own binary, this
+// same logic moves there — the control-plane vzd loses the
+// self-registration step and just consumes the registry.
+//
+// Errors here are non-fatal by design: if the host-uuid file
+// can't be written (e.g. read-only stateDir during a test), we
+// log + continue without self-registration. The control plane
+// still serves requests; the registry just doesn't list this
+// host until a later attempt succeeds.
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
+// hostUUIDFile returns the absolute path to the persisted
+// host-UUID file. Kept as its own function so tests can override
+// stateDir without leaking the path-shape elsewhere.
+func (a *Adapter) hostUUIDFile() string {
+	return filepath.Join(a.stateDir, "host-uuid")
+}
+
+// LocalHostUUID returns the persisted UUID for the host this
+// Adapter is running on. Empty when self-registration hasn't
+// run (the file isn't materialised until the Adapter's bootstrap
+// step writes it). Callers use it to short-circuit local-vs-
+// remote dispatch decisions : a RegisterMicroVM request whose
+// `host_uuid` equals this value should land on the in-process
+// Adapter rather than going through the AgentDispatch stream.
+//
+// Cheap to call — just a file read. The Adapter doesn't cache
+// the value because in practice the file is read once at server
+// startup (see cmd/weft/main.go's `vzdServer.localHostUUID`).
+func (a *Adapter) LocalHostUUID() string {
+	if a == nil {
+		return ""
+	}
+	b, err := os.ReadFile(a.hostUUIDFile())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// loadOrCreateHostUUID reads the persisted UUID; if absent,
+// generates one and writes it atomically. The file is 0o600 —
+// the UUID is identity, not a secret, but there's no reason for
+// other users on the host to read it.
+func (a *Adapter) loadOrCreateHostUUID() (string, error) {
+	path := a.hostUUIDFile()
+	if b, err := os.ReadFile(path); err == nil {
+		uuid := strings.TrimSpace(string(b))
+		if uuid != "" {
+			return uuid, nil
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("create stateDir for host-uuid: %w", err)
+	}
+	uuid := newUUID()
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".host-uuid-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp host-uuid: %w", err)
+	}
+	if _, err := tmp.WriteString(uuid + "\n"); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return "", fmt.Errorf("write temp host-uuid: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	if err := os.Chmod(tmp.Name(), 0o600); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return "", fmt.Errorf("rename host-uuid into place: %w", err)
+	}
+	return uuid, nil
+}
+
+// selfRegisterHost ensures the Host registry has an entry for
+// the local machine. Idempotent across restarts thanks to the
+// persisted UUID — the second call simply refreshes LastSeenAt
+// and any drifted capabilities.
+//
+// Capabilities reported today reflect the single-host macOS
+// build's truth: hypervisor=apple-vz, all network types
+// supported (nat/bridged/isolated via VZ, mesh via WireGuard),
+// one volume backend ("file"). Future commits derive these from
+// the driver Bundle so the capability list matches what the
+// drivers actually do.
+func (a *Adapter) selfRegisterHost() error {
+	if a.hostReg == nil {
+		return fmt.Errorf("host registry not initialised")
+	}
+	uuid, err := a.loadOrCreateHostUUID()
+	if err != nil {
+		return fmt.Errorf("host-uuid: %w", err)
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "unknown"
+	}
+	_, err = a.RegisterHost(RegisterHostSpec{
+		UUID:           uuid,
+		Hostname:       hostname,
+		Hypervisor:     "apple-vz",
+		Architecture:   runtime.GOARCH,
+		NetworkTypes:   []string{"nat", "bridged", "isolated", "mesh"},
+		VolumeBackends: []string{"file"},
+	})
+	return err
+}

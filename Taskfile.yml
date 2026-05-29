@@ -1,0 +1,31 @@
+version: '3'
+
+vars:
+  CGO_LDFLAGS: "-Xlinker -no_warn_duplicate_libraries"
+
+tasks:
+  build:
+    desc: "Build vzd daemon into ./bin/weft"
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+    cmds:
+      - mkdir -p ./bin
+      - go build -v -mod=vendor -gcflags "github.com/progrium/darwinkit/...=-N -l" -o ./bin/weft ./cmd/weft
+      - codesign --entitlements ./vz.entitlements -s - ./bin/weft
+
+  test:
+    desc: "Run tests (imagestore)"
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+    cmds:
+      - go test -mod=vendor -tags darwin -cover ./...
+
+  run:
+    desc: "Run the weft agent (all-in-one) with the local example config"
+    cmds:
+      - ./bin/weft agent --config-dir .mock/hcl
+
+  lint:
+    desc: "Vet the package"
+    cmds:
+      - go vet -mod=vendor -tags darwin ./...

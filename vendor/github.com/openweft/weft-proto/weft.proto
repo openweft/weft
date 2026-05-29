@@ -1,0 +1,1566 @@
+syntax = "proto3";
+
+package weft.v1;
+
+option go_package = "github.com/openweft/weft-proto;weftv1";
+
+// VMState describes the lifecycle state of a VM.
+enum VMState {
+  VM_STATE_UNSPECIFIED = 0;
+  VM_STATE_NOT_CREATED = 1;
+  VM_STATE_STOPPED    = 2;
+  VM_STATE_RUNNING    = 3;
+  VM_STATE_ERROR      = 4;
+}
+
+// VMInfo describes a single VM.
+message VMInfo {
+  string   name     = 1;
+  VMState  state    = 2;
+  string   os       = 3;
+  uint32   cpu      = 4;
+  uint64   mem_mb   = 5;
+  uint64   disk_gb  = 6;
+  string   image    = 7;
+  string   ip       = 8;
+  // Project that owns the VM. Two views of the same identity:
+  //   * `project` — current display name (subject to rename)
+  //   * `project_uuid` — stable identifier the on-disk vmDir is
+  //                      keyed on; survives `RenameProject`
+  // Clients that store attachments long-term should hold the UUID;
+  // clients that just render a row can use the display name.
+  string   project       = 9;
+  string   project_uuid  = 10;
+  // Stable VM identifier. The on-disk vmDir is keyed on this ;
+  // `AttachVolumeRequest.vm_uuid` and similar UUID-keyed RPCs match
+  // it. Survives a `RenameVM` if/when that lands.
+  string   uuid          = 11;
+}
+
+// --- Projects ---
+
+// ProjectInfo is one entry in the project registry. `uuid` is the
+// stable identifier vmDirs are keyed on; `name` is the rename-able
+// display name a user sees in their CLI.
+message ProjectInfo {
+  string uuid       = 1;
+  string name       = 2;
+  int64  created_at_unix_ns = 3;
+}
+
+message ListProjectsRequest  {
+  // Pagination. Empty page_token = first page. `limit` clamped to
+  // [0, 1000] server-side ; 0 = server default (50). next_page_token
+  // empty in the response = no more rows.
+  int32  limit       = 1;
+  string page_token  = 2;
+}
+message ListProjectsResponse {
+  repeated ProjectInfo projects = 1;
+  string next_page_token        = 2;
+}
+
+message CreateProjectRequest  { string name = 1; }
+message CreateProjectResponse { ProjectInfo project = 1; bool created = 2; }
+
+// RenameProject mutates `name` only; `uuid` (and every attached
+// vmDir) stays untouched.
+message RenameProjectRequest  { string uuid = 1; string new_name = 2; }
+message RenameProjectResponse { ProjectInfo project = 1; }
+
+// DeleteProject refuses when the project still has VMs.
+message DeleteProjectRequest  { string uuid = 1; }
+message DeleteProjectResponse {}
+
+// --- ListVMs ---
+
+// Filtering rules:
+//   * `project == ""`: return every VM the caller can see across
+//     all their projects (Phase 1: every VM, since auth is not yet
+//     wired — Phase 2 will scope this to the caller's identity).
+//   * `project != ""`: a display name OR a UUID. Server resolves
+//     it before filtering.
+message ListVMsRequest  {
+  string project    = 1;
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListVMsResponse {
+  repeated VMInfo vms     = 1;
+  string next_page_token  = 2;
+}
+
+// VM lookups (Start/Stop/Status/Delete/Wait/Timings/Logs/…) all
+// take `name` as the primary key plus an optional `project` to
+// disambiguate when the same name exists in multiple projects.
+// Empty `project` is resolved server-side to the caller's default.
+
+// --- StartVM ---
+//
+// host_uuid optionally pins the call to a specific compute host.
+// Empty (or matching the local host) keeps the in-process Adapter
+// path. Non-empty + non-self triggers AgentDispatch routing —
+// same gate as RegisterMicroVMRequest.host_uuid.
+
+message StartVMRequest  { string name = 1; string project = 2; string host_uuid = 3; }
+message StartVMResponse {}
+
+// --- StopVM ---
+
+message StopVMRequest  { string name = 1; string project = 2; string host_uuid = 3; }
+message StopVMResponse {}
+
+// --- VMStatus ---
+
+message VMStatusRequest  { string name = 1; string project = 2; }
+message VMStatusResponse { VMInfo vm = 1; }
+
+// --- CreateVM ---
+
+message CreateVMRequest {
+  // Tag 6 (ssh_pub) was a cloud-init-era field — microVMs don't run
+  // cloud-init, and SSH keys are now a runtime concern pushed through
+  // the per-VM Properties surface (in-guest weft-vm-agent subscribes
+  // to /weft/vm/<uuid>/property/sshkeys/*). Reserved so a future
+  // field doesn't accidentally re-use the tag.
+  reserved 6;
+  reserved "ssh_pub";
+
+  string name     = 1;
+  string image    = 2;
+  uint32 cpu      = 3;
+  uint64 mem_mb   = 4;
+  uint64 disk_gb  = 5;
+  string project  = 7;
+
+  // Nominal binding to a scheduling rule. When set, this VM is counted
+  // under the named rule regardless of label matching ; the rule's
+  // selector then only applies to VMs that have NO explicit binding
+  // (discovery path). Editing a rule's selector therefore never
+  // dislodges nominally-bound VMs — the property that makes selectors
+  // safe to refine in production. Empty = discovery path only.
+  //
+  // Pull/reconcile model : weft-agent persists this on the VMRecord
+  // and emits a vm.created event ; weft-network's reconcile loop
+  // applies the binding. No agent→network call in the hot path.
+  string scheduling_rule = 8;
+
+  // Private network to attach the primary NIC to. Empty = the
+  // project's default network. Same pull/reconcile semantics as
+  // scheduling_rule — weft-agent stores the label, weft-network
+  // reconciles AttachVM on its own. Editing the field on a live VM
+  // is a separate concern (not handled by CreateVM).
+  string network = 9;
+}
+message CreateVMResponse {}
+
+// --- DeleteVM ---
+
+message DeleteVMRequest  { string name = 1; string project = 2; string host_uuid = 3; }
+message DeleteVMResponse {}
+
+// --- ProvisionVM (full lifecycle: clone + cloud-init + start + wait) ---
+
+// DiskFileOp describes a single file to copy into the VM disk image before
+// boot, plus an optional post-copy trigger.
+message DiskFileOp {
+  string content = 1; // literal file content to write
+  string dst     = 2; // absolute destination path inside the disk image
+  // Optional trigger to run after the file is written.
+  // Supported values: "grub-mkconfig" — regenerates the GRUB config.
+  string trigger = 3;
+}
+
+// DiskDeleteOp describes a single file to remove from the VM disk image before
+// boot (or from a cached image via PatchImage).
+message DiskDeleteOp {
+  string dst = 1; // absolute path inside the disk image to delete
+}
+
+// DiskModOp describes an in-place substitution to apply to a file inside the
+// disk image. Old is a RE2 regular expression (compatible with the vast
+// majority of PCRE patterns); every non-overlapping match is replaced by New.
+// New may reference capture groups with $1, ${name}, etc.
+message DiskModOp {
+  string dst = 1; // absolute path inside the disk image
+  string old = 2; // RE2 regular expression to match
+  string new = 3; // replacement text (may reference capture groups: $1, ${name})
+}
+
+message ProvisionVMRequest {
+  string name        = 1;
+  string image       = 2;
+  uint32 cpu         = 3;
+  uint64 mem_mb      = 4;
+  uint64 disk_gb     = 5;
+  string ssh_pub_key = 6; // public key injected via cloud-init
+  repeated DiskFileOp   file_ops    = 7; // optional disk file operations applied before first boot
+  repeated DiskDeleteOp delete_ops  = 8; // optional disk delete operations applied before first boot
+  repeated DiskModOp    mod_ops     = 9; // optional in-place text substitutions applied before first boot
+  string project     = 10;
+}
+message ProvisionVMResponse {}
+
+// --- DeprovisionVM (stop + delete) ---
+
+message DeprovisionVMRequest  { string name = 1; string project = 2; }
+message DeprovisionVMResponse {}
+
+// --- PullImages (pull all images referenced in the HCL config) ---
+
+message PullImagesRequest {
+  string config_dir = 1;
+  int32  parallel   = 2;
+}
+message PullImagesResponse {}
+
+// --- PullImage (pull a single image by URL) ---
+
+message PullImageRequest {
+  string url      = 1; // fully-resolved image URL
+  string checksum = 2; // optional checksum file URL
+}
+message PullImageResponse {}
+
+// --- PatchImage (apply file operations to a cached image once) ---
+
+// PatchImageRequest applies DiskFileOps to a cached image so that all VMs
+// cloned from it inherit the patches without repeating them per instance.
+message PatchImageRequest {
+  string url                    = 1; // image URL (used to locate the cached file)
+  repeated DiskFileOp   file_ops    = 2; // file operations to apply to the image
+  repeated DiskDeleteOp delete_ops  = 3; // delete operations to apply to the image
+  repeated DiskModOp    mod_ops     = 4; // in-place text substitutions to apply to the image
+}
+message PatchImageResponse {}
+
+// --- ListImages (list locally cached images) ---
+
+message ListImagesRequest {
+  int32  limit      = 1;
+  string page_token = 2;
+}
+message ImageInfo {
+  string url        = 1; // original image URL / reference
+  string name       = 2; // filename on disk (e.g. noble-server-cloudimg-arm64.img)
+  string format     = 3; // raw, qcow2, oci, img, or unknown
+  int64  size_bytes = 4; // total size on disk in bytes
+}
+message ListImagesResponse {
+  repeated ImageInfo images = 1;
+  string next_page_token    = 2;
+}
+
+// --- CleanImages (remove cached images referenced in the HCL config) ---
+
+message CleanImagesRequest {
+  string config_dir = 1;
+  bool   dry_run    = 2;
+}
+message CleanImagesResponse { repeated string deleted = 1; }
+
+// --- WaitVM (poll until VM has an IP / SSH is reachable) ---
+
+message WaitVMRequest {
+  string name            = 1;
+  int32  timeout_seconds = 2;
+  string project         = 3;
+}
+message WaitVMResponse { string ip = 1; }
+
+// --- VMTimings (per-VM lifecycle event log) ---
+
+// TimingEvent mirrors vzd's internal vzd.TimingEvent — one entry
+// from <vmDir>/timings.jsonl. Used by tools (vzc + future
+// integrators) to render the full server+guest lifecycle timeline
+// of a single VM without parsing JSONL themselves.
+message TimingEvent {
+  string name        = 1; // e.g. "registered", "vz.state.Running", "guest.exec_ready"
+  int64  ts_unix_ns  = 2; // wall-clock instant the event was recorded
+  map<string, string> meta = 3; // optional per-event tags (mode, err, ns, …)
+}
+
+message VMTimingsRequest  { string name = 1; string project = 2; }
+message VMTimingsResponse { repeated TimingEvent events = 1; }
+
+// --- VMLogs (raw console.log byte stream) ---
+
+message VMLogsRequest {
+  string name        = 1;
+  // Cap the response to the last `tail_bytes`. 0 = whole file.
+  int64  tail_bytes  = 2;
+  string project     = 3;
+}
+message VMLogsResponse {
+  bytes contents = 1;
+  // Total size of console.log on disk (so the client can tell
+  // when `tail_bytes` truncated the response).
+  int64 total_bytes = 2;
+}
+
+// --- Project membership ---
+//
+// Doubles the dex `project:<uuid>` group-claim path for granting
+// project access. Either is sufficient at ACL check time
+// (callerOwnsProject unions them). Admin-only mutate; the read
+// RPC is gated by AuthorizeProject so a project member can list
+// their own peers without needing platform-admin.
+
+message AddProjectMemberRequest  { string project_uuid = 1; string user_uuid = 2; }
+message AddProjectMemberResponse { repeated string user_uuids = 1; }
+
+message RemoveProjectMemberRequest  { string project_uuid = 1; string user_uuid = 2; }
+message RemoveProjectMemberResponse { repeated string user_uuids = 1; }
+
+message ListProjectMembersRequest  { string project_uuid = 1; }
+message ListProjectMembersResponse { repeated string user_uuids = 1; }
+
+// --- Users (UUID-keyed authenticated principals) ---
+
+// UserInfo is one entry in the user registry. Identity is the
+// (Issuer, Subject) pair the OIDC provider issued; UUID is vzd's
+// stable handle that survives display-name or email changes.
+// Email + Groups + LastSeenAt are refreshed on every successful
+// auth via RegisterUser.
+message UserInfo {
+  string uuid               = 1;
+  string oidc_subject       = 2;
+  string oidc_issuer        = 3;
+  string email              = 4;
+  string display_name       = 5;
+  repeated string groups    = 6;
+  int64  created_at_unix_ns = 7;
+  int64  last_seen_at_unix_ns = 8;
+}
+
+// ListUsers returns every registered user. Platform-admin only
+// (Phase-2 ACL gate via RequireAdmin).
+message ListUsersRequest  {
+  int32  limit      = 1;
+  string page_token = 2;
+}
+message ListUsersResponse {
+  repeated UserInfo users = 1;
+  string next_page_token  = 2;
+}
+
+// GetUser fetches a single user by UUID. Allowed for the user
+// themselves (self-introspection) or platform-admin.
+message GetUserRequest  { string uuid = 1; }
+message GetUserResponse { UserInfo user = 1; }
+
+// Me returns the caller's own UserInfo — the authoritative form of
+// `vzc whoami` that consults vzd rather than decoding the local
+// id_token. Dev-mode callers get a synthesised entry with the
+// `dev:` subject.
+message MeRequest  {}
+message MeResponse { UserInfo user = 1; }
+
+// SetUserDisplayName updates the operator-friendly name. The
+// user can update their own; platform-admin can update anyone's.
+message SetUserDisplayNameRequest  { string uuid = 1; string display_name = 2; }
+message SetUserDisplayNameResponse { UserInfo user = 1; }
+
+// DeleteUser removes a registered user. Platform-admin only.
+// Does NOT cascade onto resources the user owns — those are
+// addressed by project ACL changes.
+message DeleteUserRequest  { string uuid = 1; }
+message DeleteUserResponse {}
+
+// --- Networks (UUID-keyed virtual networks per project) ---
+
+// NetworkInfo is one entry in the network registry. UUID, CIDR
+// and Type are immutable; Name + DNS servers move via the
+// dedicated RPCs.
+message NetworkInfo {
+  string uuid               = 1;
+  string project_uuid       = 2;
+  string name               = 3;
+  string cidr               = 4;
+  string gateway            = 5;
+  repeated string dns_servers = 6;
+  string type               = 7; // "nat" | "bridged" | "isolated"
+  int64  created_at_unix_ns = 8;
+  // Security-group UUIDs applied by default to every NIC that
+  // joins this network. Updated via SetNetworkDefaultSecurityGroups.
+  repeated string default_security_group_uuids = 9;
+}
+
+message ListNetworksRequest  {
+  string project    = 1;
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListNetworksResponse {
+  repeated NetworkInfo networks = 1;
+  string next_page_token        = 2;
+}
+
+message CreateNetworkRequest {
+  string project    = 1; // name or UUID
+  string name       = 2;
+  string cidr       = 3;
+  string gateway    = 4;
+  repeated string dns_servers = 5;
+  string type       = 6; // empty → "nat"
+}
+message CreateNetworkResponse { NetworkInfo network = 1; }
+
+message RenameNetworkRequest  { string uuid = 1; string new_name = 2; }
+message RenameNetworkResponse { NetworkInfo network = 1; }
+
+message SetNetworkDNSRequest  { string uuid = 1; repeated string dns_servers = 2; }
+message SetNetworkDNSResponse { NetworkInfo network = 1; }
+
+message DeleteNetworkRequest  { string uuid = 1; }
+message DeleteNetworkResponse {}
+
+// SetNetworkDefaultSecurityGroups replaces the network's default
+// SG list atomically. Empty `security_group_uuids` clears the
+// list (NICs joining the network get no automatic SG bindings).
+// Server validates every UUID refers to an existing SG inside the
+// same project so this can't be used to escape tenant isolation.
+message SetNetworkDefaultSecurityGroupsRequest {
+  string uuid = 1;
+  repeated string security_group_uuids = 2;
+}
+message SetNetworkDefaultSecurityGroupsResponse { NetworkInfo network = 1; }
+
+// --- SecurityGroups (UUID-keyed L3/L4 rule sets per project) ---
+
+// SecurityRule mirrors vzd.SecurityRule. Direction is "ingress" |
+// "egress"; Protocol is "tcp" | "udp" | "icmp" | "any". PortMin /
+// PortMax are 0 when N/A (ICMP or "any"). Exactly one of
+// RemoteCidr or RemoteGroupUuid is non-empty: the rule either
+// matches a CIDR block or another security group (the latter
+// expressing intra-tenant peer-group references).
+message SecurityRule {
+  string direction         = 1;
+  string protocol          = 2;
+  int32  port_min          = 3;
+  int32  port_max          = 4;
+  string remote_cidr       = 5;
+  string remote_group_uuid = 6;
+}
+
+message SecurityGroupInfo {
+  string uuid               = 1;
+  string project_uuid       = 2;
+  string name               = 3;
+  string description        = 4;
+  repeated SecurityRule rules = 5;
+  int64  created_at_unix_ns = 6;
+}
+
+message ListSecurityGroupsRequest  {
+  string project    = 1;
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListSecurityGroupsResponse {
+  repeated SecurityGroupInfo groups = 1;
+  string next_page_token            = 2;
+}
+
+message CreateSecurityGroupRequest {
+  string project     = 1;
+  string name        = 2;
+  string description = 3;
+  repeated SecurityRule rules = 4;
+}
+message CreateSecurityGroupResponse { SecurityGroupInfo group = 1; }
+
+message RenameSecurityGroupRequest  { string uuid = 1; string new_name = 2; }
+message RenameSecurityGroupResponse { SecurityGroupInfo group = 1; }
+
+message SetSecurityGroupDescriptionRequest  { string uuid = 1; string description = 2; }
+message SetSecurityGroupDescriptionResponse { SecurityGroupInfo group = 1; }
+
+// SetSecurityGroupRules replaces the whole rule list atomically —
+// matches the registry's setRules semantics. Append-only and
+// "patch one rule" stay out of the API; clients GET-modify-PUT.
+message SetSecurityGroupRulesRequest  { string uuid = 1; repeated SecurityRule rules = 2; }
+message SetSecurityGroupRulesResponse { SecurityGroupInfo group = 1; }
+
+message DeleteSecurityGroupRequest  { string uuid = 1; }
+message DeleteSecurityGroupResponse {}
+
+// --- Volumes (UUID-keyed persistent block storage) ---
+
+// VolumeInfo is one entry in the volume registry. UUID + Project
+// stay stable for the resource's lifetime; Name / SizeGiB /
+// AttachedTo move via the dedicated RPCs.
+message VolumeInfo {
+  string uuid               = 1;
+  string project_uuid       = 2;
+  string name               = 3;
+  int64  size_gib           = 4;
+  string format             = 5; // "raw" | "qcow2"
+  string attached_to_uuid   = 6; // empty = detached
+  int64  created_at_unix_ns = 7;
+}
+
+message ListVolumesRequest  {
+  // Empty → every visible volume (ACL-scoped). Set a project
+  // (UUID or display name) to narrow to one bucket.
+  string project    = 1;
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListVolumesResponse {
+  repeated VolumeInfo volumes = 1;
+  string next_page_token      = 2;
+}
+
+message CreateVolumeRequest {
+  string project    = 1; // name or UUID; resolved server-side
+  string name       = 2;
+  int64  size_gib   = 3;
+  string format     = 4; // empty → "raw"
+}
+message CreateVolumeResponse { VolumeInfo volume = 1; }
+
+// RenameVolume / ResizeVolume / DeleteVolume target the volume by
+// UUID. (Lookup by name is a client-side concern — the proto
+// stays unambiguous.)
+message RenameVolumeRequest  { string uuid = 1; string new_name = 2; }
+message RenameVolumeResponse { VolumeInfo volume = 1; }
+
+message ResizeVolumeRequest  { string uuid = 1; int64 new_size_gib = 2; }
+message ResizeVolumeResponse { VolumeInfo volume = 1; }
+
+// AttachVolume binds a volume to a VM (identified by UUID since
+// VMs themselves carry UUIDs in the multi-tenant model). Refuses
+// when the volume is already attached elsewhere.
+message AttachVolumeRequest  { string uuid = 1; string vm_uuid = 2; }
+message AttachVolumeResponse { VolumeInfo volume = 1; }
+
+message DetachVolumeRequest  { string uuid = 1; }
+message DetachVolumeResponse { VolumeInfo volume = 1; }
+
+message DeleteVolumeRequest  { string uuid = 1; }
+message DeleteVolumeResponse {}
+
+// --- WatchEvents (server-streaming event bus) ---
+
+// PlatformEvent is one event published on vzd's bus. Schema is
+// deliberately the same shape as TimingEvent so the wire reuses
+// the operator's existing mental model: kind, ts, opaque meta.
+// Adds `subject` (VM name or project UUID, depending on `kind`)
+// and `project_uuid` (the ACL filter key — server-side filtering
+// drops events from projects the caller can't see).
+message PlatformEvent {
+  int64  ts_unix_ns   = 1;
+  string kind         = 2; // e.g. "vm.state.running", "project.renamed", "guest.exec_ready"
+  string subject      = 3;
+  string project_uuid = 4;
+  map<string, string> meta = 5;
+}
+
+// WatchEventsRequest opens a server-stream of PlatformEvents.
+//
+// `kind_prefix` (optional, repeated) — each event's `kind` must
+// match at least one entry as a prefix. Empty slice = no kind
+// filter. Examples: ["vm."] → every VM lifecycle event;
+// ["project.renamed"] → only renames.
+//
+// `project` (optional) — display name OR UUID. When set, events
+// from other projects are dropped server-side (in addition to
+// the ACL filter that always applies).
+//
+// `subject` (optional) — narrow to events whose `subject` field
+// matches exactly. The canonical use is `--vm <name>` in vzc /
+// ncl: an operator wanting only the lifecycle + boot timeline of
+// one VM without scanning the rest of the bus.
+message WatchEventsRequest {
+  repeated string kind_prefix = 1;
+  string project              = 2;
+  string subject              = 3;
+}
+
+// --- Admin / NATS authorization renderer ---
+
+// RenderNATSAuthorizationRequest asks vzd to render the NATS-conf
+// `authorization { ... }` block from the current project registry.
+// Admin-gated: the rendered block reveals every project's NATS
+// pubkey, which is fine for operators but not for tenants.
+message RenderNATSAuthorizationRequest {
+  // Optional NATS user-NKey public key ("U...") of the platform
+  // itself, granted full pub/sub on vzd.>. Leave empty in dev /
+  // single-host mode where vzd publishes anonymously.
+  string admin_pubkey = 1;
+}
+
+// RenderNATSAuthorizationResponse carries the rendered text.
+// Output is NATS conf format — splice into nats.conf and signal
+// `nats-server --signal reload`.
+message RenderNATSAuthorizationResponse {
+  bytes config = 1; // utf-8 text of the authorization { ... } block
+}
+
+// --- RegisterMicroVM (nano-container-linux integration) ---
+
+// MicroVMShare is one virtio-fs share exposed to a microVM.
+// nano-container-linux's `ncl run` uses these to plumb an extracted
+// OCI image rootfs to the guest, where ncl-init mounts it on
+// /newroot before pivot_root.
+message MicroVMShare {
+  string tag       = 1; // mount tag the guest sees (e.g. "rootfs0")
+  string path      = 2; // absolute host directory to expose
+  bool   read_only = 3; // optional; default = false
+  // When true, vzd materialises a copy-on-write clone of `path` into
+  // <vmDir>/<tag>/ before exposing it (macOS clonefile(2) — instant,
+  // shares blocks until written). Lets ncl boot multiple instances
+  // from the same OCI rootfs without their writes leaking back into
+  // the shared cache. The cloned tree is deleted with the VM dir at
+  // DeleteVM time. Host must be on APFS for the clone to succeed.
+  bool   clone     = 4;
+}
+
+// RegisterMicroVMRequest creates a VM directory wired for a
+// microVM-style boot. Two boot modes are supported, controlled by
+// which of the path fields are set:
+//
+//   * UKI mode: set `boot_iso` only. vzd attaches the ISO as a
+//     read-only primary disk and the firmware's EFI loader picks
+//     up the UKI from \EFI\BOOT\bootaa64.efi.
+//   * Direct-Linux mode: set `kernel` (and optionally `initrd`).
+//     vzd uses `vz.LinuxBootLoader` and skips EFI/UKI entirely.
+//     Faster cold-boot, smaller artefacts.
+//
+// `cmdline` overrides the default Linux kernel cmdline (which for
+// the direct-Linux path defaults to `console=hvc0 root=/dev/vda2
+// rw` — fine for cloud-init disk images, not for microVMs that
+// want `ncl.rootfs=virtiofs:rootfs0`). Empty means "use the
+// existing default".
+//
+// `shares` is one or more virtio-fs directory shares exposed to
+// the guest (typical: the OCI image rootfs at tag "rootfs0").
+//
+// The VM appears in ListVMs alongside CloneVM-created VMs and is
+// started via the regular StartVM RPC.
+message RegisterMicroVMRequest {
+  string name     = 1; // VM name; must be unique inside `project`
+  string boot_iso = 2; // absolute host path to the UKI ISO (UKI mode)
+  repeated MicroVMShare shares = 3;
+  string kernel  = 4; // absolute host path to a Linux kernel image (direct-Linux mode)
+  string initrd  = 5; // absolute host path to an initramfs (optional, direct-Linux mode)
+  string cmdline = 6; // kernel cmdline override (e.g. "ncl.rootfs=virtiofs:rootfs0")
+  string project = 7;
+  // host_uuid optionally pins the VM to a specific compute host.
+  // Empty / matching-local : server runs RegisterMicroVM in-
+  // process (single-host all-in-one path). Non-empty + non-
+  // local : the server dispatches RegisterMicroVMOp to the
+  // matching agent's stream and waits for the reply. The agent
+  // must already be connected (Unavailable error otherwise).
+  // The scheduler typically fills this in via ScheduleVMGroup.
+  string host_uuid = 8;
+}
+message RegisterMicroVMResponse {}
+
+// --- Share mounts (CubeFS) ----------------------------------
+//
+// Mirrors weft-microvm-init/pkg/pod.ShareMount + CubeFSMount. The daemon
+// converts these into pod.ShareMount and fans them out to a project's VMs
+// (weft/sharemount.PublishToGroup) over the event bus.
+
+message CubeFSMount {
+  string volume           = 1;
+  repeated string masters = 2; // CubeFS master node "host:port" list
+  string owner            = 3;
+  string access_key       = 4;
+  string secret_key       = 5;
+  string subdir           = 6;
+}
+
+message ShareMount {
+  string id          = 1;
+  string action      = 2; // "" / "mount" | "unmount"
+  string backend     = 3; // "cubefs" (default)
+  string mount_point = 4;
+  bool   readonly    = 5;
+  CubeFSMount cubefs = 6;
+}
+
+message PublishShareToProjectRequest {
+  string project_uuid = 1;
+  ShareMount mount    = 2;
+}
+
+message PublishShareToProjectResponse {
+  uint32 vm_count = 1; // number of VMs the mount was fanned out to
+}
+
+// VzdService is the gRPC API exposed by vzd.
+service WeftAgent {
+  rpc ListVMs       (ListVMsRequest)       returns (ListVMsResponse);
+  rpc VMStatus      (VMStatusRequest)      returns (VMStatusResponse);
+  rpc StartVM       (StartVMRequest)       returns (StartVMResponse);
+  rpc StopVM        (StopVMRequest)        returns (StopVMResponse);
+  rpc CreateVM      (CreateVMRequest)      returns (CreateVMResponse);
+  rpc DeleteVM      (DeleteVMRequest)      returns (DeleteVMResponse);
+  rpc ProvisionVM   (ProvisionVMRequest)   returns (ProvisionVMResponse);
+  rpc DeprovisionVM (DeprovisionVMRequest) returns (DeprovisionVMResponse);
+  rpc PullImages    (PullImagesRequest)    returns (PullImagesResponse);
+  rpc PullImage     (PullImageRequest)     returns (PullImageResponse);
+  rpc PatchImage    (PatchImageRequest)    returns (PatchImageResponse);
+  rpc ListImages    (ListImagesRequest)    returns (ListImagesResponse);
+  rpc CleanImages   (CleanImagesRequest)   returns (CleanImagesResponse);
+  rpc WaitVM        (WaitVMRequest)        returns (WaitVMResponse);
+
+  // Nano-Container-Linux integration: register a VM directory that
+  // boots from a read-only ncl-init UKI ISO and exposes the OCI
+  // rootfs to the guest via virtio-fs. After this returns the VM
+  // is in VM_STATE_STOPPED; call StartVM to boot it.
+  rpc RegisterMicroVM (RegisterMicroVMRequest) returns (RegisterMicroVMResponse);
+
+  // Per-VM lifecycle event log: every transition the daemon
+  // observed (server-side state + folded guest-side NCL_MARK
+  // lines from the console). Returned in wall-clock order.
+  rpc VMTimings (VMTimingsRequest) returns (VMTimingsResponse);
+
+  // Read a VM's serial console log (the raw byte stream the guest
+  // produced on hvc0 / serial port — boot messages, ncl-init log
+  // lines, NCL_MARK markers, and the container's own stdout/
+  // stderr, all interleaved). Single-shot read; `tail_bytes` caps
+  // the response to the last N bytes when non-zero.
+  rpc VMLogs (VMLogsRequest) returns (VMLogsResponse);
+
+  // Project registry RPCs. The UUID returned by ListProjects /
+  // CreateProject is the stable identifier on-disk vmDirs are
+  // keyed on; RenameProject mutates only the display name so every
+  // attached VM follows the rename transparently.
+  rpc ListProjects   (ListProjectsRequest)   returns (ListProjectsResponse);
+  rpc CreateProject  (CreateProjectRequest)  returns (CreateProjectResponse);
+  rpc RenameProject  (RenameProjectRequest)  returns (RenameProjectResponse);
+  rpc DeleteProject  (DeleteProjectRequest)  returns (DeleteProjectResponse);
+
+  // Project-membership RPCs. Platform-managed alternative to
+  // dex `project:<uuid>` group claims; either path grants access.
+  rpc AddProjectMember    (AddProjectMemberRequest)    returns (AddProjectMemberResponse);
+  rpc RemoveProjectMember (RemoveProjectMemberRequest) returns (RemoveProjectMemberResponse);
+  rpc ListProjectMembers  (ListProjectMembersRequest)  returns (ListProjectMembersResponse);
+
+  // User registry RPCs. Authenticated principals; UUID-keyed so a
+  // display-name or email change leaves every project ACL intact.
+  rpc ListUsers          (ListUsersRequest)          returns (ListUsersResponse);
+  rpc GetUser            (GetUserRequest)            returns (GetUserResponse);
+  rpc Me                 (MeRequest)                 returns (MeResponse);
+  rpc SetUserDisplayName (SetUserDisplayNameRequest) returns (SetUserDisplayNameResponse);
+  rpc DeleteUser         (DeleteUserRequest)         returns (DeleteUserResponse);
+
+  // Network registry RPCs. Same UUID-keyed, project-scoped shape
+  // as Volumes; immutable CIDR/Type, mutable Name + DNS list.
+  rpc ListNetworks   (ListNetworksRequest)   returns (ListNetworksResponse);
+  rpc CreateNetwork  (CreateNetworkRequest)  returns (CreateNetworkResponse);
+  rpc RenameNetwork  (RenameNetworkRequest)  returns (RenameNetworkResponse);
+  rpc SetNetworkDNS  (SetNetworkDNSRequest)  returns (SetNetworkDNSResponse);
+  rpc DeleteNetwork  (DeleteNetworkRequest)  returns (DeleteNetworkResponse);
+  rpc SetNetworkDefaultSecurityGroups (SetNetworkDefaultSecurityGroupsRequest) returns (SetNetworkDefaultSecurityGroupsResponse);
+
+  // SecurityGroup registry RPCs. SetSecurityGroupRules replaces
+  // the rule list atomically — clients GET-modify-PUT.
+  rpc ListSecurityGroups          (ListSecurityGroupsRequest)          returns (ListSecurityGroupsResponse);
+  rpc CreateSecurityGroup         (CreateSecurityGroupRequest)         returns (CreateSecurityGroupResponse);
+  rpc RenameSecurityGroup         (RenameSecurityGroupRequest)         returns (RenameSecurityGroupResponse);
+  rpc SetSecurityGroupDescription (SetSecurityGroupDescriptionRequest) returns (SetSecurityGroupDescriptionResponse);
+  rpc SetSecurityGroupRules       (SetSecurityGroupRulesRequest)       returns (SetSecurityGroupRulesResponse);
+  rpc DeleteSecurityGroup         (DeleteSecurityGroupRequest)         returns (DeleteSecurityGroupResponse);
+
+  // Volume registry RPCs. Same shape as projects (UUID-keyed,
+  // rename-friendly) but two-dimensional: a volume's name is
+  // unique inside its project, not globally. AttachVolume +
+  // DetachVolume manipulate the VM binding without recreating the
+  // volume — same `volume.*` events stream out to bus subscribers.
+  rpc ListVolumes   (ListVolumesRequest)   returns (ListVolumesResponse);
+  rpc CreateVolume  (CreateVolumeRequest)  returns (CreateVolumeResponse);
+  rpc RenameVolume  (RenameVolumeRequest)  returns (RenameVolumeResponse);
+  rpc ResizeVolume  (ResizeVolumeRequest)  returns (ResizeVolumeResponse);
+  rpc AttachVolume  (AttachVolumeRequest)  returns (AttachVolumeResponse);
+  rpc DetachVolume  (DetachVolumeRequest)  returns (DetachVolumeResponse);
+  rpc DeleteVolume  (DeleteVolumeRequest)  returns (DeleteVolumeResponse);
+
+  // WatchEvents opens a server-stream of platform events. Lets
+  // clients react to VM lifecycle / project mutation / guest-side
+  // marker changes without polling. ACL-filtered server-side by
+  // the caller's visible projects.
+  rpc WatchEvents (WatchEventsRequest) returns (stream PlatformEvent);
+
+  // RenderNATSAuthorization returns the NATS-conf `authorization`
+  // block (per-project NKey allow-list, default-deny) for the
+  // operator to splice into nats.conf. Admin-gated.
+  // Per [[vzd-tenant-event-access]] Phase 3.
+  rpc RenderNATSAuthorization (RenderNATSAuthorizationRequest) returns (RenderNATSAuthorizationResponse);
+
+  // Host registry RPCs. The Host inventory drives multi-host
+  // placement: every hypervisor instance registers itself (or is
+  // registered by the operator) and the scheduler picks among
+  // them honouring [[vzd-placement-rules]].
+  rpc RegisterHost   (RegisterHostRequest)   returns (RegisterHostResponse);
+  rpc ListHosts      (ListHostsRequest)      returns (ListHostsResponse);
+  rpc GetHost        (GetHostRequest)        returns (GetHostResponse);
+  rpc HeartbeatHost  (HeartbeatHostRequest)  returns (HeartbeatHostResponse);
+  rpc SetHostState   (SetHostStateRequest)   returns (SetHostStateResponse);
+  rpc SetHostLabels  (SetHostLabelsRequest)  returns (SetHostLabelsResponse);
+  rpc DeleteHost     (DeleteHostRequest)     returns (DeleteHostResponse);
+
+  // PublishShareToProject fans a CubeFS share mount (or, with
+  // mount.action="unmount", an unmount) out to every VM in a project over
+  // the event bus — the daemon side of `weft share attach/detach`.
+  rpc PublishShareToProject (PublishShareToProjectRequest) returns (PublishShareToProjectResponse);
+
+  // --- Tenants (multi-tenancy boundary) ---
+  rpc ListTenants     (ListTenantsRequest)     returns (ListTenantsResponse);
+  rpc CreateTenant    (CreateTenantRequest)    returns (CreateTenantResponse);
+  rpc DeleteTenant    (DeleteTenantRequest)    returns (DeleteTenantResponse);
+  rpc AddTenantAdmin     (AddTenantAdminRequest)     returns (AddTenantAdminResponse);
+  rpc RemoveTenantAdmin  (RemoveTenantAdminRequest)  returns (RemoveTenantAdminResponse);
+  rpc AddTenantMember    (AddTenantMemberRequest)    returns (AddTenantMemberResponse);
+  rpc RemoveTenantMember (RemoveTenantMemberRequest) returns (RemoveTenantMemberResponse);
+
+  // --- Quotas (hierarchical : tenant cap → project distribution) ---
+  rpc GetTenantQuota   (GetTenantQuotaRequest)   returns (GetTenantQuotaResponse);
+  rpc SetTenantQuota   (SetTenantQuotaRequest)   returns (SetTenantQuotaResponse);
+  rpc GetProjectQuota  (GetProjectQuotaRequest)  returns (GetProjectQuotaResponse);
+  rpc SetProjectQuota  (SetProjectQuotaRequest)  returns (SetProjectQuotaResponse);
+
+  // --- Shares (CubeFS share registry ; volume provisioning stays
+  //     out-of-band on the CubeFS cluster) ---
+  rpc ListShares  (ListSharesRequest)  returns (ListSharesResponse);
+  rpc CreateShare (CreateShareRequest) returns (CreateShareResponse);
+  rpc DeleteShare (DeleteShareRequest) returns (DeleteShareResponse);
+
+  // --- Floating IPs (public ingress addresses) ---
+  rpc ListFloatingIPs   (ListFloatingIPsRequest)   returns (ListFloatingIPsResponse);
+  rpc AllocateFloatingIP(AllocateFloatingIPRequest)returns (AllocateFloatingIPResponse);
+  rpc ReleaseFloatingIP (ReleaseFloatingIPRequest) returns (ReleaseFloatingIPResponse);
+  rpc MapFloatingIP     (MapFloatingIPRequest)     returns (MapFloatingIPResponse);
+  rpc UnmapFloatingIP   (UnmapFloatingIPRequest)   returns (UnmapFloatingIPResponse);
+
+  // --- Flavors (cluster-wide compute envelope catalogue, etcd-backed) ---
+  rpc ListFlavors  (ListFlavorsRequest)  returns (ListFlavorsResponse);
+  rpc GetFlavor    (GetFlavorRequest)    returns (GetFlavorResponse);
+  rpc SetFlavor    (SetFlavorRequest)    returns (SetFlavorResponse);   // upsert
+  rpc DeleteFlavor (DeleteFlavorRequest) returns (DeleteFlavorResponse);
+
+  // --- Provisioning scripts (named sh bodies, etcd-backed) ---
+  rpc ListScripts  (ListScriptsRequest)  returns (ListScriptsResponse);
+  rpc GetScript    (GetScriptRequest)    returns (GetScriptResponse);
+  rpc SetScript    (SetScriptRequest)    returns (SetScriptResponse);   // upsert
+  rpc DeleteScript (DeleteScriptRequest) returns (DeleteScriptResponse);
+
+  // --- Per-VM properties (host-set annotations w/ guest_readable flag) ---
+  rpc ListVMProperties  (ListVMPropertiesRequest)  returns (ListVMPropertiesResponse);
+  rpc SetVMProperty     (SetVMPropertyRequest)     returns (SetVMPropertyResponse);    // upsert by key
+  rpc DeleteVMProperty  (DeleteVMPropertyRequest)  returns (DeleteVMPropertyResponse);
+
+  // --- UEFI NVRAM editor (per-VM firmware variables) ---
+  rpc ListUEFIVars  (ListUEFIVarsRequest)  returns (ListUEFIVarsResponse);
+  rpc SetUEFIVar    (SetUEFIVarRequest)    returns (SetUEFIVarResponse);    // upsert by (ns, name)
+  rpc DeleteUEFIVar (DeleteUEFIVarRequest) returns (DeleteUEFIVarResponse);
+
+  // --- Per-VM SSH keys (runtime-pushed, not create-time) ---
+  rpc ListVMSSHKeys   (ListVMSSHKeysRequest)   returns (ListVMSSHKeysResponse);
+  rpc AddVMSSHKey     (AddVMSSHKeyRequest)     returns (AddVMSSHKeyResponse);    // idempotent on fingerprint
+  rpc RemoveVMSSHKey  (RemoveVMSSHKeyRequest)  returns (RemoveVMSSHKeyResponse);
+}
+
+// --- Hosts -------------------------------------------------------
+
+// HostInfo is one entry in the Host registry. UUID is stable
+// across restarts (persisted at <stateDir>/host-uuid by the
+// per-host agent) ; everything else can refresh on re-register.
+message HostInfo {
+  string uuid                 = 1;
+  string hostname             = 2;
+  string az                   = 3;
+  string rack                 = 4;
+  string endpoint             = 5;   // host:port of the agent's gRPC listener
+  string hypervisor           = 6;   // "apple-vz" | "qemu-kvm" | …
+  string architecture         = 7;   // "arm64" | "amd64" | "riscv64" | …
+  repeated string network_types   = 8;
+  repeated string volume_backends = 9;
+  map<string, string> labels  = 10;
+  // state: "active" | "draining" | "down".
+  string state                = 11;
+  int64  created_at_unix_ns   = 12;
+  int64  last_seen_at_unix_ns = 13;
+}
+
+// RegisterHost adds a new host or refreshes an existing one
+// (idempotent by UUID). Per [[vzd-placement-rules]] the `rack`
+// field is the sub-AZ failure domain — set it on every host in
+// multi-rack clusters so the scheduler's `rack: "different"`
+// can succeed.
+message RegisterHostRequest {
+  string uuid                 = 1;   // empty → mint; set → idempotent re-register
+  string hostname             = 2;
+  string az                   = 3;
+  string rack                 = 4;
+  string endpoint             = 5;
+  string hypervisor           = 6;
+  string architecture         = 7;
+  repeated string network_types   = 8;
+  repeated string volume_backends = 9;
+  map<string, string> labels  = 10;
+}
+message RegisterHostResponse { HostInfo host = 1; }
+
+// ListHosts returns the full registry, optionally filtered by AZ.
+// Sorted by (AZ, Hostname) for stable diff-friendly output.
+message ListHostsRequest  {
+  string az         = 1;
+  int32  limit      = 2;
+  string page_token = 3;
+}
+// ListHostsResponse exposes both the persisted Host registry
+// (hosts) and a runtime view (connected_host_uuids) — the UUIDs
+// of hosts whose agents currently hold an open AgentDispatch
+// stream. A host listed in `hosts` but absent from
+// `connected_host_uuids` either hasn't run `weft agent --client`
+// yet, or its dispatch stream is mid-reconnect / TTL-expired.
+message ListHostsResponse {
+  repeated HostInfo hosts                 = 1;
+  repeated string   connected_host_uuids  = 2;
+  string            next_page_token       = 3;
+}
+
+// GetHost fetches one entry by UUID OR by hostname. Exactly one
+// of the two must be set ; the server errors with InvalidArgument
+// when both are empty or both are set.
+message GetHostRequest  { string uuid = 1; string hostname = 2; }
+message GetHostResponse { HostInfo host = 1; }
+
+// HeartbeatHost bumps LastSeenAt. Hosts that miss the
+// configured TTL transition to "down". Called by the per-host
+// agent on a timer.
+message HeartbeatHostRequest  { string uuid = 1; }
+message HeartbeatHostResponse {}
+
+// SetHostState transitions a host to "active" / "draining" /
+// "down". Operators set "draining" to stop scheduling new VMs
+// without taking the host offline.
+message SetHostStateRequest  { string uuid = 1; string state = 2; }
+message SetHostStateResponse {}
+
+// SetHostLabels replaces the host's labels atomically. The
+// scheduler's LabelSelectors match against these.
+message SetHostLabelsRequest  { string uuid = 1; map<string, string> labels = 2; }
+message SetHostLabelsResponse {}
+
+// DeleteHost removes a host from the registry. The operator
+// should drain + stop the host's VMs first ; the server does not
+// move workloads automatically.
+message DeleteHostRequest  { string uuid = 1; }
+message DeleteHostResponse {}
+
+// --- AgentDispatch (bidirectional stream) ---------------------
+//
+// Per-host agents (`weft agent --client --control-plane=URL`)
+// open a long-lived bidi stream to the control plane. After
+// sending an AgentHello with the host UUID the agent waits for
+// driver-dispatch requests : when the scheduler picks this host
+// for a new VM, the control plane sends a request over the
+// stream and the agent processes it via its local driver Bundle.
+// Replies come back over the same stream.
+//
+// Today's scope is the stream-scaffold : Hello + Ping/Pong
+// round-trip. Driver-dispatch op types (CreateVM, StartVM,
+// StopVM, …) land in follow-up slices ; the wire format is set
+// up so a new op variant slots into the oneof without breaking
+// the existing stream.
+
+service AgentDispatch {
+  rpc Connect(stream AgentMessage) returns (stream ControlMessage);
+}
+
+// AgentMessage is what the agent sends up the stream. The very
+// first message MUST be a Hello (the control plane refuses any
+// other variant until it has identified the host). Subsequent
+// messages are Pongs (keepalive responses) and DriverReply
+// messages keyed by the request_id the control plane assigned.
+message AgentMessage {
+  oneof body {
+    AgentHello   hello = 1;
+    AgentPong    pong  = 2;
+    DriverReply  reply = 3;
+  }
+}
+
+// ControlMessage is what the control plane sends down the stream.
+// The agent processes each one then sends a corresponding
+// AgentMessage back (Pong for Ping, DriverReply for DriverRequest).
+message ControlMessage {
+  oneof body {
+    ControlHelloAck hello_ack = 1;
+    ControlPing     ping      = 2;
+    DriverRequest   request   = 3;
+  }
+}
+
+// AgentHello identifies the connecting agent. The control plane
+// uses this to register the stream in its dispatch table keyed
+// on host_uuid. host_uuid must already exist in the Host
+// registry (the agent ran RegisterHost first).
+message AgentHello {
+  string host_uuid = 1;
+  string agent_version = 2;  // free-form, for telemetry / compatibility checks
+}
+
+// ControlHelloAck is the control plane's confirmation that
+// the stream is live + the host is registered. session_id is a
+// per-connection nonce the agent echoes back in Pongs (useful
+// for the control plane to spot a stale stream that survived
+// across a reconnect race).
+message ControlHelloAck {
+  string session_id = 1;
+}
+
+// ControlPing is the control plane's keepalive probe ; the agent
+// echoes session_id back in an AgentPong so the control plane
+// knows the stream is alive AND owned by the expected session.
+message ControlPing {
+  string session_id = 1;
+  int64  sent_unix_ns = 2;  // for round-trip telemetry
+}
+
+// AgentPong is the agent's keepalive reply.
+message AgentPong {
+  string session_id = 1;
+  int64  pinged_unix_ns = 2;  // copied from the ControlPing
+  int64  replied_unix_ns = 3;
+}
+
+// DriverRequest carries one driver operation the control plane
+// wants the agent to execute against its local driver Bundle.
+// `request_id` is opaque to the agent : it's whatever the
+// control plane assigned. The agent must echo it back in the
+// matching DriverReply so the server can route it to the right
+// pending caller.
+//
+// New op variants slot into the oneof without breaking existing
+// agents — unknown variants surface as DriverReply{error=
+// "unknown op"} so the control plane sees a clean diagnostic.
+message DriverRequest {
+  string request_id = 1;
+  oneof op {
+    CreateVMOp        create_vm         = 2;
+    RegisterMicroVMOp register_micro_vm = 3;
+    StartVMOp         start_vm          = 4;
+    StopVMOp          stop_vm           = 5;
+    DeleteVMOp        delete_vm         = 6;
+    // Future : AttachVolumeOp / DetachVolumeOp / …
+  }
+}
+
+// DriverReply is the agent's response. `request_id` matches
+// the originating DriverRequest. `error` is empty on success ;
+// when set, the typed `result` oneof is also empty.
+message DriverReply {
+  string request_id = 1;
+  string error      = 2;
+  oneof result {
+    CreateVMResult        create_vm         = 3;
+    RegisterMicroVMResult register_micro_vm = 4;
+    StartVMResult         start_vm          = 5;
+    StopVMResult          stop_vm           = 6;
+    DeleteVMResult        delete_vm         = 7;
+    // Future result variants pair 1:1 with DriverRequest.op
+    // variants above.
+  }
+}
+
+// CreateVMOp dispatches a CreateVM driver call to the agent's
+// local Hypervisor driver. The agent's response includes the
+// VM UUID the driver assigned.
+message CreateVMOp {
+  // VM identity. UUID can be empty to mint server-side ; non-
+  // empty UUID supports idempotent retry / reconnect.
+  string vm_uuid    = 1;
+  string project    = 2;
+  string image      = 3;
+  uint32 cpu        = 4;
+  uint64 mem_mb     = 5;
+  uint64 disk_gb    = 6;
+}
+
+// CreateVMResult is the success-side payload — the VM UUID the
+// driver assigned (matches `vm_uuid` from the request when set,
+// freshly minted otherwise).
+message CreateVMResult {
+  string vm_uuid = 1;
+}
+
+// RegisterMicroVMOp dispatches a RegisterMicroVM call to the
+// agent. Mirrors the shape of the existing RegisterMicroVMRequest
+// RPC : same boot artefacts (UKI or direct-Linux kernel+initrd),
+// same virtio-fs shares. The agent calls its local Adapter to
+// materialise the vmDir on its host's disk.
+//
+// Idempotent in spirit : the agent's RegisterMicroVM refuses to
+// clobber an existing vmDir, so a retry after a transient
+// disconnect surfaces a clean "already exists" error rather
+// than silently double-registering.
+message RegisterMicroVMOp {
+  string project   = 1;
+  string name      = 2;
+  string boot_iso  = 3; // UKI mode (mutually exclusive with kernel)
+  string kernel    = 4; // direct-Linux mode
+  string initrd    = 5; // optional, direct-Linux mode
+  string cmdline   = 6; // kernel cmdline override
+  repeated MicroVMShare shares = 7;
+}
+
+// RegisterMicroVMResult is empty — the call's only outcome is
+// success/error.
+message RegisterMicroVMResult {}
+
+// StartVMOp dispatches a StartVM call to the agent's local
+// Adapter. The VM must already be registered on the host (the
+// CreateVMOp / RegisterMicroVMOp path put it there).
+message StartVMOp {
+  string project = 1;
+  string name    = 2;
+}
+
+// StartVMResult is empty ; success/error is in DriverReply.error.
+message StartVMResult {}
+
+// StopVMOp dispatches a StopVM call to the agent.
+message StopVMOp {
+  string project = 1;
+  string name    = 2;
+}
+
+// StopVMResult is empty ; success/error is in DriverReply.error.
+message StopVMResult {}
+
+// DeleteVMOp dispatches a DeleteVM call to the agent. Removes
+// the VM dir on the agent's host ; idempotent in spirit (a
+// re-delete of a missing VM surfaces the Adapter's typed error
+// rather than silently succeeding).
+message DeleteVMOp {
+  string project = 1;
+  string name    = 2;
+}
+
+// DeleteVMResult is empty ; success/error is in DriverReply.error.
+message DeleteVMResult {}
+
+// --- Tenants -----------------------------------------------------
+//
+// Tenant is the multi-tenancy boundary above the (project, user)
+// pair. Projects belong to exactly one tenant ; users can be
+// members of several with different group sets per tenant.
+//
+// "admins" is implicit on every tenant. Beyond that, each tenant
+// can carve its own groups (developers, viewers, …).
+
+message TenantInfo {
+  string   uuid               = 1;
+  string   name               = 2;
+  string   domain             = 3;
+  string   status             = 4; // "active" | "disabled"
+  int64    created_at_unix_ns = 5;
+  int32    projects           = 6; // count of projects in this tenant
+  int32    members            = 7;
+  int32    admins             = 8;
+}
+
+message ListTenantsRequest  {}
+message ListTenantsResponse { repeated TenantInfo tenants = 1; }
+
+message CreateTenantRequest {
+  string name   = 1;
+  string domain = 2;
+}
+message CreateTenantResponse { TenantInfo tenant = 1; }
+
+message DeleteTenantRequest  { string uuid = 1; }
+message DeleteTenantResponse {}
+
+// AddTenantAdmin promotes a user (looked up by email) into the
+// tenant's admin group. The user is created on the fly if no
+// matching email is already registered.
+message AddTenantAdminRequest {
+  string tenant_uuid = 1;
+  string email       = 2;
+}
+message AddTenantAdminResponse { TenantInfo tenant = 1; }
+
+message RemoveTenantAdminRequest  { string tenant_uuid = 1; string email = 2; }
+message RemoveTenantAdminResponse { TenantInfo tenant = 1; }
+
+// AddTenantMember adds a user with a specific group set. Groups
+// listed must exist on the tenant (admins / developers / viewers
+// at minimum).
+message AddTenantMemberRequest {
+  string tenant_uuid = 1;
+  string email       = 2;
+  repeated string groups = 3;
+}
+message AddTenantMemberResponse { TenantInfo tenant = 1; }
+
+message RemoveTenantMemberRequest  { string tenant_uuid = 1; string email = 2; }
+message RemoveTenantMemberResponse { TenantInfo tenant = 1; }
+
+// --- Quotas ------------------------------------------------------
+//
+// Eleven dimensions. Tenant cap (set by cluster admin) > sum of
+// project caps (set by tenant admin). The agent validates each
+// PUT against `sum(other projects) + new ≤ tenant cap`.
+
+message Quotas {
+  int32 vcpu          = 1;
+  int32 ram_gib       = 2;
+  int32 volumes       = 3;
+  int32 volumes_gib   = 4;
+  int32 shares        = 5;
+  int32 shares_gib    = 6;
+  int32 buckets       = 7;
+  int32 buckets_gib   = 8;
+  int32 registry_gib  = 9;
+  int32 floating_ips  = 10;
+  // Tenant-only : caps how many projects a tenant admin can carve.
+  // Ignored on per-project quotas.
+  int32 projects      = 11;
+}
+
+message GetTenantQuotaRequest  { string tenant_uuid = 1; }
+message GetTenantQuotaResponse {
+  Quotas cap       = 1;
+  Quotas allocated = 2; // sum of per-project quotas + len(projects)
+}
+
+message SetTenantQuotaRequest  { string tenant_uuid = 1; Quotas cap = 2; }
+message SetTenantQuotaResponse {
+  Quotas cap       = 1;
+  Quotas allocated = 2;
+}
+
+message GetProjectQuotaRequest  { string project_uuid = 1; }
+message GetProjectQuotaResponse {
+  Quotas project         = 1;
+  Quotas tenant_cap      = 2;
+  Quotas siblings_total  = 3; // sum of OTHER projects in the tenant
+}
+
+message SetProjectQuotaRequest  { string project_uuid = 1; Quotas quota = 2; }
+message SetProjectQuotaResponse {
+  Quotas project         = 1;
+  Quotas tenant_cap      = 2;
+  Quotas siblings_total  = 3;
+}
+
+// --- Shares ------------------------------------------------------
+//
+// The agent's registry of CubeFS shares. A share's lifecycle is :
+//   1. CreateShare records the intent (or wires it to the CubeFS
+//      cluster's admin API when configured).
+//   2. weft-network publishes the resulting mount to a project's
+//      VMs via PublishShareToProject (existing RPC).
+//
+// `status` mirrors the reconciliation : `provisioning` → `active`,
+// or `failed` when the CubeFS side rejects.
+
+message ShareInfo {
+  string uuid               = 1;
+  string name               = 2;
+  string project_uuid       = 3;
+  string backend            = 4; // "cubefs"
+  int64  size_gb            = 5;
+  bool   readonly           = 6;
+  int32  mounts             = 7; // observed by the reconciler
+  string status             = 8; // "provisioning" | "active" | "failed"
+  int64  created_at_unix_ns = 9;
+}
+
+message ListSharesRequest  {
+  string project    = 1; // optional ; "" = caller's accessible set
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListSharesResponse {
+  repeated ShareInfo shares = 1;
+  string next_page_token    = 2;
+}
+
+message CreateShareRequest {
+  string project   = 1; // name or UUID
+  string name      = 2;
+  int64  size_gb   = 3;
+  bool   readonly  = 4;
+  string backend   = 5; // empty → "cubefs"
+}
+message CreateShareResponse { ShareInfo share = 1; }
+
+message DeleteShareRequest  { string uuid = 1; }
+message DeleteShareResponse {}
+
+// --- Floating IPs ------------------------------------------------
+//
+// A pool of public addresses an operator allocates to a project,
+// then maps to a VM (or to a load-balancer VIP). Mapping is what
+// makes the VM publicly reachable ; unmapping keeps the allocation
+// but frees the VM.
+
+message FloatingIPInfo {
+  string uuid               = 1;
+  string address            = 2; // dotted-quad or IPv6
+  string network            = 3; // edge network this address lives on
+  string project_uuid       = 4;
+  string mapped_to          = 5; // VM name or LB name ; "" = available
+  string status             = 6; // "active" | "available"
+  int64  allocated_at_unix_ns = 7;
+}
+
+message ListFloatingIPsRequest  {
+  string project    = 1;
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListFloatingIPsResponse {
+  repeated FloatingIPInfo floating_ips = 1;
+  string next_page_token               = 2;
+}
+
+// AllocateFloatingIP reserves the next-available address from the
+// `network`'s pool. Returns the freshly-allocated record (with
+// `status="available"` until MapFloatingIP wires it).
+message AllocateFloatingIPRequest {
+  string project = 1;
+  string network = 2; // edge network name or UUID
+}
+message AllocateFloatingIPResponse { FloatingIPInfo floating_ip = 1; }
+
+message ReleaseFloatingIPRequest  { string uuid = 1; }
+message ReleaseFloatingIPResponse {}
+
+// MapFloatingIP attaches an allocated FIP to a target. `target_kind`
+// distinguishes "vm" (one VM's primary IP gets DNATed) from "lb"
+// (the VIP of a LoadBalancer entry) — the network controller
+// (weft-network) wires the NAT / Envoy listener accordingly.
+message MapFloatingIPRequest {
+  string uuid        = 1;
+  string target_kind = 2; // "vm" | "lb"
+  string target_name = 3;
+}
+message MapFloatingIPResponse { FloatingIPInfo floating_ip = 1; }
+
+message UnmapFloatingIPRequest  { string uuid = 1; }
+message UnmapFloatingIPResponse { FloatingIPInfo floating_ip = 1; }
+
+// --- Flavors (compute envelope catalogue) ----------------------------
+//
+// A flavor names a sizing bundle picked at VM create time. Catalogue
+// is cluster-wide ; only the superadmin defines flavors. Source of
+// truth is etcd (`/weft/catalogue/flavors/<name>`) ; weft-agent
+// watches the prefix and serves these RPCs. RAM is "4Gi" / "256Mi"
+// style so the catalogue stays human-editable ; consumers parse to
+// megabytes at the wire boundary.
+
+message Flavor {
+  string name         = 1;
+  int32  vcpu         = 2;
+  string ram          = 3;  // "4Gi" / "256Mi" / raw integer = MB
+  int32  ephemeral_gb = 4;
+  string gpu          = 5;  // empty = none ; "1×A100-40G" etc.
+  // Reserved : 6..9 for future affinity labels / placement hints.
+  reserved 6, 7, 8, 9;
+}
+
+message ListFlavorsRequest {
+  int32  limit      = 1;
+  string page_token = 2;
+}
+message ListFlavorsResponse {
+  repeated Flavor flavors        = 1;
+  string          next_page_token = 2;
+}
+
+message GetFlavorRequest  { string name = 1; }
+message GetFlavorResponse { Flavor flavor = 1; }
+
+// SetFlavor is upsert : a flavor with the given name is created or
+// replaced atomically. Catalogue history is etcd-versioned ; this
+// RPC doesn't expose revisions (the operator can read them via
+// `etcdctl get --rev=N` when an audit needs it).
+message SetFlavorRequest  { Flavor flavor = 1; }
+message SetFlavorResponse { Flavor flavor = 1; }
+
+message DeleteFlavorRequest  { string name = 1; }
+message DeleteFlavorResponse { string deleted = 1; }
+
+// --- Provisioning scripts (named sh bodies, etcd-backed) -------------
+//
+// Reusable first-boot scripts. CreateVMRequest doesn't reference
+// them — the webui resolves a chosen script name to its body at
+// submit and stamps the body verbatim onto weft.boot/script
+// (per-VM property). Decoupling the catalogue from the boot
+// trigger keeps the in-guest weft-vm-agent unchanged : it reads
+// weft.boot/script and runs it, regardless of whether the body
+// came from a catalogue entry or a one-off paste.
+
+message Script {
+  string name        = 1;
+  string description = 2;
+  string body        = 3;  // POSIX sh source ; mvdan.cc/sh/v3 in the guest
+  string updated_at  = 4;  // RFC3339, server-stamped
+  string updated_by  = 5;  // OIDC sub / email of the last editor
+}
+
+message ListScriptsRequest {
+  int32  limit      = 1;
+  string page_token = 2;
+}
+message ListScriptsResponse {
+  repeated Script scripts        = 1;
+  string          next_page_token = 2;
+}
+
+message GetScriptRequest  { string name = 1; }
+message GetScriptResponse { Script script = 1; }
+
+message SetScriptRequest  { Script script = 1; }
+message SetScriptResponse { Script script = 1; }
+
+message DeleteScriptRequest  { string name = 1; }
+message DeleteScriptResponse { string deleted = 1; }
+
+// --- Per-VM properties (host-set annotations) ------------------------
+//
+// Free-form key/value bag attached to a VM. `guest_readable=true`
+// opts the entry into the read surface the in-guest weft-vm-agent
+// exposes over NATS (subject /weft/vm/<uuid>/property/<key>) ;
+// false = host-only metadata (billing tags, security labels, ...).
+//
+// Reserved key prefix `weft.boot/*` carries first-boot provisioning
+// (source, ref, script) — set by CreateVM, read by weft-vm-agent.
+// See lifecycle.go writeBootProperty in weft-webui.
+
+message VMProperty {
+  string key            = 1;
+  string value          = 2;
+  bool   guest_readable = 3;
+  string updated_at     = 4;  // RFC3339
+}
+
+message ListVMPropertiesRequest {
+  string vm_name = 1;
+  string project = 2; // narrow if the VM name is ambiguous across projects
+  int32  limit      = 3;
+  string page_token = 4;
+}
+message ListVMPropertiesResponse {
+  repeated VMProperty properties      = 1;
+  string              next_page_token = 2;
+}
+
+message SetVMPropertyRequest {
+  string     vm_name  = 1;
+  string     project  = 2;
+  VMProperty property = 3;
+}
+message SetVMPropertyResponse { VMProperty property = 1; }
+
+message DeleteVMPropertyRequest {
+  string vm_name = 1;
+  string project = 2;
+  string key     = 3;
+}
+message DeleteVMPropertyResponse { string deleted = 1; }
+
+// --- UEFI variables (per-VM firmware NVRAM) --------------------------
+//
+// Operator-facing editor for the VM's OVMF VARS file. Keyed by
+// (namespace GUID, name) at the wire shape — same model as the
+// EDK2 / efivarfs layout. Value carried as hex of the raw byte
+// blob (a uint16-LE list for BootOrder, a UTF-16 + flags blob for
+// Boot####, a single byte for SecureBoot, etc.).
+//
+// The hypervisor (weft-driver-vz / weft-driver-qemu) writes the
+// resulting NVRAM file at VM boot ; live edits on a running VM
+// take effect at next reboot.
+
+message UEFIVar {
+  string          namespace  = 1;  // GUID, e.g. "8be4df61-93ca-11d2-aa0d-00e098032b8c" (EFI Global)
+  string          name       = 2;  // "BootOrder", "Boot0000", "SecureBoot", ...
+  string          value_hex  = 3;  // hex of raw bytes ; empty = empty value (still valid)
+  repeated string attributes = 4;  // NonVolatile, BootServiceAccess, RuntimeAccess, ...
+  string          updated_at = 5;
+}
+
+message ListUEFIVarsRequest {
+  string vm_name    = 1;
+  string project    = 2;
+  int32  limit      = 3;
+  string page_token = 4;
+}
+message ListUEFIVarsResponse {
+  repeated UEFIVar vars            = 1;
+  string           next_page_token = 2;
+}
+
+message SetUEFIVarRequest {
+  string  vm_name = 1;
+  string  project = 2;
+  UEFIVar var     = 3;
+}
+message SetUEFIVarResponse { UEFIVar var = 1; }
+
+message DeleteUEFIVarRequest {
+  string vm_name   = 1;
+  string project   = 2;
+  string namespace = 3;
+  string name      = 4;
+}
+message DeleteUEFIVarResponse { string deleted = 1; }
+
+// --- Per-VM SSH keys (runtime-pushed, not create-time) --------------
+//
+// Pairs with the webui drawer "SSH keys" tab (commit e5ac6b9) and
+// the retired CreateVMRequest.ssh_pub (commit 72008b3). Keys are
+// keyed by SHA256 fingerprint server-side ; the in-guest weft-vm-
+// agent subscribes to /weft/vm/<uuid>/property/sshkeys/* (or a
+// dedicated NATS subject) and rewrites authorized_keys idempotently.
+//
+// Add is idempotent on fingerprint match : a re-add returns 200 (not
+// 201) and doesn't double the entry. Removed keys stop authorising
+// next session ; existing connections aren't dropped (operator
+// invokes a reboot or a per-VM `pkill sshd` separately if needed).
+
+message VMSSHKey {
+  string fingerprint = 1;  // "SHA256:<b64>", server-computed
+  string type        = 2;  // "ssh-ed25519" | "ssh-rsa" | ...
+  string public_key  = 3;  // full "<type> <b64> [comment]" line
+  string comment     = 4;
+  string added_at    = 5;  // RFC3339
+}
+
+message ListVMSSHKeysRequest {
+  string vm_name    = 1;
+  string project    = 2;
+  int32  limit      = 3;
+  string page_token = 4;
+}
+message ListVMSSHKeysResponse {
+  repeated VMSSHKey keys            = 1;
+  string            next_page_token = 2;
+}
+
+// AddVMSSHKey : client sends the raw OpenSSH-format public-key line ;
+// server parses, computes the fingerprint, stores. Idempotent on
+// fingerprint.
+message AddVMSSHKeyRequest {
+  string vm_name    = 1;
+  string project    = 2;
+  string public_key = 3;
+}
+message AddVMSSHKeyResponse { VMSSHKey key = 1; }
+
+message RemoveVMSSHKeyRequest {
+  string vm_name     = 1;
+  string project     = 2;
+  string fingerprint = 3;
+}
+message RemoveVMSSHKeyResponse { string removed = 1; }

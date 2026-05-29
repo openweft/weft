@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+// Package weft.driver.v1 is the wire contract for the weft driver go-plugin
+// transport. Each of the four driver interfaces in github.com/openweft/
+// weft-drivers (HypervisorDriver, NetworkDriver, VolumeDriver, ImageDriver)
+// maps to one gRPC service here, one RPC per interface method. All four are
+// served by a single plugin process (one per host) and dispensed to the host
+// as a DriverSet — see ../plugin.go.
+//
+// The messages mirror weft-drivers/types.go exactly. Those structs were
+// designed flat + primitive-valued precisely so this mapping is mechanical:
+// no nested maps, no pointers, no time.Time on the wire.
+package weft.driver.v1;
+
+option go_package = "github.com/openweft/weft-driver-plugin/driverpb";
+
+import "google/protobuf/empty.proto";
+
+// ===== shared messages (mirror weft-drivers/types.go) =====
+
+message HostInfo {
+  string uuid = 1;
+  string hostname = 2;
+  string az = 3;
+  string hypervisor = 4;
+  string architecture = 5;
+}
+
+message HostInfoResponse { HostInfo host_info = 1; }
+
+message VMSpec {
+  string uuid = 1;
+  string project_uuid = 2;
+  string name = 3;
+  int32 cpu_count = 4;
+  int32 memory_mib = 5;
+  string boot_kind = 6;
+  string boot_ref = 7;
+  string cmdline = 8;
+}
+
+message DiskSpec {
+  string volume_uuid = 1;
+  string backing_path = 2;
+  string bus = 3;
+  int32 size_gib = 4;
+  bool read_only = 5;
+  bool boot = 6;
+}
+
+message NICHandle {
+  string device = 1;
+  string mac = 2;
+}
+
+message NetworkSpec {
+  string uuid = 1;
+  string project_uuid = 2;
+  string name = 3;
+  string cidr = 4;
+  string gateway = 5;
+  repeated string dns_servers = 6;
+  string type = 7;
+  int32 mesh_listen_port = 8;
+  string mesh_endpoint = 9;
+}
+
+message PortSpec {
+  string uuid = 1;
+  string project_uuid = 2;
+  string vm_uuid = 3;
+  string network_uuid = 4;
+  string mac = 5;
+  string ip = 6;
+  string wireguard_pub_key = 7;
+  string mesh_endpoint = 8;
+  repeated string effective_security_groups = 9;
+}
+
+message VolumeSpec {
+  string uuid = 1;
+  string project_uuid = 2;
+  string name = 3;
+  int32 size_gib = 4;
+  string format = 5;
+}
+
+message AttachedVolume {
+  string backing_path = 1;
+  bool read_only = 2;
+}
+
+// ===== Hypervisor =====
+
+message CreateVMRequest { VMSpec spec = 1; }
+message VMUUIDRequest { string vm_uuid = 1; }
+message AttachDiskRequest { string vm_uuid = 1; DiskSpec disk = 2; }
+message DetachDiskRequest { string vm_uuid = 1; string volume_uuid = 2; }
+message AttachNICRequest { string vm_uuid = 1; NICHandle nic = 2; }
+message DetachNICRequest { string vm_uuid = 1; string nic_device = 2; }
+
+service Hypervisor {
+  rpc HostInfo(google.protobuf.Empty) returns (HostInfoResponse);
+  rpc CreateVM(CreateVMRequest) returns (google.protobuf.Empty);
+  rpc StartVM(VMUUIDRequest) returns (google.protobuf.Empty);
+  rpc StopVM(VMUUIDRequest) returns (google.protobuf.Empty);
+  rpc DeleteVM(VMUUIDRequest) returns (google.protobuf.Empty);
+  rpc AttachDisk(AttachDiskRequest) returns (google.protobuf.Empty);
+  rpc DetachDisk(DetachDiskRequest) returns (google.protobuf.Empty);
+  rpc AttachNIC(AttachNICRequest) returns (google.protobuf.Empty);
+  rpc DetachNIC(DetachNICRequest) returns (google.protobuf.Empty);
+}
+
+// ===== Network =====
+
+message EnsureNetworkRequest { NetworkSpec spec = 1; }
+message DestroyNetworkRequest { string network_uuid = 1; }
+message AttachPortRequest { PortSpec spec = 1; }
+message AttachPortResponse { NICHandle handle = 1; }
+message DetachPortRequest { string port_uuid = 1; }
+message RotateMeshPeerRequest { PortSpec spec = 1; }
+
+service Network {
+  rpc HostInfo(google.protobuf.Empty) returns (HostInfoResponse);
+  rpc EnsureNetwork(EnsureNetworkRequest) returns (google.protobuf.Empty);
+  rpc DestroyNetwork(DestroyNetworkRequest) returns (google.protobuf.Empty);
+  rpc AttachPort(AttachPortRequest) returns (AttachPortResponse);
+  rpc DetachPort(DetachPortRequest) returns (google.protobuf.Empty);
+  rpc RotateMeshPeer(RotateMeshPeerRequest) returns (google.protobuf.Empty);
+}
+
+// ===== Volume =====
+
+message NameResponse { string name = 1; }
+message LocalResponse { bool local = 1; }
+message EnsureVolumeRequest { VolumeSpec spec = 1; }
+message DestroyVolumeRequest { string volume_uuid = 1; }
+message AttachVolumeRequest { string volume_uuid = 1; string host_uuid = 2; }
+message AttachVolumeResponse { AttachedVolume volume = 1; }
+message DetachVolumeRequest { string volume_uuid = 1; string host_uuid = 2; }
+
+service Volume {
+  rpc Name(google.protobuf.Empty) returns (NameResponse);
+  rpc Local(google.protobuf.Empty) returns (LocalResponse);
+  rpc HostInfo(google.protobuf.Empty) returns (HostInfoResponse);
+  rpc EnsureVolume(EnsureVolumeRequest) returns (google.protobuf.Empty);
+  rpc DestroyVolume(DestroyVolumeRequest) returns (google.protobuf.Empty);
+  rpc AttachVolume(AttachVolumeRequest) returns (AttachVolumeResponse);
+  rpc DetachVolume(DetachVolumeRequest) returns (google.protobuf.Empty);
+}
+
+// ===== Image =====
+
+message RefRequest { string ref = 1; }
+message LocalPathResponse { string path = 1; }
+message InCacheResponse { bool in_cache = 1; }
+
+service Image {
+  rpc HostInfo(google.protobuf.Empty) returns (HostInfoResponse);
+  rpc Pull(RefRequest) returns (google.protobuf.Empty);
+  rpc LocalPath(RefRequest) returns (LocalPathResponse);
+  rpc Delete(RefRequest) returns (google.protobuf.Empty);
+  rpc InCache(RefRequest) returns (InCacheResponse);
+}

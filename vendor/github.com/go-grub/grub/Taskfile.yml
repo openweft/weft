@@ -1,0 +1,23 @@
+version: '3'
+
+tasks:
+  build:
+    desc: "Build grubc CLI into ../../bin/grubc"
+    cmds:
+      - mkdir -p ../../bin
+      - go build -v -mod=mod -o ../../bin/grubc ./cmd/grubc
+
+  run:
+    desc: "Run grubc (pass args via CLI_ARGS)"
+    cmds:
+      - ../../bin/grubc {{.CLI_ARGS}}
+
+  lint:
+    desc: "Vet the package"
+    cmds:
+      - go vet -mod=mod ./...
+
+  test:
+    desc: "Run unit tests"
+    cmds:
+      - go test -mod=mod ./...
