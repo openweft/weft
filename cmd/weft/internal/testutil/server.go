@@ -95,6 +95,10 @@ type Server struct {
 	GetFlavorFn                       func(context.Context, *vzdv1.GetFlavorRequest) (*vzdv1.GetFlavorResponse, error)
 	SetFlavorFn                       func(context.Context, *vzdv1.SetFlavorRequest) (*vzdv1.SetFlavorResponse, error)
 	DeleteFlavorFn                    func(context.Context, *vzdv1.DeleteFlavorRequest) (*vzdv1.DeleteFlavorResponse, error)
+	ListScriptsFn                     func(context.Context, *vzdv1.ListScriptsRequest) (*vzdv1.ListScriptsResponse, error)
+	GetScriptFn                       func(context.Context, *vzdv1.GetScriptRequest) (*vzdv1.GetScriptResponse, error)
+	SetScriptFn                       func(context.Context, *vzdv1.SetScriptRequest) (*vzdv1.SetScriptResponse, error)
+	DeleteScriptFn                    func(context.Context, *vzdv1.DeleteScriptRequest) (*vzdv1.DeleteScriptResponse, error)
 }
 
 // NewServer stands up a grpc.Server on a unix socket and registers
@@ -561,6 +565,34 @@ func (s *Server) DeleteFlavor(ctx context.Context, in *vzdv1.DeleteFlavorRequest
 		return s.DeleteFlavorFn(ctx, in)
 	}
 	return &vzdv1.DeleteFlavorResponse{Deleted: in.Name}, nil
+}
+
+func (s *Server) ListScripts(ctx context.Context, in *vzdv1.ListScriptsRequest) (*vzdv1.ListScriptsResponse, error) {
+	if s.ListScriptsFn != nil {
+		return s.ListScriptsFn(ctx, in)
+	}
+	return &vzdv1.ListScriptsResponse{}, nil
+}
+
+func (s *Server) GetScript(ctx context.Context, in *vzdv1.GetScriptRequest) (*vzdv1.GetScriptResponse, error) {
+	if s.GetScriptFn != nil {
+		return s.GetScriptFn(ctx, in)
+	}
+	return &vzdv1.GetScriptResponse{Script: &vzdv1.Script{Name: in.Name}}, nil
+}
+
+func (s *Server) SetScript(ctx context.Context, in *vzdv1.SetScriptRequest) (*vzdv1.SetScriptResponse, error) {
+	if s.SetScriptFn != nil {
+		return s.SetScriptFn(ctx, in)
+	}
+	return &vzdv1.SetScriptResponse{Script: in.Script}, nil
+}
+
+func (s *Server) DeleteScript(ctx context.Context, in *vzdv1.DeleteScriptRequest) (*vzdv1.DeleteScriptResponse, error) {
+	if s.DeleteScriptFn != nil {
+		return s.DeleteScriptFn(ctx, in)
+	}
+	return &vzdv1.DeleteScriptResponse{Deleted: in.Name}, nil
 }
 
 // randomSuffix returns a per-test unique-ish suffix (test name +

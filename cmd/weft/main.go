@@ -38,6 +38,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/network"
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/project"
+	"github.com/openweft/weft/cmd/weft/script"
 	"github.com/openweft/weft/cmd/weft/securitygroup"
 	"github.com/openweft/weft/cmd/weft/share"
 	"github.com/openweft/weft/cmd/weft/user"
@@ -124,6 +125,7 @@ running agent.`,
 		image.Command(&socketPath, &sshSocket, &sshKey),
 		project.Command(&socketPath, &sshSocket, &sshKey),
 		flavor.Command(&socketPath, &sshSocket, &sshKey),
+		script.Command(&socketPath, &sshSocket, &sshKey),
 		volume.Command(&socketPath, &sshSocket, &sshKey),
 		network.Command(&socketPath, &sshSocket, &sshKey),
 		securitygroup.Command(&socketPath, &sshSocket, &sshKey),
