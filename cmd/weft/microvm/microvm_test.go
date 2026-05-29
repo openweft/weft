@@ -509,13 +509,28 @@ func TestRun_CmdOverrideAfterDash(t *testing.T) {
 	// enough to confirm the front-end forwards the override without a
 	// real daemon. We seed a pulled rootfs so the override-rewrite path
 	// runs, then fail at boot-artefact resolution.
+	//
+	// Two defences against accidentally hitting a real registry :
+	//
+	//   * NCL_NO_AUTO_PULL=1 — strict offline ; the lib hard-errors
+	//     before auto-pull instead of dialling Docker Hub.
+	//   * Sentinel image name — even if the offline gate were
+	//     bypassed, "weft-test-fixture:override" doesn't resolve
+	//     anywhere on the public registries.
+	//
+	// The cache path is the lib's real layout
+	// ($XDG_DATA_HOME/weft-microvm/images/<refsafe>/rootfs/.ncl/) ;
+	// the legacy ncl/images/ path is gone since the rename to
+	// weft-microvm.
 	xdg := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", xdg)
 	t.Setenv("NCL_KERNEL", "")
 	t.Setenv("NCL_INITRD", "")
 	t.Setenv("NCL_INIT_ISO", "")
-	// Seed a cached rootfs + .ncl/config.json for "busybox:latest".
-	rootfs := filepath.Join(xdg, "ncl", "images", "busybox_latest", "rootfs", ".ncl")
+	t.Setenv("NCL_NO_AUTO_PULL", "1")
+	const image = "weft-test-fixture:override"
+	const refsafe = "weft-test-fixture_override"
+	rootfs := filepath.Join(xdg, "weft-microvm", "images", refsafe, "rootfs", ".ncl")
 	if err := os.MkdirAll(rootfs, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +539,7 @@ func TestRun_CmdOverrideAfterDash(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := Command(strPtr("/tmp/unused-run2.sock"), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"run", "busybox:latest", "--", "sh", "-c", "echo hi"})
+	cmd.SetArgs([]string{"run", image, "--", "sh", "-c", "echo hi"})
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
 	err := cmd.Execute()
