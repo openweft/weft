@@ -381,6 +381,10 @@ func run(t fileConfigTargets) error {
 	if err != nil {
 		return fmt.Errorf("load flavor registry: %w", err)
 	}
+	scriptReg, err := weft.LoadScriptRegistry(context.Background(), a.RegistryStorage("scripts"))
+	if err != nil {
+		return fmt.Errorf("load script registry: %w", err)
+	}
 	vzdv1.RegisterWeftAgentServer(srv, &vzdServer{
 		cfgDir:        t.configDir,
 		mc:            mc,
@@ -388,6 +392,7 @@ func run(t fileConfigTargets) error {
 		dispatch:      dispatchSrv,
 		localHostUUID: localHostUUID(a),
 		flavors:       flavorReg,
+		scripts:       scriptReg,
 	})
 	vzdv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 
@@ -445,6 +450,10 @@ type vzdServer struct {
 	// in single-host dev, etcd in HA). nil in tests that don't
 	// need it — every RPC checks before deref.
 	flavors *weft.FlavorRegistry
+	// scripts is the cluster-wide provisioning-script catalogue.
+	// Same shape as flavors. nil in tests ; RPCs guard via
+	// scriptsReady.
+	scripts *weft.ScriptRegistry
 }
 
 func (s *vzdServer) ListVMs(ctx context.Context, req *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
@@ -1438,6 +1447,101 @@ func (s *vzdServer) DeleteFlavor(ctx context.Context, req *vzdv1.DeleteFlavorReq
 	}
 	logger.Printf("DeleteFlavor name=%s", req.Name)
 	return &vzdv1.DeleteFlavorResponse{Deleted: req.Name}, nil
+}
+
+// ---- Scripts (provisioning catalogue) -----------------------------
+//
+// Same shape as the flavors block above. Body is the literal sh
+// source ; UpdatedAt + UpdatedBy are stamped server-side from the
+// auth context so the wire can't lie about provenance.
+
+func (s *vzdServer) scriptsReady() error {
+	if s.scripts == nil {
+		return status.Error(codes.Unavailable, "scripts registry not wired on this build")
+	}
+	return nil
+}
+
+func (s *vzdServer) ListScripts(_ context.Context, _ *vzdv1.ListScriptsRequest) (*vzdv1.ListScriptsResponse, error) {
+	if err := s.scriptsReady(); err != nil {
+		return nil, err
+	}
+	all := s.scripts.List()
+	out := &vzdv1.ListScriptsResponse{Scripts: make([]*vzdv1.Script, 0, len(all))}
+	for _, sc := range all {
+		out.Scripts = append(out.Scripts, scriptToProto(sc))
+	}
+	return out, nil
+}
+
+func (s *vzdServer) GetScript(_ context.Context, req *vzdv1.GetScriptRequest) (*vzdv1.GetScriptResponse, error) {
+	if err := s.scriptsReady(); err != nil {
+		return nil, err
+	}
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	sc, ok := s.scripts.Get(req.Name)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "no such script: %s", req.Name)
+	}
+	return &vzdv1.GetScriptResponse{Script: scriptToProto(sc)}, nil
+}
+
+func (s *vzdServer) SetScript(ctx context.Context, req *vzdv1.SetScriptRequest) (*vzdv1.SetScriptResponse, error) {
+	if err := s.scriptsReady(); err != nil {
+		return nil, err
+	}
+	if req.Script == nil {
+		return nil, status.Error(codes.InvalidArgument, "script is required")
+	}
+	if err := weft.RequireAdmin(ctx, "set script"); err != nil {
+		return nil, err
+	}
+	in := req.Script
+	editor := ""
+	if c, ok := weft.CallerFrom(ctx); ok && c != nil {
+		editor = c.Email
+		if editor == "" {
+			editor = c.Subject
+		}
+	}
+	if err := s.scripts.Set(weft.Script{
+		Name: in.Name, Description: in.Description, Body: in.Body,
+	}, editor); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "set script: %v", err)
+	}
+	saved, _ := s.scripts.Get(in.Name)
+	logger.Printf("SetScript name=%s by=%s body-bytes=%d", saved.Name, saved.UpdatedBy, len(saved.Body))
+	return &vzdv1.SetScriptResponse{Script: scriptToProto(saved)}, nil
+}
+
+func (s *vzdServer) DeleteScript(ctx context.Context, req *vzdv1.DeleteScriptRequest) (*vzdv1.DeleteScriptResponse, error) {
+	if err := s.scriptsReady(); err != nil {
+		return nil, err
+	}
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete script"); err != nil {
+		return nil, err
+	}
+	if err := s.scripts.Delete(req.Name); err != nil {
+		return nil, status.Errorf(codes.Internal, "delete script: %v", err)
+	}
+	logger.Printf("DeleteScript name=%s", req.Name)
+	return &vzdv1.DeleteScriptResponse{Deleted: req.Name}, nil
+}
+
+func scriptToProto(s weft.Script) *vzdv1.Script {
+	ts := ""
+	if !s.UpdatedAt.IsZero() {
+		ts = s.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+	}
+	return &vzdv1.Script{
+		Name: s.Name, Description: s.Description, Body: s.Body,
+		UpdatedAt: ts, UpdatedBy: s.UpdatedBy,
+	}
 }
 
 // AddProjectMember grants project access to a user-UUID. Admin-
