@@ -105,3 +105,137 @@ cluster "bad" {
 		t.Error("hosts sharing a DC must be rejected")
 	}
 }
+
+func TestLoad_MultiDriverHost(t *testing.T) {
+	// Apple Silicon host running BOTH drivers — native arm64 via VZ,
+	// foreign archs via QEMU/TCG. Canonical cross-arch build host.
+	c, err := Load(writeHCL(t, `
+cluster "build" {
+  overlay { subnet = "10.9.0.0/24" }
+  host "mac-1" {
+    address = "192.0.2.10"
+    os      = "darwin"
+    arch    = "arm64"
+    driver "vz" {
+      arch = ["arm64"]
+    }
+    driver "qemu" {
+      arch = ["amd64", "riscv64", "loongarch64"]
+    }
+  }
+}`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	h := &c.Hosts[0]
+	kinds := h.DriverKinds()
+	if len(kinds) != 2 || kinds[0] != "vz" || kinds[1] != "qemu" {
+		t.Errorf("DriverKinds = %v ; want [vz qemu]", kinds)
+	}
+	cases := []struct {
+		drv, arch string
+		want      bool
+	}{
+		{"vz", "arm64", true},
+		{"vz", "amd64", false},   // VZ doesn't claim amd64 here
+		{"qemu", "amd64", true},
+		{"qemu", "riscv64", true},
+		{"qemu", "arm64", false}, // QEMU's arch list excludes arm64 ; that's VZ's domain
+	}
+	for _, c := range cases {
+		if got := h.SupportsArch(c.drv, c.arch); got != c.want {
+			t.Errorf("SupportsArch(%q, %q) = %v ; want %v", c.drv, c.arch, got, c.want)
+		}
+	}
+}
+
+func TestLoad_LegacyHypervisorStillWorks(t *testing.T) {
+	// `hypervisor = "qemu"` (legacy single-driver shortcut) keeps working.
+	c, err := Load(writeHCL(t, `
+cluster "legacy" {
+  overlay { subnet = "10.9.0.0/24" }
+  host "h1" {
+    address    = "127.0.0.1"
+    hypervisor = "qemu"
+  }
+}`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	h := &c.Hosts[0]
+	if got := h.DriverKinds(); len(got) != 1 || got[0] != "qemu" {
+		t.Errorf("DriverKinds = %v ; want [qemu]", got)
+	}
+	if !h.SupportsArch("qemu", "arm64") {
+		t.Error("legacy host should support its native arch (default arm64) under its single driver")
+	}
+	if h.SupportsArch("vz", "arm64") {
+		t.Error("legacy qemu host should NOT claim vz coverage")
+	}
+}
+
+func TestLoad_RejectsHypervisorAndDriverBlocks(t *testing.T) {
+	// Combining `hypervisor = …` (legacy) and `driver {…}` blocks (modern)
+	// on the same host is ambiguous — Validate must reject.
+	_, err := Load(writeHCL(t, `
+cluster "ambiguous" {
+  overlay { subnet = "10.9.0.0/24" }
+  host "h1" {
+    address    = "127.0.0.1"
+    hypervisor = "vz"
+    driver "vz" { arch = ["arm64"] }
+  }
+}`))
+	if err == nil {
+		t.Error("mixing legacy `hypervisor =` with `driver` blocks must be rejected")
+	}
+}
+
+func TestLoad_RejectsDuplicateDriverKind(t *testing.T) {
+	_, err := Load(writeHCL(t, `
+cluster "dup" {
+  overlay { subnet = "10.9.0.0/24" }
+  host "h1" {
+    address = "127.0.0.1"
+    driver "qemu" { arch = ["arm64"] }
+    driver "qemu" { arch = ["amd64"] }
+  }
+}`))
+	if err == nil {
+		t.Error("two `driver \"qemu\"` blocks on one host must be rejected")
+	}
+}
+
+func TestLoad_RejectsBadArch(t *testing.T) {
+	_, err := Load(writeHCL(t, `
+cluster "bad-arch" {
+  overlay { subnet = "10.9.0.0/24" }
+  host "h1" {
+    address = "127.0.0.1"
+    driver "qemu" { arch = ["mips"] }
+  }
+}`))
+	if err == nil {
+		t.Error("unknown arch must be rejected")
+	}
+}
+
+func TestLoad_DriverArchDefaultsToHostArch(t *testing.T) {
+	// `driver "qemu" {}` with no arch list defaults to the host's native arch.
+	c, err := Load(writeHCL(t, `
+cluster "minimal" {
+  overlay { subnet = "10.9.0.0/24" }
+  host "h1" {
+    address = "127.0.0.1"
+    arch    = "amd64"
+    driver "qemu" {}
+  }
+}`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := c.Hosts[0].Drivers[0].Arches
+	if len(got) != 1 || got[0] != "amd64" {
+		t.Errorf("driver arches = %v ; want [amd64] (defaulted to host arch)", got)
+	}
+}
