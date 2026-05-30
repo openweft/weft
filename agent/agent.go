@@ -152,6 +152,18 @@ func (a *Agent) start(ctx context.Context) error {
 		Endpoint:       a.opts.Endpoint,
 		Hypervisor:     a.hypervisor,
 		Architecture:   runtime.GOARCH,
+		// Mirror the legacy Hypervisor / Architecture singletons into
+		// the Drivers capability list. Today the agent launches ONE
+		// driver plugin (see buildLocalHandles below) so this list
+		// always has exactly one entry — but downstream consumers
+		// (scheduler, dashboard) read Drivers first and fall back to
+		// the singletons, which keeps them ready for the day the
+		// agent learns to launch multiple driver plugins side-by-side
+		// (canonical case : Apple Silicon host running both VZ and
+		// QEMU for cross-arch builds).
+		Drivers: []HostDriverCapability{
+			{Kind: a.hypervisor, Arches: []string{runtime.GOARCH}},
+		},
 		NetworkTypes:   []string{"nat", "bridged", "isolated", "mesh"},
 		VolumeBackends: []string{"file"},
 		Labels:         a.opts.Labels,

@@ -32,9 +32,21 @@ type HostRegistration struct {
 	// Endpoint is the agent's gRPC listener (host:port). Empty
 	// when the agent is embedded in weft-control's process.
 	Endpoint string
-	// Hypervisor / Architecture describe what this host can run.
+	// Hypervisor / Architecture describe the host's PRIMARY driver
+	// and its native arch — kept for backward-compat with
+	// single-driver agents + clients that don't yet know about
+	// Drivers. When Drivers is non-empty these are the first entry
+	// of that list.
 	Hypervisor   string
 	Architecture string
+	// Drivers is the full capability list — one entry per
+	// weft-driver-<kind> subprocess this agent has launched, with
+	// the set of guest archs each can run. A bare-metal Apple
+	// Silicon machine running both VZ (native arm64) and QEMU
+	// (foreign archs for cross-builds) registers two entries here.
+	// Empty Drivers means "use Hypervisor / Architecture as a
+	// single-driver registration".
+	Drivers []HostDriverCapability
 	// NetworkTypes / VolumeBackends are the capability lists
 	// the scheduler matches against.
 	NetworkTypes   []string
@@ -42,6 +54,15 @@ type HostRegistration struct {
 	// Labels are operator-set free-form tags ("gpu=h100",
 	// "ssd=true"). Used by ScheduleRequest's label selectors.
 	Labels map[string]string
+}
+
+// HostDriverCapability is one driver subprocess running on a host,
+// with the set of guest architectures it can launch. Mirrors
+// cluster.HostDriver (HCL side) and weft.HostDriver (registry side)
+// on the agent ↔ control-plane wire.
+type HostDriverCapability struct {
+	Kind   string   // "vz" | "qemu"
+	Arches []string // "arm64" | "amd64" | "riscv64" | "loongarch64"
 }
 
 // DriverHandles bundles the four driver interfaces the agent
