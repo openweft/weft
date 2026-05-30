@@ -1,6 +1,6 @@
-// Package vzclient — eventstream.go provides the shared "open a
-// WatchEvents stream + render rows" helper used by `vzc events`
-// and `ncl events`. Lifts the rendering out so both CLIs print
+// Package weftclient — eventstream.go provides the shared "open a
+// WatchEvents stream + render rows" helper used by `weft events`
+// and `weft-microvm events`. Lifts the rendering out so both CLIs print
 // the same shape: kind, subject, project, optional meta. Two
 // output formats:
 //
@@ -11,8 +11,8 @@
 //   * --format json: one JSON object per line, jq-friendly
 //
 // Both formats stream-flush after every event so a piped consumer
-// (`ncl events | grep error`) reacts in real time.
-package vzclient
+// (`weft-microvm events | grep error`) reacts in real time.
+package weftclient
 
 import (
 	"context"
@@ -27,7 +27,7 @@ import (
 )
 
 // EventStreamOptions configures a tail-the-bus session. Filter
-// fields are passed verbatim to vzd's WatchEvents RPC and
+// fields are passed verbatim to weft's WatchEvents RPC and
 // re-applied server-side; the client doesn't need to filter
 // again locally.
 type EventStreamOptions struct {
@@ -145,14 +145,14 @@ func formatMeta(m map[string]string) string {
 // before the first event is received, then updated in-band from
 // the `project.*` events that flow through the same stream — so
 // a mid-stream rename is reflected in subsequent rows without
-// re-polling vzd. Bootstrap failures degrade gracefully: rows
+// re-polling weft. Bootstrap failures degrade gracefully: rows
 // fall back to the raw UUID.
 //
-// The caller owns the gRPC client; vzc / ncl both pass the one
+// The caller owns the gRPC client; weft / weft-microvm both pass the one
 // they already opened for their other subcommands. The bearer
-// interceptor in vzclient.Dial stamps the cached OIDC token
+// interceptor in weftclient.Dial stamps the cached OIDC token
 // transparently, so authenticated streams "just work" once the
-// operator has run `vzc login`.
+// operator has run `weft login`.
 func StreamEvents(ctx context.Context, client weftv1.WeftAgentClient, opts EventStreamOptions, w io.Writer) error {
 	resolver := NewProjectResolver()
 	resolver.Bootstrap(ctx, client)

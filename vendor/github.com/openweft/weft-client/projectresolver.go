@@ -1,4 +1,4 @@
-// Package vzclient — projectresolver.go is a small in-memory
+// Package weftclient — projectresolver.go is a small in-memory
 // cache of (project UUID → display name) that the event streamer
 // uses to swap raw UUIDs for readable names in human output.
 //
@@ -7,13 +7,13 @@
 // `project.created` / `project.renamed` / `project.deleted`
 // event flowing through the same WatchEvents stream and updates
 // its map in place. So a project rename mid-stream is reflected
-// in subsequent rows without re-polling vzd.
+// in subsequent rows without re-polling weft.
 //
 // Thread-safe — concurrent reads from the render goroutine and
 // updates from the stream goroutine are guarded by a mutex.
 // Unknown UUIDs return the UUID itself; better one piece of
 // stable identification than an empty cell.
-package vzclient
+package weftclient
 
 import (
 	"context"

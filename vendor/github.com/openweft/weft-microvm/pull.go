@@ -1,6 +1,6 @@
 // Pull — pull an OCI image, extract its rootfs to the local cache,
-// and materialise a runtime-style process spec for ncl-init at
-// <rootfs>/.ncl/config.json.
+// and materialise a runtime-style process spec for weft-microvm-init at
+// <rootfs>/.weft-microvm/config.json.
 //
 // What we DO:
 //   - Resolve the reference (image-spec ref grammar).
@@ -11,7 +11,7 @@
 //   - Pull each layer blob; recognise the standard gzipped+plain
 //     OCI tar layer types; apply OCI whiteout rules during extract.
 //   - Pull the config blob (small JSON), derive process spec,
-//     write <rootfs>/.ncl/config.json.
+//     write <rootfs>/.weft-microvm/config.json.
 //
 // What we do NOT do yet:
 //   - Cosign signature verification (init/internal/cosign exists;
@@ -37,7 +37,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/cloud-boot/init/pkg/oci"
+	"github.com/openweft/weft-microvm/oci"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -70,7 +70,7 @@ func expandDockerHubShorthand(image string) string {
 }
 
 // Pull resolves `image`, downloads everything, and materialises the
-// rootfs + .ncl/config.json. Returns nil on success.
+// rootfs + .weft-microvm/config.json. Returns nil on success.
 func Pull(image string) error {
 	canonical := expandDockerHubShorthand(image)
 	ref, err := oci.ParseRef(canonical)
@@ -131,12 +131,12 @@ func Pull(image string) error {
 	if err != nil {
 		return err
 	}
-	nclDir := filepath.Join(rootfs, ".ncl")
-	if err := os.MkdirAll(nclDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", nclDir, err)
+	microvmDir := filepath.Join(rootfs, ".weft-microvm")
+	if err := os.MkdirAll(microvmDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", microvmDir, err)
 	}
-	if err := os.WriteFile(filepath.Join(nclDir, "config.json"), out, 0o644); err != nil {
-		return fmt.Errorf("write .ncl/config.json: %w", err)
+	if err := os.WriteFile(filepath.Join(microvmDir, "config.json"), out, 0o644); err != nil {
+		return fmt.Errorf("write .weft-microvm/config.json: %w", err)
 	}
 
 	log.Printf("weft-microvm pull: done — %s ready for Run", image)

@@ -46,7 +46,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/displaywidth v0.10.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.6.0 // indirect
-	github.com/cloud-boot/init v0.0.0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -127,7 +126,6 @@ require (
 )
 
 replace (
-	github.com/cloud-boot/init => ../../cloud-boot/init
 	github.com/go-bootloaders/systemd-boot => ../../go-bootloaders/systemd-boot
 	github.com/go-coff/peln => ../../go-coff/peln
 	github.com/go-compressions/lzfse => ../../go-compressions/lzfse
@@ -153,8 +151,8 @@ replace (
 	github.com/openweft/weft-microvm => ../weft-microvm
 
 	// Transitive local modules pulled in via weft-microvm
-	// (cloud-boot/init + weft-microvm-init chains). Go honours only the
-	// main module's replace block, so they are restated here.
+	// (weft-microvm-init chain). Go honours only the main module's
+	// replace block, so they are restated here.
 	github.com/openweft/weft-microvm-init => ../weft-microvm-init
 	github.com/openweft/weft-proto => ../weft-proto
 )

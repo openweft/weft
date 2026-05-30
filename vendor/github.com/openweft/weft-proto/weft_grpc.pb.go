@@ -119,7 +119,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// VzdService is the gRPC API exposed by vzd.
+// WeftService is the gRPC API exposed by weft.
 type WeftAgentClient interface {
 	ListVMs(ctx context.Context, in *ListVMsRequest, opts ...grpc.CallOption) (*ListVMsResponse, error)
 	VMStatus(ctx context.Context, in *VMStatusRequest, opts ...grpc.CallOption) (*VMStatusResponse, error)
@@ -136,17 +136,17 @@ type WeftAgentClient interface {
 	CleanImages(ctx context.Context, in *CleanImagesRequest, opts ...grpc.CallOption) (*CleanImagesResponse, error)
 	WaitVM(ctx context.Context, in *WaitVMRequest, opts ...grpc.CallOption) (*WaitVMResponse, error)
 	// Nano-Container-Linux integration: register a VM directory that
-	// boots from a read-only ncl-init UKI ISO and exposes the OCI
+	// boots from a read-only weft-microvm-init UKI ISO and exposes the OCI
 	// rootfs to the guest via virtio-fs. After this returns the VM
 	// is in VM_STATE_STOPPED; call StartVM to boot it.
 	RegisterMicroVM(ctx context.Context, in *RegisterMicroVMRequest, opts ...grpc.CallOption) (*RegisterMicroVMResponse, error)
 	// Per-VM lifecycle event log: every transition the daemon
-	// observed (server-side state + folded guest-side NCL_MARK
+	// observed (server-side state + folded guest-side WEFT_MARK
 	// lines from the console). Returned in wall-clock order.
 	VMTimings(ctx context.Context, in *VMTimingsRequest, opts ...grpc.CallOption) (*VMTimingsResponse, error)
 	// Read a VM's serial console log (the raw byte stream the guest
-	// produced on hvc0 / serial port — boot messages, ncl-init log
-	// lines, NCL_MARK markers, and the container's own stdout/
+	// produced on hvc0 / serial port — boot messages, weft-microvm-init log
+	// lines, WEFT_MARK markers, and the container's own stdout/
 	// stderr, all interleaved). Single-shot read; `tail_bytes` caps
 	// the response to the last N bytes when non-zero.
 	VMLogs(ctx context.Context, in *VMLogsRequest, opts ...grpc.CallOption) (*VMLogsResponse, error)
@@ -206,12 +206,12 @@ type WeftAgentClient interface {
 	// RenderNATSAuthorization returns the NATS-conf `authorization`
 	// block (per-project NKey allow-list, default-deny) for the
 	// operator to splice into nats.conf. Admin-gated.
-	// Per [[vzd-tenant-event-access]] Phase 3.
+	// Per [[weft-tenant-event-access]] Phase 3.
 	RenderNATSAuthorization(ctx context.Context, in *RenderNATSAuthorizationRequest, opts ...grpc.CallOption) (*RenderNATSAuthorizationResponse, error)
 	// Host registry RPCs. The Host inventory drives multi-host
 	// placement: every hypervisor instance registers itself (or is
 	// registered by the operator) and the scheduler picks among
-	// them honouring [[vzd-placement-rules]].
+	// them honouring [[weft-placement-rules]].
 	RegisterHost(ctx context.Context, in *RegisterHostRequest, opts ...grpc.CallOption) (*RegisterHostResponse, error)
 	ListHosts(ctx context.Context, in *ListHostsRequest, opts ...grpc.CallOption) (*ListHostsResponse, error)
 	GetHost(ctx context.Context, in *GetHostRequest, opts ...grpc.CallOption) (*GetHostResponse, error)
@@ -1233,7 +1233,7 @@ func (c *weftAgentClient) RemoveVMSSHKey(ctx context.Context, in *RemoveVMSSHKey
 // All implementations must embed UnimplementedWeftAgentServer
 // for forward compatibility.
 //
-// VzdService is the gRPC API exposed by vzd.
+// WeftService is the gRPC API exposed by weft.
 type WeftAgentServer interface {
 	ListVMs(context.Context, *ListVMsRequest) (*ListVMsResponse, error)
 	VMStatus(context.Context, *VMStatusRequest) (*VMStatusResponse, error)
@@ -1250,17 +1250,17 @@ type WeftAgentServer interface {
 	CleanImages(context.Context, *CleanImagesRequest) (*CleanImagesResponse, error)
 	WaitVM(context.Context, *WaitVMRequest) (*WaitVMResponse, error)
 	// Nano-Container-Linux integration: register a VM directory that
-	// boots from a read-only ncl-init UKI ISO and exposes the OCI
+	// boots from a read-only weft-microvm-init UKI ISO and exposes the OCI
 	// rootfs to the guest via virtio-fs. After this returns the VM
 	// is in VM_STATE_STOPPED; call StartVM to boot it.
 	RegisterMicroVM(context.Context, *RegisterMicroVMRequest) (*RegisterMicroVMResponse, error)
 	// Per-VM lifecycle event log: every transition the daemon
-	// observed (server-side state + folded guest-side NCL_MARK
+	// observed (server-side state + folded guest-side WEFT_MARK
 	// lines from the console). Returned in wall-clock order.
 	VMTimings(context.Context, *VMTimingsRequest) (*VMTimingsResponse, error)
 	// Read a VM's serial console log (the raw byte stream the guest
-	// produced on hvc0 / serial port — boot messages, ncl-init log
-	// lines, NCL_MARK markers, and the container's own stdout/
+	// produced on hvc0 / serial port — boot messages, weft-microvm-init log
+	// lines, WEFT_MARK markers, and the container's own stdout/
 	// stderr, all interleaved). Single-shot read; `tail_bytes` caps
 	// the response to the last N bytes when non-zero.
 	VMLogs(context.Context, *VMLogsRequest) (*VMLogsResponse, error)
@@ -1320,12 +1320,12 @@ type WeftAgentServer interface {
 	// RenderNATSAuthorization returns the NATS-conf `authorization`
 	// block (per-project NKey allow-list, default-deny) for the
 	// operator to splice into nats.conf. Admin-gated.
-	// Per [[vzd-tenant-event-access]] Phase 3.
+	// Per [[weft-tenant-event-access]] Phase 3.
 	RenderNATSAuthorization(context.Context, *RenderNATSAuthorizationRequest) (*RenderNATSAuthorizationResponse, error)
 	// Host registry RPCs. The Host inventory drives multi-host
 	// placement: every hypervisor instance registers itself (or is
 	// registered by the operator) and the scheduler picks among
-	// them honouring [[vzd-placement-rules]].
+	// them honouring [[weft-placement-rules]].
 	RegisterHost(context.Context, *RegisterHostRequest) (*RegisterHostResponse, error)
 	ListHosts(context.Context, *ListHostsRequest) (*ListHostsResponse, error)
 	GetHost(context.Context, *GetHostRequest) (*GetHostResponse, error)

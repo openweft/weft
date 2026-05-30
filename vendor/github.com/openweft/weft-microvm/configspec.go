@@ -1,12 +1,12 @@
-// Derive the runtime-style process spec ncl-init consumes from the
+// Derive the runtime-style process spec weft-microvm-init consumes from the
 // OCI image config. Image config-spec carries Entrypoint, Cmd, Env,
-// WorkingDir, User — we flatten that to the same shape ncl-init's
+// WorkingDir, User — we flatten that to the same shape weft-microvm-init's
 // resolveProcess expects (matching the OCI runtime-spec `process`
 // block, minimal subset).
 //
 // The runtime user field accepts forms like "1000", "1000:1000",
 // "user", "user:group". The numeric forms are handled here; the
-// named forms are passed through as-is and ncl-init resolves them
+// named forms are passed through as-is and weft-microvm-init resolves them
 // against /etc/passwd + /etc/group from inside the rootfs.
 // (Named-user resolution is a roadmap item.)
 
@@ -21,8 +21,8 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// processSpec is the shape we write into <rootfs>/.ncl/config.json.
-// ncl-init's resolveProcess (in init/cmd/ncl-init/exec.go) parses
+// processSpec is the shape we write into <rootfs>/.weft-microvm/config.json.
+// weft-microvm-init's resolveProcess (in init/cmd/weft-microvm-init/exec.go) parses
 // exactly this layout — see "process" handling there.
 type processSpec struct {
 	Args []string `json:"args"`
@@ -82,7 +82,7 @@ func processFromImageConfig(c ocispec.ImageConfig) (processSpec, error) {
 
 // parseImageUser handles the numeric forms of OCI's User field.
 // "1000", "1000:1000". Returns an error for the named forms — those
-// need /etc/passwd lookup which we defer to ncl-init (future work).
+// need /etc/passwd lookup which we defer to weft-microvm-init (future work).
 func parseImageUser(u string) (uint32, uint32, error) {
 	left, right, hasGID := strings.Cut(u, ":")
 	uid64, err := strconv.ParseUint(left, 10, 32)
@@ -111,7 +111,7 @@ func applyUserOverrides(base processSpec, args Args) processSpec {
 	return out
 }
 
-// marshalConfig produces the bytes that go to <rootfs>/.ncl/config.json.
+// marshalConfig produces the bytes that go to <rootfs>/.weft-microvm/config.json.
 func marshalConfig(p processSpec) ([]byte, error) {
 	return json.MarshalIndent(configFile{Process: p}, "", "  ")
 }

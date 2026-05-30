@@ -24,7 +24,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cloud-boot/init/pkg/oci"
+	"github.com/openweft/weft-microvm/oci"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 

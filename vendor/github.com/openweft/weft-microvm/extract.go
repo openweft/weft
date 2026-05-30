@@ -19,7 +19,7 @@
 // the standard tar header conventions. We skip device nodes (no
 // CAP_MKNOD needed; the container's userspace doesn't typically
 // rely on them living in the extracted rootfs — /dev gets
-// bind-mounted at runtime by ncl-init).
+// bind-mounted at runtime by weft-microvm-init).
 
 package microvm
 
@@ -135,7 +135,7 @@ func applyEntry(tr io.Reader, hdr *tar.Header, dest string) error {
 			return err
 		}
 	case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
-		// Skip device nodes; ncl-init's /dev is a bind mount and
+		// Skip device nodes; weft-microvm-init's /dev is a bind mount and
 		// the extracted rootfs entries would be no-ops anyway.
 		return nil
 	default:

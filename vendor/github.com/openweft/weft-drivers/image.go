@@ -7,7 +7,7 @@ import "context"
 // local copy instead of pulling from the registry on every boot.
 //
 // One driver instance per (host, cache backend) — typically one
-// per vzd-agent, backed by a host-local directory. Future:
+// per weft-agent, backed by a host-local directory. Future:
 // driver that delegates to a per-AZ zot mirror so the same blob
 // only crosses the WAN once per AZ.
 type ImageDriver interface {

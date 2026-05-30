@@ -1,24 +1,24 @@
-// Package vzclient — token.go owns the on-disk OAuth2 token cache
-// for vzc / ncl. The cache is HCL (per [[hcl-over-json]]) so an
+// Package weftclient — token.go owns the on-disk OAuth2 token cache
+// for weft / weft-microvm. The cache is HCL (per [[hcl-over-json]]) so an
 // operator can `cat` it, comment out a stale entry, or hand-edit
 // when debugging an SSO problem.
 //
-// Layout: $XDG_CONFIG_HOME/vzc/token.hcl (default
-// ~/.config/vzc/token.hcl). Mode 0600 — tokens are bearer
+// Layout: $XDG_CONFIG_HOME/weft/token.hcl (default
+// ~/.config/weft/token.hcl). Mode 0600 — tokens are bearer
 // credentials, treat them like SSH keys.
 //
 // Schema:
 //
-//	# vzc auth token cache. Created/updated by `vzc login`.
+//	# weft auth token cache. Created/updated by `weft login`.
 //	issuer        = "https://dex.internal.example.com"
-//	client_id     = "vzc"
+//	client_id     = "weft"
 //	access_token  = "eyJ…"
 //	refresh_token = "…"   # optional
 //	id_token      = "eyJ…"
 //	expires_at    = "2026-05-23T12:34:56Z"
 //
 // Only one cached token at a time — multi-account is deferred.
-package vzclient
+package weftclient
 
 import (
 	"errors"
@@ -44,16 +44,16 @@ type CachedToken struct {
 }
 
 // TokenCachePath resolves the on-disk location of the cache.
-// Honours XDG_CONFIG_HOME; falls back to $HOME/.config/vzc.
+// Honours XDG_CONFIG_HOME; falls back to $HOME/.config/weft.
 func TokenCachePath() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "vzc", "token.hcl")
+		return filepath.Join(x, "weft", "token.hcl")
 	}
 	home, _ := os.UserHomeDir()
 	if home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".config", "vzc", "token.hcl")
+	return filepath.Join(home, ".config", "weft", "token.hcl")
 }
 
 // LoadCachedToken reads + decodes the cached token. Returns
@@ -94,7 +94,7 @@ func SaveCachedToken(t *CachedToken) error {
 	f := hclwrite.NewEmptyFile()
 	body := f.Body()
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{Type: 0, Bytes: []byte(
-		"# vzc auth token cache. Created/updated by `vzc login`.\n" +
+		"# weft auth token cache. Created/updated by `weft login`.\n" +
 			"# Mode 0600 — bearer credentials, treat like an SSH key.\n\n",
 	)}})
 	body.SetAttributeValue("issuer", cty.StringVal(t.Issuer))
@@ -118,7 +118,7 @@ func SaveCachedToken(t *CachedToken) error {
 	return nil
 }
 
-// DeleteCachedToken removes the on-disk cache (used by `vzc
+// DeleteCachedToken removes the on-disk cache (used by `weft
 // logout`). Missing-file is treated as success.
 func DeleteCachedToken() error {
 	path := TokenCachePath()
