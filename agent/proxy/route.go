@@ -49,7 +49,17 @@ type Route struct {
 type Routes []Route
 
 // renderCaddyConfig converts a Routes slice into the JSON Caddy expects on
-// the admin /load endpoint.
+// the admin /load endpoint. Delegates to renderCaddyConfigWith with no
+// storage override — keeps the simpler signature for the bootstrap path
+// and existing tests.
+func (rs Routes) renderCaddyConfig(adminSocket string) ([]byte, error) {
+	return rs.renderCaddyConfigWith(adminSocket, nil)
+}
+
+// renderCaddyConfigWith is the parameterised renderer used by the supervisor
+// when the operator opts into a shared certificate store (etcd). `storage`
+// becomes the top-level `storage` field Caddy reads at startup; nil means
+// filesystem default (Caddy's $XDG_DATA_HOME/caddy).
 //
 // The shape we emit is the minimal route table Caddy accepts:
 //
@@ -71,7 +81,7 @@ type Routes []Route
 //
 // We render the `tls` block only when at least one route opts out of
 // auto-ACME — keeping the config blob small when nothing exotic is in play.
-func (rs Routes) renderCaddyConfig(adminSocket string) ([]byte, error) {
+func (rs Routes) renderCaddyConfigWith(adminSocket string, storage map[string]any) ([]byte, error) {
 	type caddyRoute struct {
 		Match  []map[string]any `json:"match,omitempty"`
 		Handle []map[string]any `json:"handle"`
@@ -99,8 +109,9 @@ func (rs Routes) renderCaddyConfig(adminSocket string) ([]byte, error) {
 		TLS  *caddyTLS `json:"tls,omitempty"`
 	}
 	type caddyConfig struct {
-		Admin caddyAdmin `json:"admin"`
-		Apps  caddyApps  `json:"apps"`
+		Admin   caddyAdmin     `json:"admin"`
+		Storage map[string]any `json:"storage,omitempty"`
+		Apps    caddyApps      `json:"apps"`
 	}
 
 	var routes []caddyRoute
@@ -159,7 +170,8 @@ func (rs Routes) renderCaddyConfig(adminSocket string) ([]byte, error) {
 	}
 
 	cfg := caddyConfig{
-		Admin: caddyAdmin{Listen: adminSocket},
+		Admin:   caddyAdmin{Listen: adminSocket},
+		Storage: storage,
 		Apps: caddyApps{
 			HTTP: caddyHTTP{
 				Servers: map[string]caddyServer{

@@ -80,6 +80,39 @@ func TestRenderCaddyConfig_RejectsEmptyBackends(t *testing.T) {
 	}
 }
 
+func TestRenderCaddyConfigWith_StorageBlockEmitted(t *testing.T) {
+	storage := map[string]any{"module": "etcd3", "endpoints": []string{"http://127.0.0.1:2379"}}
+	body, err := Routes{{Host: "x", Backends: []string{"y:1"}}}.renderCaddyConfigWith("unix//tmp/x", storage)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(string(body), `"storage":{`) || !strings.Contains(string(body), `"module":"etcd3"`) {
+		t.Fatalf("expected top-level storage block in %s", string(body))
+	}
+}
+
+func TestRenderCaddyConfigWith_NilStorageOmits(t *testing.T) {
+	body, err := Routes{{Host: "x", Backends: []string{"y:1"}}}.renderCaddyConfigWith("unix//tmp/x", nil)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if strings.Contains(string(body), `"storage"`) {
+		t.Fatalf("nil storage should omit the block: %s", string(body))
+	}
+}
+
+func TestEtcdStorageEndpoints_Parsing(t *testing.T) {
+	t.Setenv("WEFT_PROXY_STORAGE_ETCD_ENDPOINTS", "  http://a:2379 , http://b:2379  ,")
+	got := EtcdStorageEndpoints()
+	if len(got) != 2 || got[0] != "http://a:2379" || got[1] != "http://b:2379" {
+		t.Fatalf("parse: got %v", got)
+	}
+	t.Setenv("WEFT_PROXY_STORAGE_ETCD_ENDPOINTS", "")
+	if EtcdStorageEndpoints() != nil {
+		t.Fatalf("empty env should return nil slice")
+	}
+}
+
 func TestRenderCaddyConfig_AutoHTTPSDisableMixed(t *testing.T) {
 	rs := Routes{
 		{Host: "api.example.com", Backends: []string{"x:1"}},
