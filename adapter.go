@@ -2534,11 +2534,16 @@ type MicroVMBoot struct {
 // "")`). buildVZConfigFromDir auto-detects which boot mode the VM
 // dir is wired for by inspecting which files are present.
 //
-// Idempotent in spirit: if the VM dir already exists it returns an
-// error rather than clobbering — callers should DeleteVM first.
+// Idempotent on re-registration: if a VM with the same (project, name)
+// already exists, the call succeeds silently rather than clobbering — the
+// existing spec is left untouched. This keeps `weft up --apply` and
+// `weft infra deploy` repeatable across re-runs. To force a fresh
+// registration the operator deletes the VM first (DeleteVM).
 func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare) error {
 	if a.VMExistsIn(project, name) {
-		return fmt.Errorf("vz register-microvm: vm %q already exists in project %s", name, a.ResolveProjectUUID(project))
+		fmt.Fprintf(os.Stderr, "weft: register-microvm: vm %q already in project %s — idempotent skip\n",
+			name, a.ResolveProjectUUID(project))
+		return nil
 	}
 	if boot.BootISO == "" && boot.Kernel == "" {
 		return fmt.Errorf("vz register-microvm: need exactly one of BootISO or Kernel")

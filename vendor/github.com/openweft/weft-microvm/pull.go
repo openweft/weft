@@ -81,6 +81,20 @@ func Pull(image string) error {
 	rs := refsafe(image)
 	root := imageRoot(rs)
 	rootfs := rootfsPath(rs)
+
+	// Idempotency sentinel: a successful prior Pull writes
+	// .weft-microvm/config.json last, so its presence means the rootfs is
+	// fully materialised for this ref — skip the fetch + extract entirely.
+	// Re-extracting layers over an existing tree previously panicked mid-
+	// stream (cp_file_range vs an extracted whiteout) and re-downloading
+	// burns time + bandwidth; both are avoided here. Forced re-pull = the
+	// caller `rm -rf` the cache entry first.
+	sentinel := filepath.Join(rootfs, ".weft-microvm", "config.json")
+	if _, err := os.Stat(sentinel); err == nil {
+		log.Printf("weft-microvm pull: %s already cached at %s — skipping", image, root)
+		return nil
+	}
+
 	if err := os.MkdirAll(rootfs, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", rootfs, err)
 	}
