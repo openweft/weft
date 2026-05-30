@@ -38,9 +38,9 @@ type ExtraDisk struct {
 	Mountpoint string `json:"mountpoint,omitempty"`
 }
 
-// VZAdapter is the interface implemented by the vzd adapter. It includes the
+// VZAdapter is the interface implemented by the weft adapter. It includes the
 // common adapter methods previously defined in the central `adapters` package
-// plus vzd-specific helpers.
+// plus weft-specific helpers.
 type VZAdapter interface {
 	// Basic adapter API (formerly adapters.Adapter)
 	Name() string
@@ -84,7 +84,7 @@ type VZAdapter interface {
 	RemoveProjectMember(projectUUID, userUUID string) error
 	ProjectMembers(projectUUID string) ([]string, bool)
 	// User registry surface — maps (OIDC issuer, subject) ↔ stable
-	// vzd UUID. Volatile fields (email, groups, last_seen) refresh
+	// weft UUID. Volatile fields (email, groups, last_seen) refresh
 	// on every successful auth via RegisterUser. See users.go.
 	Users() []User
 	UserByUUID(uuid string) (User, bool)
@@ -145,9 +145,9 @@ type VZAdapter interface {
 	SetPortWireguardPubKey(uuid, pubkey string) error
 	DeletePort(uuid string) error
 	// Host registry surface — global compute-node inventory.
-	// One entry per registered vzd-agent. Scheduler reads these
+	// One entry per registered weft-agent. Scheduler reads these
 	// to pick a host for a new VM. See hosts.go and
-	// [[vzd-driver-registry-split]].
+	// [[weft-driver-registry-split]].
 	Hosts() []Host
 	HostByUUID(uuid string) (Host, bool)
 	HostByHostname(hostname string) (Host, bool)
@@ -160,11 +160,11 @@ type VZAdapter interface {
 	// ScheduleVMGroup picks `req.Replicas` hosts honouring the
 	// cross-replica PlacementRule. Used by the infra orchestrator
 	// to fan out a multi-replica plan across distinct AZs / racks
-	// / hosts. See scheduler.go + [[vzd-placement-rules]].
+	// / hosts. See scheduler.go + [[weft-placement-rules]].
 	ScheduleVMGroup(ctx context.Context, req GroupScheduleRequest) ([]Host, error)
 	// VM inventory surface — one entry per managed VM, each
 	// carrying its host_uuid for multi-host dispatch. See vms.go
-	// and [[vzd-driver-registry-split]].
+	// and [[weft-driver-registry-split]].
 	VMs() []VM
 	VMByUUID(uuid string) (VM, bool)
 	VMByName(projectUUID, name string) (VM, bool)
@@ -179,11 +179,11 @@ type VZAdapter interface {
 	EventBus() EventBus
 	// RenderNATSAuthorization emits the NATS-conf authorization
 	// block for the operator to splice into nats.conf. See
-	// nats_config.go + [[vzd-tenant-event-access]] Phase 3.
+	// nats_config.go + [[weft-tenant-event-access]] Phase 3.
 	RenderNATSAuthorization(opts NATSAuthorizationOptions) (string, error)
 	// SetNATSAuthorizationFile turns on auto-render of the
 	// authorization block to the given path. Empty path disables.
-	// Per [[vzd-tenant-event-access]] Phase-5 follow-up.
+	// Per [[weft-tenant-event-access]] Phase-5 follow-up.
 	SetNATSAuthorizationFile(path, adminPubkey string)
 	// VisibleProjects returns the set of project UUIDs the
 	// authenticated caller in `ctx` is allowed to see. The bool
@@ -213,14 +213,14 @@ type Adapter struct {
 	users      map[string]string     // vmName → SSH user override
 	sshKeyPath string                // path to private key for key-based SSH auth
 	// defaultProjUUID is the auto-created project UUID for the OS
-	// user vzd runs as. Resolved lazily on first call to
+	// user weft runs as. Resolved lazily on first call to
 	// DefaultProjectUUID(); Phase 2 swaps this for the
 	// authenticated caller's identity.
 	defaultProjUUID string
 	// projects is the on-disk registry mapping UUID ↔ display name.
 	// Loaded once at startup, written on every mutation.
 	projects *projectRegistry
-	// userReg maps (OIDC issuer + subject) ↔ vzd UUID + per-user
+	// userReg maps (OIDC issuer + subject) ↔ weft UUID + per-user
 	// metadata (email, groups, display_name). Distinct from the
 	// `users` map above, which is the VM-name → SSH-user override.
 	// See users.go.
@@ -238,7 +238,7 @@ type Adapter struct {
 	// mesh networks). See ports.go.
 	portReg *portRegistry
 	// hostReg holds the cluster's compute-node inventory. See
-	// hosts.go and [[vzd-driver-registry-split]].
+	// hosts.go and [[weft-driver-registry-split]].
 	hostReg *hostRegistry
 	// vmReg holds the VM inventory — one entry per managed VM,
 	// each carrying its host_uuid for multi-host dispatch. See
@@ -252,8 +252,8 @@ type Adapter struct {
 	// driverDispatch maps host UUID → HostHandle (the four
 	// driver interfaces for that host). Populated for the local
 	// host by initLocalDrivers; remote hosts add themselves via
-	// RegisterHostHandle when vzd-agent comes online. See
-	// dispatch.go and [[vzd-driver-registry-split]].
+	// RegisterHostHandle when weft-agent comes online. See
+	// dispatch.go and [[weft-driver-registry-split]].
 	driverDispatch   map[string]*HostHandle
 	driverDispatchMu sync.RWMutex
 	// driverPlugins holds the go-plugin client closers for locally-launched
@@ -274,7 +274,7 @@ type Adapter struct {
 	// implementations and [[etcd-control-plane]] for the prod path.
 	storageFactory func(name string) Storage
 	// bus is the in-process pub-sub spine for PlatformEvents. Per
-	// [[vzd-event-bus]]: every RecordEvent + every project /
+	// [[weft-event-bus]]: every RecordEvent + every project /
 	// lifecycle mutation also Publishes here, and the WatchEvents
 	// gRPC handler streams from it.
 	bus EventBus
@@ -282,7 +282,7 @@ type Adapter struct {
 	// authorization block is auto-written to on every mutation
 	// that changes its output (project create/delete, seed mint).
 	// Empty disables auto-render; the renderer is still callable
-	// via `vzc admin nats-authz`. Per [[vzd-tenant-event-access]]
+	// via `weft admin nats-authz`. Per [[weft-tenant-event-access]]
 	// post-Phase-4 — closes the operator-runs-by-hand gap.
 	natsAuthzPath        string
 	natsAuthzAdminPubkey string
@@ -324,7 +324,7 @@ func (a *Adapter) SetEventBus(b EventBus) {
 // closure passed in: kinds that already carry a dotted prefix
 // (e.g. "vz.state.Running", "server.start_attempted",
 // "vz_vm_run.entered") pass through as-is; bare kinds (e.g.
-// "init_entered" from a guest NCL_MARK) get a "guest." prefix.
+// "init_entered" from a guest WEFT_MARK) get a "guest." prefix.
 // That keeps the wire taxonomy clean: every event reads as
 // `<source>.<phase>` without each call site spelling its prefix.
 func (a *Adapter) installBusHook(raw func(vmDir, kind string, ts int64, meta map[string]string)) {
@@ -472,10 +472,10 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 	a.initVMs()
 	a.scheduler = FirstFitScheduler{} // operator-overridable via SetScheduler
 	if err := a.selfRegisterHost(); err != nil {
-		// Non-fatal: vzd still serves requests, but the registry
+		// Non-fatal: weft still serves requests, but the registry
 		// won't list this host until a subsequent restart
 		// succeeds. Logged so operators notice.
-		fmt.Fprintf(os.Stderr, "vzd: self-register host: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: self-register host: %v\n", err)
 	}
 	a.initLocalDrivers()
 	a.migrateLegacyLayout()
@@ -490,7 +490,7 @@ func (a *Adapter) initUsers() {
 	storage := a.storageFactory("users")
 	reg, err := loadUserRegistry(context.Background(), storage)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "vzd: load user registry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: load user registry: %v\n", err)
 		reg = &userRegistry{
 			storage:    storage,
 			byUUID:     make(map[string]User),
@@ -505,7 +505,7 @@ func (a *Adapter) initNetworks() {
 	storage := a.storageFactory("networks")
 	reg, err := loadNetworkRegistry(context.Background(), storage)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "vzd: load network registry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: load network registry: %v\n", err)
 		reg = &networkRegistry{
 			storage:    storage,
 			byUUID:     make(map[string]Network),
@@ -606,7 +606,7 @@ func (a *Adapter) initVolumes() {
 	storage := a.storageFactory("volumes")
 	reg, err := loadVolumeRegistry(context.Background(), storage)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "vzd: load volume registry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: load volume registry: %v\n", err)
 		reg = &volumeRegistry{
 			storage:    storage,
 			byUUID:     make(map[string]Volume),
@@ -622,7 +622,7 @@ func (a *Adapter) initSecurityGroups() {
 	storage := a.storageFactory("security_groups")
 	reg, err := loadSecurityGroupRegistry(context.Background(), storage)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "vzd: load security-group registry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: load security-group registry: %v\n", err)
 		reg = &securityGroupRegistry{
 			storage:    storage,
 			byUUID:     make(map[string]SecurityGroup),
@@ -638,7 +638,7 @@ func (a *Adapter) initPorts() {
 	storage := a.storageFactory("ports")
 	reg, err := loadPortRegistry(context.Background(), storage)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "vzd: load port registry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: load port registry: %v\n", err)
 		reg = &portRegistry{
 			storage:    storage,
 			byUUID:     make(map[string]Port),
@@ -652,7 +652,7 @@ func (a *Adapter) initPorts() {
 }
 
 // initLocalDrivers builds the in-process driver Bundle for the
-// host vzd-control is running on. Must run AFTER selfRegisterHost
+// host weft-control is running on. Must run AFTER selfRegisterHost
 // so the bundle's HostUUID matches what the Host registry knows
 // about us — keeping the identity consistent end-to-end.
 //
@@ -758,6 +758,20 @@ func copyTree(src, dst string) error {
 			return err
 		}
 		target := filepath.Join(dst, rel)
+		// Replicate symlinks verbatim — never follow. Following a symlink to a
+		// directory and feeding the fd to io.Copy lands on copy_file_range with
+		// EISDIR (seen in OCI rootfs trees that ship a zoneinfo posix/ mirror).
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			_ = os.Remove(target)
+			return os.Symlink(link, target)
+		}
 		if info.IsDir() {
 			return os.MkdirAll(target, info.Mode().Perm()|0o700)
 		}
@@ -790,7 +804,7 @@ func (a *Adapter) initVMs() {
 	storage := a.storageFactory("vms")
 	reg, err := loadVMRegistry(context.Background(), storage)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "vzd: load vm registry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: load vm registry: %v\n", err)
 		reg = &vmRegistry{
 			storage:    storage,
 			byUUID:     make(map[string]VM),
@@ -975,7 +989,7 @@ func (a *Adapter) initHosts() {
 	storage := a.storageFactory("hosts")
 	reg, err := loadHostRegistry(context.Background(), storage)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "vzd: load host registry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: load host registry: %v\n", err)
 		reg = &hostRegistry{
 			storage: storage,
 			byUUID:  make(map[string]Host),
@@ -1021,7 +1035,7 @@ func (a *Adapter) HostsInAZ(az string) []Host {
 	return a.hostReg.listByAZ(az)
 }
 
-// RegisterHost adds a host to the cluster. Called by vzd-agent
+// RegisterHost adds a host to the cluster. Called by weft-agent
 // on startup (or by an admin CLI for static topologies).
 func (a *Adapter) RegisterHost(spec RegisterHostSpec) (Host, error) {
 	if a.hostReg == nil {
@@ -1043,7 +1057,7 @@ func (a *Adapter) RegisterHost(spec RegisterHostSpec) (Host, error) {
 }
 
 // HeartbeatHost updates the host's LastSeenAt + flips Down → Active.
-// Called by vzd-agent on a timer (typical 30s).
+// Called by weft-agent on a timer (typical 30s).
 func (a *Adapter) HeartbeatHost(uuid string) error {
 	if a.hostReg == nil {
 		return fmt.Errorf("host registry not initialised")
@@ -1468,7 +1482,7 @@ func (a *Adapter) DeleteSecurityGroup(uuid string) error {
 // that resolves projects.
 func (a *Adapter) initProjects() {
 	if err := os.MkdirAll(a.vmsDir(), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "vzd: mkdir vmsDir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: mkdir vmsDir: %v\n", err)
 	}
 	// Storage backend comes from the adapter's storageFactory, set
 	// at construction time (NewWithStorage). Dev path: file-backed
@@ -1478,7 +1492,7 @@ func (a *Adapter) initProjects() {
 	storage := a.storageFactory("projects")
 	reg, err := loadProjectRegistry(context.Background(), storage)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "vzd: load project registry: %v\n", err)
+		fmt.Fprintf(os.Stderr, "weft: load project registry: %v\n", err)
 		// Same Storage but empty in-memory state — subsequent
 		// mutations will still try to Save (and likely succeed if
 		// the underlying I/O blip was transient).
@@ -1518,7 +1532,7 @@ func (a *Adapter) migrateLegacyLayout() {
 			continue
 		}
 		if err := os.Rename(dir, dst); err == nil {
-			fmt.Fprintf(os.Stderr, "vzd: migrated flat-layout vm %q -> %s/ (default project)\n", e.Name(), a.DefaultProjectUUID())
+			fmt.Fprintf(os.Stderr, "weft: migrated flat-layout vm %q -> %s/ (default project)\n", e.Name(), a.DefaultProjectUUID())
 		}
 	}
 }
@@ -1557,11 +1571,11 @@ func (a *Adapter) migrateNamedProjectDirs() {
 				_ = os.Rename(filepath.Join(src, c.Name()), filepath.Join(dst, c.Name()))
 			}
 			_ = os.Remove(src)
-			fmt.Fprintf(os.Stderr, "vzd: merged named project %q (%s)\n", e.Name(), p.UUID)
+			fmt.Fprintf(os.Stderr, "weft: merged named project %q (%s)\n", e.Name(), p.UUID)
 			continue
 		}
 		if err := os.Rename(src, dst); err == nil {
-			fmt.Fprintf(os.Stderr, "vzd: migrated named project %q -> uuid %s\n", e.Name(), p.UUID)
+			fmt.Fprintf(os.Stderr, "weft: migrated named project %q -> uuid %s\n", e.Name(), p.UUID)
 		}
 	}
 }
@@ -1603,7 +1617,7 @@ func (a *Adapter) RegistryStorage(name string) Storage {
 }
 
 // DefaultProjectUUID returns the UUID of the auto-created project
-// for the OS user vzd runs as. First call lazily creates it; later
+// for the OS user weft runs as. First call lazily creates it; later
 // calls return the cached value. Phase 2 will swap this for the
 // authenticated caller's identity.
 func (a *Adapter) DefaultProjectUUID() string {
@@ -2420,9 +2434,9 @@ func (a *Adapter) CloneVM(image, project, name string, extraDisks []ExtraDisk, w
 //   * The Apple-VZ machine state (nvram, machine-id, mac.txt) is
 //     delegated to the local Hypervisor driver's CreateVM. That
 //     code lives in pkg/openweft/weft-driver-vz and is what
-//     a future vzd-agent on another host would reuse.
+//     a future weft-agent on another host would reuse.
 //   * The data-disk creation + config.json layout stay here
-//     because they're still vzd-control concerns: a future
+//     because they're still weft-control concerns: a future
 //     commit moves data disks behind the VolumeDriver +
 //     AttachDisk path, and config.json behind a vmspec.hcl in
 //     the VM-inventory registry.
@@ -2464,21 +2478,21 @@ func (a *Adapter) provisionVMDir(dir, image string, extraDisks []ExtraDisk) erro
 }
 
 // MicroVMShare describes one virtio-fs share to expose to a microVM.
-// nano-container-linux's `ncl run` uses this to plumb an extracted
-// OCI image rootfs to the guest, where ncl-init mounts it on
+// weft-microvm's `weft-microvm run` uses this to plumb an extracted
+// OCI image rootfs to the guest, where weft-microvm-init mounts it on
 // /newroot before pivot_root.
 type MicroVMShare struct {
 	// Tag is the mount tag the guest passes to `mount -t virtiofs`.
-	// Conventional default for ncl: "rootfs0".
+	// Conventional default for weft-microvm: "rootfs0".
 	Tag string
 	// Path is the host directory exposed. Must exist + be readable.
 	Path string
-	// ReadOnly toggles the SharedDirectory's read-only flag. ncl
-	// keeps the rootfs read-write so the guest's `.ncl/config.json`
+	// ReadOnly toggles the SharedDirectory's read-only flag. weft-microvm
+	// keeps the rootfs read-write so the guest's `.weft-microvm/config.json`
 	// override path stays writable; set to true for purely shared
 	// inputs (e.g. mounting host source trees into a build container).
 	ReadOnly bool
-	// Clone asks vzd to materialise a copy-on-write clone of Path
+	// Clone asks weft to materialise a copy-on-write clone of Path
 	// into <vmDir>/<Tag>/ via macOS clonefile(2) before recording
 	// the share. The cloned tree (not the original Path) is what
 	// the guest sees over virtio-fs, so multiple VMs sharing the
@@ -2494,7 +2508,7 @@ type MicroVMShare struct {
 //
 //   - BootISO: UKI mode. The ISO is attached as a read-only
 //     primary disk; firmware's EFI loader picks up the UKI.
-//   - Kernel (+ optional Initrd): direct-Linux mode. vzd uses
+//   - Kernel (+ optional Initrd): direct-Linux mode. weft uses
 //     `vz.LinuxBootLoader` and skips EFI/UKI entirely.
 //
 // Cmdline is the kernel command line. Empty means use the default
@@ -2513,7 +2527,7 @@ type MicroVMBoot struct {
 //   * direct-Linux — set boot.Kernel (and optionally boot.Initrd)
 //
 // `boot.Cmdline` overrides the default kernel cmdline; needed for
-// ncl-style microVMs which want `ncl.rootfs=virtiofs:rootfs0`.
+// weft-microvm-style microVMs which want `weft.rootfs=virtiofs:rootfs0`.
 //
 // The resulting VM appears in `ListLocal` alongside CloneVM-
 // created classic VMs and is started the same way (`StartVM(name,
@@ -2533,20 +2547,20 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		return fmt.Errorf("vz register-microvm: BootISO and Kernel are mutually exclusive")
 	}
 
-	// Inject VZD_PROJECT_UUID into the guest cmdline so workloads
+	// Inject WEFT_PROJECT_UUID into the guest cmdline so workloads
 	// inside the VM can build their per-project NATS subject
-	// (vzd.events.project.$VZD_PROJECT_UUID.events.>) without
+	// (weft.events.project.$WEFT_PROJECT_UUID.events.>) without
 	// having to be told what project they belong to.
-	// Per [[vzd-tenant-event-access]] Phase 2.
+	// Per [[weft-tenant-event-access]] Phase 2.
 	//
-	// ncl-init's cmdline parser (exec.go in nano-container-linux)
+	// weft-microvm-init's cmdline parser (exec.go in weft-microvm)
 	// builds a last-wins map from /proc/cmdline tokens, so adding
-	// a fresh `ncl.env=...` would clobber any caller-supplied env
+	// a fresh `weft.env=...` would clobber any caller-supplied env
 	// list. Merge into the existing clause instead: colon-separate
-	// inside one value, matching ncl-init's parser.
+	// inside one value, matching weft-microvm-init's parser.
 	projectUUID := a.ResolveProjectUUID(project)
 	if projectUUID != "" {
-		boot.Cmdline = mergeProjectEnv(boot.Cmdline, "VZD_PROJECT_UUID="+projectUUID)
+		boot.Cmdline = mergeProjectEnv(boot.Cmdline, "WEFT_PROJECT_UUID="+projectUUID)
 	}
 
 	dir := a.vmDirIn(project, name)
@@ -2593,10 +2607,10 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 
 	// Per-project NATS user-NKey: drop the seed into <vmDir>/nats/
 	// and append a read-only virtio-fs share so the guest can mount
-	// it at /run/vzd/ (conventional tag "vzd-nats"). The seed is
+	// it at /run/weft/ (conventional tag "weft-nats"). The seed is
 	// minted lazily on the first RegisterMicroVM for the project
 	// and reused for every subsequent VM in the same project.
-	// Per [[vzd-tenant-event-access]] Phase 2; server-side subject
+	// Per [[weft-tenant-event-access]] Phase 2; server-side subject
 	// permissions land in Phase 3.
 	if projectUUID != "" && a.projects != nil {
 		seed, err := a.projects.ensureNATSUserSeed(projectUUID)
@@ -2623,7 +2637,7 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 			_ = os.RemoveAll(dir)
 			return fmt.Errorf("vz register-microvm: rename nats seed: %w", err)
 		}
-		// Refuse to clobber a caller-supplied "vzd-nats" share —
+		// Refuse to clobber a caller-supplied "weft-nats" share —
 		// that's almost certainly a misconfiguration, not an
 		// override the operator meant.
 		for _, s := range shares {
@@ -2642,7 +2656,7 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		// off. Errors are intentionally swallowed: the registry
 		// mutation already succeeded and undoing the VM register
 		// because nats.conf couldn't be re-written would be worse
-		// than asking the operator to re-run `vzc admin nats-authz`.
+		// than asking the operator to re-run `weft admin nats-authz`.
 		_ = a.autoRenderNATSAuthorization()
 	}
 
@@ -2711,7 +2725,7 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 			HostUUID:    a.localHostUUID(),
 			Image:       "microvm/" + mode,
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "vzd: register-microvm inventory: %v\n", err)
+			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
 		}
 	}
 	return nil
@@ -2750,17 +2764,17 @@ func copyFileAtomic(src, dst string) error {
 // `mock up` can exit without killing the VMs.
 //
 // Routed through the local driver Bundle's HypervisorDriver (see
-// [[vzd-driver-registry-split]]):
+// [[weft-driver-registry-split]]):
 //
 //   * RecordEvent for `server.start_attempted` / `_failed` /
-//     `_forked` happens at the Adapter — the events live in vzd's
+//     `_forked` happens at the Adapter — the events live in weft's
 //     event taxonomy, not the driver's.
 //   * The actual fork + vm.pid write + wait-goroutine lives in
 //     the driver, which uses Options.SpawnVMCommand (wired in
 //     initLocalDrivers below) to know what to fork without
 //     baking `vz-vm-run` into the driver's code.
 //   * Options.OnVMExit (also wired in initLocalDrivers) reports
-//     `server.vz_vm_run_exited` back into vzd's RecordEvent
+//     `server.vz_vm_run_exited` back into weft's RecordEvent
 //     stream when the subprocess terminates.
 func (a *Adapter) StartVM(name, cloudInitISO string) error {
 	dir := a.vmDir(name)
@@ -2787,7 +2801,7 @@ func (a *Adapter) StartVM(name, cloudInitISO string) error {
 // StopVM signals the VM subprocess to terminate gracefully (SIGTERM).
 //
 // Routed through the local driver Bundle's HypervisorDriver
-// (see [[vzd-driver-registry-split]]): the Adapter captures the
+// (see [[weft-driver-registry-split]]): the Adapter captures the
 // PID + event metadata, the driver does the actual signaling.
 // The PID is captured here (not asked back from the driver) so
 // the `vm.stop` event payload stays unchanged — operators
@@ -2824,7 +2838,7 @@ func (a *Adapter) StopVM(name string) error {
 // DeleteVM removes the VM directory.
 //
 // Routed through the local driver Bundle's HypervisorDriver
-// (see [[vzd-driver-registry-split]]): the Adapter resolves the
+// (see [[weft-driver-registry-split]]): the Adapter resolves the
 // vmDir + captures event metadata (project, subject) before
 // invoking the driver, which is responsible for the actual
 // teardown. Stop-before-delete is still the Adapter's concern
