@@ -2,7 +2,7 @@ package weft
 
 // vm_properties.go — per-VM host-set key/value annotations. Pairs
 // with weft-webui's drawer Properties tab (commit 3951da0) +
-// weft-vm-agent's pkg/properties subscriber (commit bbaec47) which
+// weft-microvm-agent's pkg/properties subscriber (commit bbaec47) which
 // mirrors guest_readable entries to /run/weft/properties/.
 //
 // Storage shape : single blob holding the whole map[(vm_name,
@@ -110,7 +110,7 @@ func (r *vmPropertyRegistry) saveLocked() error {
 	body := f.Body()
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{
 		Type:  0,
-		Bytes: []byte("# weft per-VM properties — host-set annotations on each VM.\n# guest_readable=true entries flow to the in-guest weft-vm-agent via NATS.\n# Block labels combine <project>/<vm>/<key> for uniqueness ; the body\n# carries the canonical fields.\n\n"),
+		Bytes: []byte("# weft per-VM properties — host-set annotations on each VM.\n# guest_readable=true entries flow to the in-guest weft-microvm-agent via NATS.\n# Block labels combine <project>/<vm>/<key> for uniqueness ; the body\n# carries the canonical fields.\n\n"),
 	}})
 	// Stable sort by (project, vm, key) for diff-friendly output.
 	scopes := make([]string, 0, len(r.byVM))

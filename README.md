@@ -9,21 +9,21 @@ Build requirements: **macOS only** (`darwin && cgo`); the binary must be code-si
 The `weft agent` daemon is the privileged component of the stack. It:
 
 - Manages the full VM lifecycle (create / start / stop / delete)
-- Serves a gRPC API over a Unix socket (`~/.vzd/vzd.sock`)
-- Optionally exposes the same API over an SSH-secured socket (`~/.vzd/vzd-ssh.sock`) via [`ssh`](../../grpc-transports/ssh)
+- Serves a gRPC API over a Unix socket (`~/.weft/weft.sock`)
+- Optionally exposes the same API over an SSH-secured socket (`~/.weft/weft-ssh.sock`) via [`ssh`](../../grpc-transports/ssh)
 - Runs all-in-one by default (server + local driver dispatch); `--server` / `--client` split it into control-plane and per-host roles
 - Caches OCI and HTTP disk images locally (`imagestore`)
 - Injects cloud-init ISOs for SSH key provisioning
-- Forks a child process (`vz-vm-run`) for each graphical VM window
+- Dispatches per-VM lifecycle to driver plugins ([`weft-driver-vz`](../weft-driver-vz/) on macOS forks one `vz-vm-run` subprocess per graphical VM window)
 
 ## Architecture
 
 ```
 weft agent (daemon)
-├── gRPC server (Unix socket)               ← consumed by weft <noun> clients, weft-ui, Terraform provider
+├── gRPC server (Unix socket)               ← consumed by weft <noun> clients, weft-webui, Terraform provider
 ├── gRPC server (SSH-secured Unix socket)   ← consumed over SSH
 ├── imagestore — OCI/HTTP disk image cache
-└── vz-vm-run — forked per running VM (AppKit window)
+└── driver plugin (e.g. weft-driver-vz) — forks one vz-vm-run subprocess per running VM (AppKit window)
 ```
 
 ## `Adapter` API
@@ -89,8 +89,9 @@ uses the same `clonefile(2)` syscall — there the source is a
 | `weft up`         | Day-0 cluster bring-up from a `cluster.hcl`: converge the control plane + infra micro-VMs onto 1 host (single-node) or 3 hosts (3-DC), over SSH. Convergent — re-run after adding hosts to grow 1 → 3 in place. See [`cluster/`](cluster/). |
 | `weft infra deploy|bootstrap` | Per-host primitive `weft up` composes: deploy the infra micro-VMs (etcd/dex/zot/nats/coredns) from `infra/*/plan.hcl`, in `depends_on` order, in-process. Also a dev escape hatch. |
 | `weft <noun> <verb>` | Client RPCs against a running agent (`weft instance list`, `weft image pull …`, `weft host ls`, …). |
-| `weft vz-vm-run`   | Hidden subcommand forked per VM by `Adapter.StartVM`; owns the AppKit window + the `VZVirtualMachine` lifecycle. |
-| `weft vz-provision` | Lay out a vmDir from pre-built artefacts (boot disk + extra data disks + cloud-init ISO) without going through the OCI imagestore / `CloneVM` path. Useful for ad-hoc tests that already have a boot ISO + cloud rootfs on disk (e.g. cloud-boot's `boot.iso` + a labelled Debian cloud raw). Use `--copy` rather than the default symlink mode — Apple `Virtualization.framework` does not follow symlinks in `NewDiskImageStorageDeviceAttachment`. |
+
+
+The driver plugin (e.g. [`weft-driver-vz`](../weft-driver-vz/)) ships the per-hypervisor subcommands (`vz-vm-run`, `vz-provision`) — invoked by the driver itself, not from the weft binary directly.
 
 ## Run
 
@@ -105,9 +106,9 @@ All-in-one mono-host default — file storage + in-process event bus, no etcd/NA
 | `agent` flag | Default | Description |
 |------|---------|-------------|
 | `--config-dir` | `.mock/hcl` | HCL config directory (optional — pre-declares VMs/images) |
-| `--socket` | `~/.vzd/vzd.sock` | Unix socket path |
-| `--ssh-socket` | `~/.vzd/vzd-ssh.sock` | SSH-secured gRPC socket (empty to disable) |
-| `--ssh-authorized-keys` | `~/.vzd/authorized_keys` | Path to authorized_keys |
+| `--socket` | `~/.weft/weft.sock` | Unix socket path |
+| `--ssh-socket` | `~/.weft/weft-ssh.sock` | SSH-secured gRPC socket (empty to disable) |
+| `--ssh-authorized-keys` | `~/.weft/authorized_keys` | Path to authorized_keys |
 | `--storage-backend` | `file` | `file` (dev) or `etcd` (prod 3-DC cluster) |
 | `--event-bus` | `local` | `local` (dev) or `nats` (prod cluster) |
 | `--server` / `--client` | (all-in-one) | Split into control-plane-only / per-host-only roles |
@@ -128,14 +129,15 @@ codesign --entitlements vz.entitlements -s - bin/weft
 Two distinct models, both driven by `weft <noun>`:
 
 - **`weft instance …`** — classic full VMs (boot disk + cloud-init, EFI boot via the Apple-VZ driver).
-- **`weft microvm …`** — Docker-style microVMs: `weft microvm pull <oci-image>` then `weft microvm run <oci-image>`; the rootfs is shared over virtio-fs and booted on a shared `ncl-init` kernel (no per-VM boot.iso/cloud-init). Runtime logic lives in [`weft-microvm`](../weft-microvm); this replaces the former standalone `ncl` binary.
+- **`weft microvm …`** — Docker-style microVMs: `weft microvm pull <oci-image>` then `weft microvm run <oci-image>`; the rootfs is shared over virtio-fs and booted on a shared `weft-microvm-init` kernel (no per-VM boot.iso/cloud-init). Runtime logic lives in [`weft-microvm`](../weft-microvm).
 
 ## Related
 
 - [`weft-proto`](../weft-proto) — gRPC service definition
-- [`vzc`](../vzc) — CLI client
-- [`weft-ui`](../weft-ui) — graphical dashboard
+- [`weft-webui`](../weft-webui) — web dashboard (replaces the legacy AppKit `weft-ui`)
 - [`weft-microvm`](../weft-microvm) — microVM runtime (`weft microvm`)
+- [`weft-driver-vz`](../weft-driver-vz) — Apple VZ hypervisor driver (go-plugin)
+- [`weft-driver-qemu`](../weft-driver-qemu) — QEMU/TCG hypervisor driver (go-plugin)
 - [`cloud-init`](../cloud-init) — cloud-init ISO generation
 - [`ssh`](../../grpc-transports/ssh) — SSH transport
 - [`diskimage`](../../go-diskimages/diskimage) — disk image toolkit

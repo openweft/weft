@@ -1,7 +1,7 @@
 // Package sharemount is the control-plane side of dynamic share mounts. An
 // operator (e.g. a teacher) attaches a CubeFS share to a group of VMs;
 // weft publishes the same ShareMount on each VM's mount subject, and the
-// in-VM agent (weft-vm-agent/pkg/mounts) subscribes and applies it.
+// in-VM agent (weft-microvm-agent/pkg/mounts) subscribes and applies it.
 //
 // State is pushed whole and applied idempotently (replace-by-ID), so
 // re-publishing or a missed message self-heals on the next publish — the
@@ -17,7 +17,7 @@ import (
 )
 
 // Subject is the per-VM event-bus subject. Must match
-// weft-vm-agent/pkg/mounts.Subject ("weft.mounts.<id>"). Publishing per-VM
+// weft-microvm-agent/pkg/mounts.Subject ("weft.mounts.<id>"). Publishing per-VM
 // (rather than to a shared group subject) means a guest only ever trusts
 // its own subject; the fan-out to a group is done here, host-side.
 func Subject(vmID string) string { return "weft.mounts." + vmID }

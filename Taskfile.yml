@@ -5,7 +5,7 @@ vars:
 
 tasks:
   build:
-    desc: "Build vzd daemon into ./bin/weft"
+    desc: "Build weft daemon into ./bin/weft"
     env:
       CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
     cmds:

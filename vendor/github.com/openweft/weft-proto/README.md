@@ -30,7 +30,7 @@ github.com/openweft/weft-proto
 
 ## Service: `Introspect` (guest-side, package `introspectv1`)
 
-Read-only inspection API a micro-VM serves on its `wg0` address for an operator CLI to reach over WireGuard (see [`weft-vm-agent`](../weft-vm-agent) for the server and [`weft-client/wgdial`](../weft-client/wgdial) for the client transport). Defined in `introspect.proto`, generated into the `introspectv1/` subpackage.
+Read-only inspection API a micro-VM serves on its `wg0` address for an operator CLI to reach over WireGuard (see [`weft-microvm-agent`](../weft-microvm-agent) for the server and [`weft-client/wgdial`](../weft-client/wgdial) for the client transport). Defined in `introspect.proto`, generated into the `introspectv1/` subpackage.
 
 | RPC | Description |
 |-----|-------------|

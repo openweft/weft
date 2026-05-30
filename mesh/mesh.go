@@ -1,6 +1,6 @@
-// Package mesh is vzd's side of dynamic WireGuard mesh updates. It computes
+// Package mesh is weft's side of dynamic WireGuard mesh updates. It computes
 // each VM's full desired wg0 config from the current mesh membership and
-// publishes it on the event bus; the in-VM agent (weft-vm-agent/pkg/mesh)
+// publishes it on the event bus; the in-VM agent (weft-microvm-agent/pkg/mesh)
 // subscribes and re-applies. State is pushed whole, so adding or removing a
 // VM is just "recompute every member's config and re-publish".
 package mesh
@@ -16,11 +16,11 @@ import (
 )
 
 // Subject is the per-VM event-bus subject. Must match
-// weft-vm-agent/pkg/mesh.Subject (both pin "weft.mesh.<id>" in tests).
+// weft-microvm-agent/pkg/mesh.Subject (both pin "weft.mesh.<id>" in tests).
 func Subject(vmID string) string { return "weft.mesh." + vmID }
 
-// Member is one VM on the overlay mesh, as vzd knows it: its id, its keypair
-// (vzd minted both halves at provision time), its overlay address, and the
+// Member is one VM on the overlay mesh, as weft knows it: its id, its keypair
+// (weft minted both halves at provision time), its overlay address, and the
 // underlay endpoint peers reach it at.
 type Member struct {
 	VMID       string
@@ -79,7 +79,7 @@ func Publish(nc *nats.Conn, vmID string, cfg pod.WireGuard) error {
 	return nc.Publish(Subject(vmID), data)
 }
 
-// PublishAll publishes every member's recomputed config — the call vzd makes
+// PublishAll publishes every member's recomputed config — the call weft makes
 // after a membership change to refresh the whole mesh.
 func PublishAll(nc *nats.Conn, configs map[string]pod.WireGuard) error {
 	for vmID, cfg := range configs {
