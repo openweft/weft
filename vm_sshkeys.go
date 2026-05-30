@@ -7,7 +7,7 @@ package weft
 // of base64).
 //
 // Pairs with weft-webui's per-VM SSH-keys path (commit e5ac6b9 +
-// 9ed80b9) and the in-guest weft-vm-agent pkg/sshkeys subscriber
+// 9ed80b9) and the in-guest weft-microvm-agent pkg/sshkeys subscriber
 // (commit 032f346) + the embedded sshd (commit b6c20af).
 
 import (

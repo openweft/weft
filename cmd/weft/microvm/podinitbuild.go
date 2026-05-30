@@ -48,8 +48,8 @@ Helper paths are optional — omit one to leave it out of the image.`,
 	f.StringVar(&initBin, "init", "", "path to the Linux weft-init ELF (required)")
 	f.StringVar(&crunBin, "crun", "", "path to the Linux crun binary -> bin/crun")
 	f.StringVar(&cfsBin, "cfs-client", "", "path to the Linux cfs-client binary -> bin/cfs-client")
-	f.StringVar(&agentBin, "agent", "", "path to the Linux weft-vm-agent binary -> bin/weft-vm-agent")
-	f.StringVarP(&out, "output", "o", "", "output path (default $XDG_DATA_HOME/ncl/pod-initrd)")
+	f.StringVar(&agentBin, "agent", "", "path to the Linux weft-microvm-agent binary -> bin/weft-microvm-agent")
+	f.StringVarP(&out, "output", "o", "", "output path (default $XDG_DATA_HOME/weft-microvm/pod-initrd)")
 	return cmd
 }
 
@@ -57,10 +57,10 @@ Helper paths are optional — omit one to leave it out of the image.`,
 // builder and the boot path agree on where the pod initramfs lives.
 func defaultPodInitrdPath() string {
 	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
-		return filepath.Join(v, "ncl", "pod-initrd")
+		return filepath.Join(v, "weft-microvm", "pod-initrd")
 	}
 	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".local", "share", "ncl", "pod-initrd")
+		return filepath.Join(h, ".local", "share", "weft-microvm", "pod-initrd")
 	}
 	return "/tmp/weft-pod-initrd"
 }

@@ -19,7 +19,7 @@ import (
 )
 
 // fakeIntrospect is a stand-in for the VM-side server (the real one lives
-// in weft-vm-agent and is tested there); here we only need a deterministic
+// in weft-microvm-agent and is tested there); here we only need a deterministic
 // response to prove the transport + dial path.
 type fakeIntrospect struct {
 	introspectv1.UnimplementedIntrospectServer

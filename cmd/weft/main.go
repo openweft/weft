@@ -1612,7 +1612,7 @@ func scriptToProto(s weft.Script) *weftv1.Script {
 //
 // (vm_name, project) addresses one VM ; key is the operator-chosen
 // label inside that VM. guest_readable opts the entry into the
-// in-guest weft-vm-agent's NATS read surface. Admin-only writes ;
+// in-guest weft-microvm-agent's NATS read surface. Admin-only writes ;
 // every authenticated caller can read (the dashboard's Properties
 // drawer tab is open to operators with project membership).
 

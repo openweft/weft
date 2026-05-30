@@ -1,5 +1,5 @@
 // Package property implements `weft instance property` :
-// CRUD over the per-VM annotation registry exposed by vzd's
+// CRUD over the per-VM annotation registry exposed by weft's
 // WeftAgent.{List,Set,Delete}VMProperty RPCs.
 //
 //	weft instance property ls   <vm>                              list keys
@@ -8,7 +8,7 @@
 //
 // Properties are per-VM annotations operators can attach without
 // involving the hypervisor — owner, environment, runbook URL, …
-// Setting --guest exposes a property to the in-guest weft-vm-agent
+// Setting --guest exposes a property to the in-guest weft-microvm-agent
 // for the VM to read at boot or via the NATS subject (see the
 // weft.boot/script convention).
 //
@@ -27,7 +27,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -60,7 +60,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListVMProperties(context.Background(), &vzdv1.ListVMPropertiesRequest{
+			resp, err := c.ListVMProperties(context.Background(), &weftv1.ListVMPropertiesRequest{
 				VmName: args[0], Project: project,
 			})
 			if err != nil {
@@ -99,9 +99,9 @@ func setCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.SetVMProperty(context.Background(), &vzdv1.SetVMPropertyRequest{
+			resp, err := c.SetVMProperty(context.Background(), &weftv1.SetVMPropertyRequest{
 				VmName: args[0], Project: project,
-				Property: &vzdv1.VMProperty{
+				Property: &weftv1.VMProperty{
 					Key: key, Value: value, GuestReadable: guestReadable,
 				},
 			})
@@ -117,7 +117,7 @@ func setCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&project, "project", "", "Narrow to a project namespace")
-	cmd.Flags().BoolVar(&guestReadable, "guest", false, "Expose this property to the in-guest weft-vm-agent")
+	cmd.Flags().BoolVar(&guestReadable, "guest", false, "Expose this property to the in-guest weft-microvm-agent")
 	return cmd
 }
 
@@ -133,7 +133,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			if _, err := c.DeleteVMProperty(context.Background(), &vzdv1.DeleteVMPropertyRequest{
+			if _, err := c.DeleteVMProperty(context.Background(), &weftv1.DeleteVMPropertyRequest{
 				VmName: args[0], Project: project, Key: args[1],
 			}); err != nil {
 				return err
@@ -157,7 +157,7 @@ func splitKV(s string) (string, string, error) {
 	return s[:i], s[i+1:], nil
 }
 
-func renderTable(properties []*vzdv1.VMProperty) error {
+func renderTable(properties []*weftv1.VMProperty) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "KEY\tVALUE\tGUEST\tUPDATED_AT")
 	for _, p := range properties {
@@ -170,7 +170,7 @@ func renderTable(properties []*vzdv1.VMProperty) error {
 	return tw.Flush()
 }
 
-func dumpJSON(properties []*vzdv1.VMProperty) error {
+func dumpJSON(properties []*weftv1.VMProperty) error {
 	type out struct {
 		Key           string `json:"key"`
 		Value         string `json:"value"`

@@ -1,6 +1,6 @@
 // Package script implements the `weft script` subcommand group :
 // CRUD over the cluster-wide provisioning-script catalogue exposed
-// by vzd's WeftAgent.{List,Get,Set,Delete}Script RPCs.
+// by weft's WeftAgent.{List,Get,Set,Delete}Script RPCs.
 //
 //	weft script ls                          list every script
 //	weft script get <name>                  print one script (body included)
@@ -14,7 +14,7 @@
 //	weft script set deploy-nginx --file deploy-nginx.sh --description "…"
 //	cat my.sh | weft script set deploy --file - --description "ad-hoc"
 //
-// Body is the literal sh source ; the in-guest weft-vm-agent picks
+// Body is the literal sh source ; the in-guest weft-microvm-agent picks
 // it up by name from the VM's weft.boot/script property and runs
 // it via mvdan.cc/sh/v3.
 package script
@@ -30,7 +30,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -61,7 +61,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListScripts(context.Background(), &vzdv1.ListScriptsRequest{})
+			resp, err := c.ListScripts(context.Background(), &weftv1.ListScriptsRequest{})
 			if err != nil {
 				return err
 			}
@@ -94,7 +94,7 @@ func getCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.GetScript(context.Background(), &vzdv1.GetScriptRequest{Name: args[0]})
+			resp, err := c.GetScript(context.Background(), &weftv1.GetScriptRequest{Name: args[0]})
 			if err != nil {
 				return err
 			}
@@ -103,7 +103,7 @@ func getCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			if format == "json" {
-				return dumpJSON([]*vzdv1.Script{resp.Script})
+				return dumpJSON([]*weftv1.Script{resp.Script})
 			}
 			return renderOne(resp.Script)
 		},
@@ -146,8 +146,8 @@ func setCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.SetScript(context.Background(), &vzdv1.SetScriptRequest{
-				Script: &vzdv1.Script{
+			resp, err := c.SetScript(context.Background(), &weftv1.SetScriptRequest{
+				Script: &weftv1.Script{
 					Name:        args[0],
 					Description: description,
 					Body:        payload,
@@ -180,7 +180,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.DeleteScript(context.Background(), &vzdv1.DeleteScriptRequest{Name: args[0]})
+			resp, err := c.DeleteScript(context.Background(), &weftv1.DeleteScriptRequest{Name: args[0]})
 			if err != nil {
 				return err
 			}
@@ -208,7 +208,7 @@ func readBody(path string) (string, error) {
 	return string(b), nil
 }
 
-func renderTable(scripts []*vzdv1.Script) error {
+func renderTable(scripts []*weftv1.Script) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tLINES\tUPDATED_AT\tUPDATED_BY\tDESCRIPTION")
 	for _, s := range scripts {
@@ -225,7 +225,7 @@ func renderTable(scripts []*vzdv1.Script) error {
 // renderOne prints the header + body of a single script (the "cat
 // my.sh" style ; body comes last so the meta header doesn't pollute
 // a `weft script get X | sh` pipeline).
-func renderOne(s *vzdv1.Script) error {
+func renderOne(s *weftv1.Script) error {
 	fmt.Printf("# name        : %s\n", s.Name)
 	fmt.Printf("# description : %s\n", s.Description)
 	fmt.Printf("# updated_at  : %s\n", s.UpdatedAt)
@@ -235,7 +235,7 @@ func renderOne(s *vzdv1.Script) error {
 	return err
 }
 
-func dumpJSON(scripts []*vzdv1.Script) error {
+func dumpJSON(scripts []*weftv1.Script) error {
 	type out struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`

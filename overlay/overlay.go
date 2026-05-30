@@ -1,4 +1,4 @@
-// Package overlay is vzd's per-VM WireGuard provisioning: it pairs a VM
+// Package overlay is weft's per-VM WireGuard provisioning: it pairs a VM
 // with the operator (via wgcoord), writes the standalone wireguard.json the
 // guest's weft-init applies, and the operator coords the CLI dials with.
 //
@@ -24,7 +24,7 @@ import (
 const (
 	DefaultSubnet        = "10.9.0.0/24"
 	DefaultListenPort    = uint16(51820) // VM wg underlay UDP port
-	DefaultAgentPort     = uint16(51999) // VM Introspect gRPC port (weft-vm-agent)
+	DefaultAgentPort     = uint16(51999) // VM Introspect gRPC port (weft-microvm-agent)
 	DefaultOperatorIndex = 254           // operator's host index in the subnet
 
 	GuestFileName  = "wireguard.json"        // staged into the VM config share

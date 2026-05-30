@@ -38,7 +38,7 @@ type File struct {
 // PackFiles writes a gzipped newc cpio archive to out containing each File
 // at its Path (with parent directory entries emitted first), all owned by
 // root:root. This is how a pod-mode initramfs carries /init plus the
-// helper binaries (bin/crun, bin/cfs-client, bin/weft-vm-agent) the guest
+// helper binaries (bin/crun, bin/cfs-client, bin/weft-microvm-agent) the guest
 // execs from $PATH.
 func PackFiles(files []File, out io.Writer) error {
 	gz := gzip.NewWriter(out)
@@ -102,7 +102,7 @@ func PodInitrd(dst, initBin, crunBin, cfsBin, agentBin string) error {
 	}
 	add("bin/crun", crunBin)
 	add("bin/cfs-client", cfsBin)
-	add("bin/weft-vm-agent", agentBin)
+	add("bin/weft-microvm-agent", agentBin)
 	return PackFilesToFile(files, dst)
 }
 
