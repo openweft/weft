@@ -40,9 +40,9 @@ service "coredns" {
     static_ip = ["10.255.3.53", "10.255.3.54", "10.255.3.55"]
   }
 
-  # Standard ncl-init rootfs share + service config mounted at
+  # Standard weft-microvm-init rootfs share + service config mounted at
   # /etc/coredns/Corefile.
-  cmdline = "ncl.rootfs=virtiofs:rootfs0 ncl.config=virtiofs:cfg"
+  cmdline = "weft.rootfs=virtiofs:rootfs0 weft.config=virtiofs:cfg"
 
   # The Corefile : two zones, one fallthrough.
   #
@@ -104,11 +104,4 @@ service "coredns" {
   # 3-AZ HA cluster, anti-affinity at every level so a single-
   # AZ outage / single-rack outage / single-host failure each
   # take exactly one replica down — the other two keep serving
-  # queries.
-  placement {
-    count = 3
-    az    = "different"
-    rack  = "different"
-    host  = "different"
-  }
 }

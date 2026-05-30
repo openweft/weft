@@ -1,11 +1,11 @@
 package weft
 
-// host_self.go owns vzd-control's "I am running here too" logic:
+// host_self.go owns weft-control's "I am running here too" logic:
 //
 //   1. Load (or create + persist) the stable host UUID from
 //      `<stateDir>/host-uuid`. The file's content survives
 //      restarts so the same physical host always shows up as the
-//      same Host registry entry, even after a vzd binary upgrade.
+//      same Host registry entry, even after a weft binary upgrade.
 //
 //   2. On startup, register (or idempotently refresh) the Host
 //      entry for the local machine using:
@@ -13,13 +13,13 @@ package weft
 //        - os.Hostname()
 //        - runtime.GOARCH for the Architecture
 //        - "apple-vz" as the Hypervisor (this is the macOS
-//          single-host build; future multi-host vzd-agent binaries
+//          single-host build; future multi-host weft-agent binaries
 //          will report their own hypervisor here)
 //
-// Today vzd-control and vzd-agent are the same process: control
+// Today weft-control and weft-agent are the same process: control
 // plane + local driver bundle. The Host entry gets created
-// regardless. When vzd-agent splits into its own binary, this
-// same logic moves there — the control-plane vzd loses the
+// regardless. When weft-agent splits into its own binary, this
+// same logic moves there — the control-plane weft loses the
 // self-registration step and just consumes the registry.
 //
 // Errors here are non-fatal by design: if the host-uuid file
@@ -53,7 +53,7 @@ func (a *Adapter) hostUUIDFile() string {
 //
 // Cheap to call — just a file read. The Adapter doesn't cache
 // the value because in practice the file is read once at server
-// startup (see cmd/weft/main.go's `vzdServer.localHostUUID`).
+// startup (see cmd/weft/main.go's `weftServer.localHostUUID`).
 func (a *Adapter) LocalHostUUID() string {
 	if a == nil {
 		return ""
@@ -109,12 +109,12 @@ func (a *Adapter) loadOrCreateHostUUID() (string, error) {
 // persisted UUID — the second call simply refreshes LastSeenAt
 // and any drifted capabilities.
 //
-// Capabilities reported today reflect the single-host macOS
-// build's truth: hypervisor=apple-vz, all network types
-// supported (nat/bridged/isolated via VZ, mesh via WireGuard),
-// one volume backend ("file"). Future commits derive these from
-// the driver Bundle so the capability list matches what the
-// drivers actually do.
+// The hypervisor label comes from $WEFT_HYPERVISOR (set by the
+// agent's --hypervisor flag), falling back to a per-OS default
+// (qemu on linux, apple-vz elsewhere). NetworkTypes + VolumeBackends
+// still reflect the single-host macOS build's truth; future commits
+// derive them from the driver Bundle so the capability list matches
+// what the drivers actually do.
 func (a *Adapter) selfRegisterHost() error {
 	if a.hostReg == nil {
 		return fmt.Errorf("host registry not initialised")
@@ -127,10 +127,18 @@ func (a *Adapter) selfRegisterHost() error {
 	if err != nil {
 		hostname = "unknown"
 	}
+	hv := os.Getenv("WEFT_HYPERVISOR")
+	if hv == "" {
+		if runtime.GOOS == "linux" {
+			hv = "qemu"
+		} else {
+			hv = "apple-vz"
+		}
+	}
 	_, err = a.RegisterHost(RegisterHostSpec{
 		UUID:           uuid,
 		Hostname:       hostname,
-		Hypervisor:     "apple-vz",
+		Hypervisor:     hv,
 		Architecture:   runtime.GOARCH,
 		NetworkTypes:   []string{"nat", "bridged", "isolated", "mesh"},
 		VolumeBackends: []string{"file"},
