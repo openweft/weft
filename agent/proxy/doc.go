@@ -43,10 +43,11 @@
 //
 //   - ACME (HTTP-01 / DNS-01 / ALPN-01) — auto-HTTPS for every route.
 //   - Certificate storage. Default for now is Caddy's filesystem default
-//     (`$XDG_DATA_HOME/caddy`). The next milestone is the etcd storage
+//     (`$XDG_DATA_HOME/caddy`, isolated per-agent via the StateDir env
+//     setup in supervisor.go). The next milestone is the etcd storage
 //     adapter (`caddy-storage-etcd`) so multiple weft-agent hosts share
-//     issued certs without re-minting them per-host. Filed as TODO in
-//     apply.go alongside the call site.
+//     issued certs without re-minting them per-host. The code TODO
+//     marker sits next to the XDG_DATA_HOME env in supervisor.go.
 //   - Serving requests, including HTTP/2 + HTTP/3 (Caddy handles both
 //     out of the box; we don't think about it).
 //
