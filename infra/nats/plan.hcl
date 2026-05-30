@@ -1,13 +1,13 @@
-# vzd infra plan — NATS event bus
+# weft infra plan — NATS event bus
 #
 # Three micro-VMs, one per DC, joined in cluster mode (full mesh
 # between the three peers). JetStream enabled for durable streams;
 # the platform's PlatformEvent traffic flows on subject
-# `vzd.events.>` and is retained for 24 h so a freshly-started vzc
-# / ncl picks up the recent timeline.
+# `weft.events.>` and is retained for 24 h so a freshly-started weft
+# / weft-microvm picks up the recent timeline.
 #
 # Bootstrap order ([[infra-in-micro-vms]]):
-#   file-vzd → etcd → dex → zot → **nats** → self-promote
+#   file-weft → etcd → dex → zot → **nats** → self-promote
 #
 # NATS deploys *after* dex so JWT auth (via dex-issued tokens via
 # the NATS JWT integration) is ready when the cluster comes up.
@@ -15,7 +15,7 @@
 # local-only mode is fine when there are no remote subscribers.
 
 service "nats" {
-  description = "NATS event bus — 3-DC cluster + JetStream for vzd PlatformEvents"
+  description = "NATS event bus — 3-DC cluster + JetStream for weft PlatformEvents"
   oci_image   = "docker.io/nats:2.11-alpine"
 
   resources {
@@ -42,18 +42,18 @@ service "nats" {
     size_gib = 16
   }
 
-  # Tenant-facing : vzd / vzc / ncl all open NATS clients here.
+  # Tenant-facing : weft / weft / weft-microvm all open NATS clients here.
   # Cluster peer traffic (port 6222) is internal to this subnet.
   network {
     name      = "tenant-services"
     static_ip = ["10.255.3.30", "10.255.3.31", "10.255.3.32"]
   }
 
-  # Standard ncl-init rootfs share + service config mounted at
+  # Standard weft-microvm-init rootfs share + service config mounted at
   # /etc/nats/nats.conf .
-  cmdline = "ncl.rootfs=virtiofs:rootfs0 ncl.config=virtiofs:cfg"
+  cmdline = "weft.rootfs=virtiofs:rootfs0 weft.config=virtiofs:cfg"
 
-  # NATS server config rendered by vzd at deploy time.  Tokens
+  # NATS server config rendered by weft at deploy time.  Tokens
   # $REPLICA / $PEERS / $DC / $PRIVATE_IP filled in per VM.  See
   # README.md for the bootstrap detail.
   config_file {
@@ -64,7 +64,7 @@ service "nats" {
       http_port:   8222
 
       cluster {
-        name:     "vzd-events"
+        name:     "weft-events"
         listen:   "0.0.0.0:6222"
         routes: [
           $PEERS
@@ -87,9 +87,9 @@ service "nats" {
       }
 
       # Local-dev shortcut : when operator_jwt is empty the server
-      # falls back to anonymous, suitable for single-host vzd.
+      # falls back to anonymous, suitable for single-host weft.
       # Production deploys MUST set operator_jwt + cleartext: false.
-      no_auth_user: "vzd"
+      no_auth_user: "weft"
       cleartext:    true
     EOT
   }
@@ -109,11 +109,4 @@ service "nats" {
   # avoid colocating with anything else NATS-shaped. Rack also
   # set to "different" so we don't end up with two NATS replicas
   # behind the same ToR switch / PDU when the cluster grows
-  # multi-rack inside one AZ.
-  placement {
-    count = 3
-    az    = "different"
-    rack  = "different"
-    host  = "different"
-  }
 }
