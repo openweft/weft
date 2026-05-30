@@ -25,6 +25,20 @@ type Cluster struct {
 	Hosts   []Host   `hcl:"host,block"`
 	Infra   *Infra   `hcl:"infra,block"`
 	Drivers *Drivers `hcl:"drivers,block"`
+	Microvm *Microvm `hcl:"microvm,block"`
+}
+
+// Microvm groups cluster-wide microVM-runtime config — today just the OCI
+// reference to the shared kernel artifact (produced by openweft/weft-microvm-
+// kernel's CI workflow as an ORAS artifact). Nil / empty kernel_ref means
+// "operator pre-staged the kernel" (e.g. via `task arm64-microvm` locally on
+// each host), so weft up doesn't emit EnsureKernel actions.
+type Microvm struct {
+	// KernelRef is the OCI artifact reference for the shared microVM kernel,
+	// e.g. "ghcr.io/openweft/weft-microvm-kernel:arm64". weft up emits one
+	// EnsureKernel action per host that runs any microVM service, which
+	// renders as `weft microvm pull-kernel <ref>`.
+	KernelRef string `hcl:"kernel_ref,optional"`
 }
 
 // Drivers configures where weft obtains its hypervisor driver plugins

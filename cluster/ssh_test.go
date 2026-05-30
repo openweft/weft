@@ -135,6 +135,20 @@ func TestRenderAction_AgentDetachedAndIdempotent(t *testing.T) {
 	}
 }
 
+// TestRenderAction_EnsureKernelPullsOCIArtifact: EnsureKernel actions render
+// as `weft microvm pull-kernel <ref>` so the shared kernel binary lands in
+// $XDG_DATA_HOME/weft-microvm/kernel before any EnsureImage / PlaceReplica.
+func TestRenderAction_EnsureKernelPullsOCIArtifact(t *testing.T) {
+	c := threeHostCluster()
+	host, cmd := renderAction(c, Action{Kind: EnsureKernel, Host: c.Hosts[0].ID, Image: "ghcr.io/openweft/weft-microvm-kernel:arm64"})
+	if host != c.Hosts[0].ID {
+		t.Errorf("EnsureKernel rendered host=%q, want %q", host, c.Hosts[0].ID)
+	}
+	if !strings.Contains(cmd, "weft microvm pull-kernel ghcr.io/openweft/weft-microvm-kernel:arm64") {
+		t.Errorf("EnsureKernel cmd missing pull-kernel: %s", cmd)
+	}
+}
+
 // TestRenderAction_EnsureImagePullsOCIRootfs: EnsureImage actions render as
 // `weft microvm pull <ref>` on the target host so the rootfs lands in the
 // local weft-microvm cache before the subsequent PlaceReplica deploys.
