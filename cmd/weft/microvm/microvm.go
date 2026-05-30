@@ -17,9 +17,9 @@ import (
 
 // vmNamePrefix is the prefix the microVM run path stamps on every VM
 // it registers, keeping the microVM namespace disjoint from classic
-// VMs in the same agent inventory. Mirrors the `ncl-` prefix the
-// original ncl runner used so `ls`/`rm`/`logs` filter identically.
-const vmNamePrefix = "ncl-"
+// VMs in the same agent inventory. Mirrors the `weft-microvm-` prefix the
+// original weft-microvm runner used so `ls`/`rm`/`logs` filter identically.
+const vmNamePrefix = "weft-microvm-"
 
 // Command returns the `microvm` cobra command with its sub-commands.
 // The connection-flag pointers are shared with the rest of the client
@@ -32,6 +32,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	cmd.AddCommand(
 		runCmd(socket),
 		pullCmd(),
+		pullKernelCmd(),
 		lsCmd(socket, sshSocket, sshKey),
 		rmCmd(socket, sshSocket, sshKey),
 		logsCmd(socket, sshSocket, sshKey),

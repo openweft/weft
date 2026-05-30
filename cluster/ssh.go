@@ -94,6 +94,11 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		)
 	case MeshSync:
 		return seed.ID, "# mesh: publish overlay peer set to [" + strings.Join(a.Hosts, ",") + "] (wgcoord + mesh.PublishAll)"
+	case EnsureKernel:
+		// Pull the shared microVM kernel OCI artifact onto the host. Same
+		// idempotency story as EnsureImage: weft microvm pull-kernel is
+		// standalone and the rename-into-place semantics are atomic.
+		return a.Host, fmt.Sprintf("weft microvm pull-kernel %s   # shared kernel into $XDG_DATA_HOME/weft-microvm/kernel", a.Image)
 	case EnsureImage:
 		// Pre-pull the OCI rootfs on the host. weft microvm pull is standalone
 		// (no agent socket needed), and the underlying microvm.Pull is safe to

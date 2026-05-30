@@ -44,6 +44,10 @@ const (
 	// MeshSync: (re)publish the full WireGuard peer set after membership
 	// changed — reuses wgcoord.MeshPeers + mesh.PublishAll.
 	MeshSync ActionKind = "mesh-sync"
+	// EnsureKernel: stage the shared microVM kernel binary on a host by
+	// pulling its OCI artifact (cluster.Microvm.KernelRef). Emitted once
+	// per host that runs any microVM-backed service, before EnsureImage.
+	EnsureKernel ActionKind = "ensure-kernel"
 	// EnsureImage: pre-pull a service's OCI rootfs onto a host so the
 	// subsequent PlaceReplica `weft infra deploy` finds it in the local
 	// weft-microvm image cache. One action per distinct (host, image) pair,
@@ -75,6 +79,8 @@ func (a Action) String() string {
 		return fmt.Sprintf("ensure-host   %s (dc=%s)", a.Host, a.DC)
 	case MeshSync:
 		return fmt.Sprintf("mesh-sync     members=[%s]", strings.Join(a.Hosts, ","))
+	case EnsureKernel:
+		return fmt.Sprintf("ensure-kernel %s on %s", a.Image, a.Host)
 	case EnsureImage:
 		return fmt.Sprintf("ensure-image  %s on %s", a.Image, a.Host)
 	case PlaceReplica:
@@ -167,16 +173,31 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 	}
 
 	// 3. Place each service's replicas in dependency order; skip any already
-	//    on the right host (idempotent). Each (host, image) pair gets one
-	//    preceding EnsureImage so the OCI rootfs is in the host cache before
-	//    `weft infra deploy` runs.
-	pulled := map[string]bool{} // "<host>|<image>" → EnsureImage already emitted
+	//    on the right host (idempotent). For each host that runs at least one
+	//    service we also emit:
+	//      EnsureKernel (once, if microvm.kernel_ref is configured)
+	//      EnsureImage  (once per distinct OCI rootfs)
+	//    before the first PlaceReplica that targets it. EnsureKernel comes
+	//    first so the kernel is on disk when RegisterMicroVM copies it into
+	//    the per-VM directory.
+	pulled := map[string]bool{}        // "<host>|<image>" → EnsureImage already emitted
+	kernelOnHost := map[string]bool{}  // "<host>" → EnsureKernel already emitted
+	kernelRef := ""
+	if c.Microvm != nil {
+		kernelRef = c.Microvm.KernelRef
+	}
 	for _, plan := range infraOrder {
 		eff := effectiveReplicas(plan, hostCount)
 		for r := 1; r <= eff; r++ {
 			h := c.Hosts[(r-1)%hostCount]
 			if cur, ok := cur.replicaHost(plan.Service, r); ok && cur == h.ID {
 				continue // already placed correctly
+			}
+			if kernelRef != "" && !kernelOnHost[h.ID] {
+				p.Actions = append(p.Actions, Action{
+					Kind: EnsureKernel, Host: h.ID, Image: kernelRef,
+				})
+				kernelOnHost[h.ID] = true
 			}
 			if plan.OCIImage != "" {
 				key := h.ID + "|" + plan.OCIImage

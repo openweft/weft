@@ -6,8 +6,8 @@
 //	├── manifest.json   (raw bytes pulled from the registry)
 //	├── config.json     (the image config blob the manifest points at)
 //	└── rootfs/         (every layer extracted in order, whiteouts applied)
-//	    └── .ncl/config.json   (runtime-style process spec derived from
-//	                            the image config; consumed by ncl-init
+//	    └── .weft-microvm/config.json   (runtime-style process spec derived from
+//	                            the image config; consumed by weft-microvm-init
 //	                            after pivot_root)
 //
 // `refsafe` is the OCI reference rewritten so it's a safe filesystem
@@ -37,7 +37,7 @@ func dataHome() string {
 
 // dataDir is the weft-microvm per-user data root (kernel, initrd, images,
 // pods, …) under the XDG data home. Single source of truth for the namespace
-// — renamed from the legacy "ncl" dir when the microVM runtime moved under
+// — renamed from the legacy "weft-microvm" dir when the microVM runtime moved under
 // the weft umbrella (repos weft-microvm + weft-microvm-kernel).
 func dataDir() string {
 	return filepath.Join(dataHome(), "weft-microvm")
@@ -53,6 +53,12 @@ func imageRoot(refsafe string) string {
 func rootfsPath(refsafe string) string {
 	return filepath.Join(imageRoot(refsafe), "rootfs")
 }
+
+// KernelPath is the on-disk location of the shared microVM kernel binary —
+// $XDG_DATA_HOME/weft-microvm/kernel — written by PullKernel and read by the
+// agent's RegisterMicroVM. Exported because the agent reads it via the same
+// path resolution rule the puller uses.
+func KernelPath() string { return filepath.Join(dataDir(), "kernel") }
 
 // refsafe converts an OCI reference like "alpine:3.21" or
 // "ghcr.io/owner/repo:v1.2.3" into a single safe directory name.
