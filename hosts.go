@@ -81,8 +81,22 @@ type Host struct {
 	AZ             string            `json:"az"`
 	Rack           string            `json:"rack,omitempty"`
 	Endpoint       string            `json:"endpoint"` // host:port of the agent's gRPC listener
+	// Hypervisor / Architecture are the legacy single-driver fields ;
+	// today every registration writes them as a singleton "primary"
+	// driver (the first entry of Drivers when Drivers is non-empty).
+	// Kept on the wire for backward-compat with schedulers / clients
+	// that don't know about Drivers yet.
 	Hypervisor     string            `json:"hypervisor"`
 	Architecture   string            `json:"architecture"`
+	// Drivers is the full capability list — one entry per
+	// weft-driver-<kind> subprocess this host's weft-agent has
+	// launched, with the set of guest archs it can run. The scheduler
+	// matches ScheduleRequest.{Hypervisor,Architecture} against this
+	// list ; single-driver hosts get a single entry mirroring the
+	// legacy fields, multi-driver hosts (an Apple Silicon machine
+	// running both VZ + QEMU for cross-arch builds) get one entry per
+	// driver.
+	Drivers        []HostDriver      `json:"drivers,omitempty"`
 	NetworkTypes   []string          `json:"network_types"`
 	VolumeBackends []string          `json:"volume_backends"`
 	Labels         map[string]string `json:"labels,omitempty"`
@@ -91,25 +105,61 @@ type Host struct {
 	CreatedAt      time.Time         `json:"created_at"`
 }
 
+// HostDriver is one weft-driver-<kind> subprocess running on a host, with
+// the set of guest architectures it can launch. Mirrors cluster.HostDriver
+// (cluster.hcl side) on the registry side — separation matters because the
+// registry is updated by the AGENT at runtime, not by the operator's HCL.
+type HostDriver struct {
+	Kind   string   `json:"kind"`             // "vz" | "qemu"
+	Arches []string `json:"arches,omitempty"` // "arm64" | "amd64" | "riscv64" | "loongarch64"
+}
+
+// SupportsArch reports whether this host can launch a guest with the given
+// arch under the given driver kind. Falls back to the legacy
+// Hypervisor / Architecture singleton when Drivers is empty.
+func (h Host) SupportsArch(driverKind, arch string) bool {
+	if len(h.Drivers) > 0 {
+		for _, d := range h.Drivers {
+			if d.Kind != driverKind {
+				continue
+			}
+			for _, a := range d.Arches {
+				if a == arch {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	// Legacy single-driver registration.
+	return driverKind == h.Hypervisor && arch == h.Architecture
+}
+
 // hostsDoc is the top-level HCL schema.
 type hostsDoc struct {
 	Hosts []hostBlock `hcl:"host,block"`
 }
 
 type hostBlock struct {
-	UUID           string            `hcl:",label"`
-	Hostname       string            `hcl:"hostname"`
-	AZ             string            `hcl:"az,optional"`
-	Rack           string            `hcl:"rack,optional"`
-	Endpoint       string            `hcl:"endpoint,optional"`
-	Hypervisor     string            `hcl:"hypervisor,optional"`
-	Architecture   string            `hcl:"architecture,optional"`
-	NetworkTypes   []string          `hcl:"network_types,optional"`
-	VolumeBackends []string          `hcl:"volume_backends,optional"`
-	Labels         map[string]string `hcl:"labels,optional"`
-	State          string            `hcl:"state,optional"`
-	LastSeenAt     string            `hcl:"last_seen_at,optional"`
-	CreatedAt      string            `hcl:"created_at"`
+	UUID           string                 `hcl:",label"`
+	Hostname       string                 `hcl:"hostname"`
+	AZ             string                 `hcl:"az,optional"`
+	Rack           string                 `hcl:"rack,optional"`
+	Endpoint       string                 `hcl:"endpoint,optional"`
+	Hypervisor     string                 `hcl:"hypervisor,optional"`
+	Architecture   string                 `hcl:"architecture,optional"`
+	Drivers        []hostDriverBlock      `hcl:"driver,block"`
+	NetworkTypes   []string               `hcl:"network_types,optional"`
+	VolumeBackends []string               `hcl:"volume_backends,optional"`
+	Labels         map[string]string      `hcl:"labels,optional"`
+	State          string                 `hcl:"state,optional"`
+	LastSeenAt     string                 `hcl:"last_seen_at,optional"`
+	CreatedAt      string                 `hcl:"created_at"`
+}
+
+type hostDriverBlock struct {
+	Kind   string   `hcl:",label"`
+	Arches []string `hcl:"arches,optional"`
 }
 
 // hostRegistry mirrors projectRegistry / userRegistry — global
@@ -152,6 +202,16 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 				labels[k] = v
 			}
 		}
+		var drivers []HostDriver
+		if len(b.Drivers) > 0 {
+			drivers = make([]HostDriver, 0, len(b.Drivers))
+			for _, d := range b.Drivers {
+				drivers = append(drivers, HostDriver{
+					Kind:   d.Kind,
+					Arches: append([]string(nil), d.Arches...),
+				})
+			}
+		}
 		h := Host{
 			UUID:           b.UUID,
 			Hostname:       b.Hostname,
@@ -160,6 +220,7 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			Endpoint:       b.Endpoint,
 			Hypervisor:     b.Hypervisor,
 			Architecture:   b.Architecture,
+			Drivers:        drivers,
 			NetworkTypes:   append([]string(nil), b.NetworkTypes...),
 			VolumeBackends: append([]string(nil), b.VolumeBackends...),
 			Labels:         labels,
@@ -212,6 +273,19 @@ func (r *hostRegistry) saveLocked() error {
 		}
 		if h.Architecture != "" {
 			bb.SetAttributeValue("architecture", cty.StringVal(h.Architecture))
+		}
+		// Drivers : one nested `driver "kind" { arches = [...] }` block per
+		// capability entry. Single-driver hosts (legacy registrations) skip
+		// this — Hypervisor/Architecture above carry the same information.
+		for _, d := range h.Drivers {
+			db := bb.AppendNewBlock("driver", []string{d.Kind}).Body()
+			if len(d.Arches) > 0 {
+				vals := make([]cty.Value, len(d.Arches))
+				for i, a := range d.Arches {
+					vals[i] = cty.StringVal(a)
+				}
+				db.SetAttributeValue("arches", cty.ListVal(vals))
+			}
 		}
 		if len(h.NetworkTypes) > 0 {
 			vals := make([]cty.Value, len(h.NetworkTypes))

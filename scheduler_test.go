@@ -107,6 +107,50 @@ func TestFirstFitScheduler_HypervisorFilter(t *testing.T) {
 	}
 }
 
+func TestFirstFitScheduler_MultiDriverHost(t *testing.T) {
+	// Apple Silicon cross-arch build host : VZ covers native arm64,
+	// QEMU covers foreign archs. Same host, different driver per arch.
+	dualHost := activeHost("mac-build", func(h *Host) {
+		h.Hypervisor = ""    // Drivers is authoritative when non-empty
+		h.Architecture = ""  // ditto
+		h.Drivers = []HostDriver{
+			{Kind: "vz", Arches: []string{"arm64"}},
+			{Kind: "qemu", Arches: []string{"amd64", "riscv64", "loongarch64"}},
+		}
+	})
+	candidates := []Host{dualHost}
+
+	// arm64 request matches via VZ.
+	got, err := FirstFitScheduler{}.Schedule(context.Background(),
+		ScheduleRequest{Architecture: "arm64", Hypervisor: "vz"}, candidates)
+	if err != nil || got.UUID != "mac-build" {
+		t.Errorf("arm64+vz should match the dual-driver host, got %q err=%v", got.UUID, err)
+	}
+
+	// amd64 request matches via QEMU on the same host.
+	got, err = FirstFitScheduler{}.Schedule(context.Background(),
+		ScheduleRequest{Architecture: "amd64", Hypervisor: "qemu"}, candidates)
+	if err != nil || got.UUID != "mac-build" {
+		t.Errorf("amd64+qemu should match the dual-driver host, got %q err=%v", got.UUID, err)
+	}
+
+	// arm64 + qemu pairing on this host has no driver — QEMU's arch
+	// set excludes arm64 here (VZ owns it natively).
+	sched := FirstFitScheduler{}
+	if _, err := sched.Schedule(context.Background(),
+		ScheduleRequest{Architecture: "arm64", Hypervisor: "qemu"}, candidates); err == nil {
+		t.Error("arm64+qemu shouldn't match a host where QEMU's arch list excludes arm64")
+	}
+
+	// Architecture-only request : works as long as ANY driver on the host
+	// claims that arch.
+	got, err = FirstFitScheduler{}.Schedule(context.Background(),
+		ScheduleRequest{Architecture: "riscv64"}, candidates)
+	if err != nil || got.UUID != "mac-build" {
+		t.Errorf("riscv64 alone should match (QEMU covers it), got %q err=%v", got.UUID, err)
+	}
+}
+
 func TestFirstFitScheduler_AZFilter(t *testing.T) {
 	candidates := []Host{
 		activeHost("east", func(h *Host) { h.AZ = "us-east-1a" }),

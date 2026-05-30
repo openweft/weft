@@ -180,11 +180,53 @@ func hostMatches(req ScheduleRequest, h Host) bool {
 	if h.State != HostStateActive {
 		return false
 	}
-	if req.Architecture != "" && req.Architecture != h.Architecture {
-		return false
-	}
-	if req.Hypervisor != "" && req.Hypervisor != h.Hypervisor {
-		return false
+	// Architecture + Hypervisor matching consults the multi-driver
+	// capability list first (a host running both VZ and QEMU declares
+	// both via Drivers) ; falls back to the legacy singletons when
+	// Drivers is empty.
+	if len(h.Drivers) > 0 {
+		// Multi-driver host : require the request specify at least
+		// the architecture, and find a driver entry covering it. The
+		// Hypervisor field, if set, must match the chosen driver's
+		// kind.
+		if req.Architecture != "" {
+			matched := false
+			for _, d := range h.Drivers {
+				if req.Hypervisor != "" && d.Kind != req.Hypervisor {
+					continue
+				}
+				for _, a := range d.Arches {
+					if a == req.Architecture {
+						matched = true
+						break
+					}
+				}
+				if matched {
+					break
+				}
+			}
+			if !matched {
+				return false
+			}
+		} else if req.Hypervisor != "" {
+			matched := false
+			for _, d := range h.Drivers {
+				if d.Kind == req.Hypervisor {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return false
+			}
+		}
+	} else {
+		if req.Architecture != "" && req.Architecture != h.Architecture {
+			return false
+		}
+		if req.Hypervisor != "" && req.Hypervisor != h.Hypervisor {
+			return false
+		}
 	}
 	if req.AZ != "" && req.AZ != h.AZ {
 		return false
