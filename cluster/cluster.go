@@ -83,13 +83,42 @@ type Overlay struct {
 
 // Host is one hypervisor node. The block label is its id; DC defaults to the
 // id when unset. One host → single-node; three hosts → 3-DC cluster.
+//
+// Driver selection — two forms, mutually exclusive on the same host :
+//
+//   - Legacy single-driver : `hypervisor = "vz" | "qemu"` on the host block.
+//     The agent at registration time announces this driver with its OS-default
+//     architecture set.
+//
+//   - Multi-driver : zero-or-more `driver "kind" { arch = [...] }` nested
+//     blocks. Each `kind` is "vz" | "qemu" ; the `arch` list enumerates the
+//     guest architectures this driver instance can run on this host. The
+//     scheduler matches a microVM's required arch against the union of arch
+//     sets across all the host's drivers, then picks the matching driver.
+//
+//     The canonical use is an Apple Silicon host running both : native arm64
+//     via `driver "vz" { arch = ["arm64"] }` and foreign archs (amd64 / riscv64
+//     / loongarch64) via `driver "qemu" { arch = [...] }` — covers
+//     cross-architecture builds without leaving the host.
 type Host struct {
-	ID         string `hcl:",label"`
-	Address    string `hcl:"address"`             // underlay-reachable IP/host
-	DC         string `hcl:"dc,optional"`         // availability-zone label (mapped to host registry AZ)
-	Rack       string `hcl:"rack,optional"`       // sub-AZ placement domain (matched by az=different/rack=different/host=different)
-	Hypervisor string `hcl:"hypervisor,optional"` // "" (auto) | "vz" | "qemu"
-	SSH        *SSH   `hcl:"ssh,block"`           // optional; used by the SSH-push access model
+	ID         string       `hcl:",label"`
+	Address    string       `hcl:"address"`             // underlay-reachable IP/host
+	OS         string       `hcl:"os,optional"`         // "" (auto) | "linux" | "darwin" — informational, used to pick default driver when neither hypervisor nor driver blocks are set
+	Arch       string       `hcl:"arch,optional"`       // "" (auto) | "arm64" | "amd64" | "riscv64" | "loongarch64" — the host's native arch ; informs default driver coverage
+	DC         string       `hcl:"dc,optional"`         // availability-zone label (mapped to host registry AZ)
+	Rack       string       `hcl:"rack,optional"`       // sub-AZ placement domain (matched by az=different/rack=different/host=different)
+	Hypervisor string       `hcl:"hypervisor,optional"` // legacy single-driver shortcut — "" | "vz" | "qemu" ; mutually exclusive with `driver` blocks
+	Drivers    []HostDriver `hcl:"driver,block"`        // multi-driver capability list — empty means "use hypervisor legacy field or OS default"
+	SSH        *SSH         `hcl:"ssh,block"`           // optional; used by the SSH-push access model
+}
+
+// HostDriver declares one hypervisor-driver instance running on a host, with
+// the set of guest architectures it can launch. Block label is the driver
+// kind ("vz" | "qemu"). The agent spawns one weft-driver-<kind> subprocess
+// per HostDriver entry on this host.
+type HostDriver struct {
+	Kind   string   `hcl:",label"`        // "vz" | "qemu"
+	Arches []string `hcl:"arch,optional"` // "arm64" | "amd64" | "riscv64" | "loongarch64" ; empty defaults to the host's native arch
 }
 
 // SSH carries optional credentials for reaching a host (access-model
@@ -165,8 +194,108 @@ func (c *Cluster) Validate() error {
 		default:
 			return fmt.Errorf("cluster %q: host %q: hypervisor %q must be \"\", \"vz\", or \"qemu\"", c.Name, h.ID, h.Hypervisor)
 		}
+		switch h.OS {
+		case "", "linux", "darwin":
+		default:
+			return fmt.Errorf("cluster %q: host %q: os %q must be \"\", \"linux\", or \"darwin\"", c.Name, h.ID, h.OS)
+		}
+		if h.Arch != "" && !validArch(h.Arch) {
+			return fmt.Errorf("cluster %q: host %q: arch %q must be arm64/amd64/riscv64/loongarch64", c.Name, h.ID, h.Arch)
+		}
+		// Multi-driver vs legacy single-driver are mutually exclusive.
+		if len(h.Drivers) > 0 && h.Hypervisor != "" {
+			return fmt.Errorf("cluster %q: host %q: cannot set both `hypervisor = …` (legacy) and one or more `driver` blocks ; pick one form", c.Name, h.ID)
+		}
+		seenKind := map[string]bool{}
+		for di := range h.Drivers {
+			d := &h.Drivers[di]
+			switch d.Kind {
+			case "vz", "qemu":
+			default:
+				return fmt.Errorf("cluster %q: host %q: driver kind %q must be \"vz\" or \"qemu\"", c.Name, h.ID, d.Kind)
+			}
+			if seenKind[d.Kind] {
+				return fmt.Errorf("cluster %q: host %q: driver %q declared twice", c.Name, h.ID, d.Kind)
+			}
+			seenKind[d.Kind] = true
+			for _, a := range d.Arches {
+				if !validArch(a) {
+					return fmt.Errorf("cluster %q: host %q: driver %q: arch %q must be arm64/amd64/riscv64/loongarch64", c.Name, h.ID, d.Kind, a)
+				}
+			}
+			// Empty arch list defaults to the host's native arch (or arm64
+			// when unspecified). Resolved here so callers see a populated
+			// list ; keeps the runtime side free of "implicit default" logic.
+			if len(d.Arches) == 0 {
+				native := h.Arch
+				if native == "" {
+					native = "arm64"
+				}
+				d.Arches = []string{native}
+			}
+		}
 	}
 	return nil
+}
+
+// validArch reports whether s is one of the four guest architectures weft's
+// kernel + driver pipeline ships for.
+func validArch(s string) bool {
+	switch s {
+	case "arm64", "amd64", "riscv64", "loongarch64":
+		return true
+	}
+	return false
+}
+
+// DriverKinds returns the set of driver kinds active on this host, in a
+// stable order ("vz" before "qemu"). Combines the legacy `hypervisor` field
+// with the modern `driver` blocks — exactly one form is non-empty by
+// Validate's mutual-exclusion check, so this is unambiguous.
+//
+// Callers use it to know how many weft-driver-<kind> subprocesses the host's
+// weft-agent has to launch.
+func (h *Host) DriverKinds() []string {
+	if h.Hypervisor != "" {
+		return []string{h.Hypervisor}
+	}
+	var out []string
+	for _, k := range []string{"vz", "qemu"} {
+		for _, d := range h.Drivers {
+			if d.Kind == k {
+				out = append(out, k)
+			}
+		}
+	}
+	return out
+}
+
+// SupportsArch reports whether this host can launch a guest with the given
+// architecture under driver kind. Legacy `hypervisor = …` hosts implicitly
+// support their declared `arch` (or arm64 when unset). Modern hosts consult
+// the matching `HostDriver` block.
+func (h *Host) SupportsArch(driverKind, arch string) bool {
+	if h.Hypervisor != "" {
+		if driverKind != h.Hypervisor {
+			return false
+		}
+		native := h.Arch
+		if native == "" {
+			native = "arm64"
+		}
+		return arch == native
+	}
+	for _, d := range h.Drivers {
+		if d.Kind != driverKind {
+			continue
+		}
+		for _, a := range d.Arches {
+			if a == arch {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // IsCluster reports whether this is a multi-host (3-DC) deployment.
