@@ -92,17 +92,17 @@ func TestRenderSSH_RolesAndPlacement(t *testing.T) {
 	if !strings.Contains(hps[0].Steps[0], "--hypervisor=qemu") {
 		t.Errorf("seed step missing hypervisor flag: %q", hps[0].Steps[0])
 	}
-	// A non-seed host joins the seed.
+	// A non-seed host joins the seed via the TCP control-plane.
 	var joined bool
 	for _, hp := range hps[1:] {
 		for _, s := range hp.Steps {
-			if strings.Contains(s, "--client --control-plane=192.0.2.1") {
+			if strings.Contains(s, "--client --control-plane=tcp:192.0.2.1:") {
 				joined = true
 			}
 		}
 	}
 	if !joined {
-		t.Error("expected a non-seed host to join --control-plane=192.0.2.1")
+		t.Error("expected a non-seed host to join --control-plane=tcp:192.0.2.1:<port>")
 	}
 	// Each host deploys its etcd replica.
 	for _, hp := range hps {
@@ -132,6 +132,22 @@ func TestRenderAction_AgentDetachedAndIdempotent(t *testing.T) {
 				t.Errorf("EnsureHost cmd for %s missing %q: %s", host, frag, cmd)
 			}
 		}
+	}
+}
+
+// TestRenderAction_CrossHostTCPTransport: the seed exposes a --tcp-listen
+// for the dev-mode cross-host control plane, and non-seed hosts dial that
+// TCP target via --control-plane=tcp:<seed>:<port>.
+func TestRenderAction_CrossHostTCPTransport(t *testing.T) {
+	c := threeHostCluster()
+	_, seedCmd := renderAction(c, Action{Kind: EnsureHost, Host: c.Hosts[0].ID})
+	if !strings.Contains(seedCmd, "--tcp-listen=:"+controlPlanePort) {
+		t.Errorf("seed EnsureHost missing --tcp-listen=: %s", seedCmd)
+	}
+	_, joinCmd := renderAction(c, Action{Kind: EnsureHost, Host: c.Hosts[1].ID})
+	wantTarget := "--control-plane=tcp:" + c.Hosts[0].Address + ":" + controlPlanePort
+	if !strings.Contains(joinCmd, wantTarget) {
+		t.Errorf("join EnsureHost missing %q: %s", wantTarget, joinCmd)
 	}
 }
 

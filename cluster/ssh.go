@@ -15,6 +15,13 @@ import (
 // command rendering here is pure (and tested); the live transport (Apply)
 // uses golang.org/x/crypto/ssh.
 
+// controlPlanePort is the TCP port the seed agent exposes for cross-host
+// gRPC. The dev-mode `--tcp-listen=:<port>` listener bridges what
+// sshtransport doesn't yet do (remote SSH host); clients dial
+// `--control-plane=tcp:<seed-addr>:<port>`. Production should switch to
+// sshtransport once it gains cross-host support.
+const controlPlanePort = "7330"
+
 // Seed is the control-plane host — the first host in the description. The
 // other hosts join it.
 func (c *Cluster) Seed() Host { return c.Hosts[0] }
@@ -63,9 +70,9 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		}
 		var args, label string
 		if a.Host == seed.ID {
-			args, label = "--server"+hv, "seed control-plane"
+			args, label = "--server --tcp-listen=:"+controlPlanePort+hv, "seed control-plane"
 		} else {
-			args, label = fmt.Sprintf("--client --control-plane=%s%s", seed.Address, hv), "join seed"
+			args, label = fmt.Sprintf("--client --control-plane=tcp:%s:%s%s", seed.Address, controlPlanePort, hv), "join seed"
 		}
 		// The agent is a long-lived daemon — detach it from the SSH session so
 		// the per-action CombinedOutput() returns once it's launched, otherwise

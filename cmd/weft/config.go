@@ -1,23 +1,23 @@
 package main
 
 // config.go loads an optional HCL config file that lets operators
-// configure vzd settings without long --flag lists. Per
-// [[vzd-hcl-config]]:
+// configure weft settings without long --flag lists. Per
+// [[weft-hcl-config]]:
 //
 //   * --config <path> overrides the discovery order.
-//   * default discovery: /etc/vzd/vzd.hcl, then ~/.config/vzd/vzd.hcl.
+//   * default discovery: /etc/weft/weft.hcl, then ~/.config/weft/weft.hcl.
 //   * CLI flags always win over the file (operator emergency knob).
 //
 // Schema (HCL):
 //
-//   socket               = "~/.vzd/vzd.sock"
-//   ssh_socket           = "~/.vzd/vzd-ssh.sock"
-//   ssh_authorized_keys  = "~/.vzd/authorized_keys"
+//   socket               = "~/.weft/weft.sock"
+//   ssh_socket           = "~/.weft/weft-ssh.sock"
+//   ssh_authorized_keys  = "~/.weft/authorized_keys"
 //   config_dir           = ".mock/hcl"
 //
 //   oidc {
 //     issuer    = "https://dex.internal.example.com"
-//     client_id = "vzd"
+//     client_id = "weft"
 //   }
 //
 // Storage / etcd / other blocks land here as they're implemented;
@@ -33,7 +33,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsimple"
 )
 
-// fileConfig is the decoded shape of vzd.hcl. Pointers (*string)
+// fileConfig is the decoded shape of weft.hcl. Pointers (*string)
 // distinguish "not present in HCL" from "present and empty",
 // which matters for the flag-overlay precedence rule: only
 // non-nil HCL values pre-fill flag defaults.
@@ -49,8 +49,8 @@ type fileConfig struct {
 }
 
 // oidcBlock mirrors the oidc { } HCL block. Empty issuer means
-// "OIDC disabled" — vzd stays in dev mode. The validator
-// construction in vzd/auth.go handles the empty case explicitly.
+// "OIDC disabled" — weft stays in dev mode. The validator
+// construction in weft/auth.go handles the empty case explicitly.
 type oidcBlock struct {
 	Issuer            string `hcl:"issuer,optional"`
 	ClientID          string `hcl:"client_id,optional"`
@@ -88,14 +88,14 @@ type etcdBlock struct {
 }
 
 // eventBusBlock mirrors the `event_bus { ... }` HCL block. Per
-// [[vzd-event-bus-nats]] the two backends are:
+// [[weft-event-bus-nats]] the two backends are:
 //
 //   backend = "local" (default)
 //     In-process LocalEventBus. No external dep at runtime.
 //
 //   backend = "nats"
 //     Connect to a NATS cluster (per [[infra-in-micro-vms]] this
-//     is itself a vzd-managed micro-VM in production). Requires
+//     is itself a weft-managed micro-VM in production). Requires
 //     the `nats { url = "..." }` sub-block.
 type eventBusBlock struct {
 	Backend string    `hcl:"backend,optional"` // "local" | "nats"
@@ -113,28 +113,28 @@ type natsBlock struct {
 
 // natsAuthorizationBlock mirrors the `nats_authorization { ... }`
 // HCL block. Turns on auto-render of the NATS authorization
-// block (per [[vzd-tenant-event-access]] Phase-5 follow-up):
-// vzd re-renders the per-project nkey allow-list on every
+// block (per [[weft-tenant-event-access]] Phase-5 follow-up):
+// weft re-renders the per-project nkey allow-list on every
 // mutation that affects it and writes the file atomically. Omit
-// the block for operator-driven setups — `vzc admin nats-authz`
+// the block for operator-driven setups — `weft admin nats-authz`
 // stays callable.
 //
 //   path         path to write (mode 0600). Tilde-expansion supported.
-//   admin_pubkey optional NATS user-NKey public key ("U…") of vzd
-//                itself, granted full pub/sub on vzd.>. Leave empty
-//                in dev / single-host where vzd publishes anonymously.
+//   admin_pubkey optional NATS user-NKey public key ("U…") of weft
+//                itself, granted full pub/sub on weft.>. Leave empty
+//                in dev / single-host where weft publishes anonymously.
 type natsAuthorizationBlock struct {
 	Path        string `hcl:"path"`
 	AdminPubkey string `hcl:"admin_pubkey,optional"`
 }
 
-// loadFileConfig discovers a vzd.hcl file and returns its
+// loadFileConfig discovers a weft.hcl file and returns its
 // decoded form (or zero value when none is present). Search
 // order:
 //
 //   1. explicit --config <path> (if non-empty)
-//   2. /etc/vzd/vzd.hcl
-//   3. $HOME/.config/vzd/vzd.hcl
+//   2. /etc/weft/weft.hcl
+//   3. $HOME/.config/weft/weft.hcl
 //
 // Missing-file at the default locations is not an error: the zero
 // value just means "use flag defaults". An explicit --config that
@@ -146,8 +146,8 @@ func loadFileConfig(explicit string) (fileConfig, string, error) {
 	} else {
 		home, _ := os.UserHomeDir()
 		paths = []string{
-			"/etc/vzd/vzd.hcl",
-			filepath.Join(home, ".config", "vzd", "vzd.hcl"),
+			"/etc/weft/weft.hcl",
+			filepath.Join(home, ".config", "weft", "weft.hcl"),
 		}
 	}
 	for i, p := range paths {
@@ -249,6 +249,7 @@ type fileConfigTargets struct {
 	socket                string
 	sshSocket             string
 	sshAuthorizedKeys     string
+	tcpListen             string // dev-mode plain-TCP gRPC listener (cross-host bring-up); empty = disabled
 	configDir             string
 	oidcIssuer            string
 	oidcClientID          string

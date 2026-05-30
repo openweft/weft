@@ -25,7 +25,7 @@ import (
 	imock "github.com/openweft/hclconfig"
 	"github.com/openweft/weft"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft/cmd/weft/admin"
 	"github.com/openweft/weft/cmd/weft/clean"
 	"github.com/openweft/weft/cmd/weft/events"
@@ -67,9 +67,9 @@ func main() {
 // stateless ; daemon and client behaviour both live behind subcommands.
 //
 //	weft agent            — the long-lived control-plane daemon (Consul-style;
-//	                        was the standalone vzd binary).
+//	                        was the standalone weft binary).
 //	weft project / vm /   — gRPC clients that talk to a running agent over
-//	  network / volume /    the Unix socket (formerly vzc subcommands).
+//	  network / volume /    the Unix socket (formerly weft subcommands).
 //	  events / login / …
 //	weft infra deploy /   — in-process orchestrator that boots etcd/dex/zot/
 //	  bootstrap / status /  nats micro-VMs from infra/<svc>/plan.hcl. Stays
@@ -79,11 +79,11 @@ func main() {
 //	  vz-provision          for per-VM subprocesses.
 func rootCmd() *cobra.Command {
 	// Shared client-side connection flags (consumed by every client
-	// subcommand below). Mirror the legacy `vzc` defaults so operator
+	// subcommand below). Mirror the legacy `weft` defaults so operator
 	// muscle memory keeps working — same socket paths.
 	home, _ := os.UserHomeDir()
-	defaultSocket := filepath.Join(home, ".vzd", "vzd.sock")
-	defaultSSHSocket := filepath.Join(home, ".vzd", "vzd-ssh.sock")
+	defaultSocket := filepath.Join(home, ".weft", "weft.sock")
+	defaultSSHSocket := filepath.Join(home, ".weft", "weft-ssh.sock")
 
 	var socketPath string
 	var sshSocket string
@@ -104,7 +104,7 @@ running agent.`,
 	root.PersistentFlags().StringVar(&sshSocket, "ssh-socket", "", "Weft agent SSH socket path (enables SSH auth); default "+defaultSSHSocket+" when --ssh-key is set")
 	root.PersistentFlags().StringVar(&sshKey, "ssh-key", "", "SSH private key for authentication (enables SSH transport)")
 
-	// Server / daemon subcommand. Carries the formerly-cmd/vzd flags.
+	// Server / daemon subcommand. Carries the formerly-cmd/weft flags.
 	root.AddCommand(agentCmd())
 
 	// Bootstrap / out-of-band subcommands that drive the Adapter
@@ -118,7 +118,7 @@ running agent.`,
 	root.AddCommand(newInfraCmd())
 	root.AddCommand(newUpCmd())
 
-	// Client subcommands (was: vzc). All speak gRPC to the running agent.
+	// Client subcommands (was: weft). All speak gRPC to the running agent.
 	root.AddCommand(
 		instance.Command(&socketPath, &sshSocket, &sshKey),
 		microvm.Command(&socketPath, &sshSocket, &sshKey),
@@ -172,11 +172,12 @@ func agentCmd() *cobra.Command {
 	var clientMode bool
 	var controlPlaneURL string
 	var hypervisor string
+	var tcpListen string
 
 	home, _ := os.UserHomeDir()
-	defaultSocket := filepath.Join(home, ".vzd", "vzd.sock")
-	defaultSSHSocket := filepath.Join(home, ".vzd", "vzd-ssh.sock")
-	defaultAuthorizedKeys := filepath.Join(home, ".vzd", "authorized_keys")
+	defaultSocket := filepath.Join(home, ".weft", "weft.sock")
+	defaultSSHSocket := filepath.Join(home, ".weft", "weft-ssh.sock")
+	defaultAuthorizedKeys := filepath.Join(home, ".weft", "authorized_keys")
 
 	cmd := &cobra.Command{
 		Use:   "agent",
@@ -186,9 +187,9 @@ socket), wires the storage backend (file or etcd), the event bus
 (in-process or NATS), the OIDC validator (dex), and the driver dispatch
 (Apple-VZ + future siblings).
 
-Reads vzd.hcl from /etc/vzd/vzd.hcl or ~/.config/vzd/vzd.hcl by default ;
+Reads weft.hcl from /etc/weft/weft.hcl or ~/.config/weft/weft.hcl by default ;
 CLI flags override the file. The HCL config block, flag set, and default
-paths are unchanged from the legacy "vzd" daemon for operational
+paths are unchanged from the legacy "weft" daemon for operational
 continuity (same sockets, same registry on-disk layout).`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			// Driver-backend selection. The Adapter reads $WEFT_HYPERVISOR
@@ -210,6 +211,7 @@ continuity (same sockets, same registry on-disk layout).`,
 				socket:            socketPath,
 				sshSocket:         sshSocket,
 				sshAuthorizedKeys: sshAuthorizedKeys,
+				tcpListen:         tcpListen,
 				configDir:         cfgDir,
 				oidcIssuer:        oidcIssuer,
 				oidcClientID:      oidcClientID,
@@ -265,11 +267,12 @@ continuity (same sockets, same registry on-disk layout).`,
 		},
 	}
 
-	cmd.Flags().StringVar(&configFile, "config", "", "Path to vzd.hcl (default: /etc/vzd/vzd.hcl or ~/.config/vzd/vzd.hcl)")
+	cmd.Flags().StringVar(&configFile, "config", "", "Path to weft.hcl (default: /etc/weft/weft.hcl or ~/.config/weft/weft.hcl)")
 	cmd.Flags().StringVar(&cfgDir, "config-dir", ".mock/hcl", "Path to HCL config directory")
 	cmd.Flags().StringVar(&socketPath, "socket", defaultSocket, "Unix socket path to listen on")
 	cmd.Flags().StringVar(&sshSocket, "ssh-socket", defaultSSHSocket, "Unix socket path for the SSH-secured gRPC listener (empty to disable)")
 	cmd.Flags().StringVar(&sshAuthorizedKeys, "ssh-authorized-keys", defaultAuthorizedKeys, "Path to authorized_keys for SSH client authentication")
+	cmd.Flags().StringVar(&tcpListen, "tcp-listen", "", "host:port for an additional plain-TCP gRPC listener — dev-mode cross-host bring-up; production should use the SSH transport. Empty disables.")
 	cmd.Flags().StringVar(&oidcIssuer, "oidc-issuer", "", "OIDC issuer URL (empty = dev mode, no token validation)")
 	cmd.Flags().StringVar(&oidcClientID, "oidc-client-id", "", "OIDC audience that tokens must be issued for")
 	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", `Registry persistence backend: "file" (dev, local disk), "etcd" (prod, 3-DC cluster), or "embed-etcd" (single-host, in-process etcd under <configDir>/etcd-embed). Empty = HCL config decides; HCL empty = "file".`)
@@ -300,7 +303,7 @@ func run(t fileConfigTargets) error {
 	a := weft.NewWithStorage(filepath.Dir(t.configDir), sf.new)
 	a.SetPaths(mc.CachePath, mc.VMsPath)
 
-	// Event bus backend (per [[vzd-event-bus-nats]]). Default is
+	// Event bus backend (per [[weft-event-bus-nats]]). Default is
 	// LocalEventBus (in-process channels); "nats" connects to the
 	// cluster URL configured in HCL. Failing fast on NATS dial
 	// is intentional — silently degrading to local would surprise
@@ -316,15 +319,15 @@ func run(t fileConfigTargets) error {
 
 	// Auto-render the NATS authorization block on every project
 	// mutation when the operator configured `nats_authorization {
-	// path = … }` in vzd.hcl. The hook is a no-op when path is
-	// empty; the renderer stays callable via `vzc admin nats-authz`.
-	// Per [[vzd-tenant-event-access]] Phase-5 follow-up.
+	// path = … }` in weft.hcl. The hook is a no-op when path is
+	// empty; the renderer stays callable via `weft admin nats-authz`.
+	// Per [[weft-tenant-event-access]] Phase-5 follow-up.
 	if t.natsAuthzPath != "" {
 		a.SetNATSAuthorizationFile(t.natsAuthzPath, t.natsAuthzAdminPubkey)
 		logger.Printf("nats authorization auto-render enabled: path=%s", t.natsAuthzPath)
 	}
 
-	logger.Printf("vzd starting — config-dir=%s socket=%s storage=%s event_bus=%s",
+	logger.Printf("weft starting — config-dir=%s socket=%s storage=%s event_bus=%s",
 		t.configDir, t.socket,
 		displayStorageBackend(t.storageBackend),
 		displayEventBusBackend(t.eventBusBackend))
@@ -401,7 +404,7 @@ func run(t fileConfigTargets) error {
 	if err != nil {
 		return fmt.Errorf("load vm-sshkey registry: %w", err)
 	}
-	vzdv1.RegisterWeftAgentServer(srv, &vzdServer{
+	weftv1.RegisterWeftAgentServer(srv, &weftServer{
 		cfgDir:        t.configDir,
 		mc:            mc,
 		adp:           a,
@@ -413,7 +416,7 @@ func run(t fileConfigTargets) error {
 		uefiVars:      uefiReg,
 		vmKeys:        sshKeyReg,
 	})
-	vzdv1.RegisterAgentDispatchServer(srv, dispatchSrv)
+	weftv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 
 	go func() {
 		if err := srv.Serve(lis); err != nil {
@@ -422,13 +425,31 @@ func run(t fileConfigTargets) error {
 	}()
 	logger.Printf("listening on %s", t.socket)
 
+	// Optional plain-TCP listener — same gRPC server, dev-mode transport
+	// for the cross-host bring-up. The SSH-secured Unix listener below is
+	// preferred everywhere else; this exists because sshtransport doesn't
+	// yet bridge to a remote SSH host. No TLS — caller identity still
+	// flows through the standard bearer interceptor chain.
+	if t.tcpListen != "" {
+		tcpLis, err := net.Listen("tcp", t.tcpListen)
+		if err != nil {
+			return fmt.Errorf("tcp listener on %s: %w", t.tcpListen, err)
+		}
+		go func() {
+			if err := srv.Serve(tcpLis); err != nil {
+				logger.Printf("tcp grpc server stopped: %v", err)
+			}
+		}()
+		logger.Printf("TCP gRPC listening on %s (dev-mode, no TLS)", t.tcpListen)
+	}
+
 	// Optional SSH-secured listener — same gRPC server (and same
 	// auth interceptors), different transport.
 	if t.sshSocket != "" {
 		home, _ := os.UserHomeDir()
 		_ = os.Remove(t.sshSocket)
 		sshLis, err := sshtransport.ListenSSH("unix:"+t.sshSocket, sshtransport.ServerConfig{
-			HostKeyPath:        filepath.Join(home, ".vzd", "vzd_host_key"),
+			HostKeyPath:        filepath.Join(home, ".weft", "weft_host_key"),
 			AuthorizedKeysPath: t.sshAuthorizedKeys,
 			Logger:             logger,
 		})
@@ -448,8 +469,8 @@ func run(t fileConfigTargets) error {
 
 // ---- gRPC server -----------------------------------------------------------
 
-type vzdServer struct {
-	vzdv1.UnimplementedWeftAgentServer
+type weftServer struct {
+	weftv1.UnimplementedWeftAgentServer
 	cfgDir string
 	mc     imock.MockBlock
 	adp    weft.VZAdapter
@@ -485,7 +506,7 @@ type vzdServer struct {
 	vmKeys *weft.VMSSHKeyRegistry
 }
 
-func (s *vzdServer) ListVMs(ctx context.Context, req *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
+func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {
 		return nil, err
@@ -498,7 +519,7 @@ func (s *vzdServer) ListVMs(ctx context.Context, req *vzdv1.ListVMsRequest) (*vz
 	// return only the requested project. Phase 2 will instead scope
 	// the empty case to the caller's projects.
 	wantProject := req.Project
-	var vms []*vzdv1.VMInfo
+	var vms []*weftv1.VMInfo
 	for _, props := range localMap {
 		project, _ := props["project"].(string)
 		projectUUID, _ := props["project_uuid"].(string)
@@ -519,7 +540,7 @@ func (s *vzdServer) ListVMs(ctx context.Context, req *vzdv1.ListVMsRequest) (*vz
 			vmState = "running"
 		}
 		ip, _ := s.adp.IP(name)
-		info := &vzdv1.VMInfo{
+		info := &weftv1.VMInfo{
 			Name:        name,
 			State:       stateToProto(vmState),
 			Ip:          ip,
@@ -543,10 +564,10 @@ func (s *vzdServer) ListVMs(ctx context.Context, req *vzdv1.ListVMsRequest) (*vz
 		}
 		vms = append(vms, info)
 	}
-	return &vzdv1.ListVMsResponse{Vms: vms}, nil
+	return &weftv1.ListVMsResponse{Vms: vms}, nil
 }
 
-func (s *vzdServer) VMStatus(ctx context.Context, req *vzdv1.VMStatusRequest) (*vzdv1.VMStatusResponse, error) {
+func (s *weftServer) VMStatus(ctx context.Context, req *weftv1.VMStatusRequest) (*weftv1.VMStatusResponse, error) {
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
@@ -587,7 +608,7 @@ func (s *vzdServer) VMStatus(ctx context.Context, req *vzdv1.VMStatusRequest) (*
 	ip, _ := s.adp.IP(req.Name)
 	project, _ := props["project"].(string)
 	projectUUID, _ := props["project_uuid"].(string)
-	info := &vzdv1.VMInfo{
+	info := &weftv1.VMInfo{
 		Name:        req.Name,
 		State:       stateToProto(vmState),
 		Ip:          ip,
@@ -610,10 +631,10 @@ func (s *vzdServer) VMStatus(ctx context.Context, req *vzdv1.VMStatusRequest) (*
 	if v, ok := props["os"].(string); ok {
 		info.Os = v
 	}
-	return &vzdv1.VMStatusResponse{Vm: info}, nil
+	return &weftv1.VMStatusResponse{Vm: info}, nil
 }
 
-func (s *vzdServer) StartVM(ctx context.Context, req *vzdv1.StartVMRequest) (*vzdv1.StartVMResponse, error) {
+func (s *weftServer) StartVM(ctx context.Context, req *weftv1.StartVMRequest) (*weftv1.StartVMResponse, error) {
 	logger.Printf("StartVM name=%s project=%s host=%s", req.Name, req.Project, req.HostUuid)
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
@@ -625,10 +646,10 @@ func (s *vzdServer) StartVM(ctx context.Context, req *vzdv1.StartVMRequest) (*vz
 		logger.Printf("StartVM %s: error: %v", req.Name, err)
 		return nil, status.Errorf(codes.Internal, "start vm: %v", err)
 	}
-	return &vzdv1.StartVMResponse{}, nil
+	return &weftv1.StartVMResponse{}, nil
 }
 
-func (s *vzdServer) StopVM(ctx context.Context, req *vzdv1.StopVMRequest) (*vzdv1.StopVMResponse, error) {
+func (s *weftServer) StopVM(ctx context.Context, req *weftv1.StopVMRequest) (*weftv1.StopVMResponse, error) {
 	logger.Printf("StopVM name=%s project=%s host=%s", req.Name, req.Project, req.HostUuid)
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
@@ -640,10 +661,10 @@ func (s *vzdServer) StopVM(ctx context.Context, req *vzdv1.StopVMRequest) (*vzdv
 		logger.Printf("StopVM %s: error: %v", req.Name, err)
 		return nil, status.Errorf(codes.Internal, "stop vm: %v", err)
 	}
-	return &vzdv1.StopVMResponse{}, nil
+	return &weftv1.StopVMResponse{}, nil
 }
 
-func (s *vzdServer) CreateVM(ctx context.Context, req *vzdv1.CreateVMRequest) (*vzdv1.CreateVMResponse, error) {
+func (s *weftServer) CreateVM(ctx context.Context, req *weftv1.CreateVMRequest) (*weftv1.CreateVMResponse, error) {
 	logger.Printf("CreateVM name=%s image=%s project=%s", req.Name, req.Image, req.Project)
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
@@ -664,10 +685,10 @@ func (s *vzdServer) CreateVM(ctx context.Context, req *vzdv1.CreateVMRequest) (*
 	}); err != nil {
 		logger.Printf("CreateVM %s: enrich config: %v", req.Name, err)
 	}
-	return &vzdv1.CreateVMResponse{}, nil
+	return &weftv1.CreateVMResponse{}, nil
 }
 
-func (s *vzdServer) DeleteVM(ctx context.Context, req *vzdv1.DeleteVMRequest) (*vzdv1.DeleteVMResponse, error) {
+func (s *weftServer) DeleteVM(ctx context.Context, req *weftv1.DeleteVMRequest) (*weftv1.DeleteVMResponse, error) {
 	logger.Printf("DeleteVM name=%s project=%s host=%s", req.Name, req.Project, req.HostUuid)
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
@@ -679,12 +700,12 @@ func (s *vzdServer) DeleteVM(ctx context.Context, req *vzdv1.DeleteVMRequest) (*
 		logger.Printf("DeleteVM %s: error: %v", req.Name, err)
 		return nil, status.Errorf(codes.Internal, "delete vm: %v", err)
 	}
-	return &vzdv1.DeleteVMResponse{}, nil
+	return &weftv1.DeleteVMResponse{}, nil
 }
 
 // ProvisionVM clones the image, injects a cloud-init ISO if an SSH public key
 // is provided, starts the VM and waits up to 3 minutes for an IP address.
-func (s *vzdServer) ProvisionVM(ctx context.Context, req *vzdv1.ProvisionVMRequest) (*vzdv1.ProvisionVMResponse, error) {
+func (s *weftServer) ProvisionVM(ctx context.Context, req *weftv1.ProvisionVMRequest) (*weftv1.ProvisionVMResponse, error) {
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
@@ -764,11 +785,11 @@ func (s *vzdServer) ProvisionVM(ctx context.Context, req *vzdv1.ProvisionVMReque
 		return nil, status.Errorf(codes.DeadlineExceeded, "wait for ip: %v", err)
 	}
 	logger.Printf("ProvisionVM %s: ready ip=%s", req.Name, ip)
-	return &vzdv1.ProvisionVMResponse{}, nil
+	return &weftv1.ProvisionVMResponse{}, nil
 }
 
 // DeprovisionVM stops (best-effort) then deletes a VM.
-func (s *vzdServer) DeprovisionVM(ctx context.Context, req *vzdv1.DeprovisionVMRequest) (*vzdv1.DeprovisionVMResponse, error) {
+func (s *weftServer) DeprovisionVM(ctx context.Context, req *weftv1.DeprovisionVMRequest) (*weftv1.DeprovisionVMResponse, error) {
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
@@ -777,11 +798,11 @@ func (s *vzdServer) DeprovisionVM(ctx context.Context, req *vzdv1.DeprovisionVMR
 	if err := s.adp.DeleteVM(req.Name); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete vm: %v", err)
 	}
-	return &vzdv1.DeprovisionVMResponse{}, nil
+	return &weftv1.DeprovisionVMResponse{}, nil
 }
 
 // PullImages pulls all images referenced in the HCL config directory.
-func (s *vzdServer) PullImages(ctx context.Context, req *vzdv1.PullImagesRequest) (*vzdv1.PullImagesResponse, error) {
+func (s *weftServer) PullImages(ctx context.Context, req *weftv1.PullImagesRequest) (*weftv1.PullImagesResponse, error) {
 	cfgDir := req.ConfigDir
 	if cfgDir == "" {
 		cfgDir = s.cfgDir
@@ -807,7 +828,7 @@ func (s *vzdServer) PullImages(ctx context.Context, req *vzdv1.PullImagesRequest
 		imgs = append(imgs, img)
 	}
 	if len(imgs) == 0 {
-		return &vzdv1.PullImagesResponse{}, nil
+		return &weftv1.PullImagesResponse{}, nil
 	}
 	parallel := int(req.Parallel)
 	if parallel <= 0 {
@@ -818,11 +839,11 @@ func (s *vzdServer) PullImages(ctx context.Context, req *vzdv1.PullImagesRequest
 		return nil, status.Errorf(codes.Internal, "pull images: %v", err)
 	}
 	logger.Printf("PullImages: done (%d images)", len(imgs))
-	return &vzdv1.PullImagesResponse{}, nil
+	return &weftv1.PullImagesResponse{}, nil
 }
 
 // PullImage pulls a single image by URL.
-func (s *vzdServer) PullImage(ctx context.Context, req *vzdv1.PullImageRequest) (*vzdv1.PullImageResponse, error) {
+func (s *weftServer) PullImage(ctx context.Context, req *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error) {
 	if req.Url == "" {
 		return nil, status.Error(codes.InvalidArgument, "url is required")
 	}
@@ -832,17 +853,17 @@ func (s *vzdServer) PullImage(ctx context.Context, req *vzdv1.PullImageRequest) 
 		return nil, status.Errorf(codes.Internal, "pull image: %v", err)
 	}
 	logger.Printf("PullImage: done")
-	return &vzdv1.PullImageResponse{}, nil
+	return &weftv1.PullImageResponse{}, nil
 }
 
 // PatchImage applies DiskFileOps to a cached image so that all VMs cloned
 // from it inherit the patches without needing per-instance copy blocks.
-func (s *vzdServer) PatchImage(_ context.Context, req *vzdv1.PatchImageRequest) (*vzdv1.PatchImageResponse, error) {
+func (s *weftServer) PatchImage(_ context.Context, req *weftv1.PatchImageRequest) (*weftv1.PatchImageResponse, error) {
 	if req.Url == "" {
 		return nil, status.Error(codes.InvalidArgument, "url is required")
 	}
 	if len(req.FileOps) == 0 && len(req.DeleteOps) == 0 && len(req.ModOps) == 0 {
-		return &vzdv1.PatchImageResponse{}, nil
+		return &weftv1.PatchImageResponse{}, nil
 	}
 	logger.Printf("PatchImage url=%s add=%d del=%d mod=%d", req.Url, len(req.FileOps), len(req.DeleteOps), len(req.ModOps))
 	cachedPath, err := s.adp.CachedImagePath(req.Url)
@@ -862,29 +883,29 @@ func (s *vzdServer) PatchImage(_ context.Context, req *vzdv1.PatchImageRequest) 
 		return nil, status.Errorf(codes.Internal, "patch image mod: %v", err)
 	}
 	logger.Printf("PatchImage: done")
-	return &vzdv1.PatchImageResponse{}, nil
+	return &weftv1.PatchImageResponse{}, nil
 }
 
 // ListImages returns all locally cached images.
-func (s *vzdServer) ListImages(_ context.Context, _ *vzdv1.ListImagesRequest) (*vzdv1.ListImagesResponse, error) {
+func (s *weftServer) ListImages(_ context.Context, _ *weftv1.ListImagesRequest) (*weftv1.ListImagesResponse, error) {
 	images, err := s.adp.ListCachedImages()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list cached images: %v", err)
 	}
-	var infos []*vzdv1.ImageInfo
+	var infos []*weftv1.ImageInfo
 	for _, img := range images {
-		infos = append(infos, &vzdv1.ImageInfo{
+		infos = append(infos, &weftv1.ImageInfo{
 			Url:       img.URL(),
 			Name:      img.Name(),
 			Format:    img.Format(),
 			SizeBytes: img.SizeBytes(),
 		})
 	}
-	return &vzdv1.ListImagesResponse{Images: infos}, nil
+	return &weftv1.ListImagesResponse{Images: infos}, nil
 }
 
 // CleanImages removes cached images referenced in the HCL config.
-func (s *vzdServer) CleanImages(_ context.Context, req *vzdv1.CleanImagesRequest) (*vzdv1.CleanImagesResponse, error) {
+func (s *weftServer) CleanImages(_ context.Context, req *weftv1.CleanImagesRequest) (*weftv1.CleanImagesResponse, error) {
 	cfgDir := req.ConfigDir
 	if cfgDir == "" {
 		cfgDir = s.cfgDir
@@ -912,7 +933,7 @@ func (s *vzdServer) CleanImages(_ context.Context, req *vzdv1.CleanImagesRequest
 		}
 	}
 	if req.DryRun {
-		return &vzdv1.CleanImagesResponse{Deleted: toDelete}, nil
+		return &weftv1.CleanImagesResponse{Deleted: toDelete}, nil
 	}
 	var deleted []string
 	for _, n := range toDelete {
@@ -920,17 +941,17 @@ func (s *vzdServer) CleanImages(_ context.Context, req *vzdv1.CleanImagesRequest
 			deleted = append(deleted, n)
 		}
 	}
-	return &vzdv1.CleanImagesResponse{Deleted: deleted}, nil
+	return &weftv1.CleanImagesResponse{Deleted: deleted}, nil
 }
 
 // RegisterMicroVM wires a VM directory for a microVM-style boot:
-// the primary storage device is a read-only ncl-init UKI ISO, and
+// the primary storage device is a read-only weft-microvm-init UKI ISO, and
 // the guest sees one or more virtio-fs shares carrying the OCI
 // image rootfs(es). The actual VM creation happens through
 // adapter.RegisterMicroVM (added in the same change as this RPC);
-// once it returns the VM behaves like any other vzd VM and is
+// once it returns the VM behaves like any other weft VM and is
 // started/stopped via the normal StartVM/StopVM RPCs.
-func (s *vzdServer) RegisterMicroVM(ctx context.Context, req *vzdv1.RegisterMicroVMRequest) (*vzdv1.RegisterMicroVMResponse, error) {
+func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMicroVMRequest) (*weftv1.RegisterMicroVMResponse, error) {
 	logger.Printf("RegisterMicroVM name=%s project=%s boot_iso=%s kernel=%s initrd=%s cmdline=%q shares=%d",
 		req.Name, req.Project, req.BootIso, req.Kernel, req.Initrd, req.Cmdline, len(req.Shares))
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
@@ -964,7 +985,7 @@ func (s *vzdServer) RegisterMicroVM(ctx context.Context, req *vzdv1.RegisterMicr
 		logger.Printf("RegisterMicroVM %s: error: %v", req.Name, err)
 		return nil, status.Errorf(codes.Internal, "register microvm: %v", err)
 	}
-	return &vzdv1.RegisterMicroVMResponse{}, nil
+	return &weftv1.RegisterMicroVMResponse{}, nil
 }
 
 // shareAttacher is the adapter capability PublishShareToProject needs.
@@ -977,7 +998,7 @@ type shareAttacher interface {
 // PublishShareToProject resolves the project's VMs and fans the share mount
 // (or unmount) out to each over the event bus. The control plane reaches
 // every VM regardless of host via NATS, so there's no per-host dispatch.
-func (s *vzdServer) PublishShareToProject(ctx context.Context, req *vzdv1.PublishShareToProjectRequest) (*vzdv1.PublishShareToProjectResponse, error) {
+func (s *weftServer) PublishShareToProject(ctx context.Context, req *weftv1.PublishShareToProjectRequest) (*weftv1.PublishShareToProjectResponse, error) {
 	if req.Mount == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "mount is required")
 	}
@@ -1012,7 +1033,7 @@ func (s *vzdServer) PublishShareToProject(ctx context.Context, req *vzdv1.Publis
 		return nil, status.Errorf(codes.Internal, "publish share: %v", err)
 	}
 	logger.Printf("PublishShareToProject project=%s share=%s action=%q -> %d VMs", req.ProjectUuid, m.ID, m.Action, n)
-	return &vzdv1.PublishShareToProjectResponse{VmCount: uint32(n)}, nil
+	return &weftv1.PublishShareToProjectResponse{VmCount: uint32(n)}, nil
 }
 
 // shouldDispatch reports whether a RegisterMicroVM (or any
@@ -1021,7 +1042,7 @@ func (s *vzdServer) PublishShareToProject(ctx context.Context, req *vzdv1.Publis
 // host_uuid, a self-target, or a server without a configured
 // dispatch registry — all of those fall through to the local
 // Adapter call.
-func (s *vzdServer) shouldDispatch(hostUUID string) bool {
+func (s *weftServer) shouldDispatch(hostUUID string) bool {
 	if s.dispatch == nil || hostUUID == "" {
 		return false
 	}
@@ -1036,23 +1057,23 @@ func (s *vzdServer) shouldDispatch(hostUUID string) bool {
 // gRPC-level Response on success ; the agent's typed error (if
 // any) is surfaced as codes.Internal so callers see the agent's
 // message verbatim.
-func (s *vzdServer) dispatchRegisterMicroVM(
+func (s *weftServer) dispatchRegisterMicroVM(
 	ctx context.Context,
-	req *vzdv1.RegisterMicroVMRequest,
+	req *weftv1.RegisterMicroVMRequest,
 	boot weft.MicroVMBoot,
 	shares []weft.MicroVMShare,
-) (*vzdv1.RegisterMicroVMResponse, error) {
-	wireShares := make([]*vzdv1.MicroVMShare, len(shares))
+) (*weftv1.RegisterMicroVMResponse, error) {
+	wireShares := make([]*weftv1.MicroVMShare, len(shares))
 	for i, sh := range shares {
-		wireShares[i] = &vzdv1.MicroVMShare{
+		wireShares[i] = &weftv1.MicroVMShare{
 			Tag:      sh.Tag,
 			Path:     sh.Path,
 			ReadOnly: sh.ReadOnly,
 			Clone:    sh.Clone,
 		}
 	}
-	op := &vzdv1.DriverRequest{Op: &vzdv1.DriverRequest_RegisterMicroVm{
-		RegisterMicroVm: &vzdv1.RegisterMicroVMOp{
+	op := &weftv1.DriverRequest{Op: &weftv1.DriverRequest_RegisterMicroVm{
+		RegisterMicroVm: &weftv1.RegisterMicroVMOp{
 			Project: req.Project,
 			Name:    req.Name,
 			BootIso: boot.BootISO,
@@ -1072,15 +1093,15 @@ func (s *vzdServer) dispatchRegisterMicroVM(
 		return nil, status.Errorf(codes.Internal, "agent %s: %s", req.HostUuid, reply.Error)
 	}
 	logger.Printf("RegisterMicroVM %s: dispatched to host %s", req.Name, req.HostUuid)
-	return &vzdv1.RegisterMicroVMResponse{}, nil
+	return &weftv1.RegisterMicroVMResponse{}, nil
 }
 
 // dispatchStartVM routes a StartVM op over the AgentDispatch
 // stream to `req.HostUuid`. Mirrors dispatchRegisterMicroVM —
 // surfaces the agent's typed error as codes.Internal.
-func (s *vzdServer) dispatchStartVM(ctx context.Context, req *vzdv1.StartVMRequest) (*vzdv1.StartVMResponse, error) {
-	op := &vzdv1.DriverRequest{Op: &vzdv1.DriverRequest_StartVm{
-		StartVm: &vzdv1.StartVMOp{Project: req.Project, Name: req.Name},
+func (s *weftServer) dispatchStartVM(ctx context.Context, req *weftv1.StartVMRequest) (*weftv1.StartVMResponse, error) {
+	op := &weftv1.DriverRequest{Op: &weftv1.DriverRequest_StartVm{
+		StartVm: &weftv1.StartVMOp{Project: req.Project, Name: req.Name},
 	}}
 	logger.Printf("StartVM %s: dispatching to host %s", req.Name, req.HostUuid)
 	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
@@ -1092,14 +1113,14 @@ func (s *vzdServer) dispatchStartVM(ctx context.Context, req *vzdv1.StartVMReque
 		return nil, status.Errorf(codes.Internal, "agent %s: %s", req.HostUuid, reply.Error)
 	}
 	logger.Printf("StartVM %s: dispatched to host %s", req.Name, req.HostUuid)
-	return &vzdv1.StartVMResponse{}, nil
+	return &weftv1.StartVMResponse{}, nil
 }
 
 // dispatchStopVM routes a StopVM op over the AgentDispatch
 // stream to `req.HostUuid`.
-func (s *vzdServer) dispatchStopVM(ctx context.Context, req *vzdv1.StopVMRequest) (*vzdv1.StopVMResponse, error) {
-	op := &vzdv1.DriverRequest{Op: &vzdv1.DriverRequest_StopVm{
-		StopVm: &vzdv1.StopVMOp{Project: req.Project, Name: req.Name},
+func (s *weftServer) dispatchStopVM(ctx context.Context, req *weftv1.StopVMRequest) (*weftv1.StopVMResponse, error) {
+	op := &weftv1.DriverRequest{Op: &weftv1.DriverRequest_StopVm{
+		StopVm: &weftv1.StopVMOp{Project: req.Project, Name: req.Name},
 	}}
 	logger.Printf("StopVM %s: dispatching to host %s", req.Name, req.HostUuid)
 	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
@@ -1111,14 +1132,14 @@ func (s *vzdServer) dispatchStopVM(ctx context.Context, req *vzdv1.StopVMRequest
 		return nil, status.Errorf(codes.Internal, "agent %s: %s", req.HostUuid, reply.Error)
 	}
 	logger.Printf("StopVM %s: dispatched to host %s", req.Name, req.HostUuid)
-	return &vzdv1.StopVMResponse{}, nil
+	return &weftv1.StopVMResponse{}, nil
 }
 
 // dispatchDeleteVM routes a DeleteVM op over the AgentDispatch
 // stream to `req.HostUuid`.
-func (s *vzdServer) dispatchDeleteVM(ctx context.Context, req *vzdv1.DeleteVMRequest) (*vzdv1.DeleteVMResponse, error) {
-	op := &vzdv1.DriverRequest{Op: &vzdv1.DriverRequest_DeleteVm{
-		DeleteVm: &vzdv1.DeleteVMOp{Project: req.Project, Name: req.Name},
+func (s *weftServer) dispatchDeleteVM(ctx context.Context, req *weftv1.DeleteVMRequest) (*weftv1.DeleteVMResponse, error) {
+	op := &weftv1.DriverRequest{Op: &weftv1.DriverRequest_DeleteVm{
+		DeleteVm: &weftv1.DeleteVMOp{Project: req.Project, Name: req.Name},
 	}}
 	logger.Printf("DeleteVM %s: dispatching to host %s", req.Name, req.HostUuid)
 	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
@@ -1130,7 +1151,7 @@ func (s *vzdServer) dispatchDeleteVM(ctx context.Context, req *vzdv1.DeleteVMReq
 		return nil, status.Errorf(codes.Internal, "agent %s: %s", req.HostUuid, reply.Error)
 	}
 	logger.Printf("DeleteVM %s: dispatched to host %s", req.Name, req.HostUuid)
-	return &vzdv1.DeleteVMResponse{}, nil
+	return &weftv1.DeleteVMResponse{}, nil
 }
 
 // localHostUUID reads the persisted UUID for the local host.
@@ -1152,11 +1173,11 @@ func localHostUUID(a weft.VZAdapter) string {
 	return ""
 }
 
-// VMTimings returns the lifecycle event log recorded by vzd at
+// VMTimings returns the lifecycle event log recorded by weft at
 // <vmDir>/timings.jsonl, in wall-clock order. Empty when the VM
 // has no events recorded yet (e.g. queried before any
 // RegisterMicroVM or CloneVM finished).
-func (s *vzdServer) VMTimings(ctx context.Context, req *vzdv1.VMTimingsRequest) (*vzdv1.VMTimingsResponse, error) {
+func (s *weftServer) VMTimings(ctx context.Context, req *weftv1.VMTimingsRequest) (*weftv1.VMTimingsResponse, error) {
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
@@ -1169,15 +1190,15 @@ func (s *vzdServer) VMTimings(ctx context.Context, req *vzdv1.VMTimingsRequest) 
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "read timings: %v", err)
 	}
-	out := make([]*vzdv1.TimingEvent, len(events))
+	out := make([]*weftv1.TimingEvent, len(events))
 	for i, e := range events {
-		out[i] = &vzdv1.TimingEvent{
+		out[i] = &weftv1.TimingEvent{
 			Name:     e.Name,
 			TsUnixNs: e.TsUnixNano,
 			Meta:     e.Meta,
 		}
 	}
-	return &vzdv1.VMTimingsResponse{Events: out}, nil
+	return &weftv1.VMTimingsResponse{Events: out}, nil
 }
 
 // VMLogs returns the raw bytes of <vmDir>/console.log, optionally
@@ -1187,7 +1208,7 @@ func (s *vzdServer) VMTimings(ctx context.Context, req *vzdv1.VMTimingsRequest) 
 // `total_bytes` always carries the on-disk size so the client can
 // detect when the response was truncated and decide whether to
 // page the rest.
-func (s *vzdServer) VMLogs(ctx context.Context, req *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
+func (s *weftServer) VMLogs(ctx context.Context, req *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
@@ -1203,7 +1224,7 @@ func (s *vzdServer) VMLogs(ctx context.Context, req *vzdv1.VMLogsRequest) (*vzdv
 			// or the name is unknown. Either way: return an empty
 			// payload with total=0 — clients distinguish these by
 			// pairing with VMStatus, not by introspecting this RPC.
-			return &vzdv1.VMLogsResponse{}, nil
+			return &weftv1.VMLogsResponse{}, nil
 		}
 		return nil, status.Errorf(codes.Internal, "open console.log: %v", err)
 	}
@@ -1226,7 +1247,7 @@ func (s *vzdServer) VMLogs(ctx context.Context, req *vzdv1.VMLogsRequest) (*vzdv
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "read console.log: %v", err)
 	}
-	return &vzdv1.VMLogsResponse{Contents: buf, TotalBytes: total}, nil
+	return &weftv1.VMLogsResponse{Contents: buf, TotalBytes: total}, nil
 }
 
 // WatchEvents streams platform events to the caller until the
@@ -1236,10 +1257,10 @@ func (s *vzdServer) VMLogs(ctx context.Context, req *vzdv1.VMLogsRequest) (*vzdv
 // optional kind_prefix / project narrowing the request specified.
 //
 // Backpressure: the bus drops events for slow subscribers rather
-// than blocking publishers (per [[vzd-event-bus]]). A consumer
+// than blocking publishers (per [[weft-event-bus]]). A consumer
 // that needs guaranteed delivery should pair WatchEvents with
 // occasional VMTimings reads.
-func (s *vzdServer) WatchEvents(req *vzdv1.WatchEventsRequest, stream vzdv1.WeftAgent_WatchEventsServer) error {
+func (s *weftServer) WatchEvents(req *weftv1.WatchEventsRequest, stream weftv1.WeftAgent_WatchEventsServer) error {
 	ctx := stream.Context()
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {
@@ -1275,7 +1296,7 @@ func (s *vzdServer) WatchEvents(req *vzdv1.WatchEventsRequest, stream vzdv1.Weft
 			if !ok {
 				return nil
 			}
-			if err := stream.Send(&vzdv1.PlatformEvent{
+			if err := stream.Send(&weftv1.PlatformEvent{
 				TsUnixNs:    ev.TsUnixNano,
 				Kind:        ev.Kind,
 				Subject:     ev.Subject,
@@ -1292,8 +1313,8 @@ func (s *vzdServer) WatchEvents(req *vzdv1.WatchEventsRequest, stream vzdv1.Weft
 // block for the operator to splice into nats.conf. Admin-gated:
 // the block reveals every project's NATS pubkey, which is
 // operator-information rather than tenant-information.
-// Per [[vzd-tenant-event-access]] Phase 3.
-func (s *vzdServer) RenderNATSAuthorization(ctx context.Context, req *vzdv1.RenderNATSAuthorizationRequest) (*vzdv1.RenderNATSAuthorizationResponse, error) {
+// Per [[weft-tenant-event-access]] Phase 3.
+func (s *weftServer) RenderNATSAuthorization(ctx context.Context, req *weftv1.RenderNATSAuthorizationRequest) (*weftv1.RenderNATSAuthorizationResponse, error) {
 	if err := weft.RequireAdmin(ctx, "render nats authorization"); err != nil {
 		return nil, err
 	}
@@ -1303,26 +1324,26 @@ func (s *vzdServer) RenderNATSAuthorization(ctx context.Context, req *vzdv1.Rend
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "render nats authz: %v", err)
 	}
-	return &vzdv1.RenderNATSAuthorizationResponse{Config: []byte(conf)}, nil
+	return &weftv1.RenderNATSAuthorizationResponse{Config: []byte(conf)}, nil
 }
 
 // --- Project registry RPCs ------------------------------------------------
 
-func toProjectInfo(p weft.Project) *vzdv1.ProjectInfo {
-	return &vzdv1.ProjectInfo{
+func toProjectInfo(p weft.Project) *weftv1.ProjectInfo {
+	return &weftv1.ProjectInfo{
 		Uuid:            p.UUID,
 		Name:            p.Name,
 		CreatedAtUnixNs: p.CreatedAt.UnixNano(),
 	}
 }
 
-func (s *vzdServer) ListProjects(ctx context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
+func (s *weftServer) ListProjects(ctx context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {
 		return nil, err
 	}
 	projects := s.adp.Projects()
-	out := make([]*vzdv1.ProjectInfo, 0, len(projects))
+	out := make([]*weftv1.ProjectInfo, 0, len(projects))
 	for _, p := range projects {
 		if !all {
 			if _, ok := visible[p.UUID]; !ok {
@@ -1331,10 +1352,10 @@ func (s *vzdServer) ListProjects(ctx context.Context, _ *vzdv1.ListProjectsReque
 		}
 		out = append(out, toProjectInfo(p))
 	}
-	return &vzdv1.ListProjectsResponse{Projects: out}, nil
+	return &weftv1.ListProjectsResponse{Projects: out}, nil
 }
 
-func (s *vzdServer) CreateProject(ctx context.Context, req *vzdv1.CreateProjectRequest) (*vzdv1.CreateProjectResponse, error) {
+func (s *weftServer) CreateProject(ctx context.Context, req *weftv1.CreateProjectRequest) (*weftv1.CreateProjectResponse, error) {
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
@@ -1350,10 +1371,10 @@ func (s *vzdServer) CreateProject(ctx context.Context, req *vzdv1.CreateProjectR
 		return nil, status.Errorf(codes.Internal, "create project: %v", err)
 	}
 	logger.Printf("CreateProject name=%s uuid=%s created=%v", p.Name, p.UUID, created)
-	return &vzdv1.CreateProjectResponse{Project: toProjectInfo(p), Created: created}, nil
+	return &weftv1.CreateProjectResponse{Project: toProjectInfo(p), Created: created}, nil
 }
 
-func (s *vzdServer) RenameProject(ctx context.Context, req *vzdv1.RenameProjectRequest) (*vzdv1.RenameProjectResponse, error) {
+func (s *weftServer) RenameProject(ctx context.Context, req *weftv1.RenameProjectRequest) (*weftv1.RenameProjectResponse, error) {
 	if req.Uuid == "" || req.NewName == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid and new_name are required")
 	}
@@ -1368,10 +1389,10 @@ func (s *vzdServer) RenameProject(ctx context.Context, req *vzdv1.RenameProjectR
 		return nil, status.Errorf(codes.Internal, "project %s vanished after rename", req.Uuid)
 	}
 	logger.Printf("RenameProject uuid=%s -> name=%s", p.UUID, p.Name)
-	return &vzdv1.RenameProjectResponse{Project: toProjectInfo(p)}, nil
+	return &weftv1.RenameProjectResponse{Project: toProjectInfo(p)}, nil
 }
 
-func (s *vzdServer) DeleteProject(ctx context.Context, req *vzdv1.DeleteProjectRequest) (*vzdv1.DeleteProjectResponse, error) {
+func (s *weftServer) DeleteProject(ctx context.Context, req *weftv1.DeleteProjectRequest) (*weftv1.DeleteProjectResponse, error) {
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
@@ -1382,7 +1403,7 @@ func (s *vzdServer) DeleteProject(ctx context.Context, req *vzdv1.DeleteProjectR
 		return nil, status.Errorf(codes.FailedPrecondition, "delete project: %v", err)
 	}
 	logger.Printf("DeleteProject uuid=%s", req.Uuid)
-	return &vzdv1.DeleteProjectResponse{}, nil
+	return &weftv1.DeleteProjectResponse{}, nil
 }
 
 // ---- Flavors (compute-envelope catalogue) -------------------------
@@ -1397,21 +1418,21 @@ func (s *vzdServer) DeleteProject(ctx context.Context, req *vzdv1.DeleteProjectR
 // nil during integration tests that don't need it ; every RPC
 // guards via flavorsReady.
 
-func (s *vzdServer) flavorsReady() error {
+func (s *weftServer) flavorsReady() error {
 	if s.flavors == nil {
 		return status.Error(codes.Unavailable, "flavors registry not wired on this build")
 	}
 	return nil
 }
 
-func (s *vzdServer) ListFlavors(_ context.Context, _ *vzdv1.ListFlavorsRequest) (*vzdv1.ListFlavorsResponse, error) {
+func (s *weftServer) ListFlavors(_ context.Context, _ *weftv1.ListFlavorsRequest) (*weftv1.ListFlavorsResponse, error) {
 	if err := s.flavorsReady(); err != nil {
 		return nil, err
 	}
 	all := s.flavors.List()
-	out := &vzdv1.ListFlavorsResponse{Flavors: make([]*vzdv1.Flavor, 0, len(all))}
+	out := &weftv1.ListFlavorsResponse{Flavors: make([]*weftv1.Flavor, 0, len(all))}
 	for _, f := range all {
-		out.Flavors = append(out.Flavors, &vzdv1.Flavor{
+		out.Flavors = append(out.Flavors, &weftv1.Flavor{
 			Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
 			EphemeralGb: int32(f.EphemeralGB), Gpu: f.GPU,
 		})
@@ -1419,7 +1440,7 @@ func (s *vzdServer) ListFlavors(_ context.Context, _ *vzdv1.ListFlavorsRequest) 
 	return out, nil
 }
 
-func (s *vzdServer) GetFlavor(_ context.Context, req *vzdv1.GetFlavorRequest) (*vzdv1.GetFlavorResponse, error) {
+func (s *weftServer) GetFlavor(_ context.Context, req *weftv1.GetFlavorRequest) (*weftv1.GetFlavorResponse, error) {
 	if err := s.flavorsReady(); err != nil {
 		return nil, err
 	}
@@ -1430,13 +1451,13 @@ func (s *vzdServer) GetFlavor(_ context.Context, req *vzdv1.GetFlavorRequest) (*
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "no such flavor: %s", req.Name)
 	}
-	return &vzdv1.GetFlavorResponse{Flavor: &vzdv1.Flavor{
+	return &weftv1.GetFlavorResponse{Flavor: &weftv1.Flavor{
 		Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
 		EphemeralGb: int32(f.EphemeralGB), Gpu: f.GPU,
 	}}, nil
 }
 
-func (s *vzdServer) SetFlavor(ctx context.Context, req *vzdv1.SetFlavorRequest) (*vzdv1.SetFlavorResponse, error) {
+func (s *weftServer) SetFlavor(ctx context.Context, req *weftv1.SetFlavorRequest) (*weftv1.SetFlavorResponse, error) {
 	if err := s.flavorsReady(); err != nil {
 		return nil, err
 	}
@@ -1455,13 +1476,13 @@ func (s *vzdServer) SetFlavor(ctx context.Context, req *vzdv1.SetFlavorRequest) 
 	}
 	saved, _ := s.flavors.Get(in.Name)
 	logger.Printf("SetFlavor name=%s vcpu=%d ram=%s", saved.Name, saved.VCPU, saved.RAM)
-	return &vzdv1.SetFlavorResponse{Flavor: &vzdv1.Flavor{
+	return &weftv1.SetFlavorResponse{Flavor: &weftv1.Flavor{
 		Name: saved.Name, Vcpu: int32(saved.VCPU), Ram: saved.RAM,
 		EphemeralGb: int32(saved.EphemeralGB), Gpu: saved.GPU,
 	}}, nil
 }
 
-func (s *vzdServer) DeleteFlavor(ctx context.Context, req *vzdv1.DeleteFlavorRequest) (*vzdv1.DeleteFlavorResponse, error) {
+func (s *weftServer) DeleteFlavor(ctx context.Context, req *weftv1.DeleteFlavorRequest) (*weftv1.DeleteFlavorResponse, error) {
 	if err := s.flavorsReady(); err != nil {
 		return nil, err
 	}
@@ -1475,7 +1496,7 @@ func (s *vzdServer) DeleteFlavor(ctx context.Context, req *vzdv1.DeleteFlavorReq
 		return nil, status.Errorf(codes.Internal, "delete flavor: %v", err)
 	}
 	logger.Printf("DeleteFlavor name=%s", req.Name)
-	return &vzdv1.DeleteFlavorResponse{Deleted: req.Name}, nil
+	return &weftv1.DeleteFlavorResponse{Deleted: req.Name}, nil
 }
 
 // ---- Scripts (provisioning catalogue) -----------------------------
@@ -1484,26 +1505,26 @@ func (s *vzdServer) DeleteFlavor(ctx context.Context, req *vzdv1.DeleteFlavorReq
 // source ; UpdatedAt + UpdatedBy are stamped server-side from the
 // auth context so the wire can't lie about provenance.
 
-func (s *vzdServer) scriptsReady() error {
+func (s *weftServer) scriptsReady() error {
 	if s.scripts == nil {
 		return status.Error(codes.Unavailable, "scripts registry not wired on this build")
 	}
 	return nil
 }
 
-func (s *vzdServer) ListScripts(_ context.Context, _ *vzdv1.ListScriptsRequest) (*vzdv1.ListScriptsResponse, error) {
+func (s *weftServer) ListScripts(_ context.Context, _ *weftv1.ListScriptsRequest) (*weftv1.ListScriptsResponse, error) {
 	if err := s.scriptsReady(); err != nil {
 		return nil, err
 	}
 	all := s.scripts.List()
-	out := &vzdv1.ListScriptsResponse{Scripts: make([]*vzdv1.Script, 0, len(all))}
+	out := &weftv1.ListScriptsResponse{Scripts: make([]*weftv1.Script, 0, len(all))}
 	for _, sc := range all {
 		out.Scripts = append(out.Scripts, scriptToProto(sc))
 	}
 	return out, nil
 }
 
-func (s *vzdServer) GetScript(_ context.Context, req *vzdv1.GetScriptRequest) (*vzdv1.GetScriptResponse, error) {
+func (s *weftServer) GetScript(_ context.Context, req *weftv1.GetScriptRequest) (*weftv1.GetScriptResponse, error) {
 	if err := s.scriptsReady(); err != nil {
 		return nil, err
 	}
@@ -1514,10 +1535,10 @@ func (s *vzdServer) GetScript(_ context.Context, req *vzdv1.GetScriptRequest) (*
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "no such script: %s", req.Name)
 	}
-	return &vzdv1.GetScriptResponse{Script: scriptToProto(sc)}, nil
+	return &weftv1.GetScriptResponse{Script: scriptToProto(sc)}, nil
 }
 
-func (s *vzdServer) SetScript(ctx context.Context, req *vzdv1.SetScriptRequest) (*vzdv1.SetScriptResponse, error) {
+func (s *weftServer) SetScript(ctx context.Context, req *weftv1.SetScriptRequest) (*weftv1.SetScriptResponse, error) {
 	if err := s.scriptsReady(); err != nil {
 		return nil, err
 	}
@@ -1542,10 +1563,10 @@ func (s *vzdServer) SetScript(ctx context.Context, req *vzdv1.SetScriptRequest) 
 	}
 	saved, _ := s.scripts.Get(in.Name)
 	logger.Printf("SetScript name=%s by=%s body-bytes=%d", saved.Name, saved.UpdatedBy, len(saved.Body))
-	return &vzdv1.SetScriptResponse{Script: scriptToProto(saved)}, nil
+	return &weftv1.SetScriptResponse{Script: scriptToProto(saved)}, nil
 }
 
-func (s *vzdServer) DeleteScript(ctx context.Context, req *vzdv1.DeleteScriptRequest) (*vzdv1.DeleteScriptResponse, error) {
+func (s *weftServer) DeleteScript(ctx context.Context, req *weftv1.DeleteScriptRequest) (*weftv1.DeleteScriptResponse, error) {
 	if err := s.scriptsReady(); err != nil {
 		return nil, err
 	}
@@ -1559,15 +1580,15 @@ func (s *vzdServer) DeleteScript(ctx context.Context, req *vzdv1.DeleteScriptReq
 		return nil, status.Errorf(codes.Internal, "delete script: %v", err)
 	}
 	logger.Printf("DeleteScript name=%s", req.Name)
-	return &vzdv1.DeleteScriptResponse{Deleted: req.Name}, nil
+	return &weftv1.DeleteScriptResponse{Deleted: req.Name}, nil
 }
 
-func scriptToProto(s weft.Script) *vzdv1.Script {
+func scriptToProto(s weft.Script) *weftv1.Script {
 	ts := ""
 	if !s.UpdatedAt.IsZero() {
 		ts = s.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
 	}
-	return &vzdv1.Script{
+	return &weftv1.Script{
 		Name: s.Name, Description: s.Description, Body: s.Body,
 		UpdatedAt: ts, UpdatedBy: s.UpdatedBy,
 	}
@@ -1581,14 +1602,14 @@ func scriptToProto(s weft.Script) *vzdv1.Script {
 // every authenticated caller can read (the dashboard's Properties
 // drawer tab is open to operators with project membership).
 
-func (s *vzdServer) vmPropsReady() error {
+func (s *weftServer) vmPropsReady() error {
 	if s.vmProps == nil {
 		return status.Error(codes.Unavailable, "vm-properties registry not wired on this build")
 	}
 	return nil
 }
 
-func (s *vzdServer) ListVMProperties(_ context.Context, req *vzdv1.ListVMPropertiesRequest) (*vzdv1.ListVMPropertiesResponse, error) {
+func (s *weftServer) ListVMProperties(_ context.Context, req *weftv1.ListVMPropertiesRequest) (*weftv1.ListVMPropertiesResponse, error) {
 	if err := s.vmPropsReady(); err != nil {
 		return nil, err
 	}
@@ -1596,14 +1617,14 @@ func (s *vzdServer) ListVMProperties(_ context.Context, req *vzdv1.ListVMPropert
 		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
 	}
 	all := s.vmProps.ListForVM(req.Project, req.VmName)
-	out := &vzdv1.ListVMPropertiesResponse{Properties: make([]*vzdv1.VMProperty, 0, len(all))}
+	out := &weftv1.ListVMPropertiesResponse{Properties: make([]*weftv1.VMProperty, 0, len(all))}
 	for _, p := range all {
 		out.Properties = append(out.Properties, vmPropToProto(p))
 	}
 	return out, nil
 }
 
-func (s *vzdServer) SetVMProperty(ctx context.Context, req *vzdv1.SetVMPropertyRequest) (*vzdv1.SetVMPropertyResponse, error) {
+func (s *weftServer) SetVMProperty(ctx context.Context, req *weftv1.SetVMPropertyRequest) (*weftv1.SetVMPropertyResponse, error) {
 	if err := s.vmPropsReady(); err != nil {
 		return nil, err
 	}
@@ -1626,10 +1647,10 @@ func (s *vzdServer) SetVMProperty(ctx context.Context, req *vzdv1.SetVMPropertyR
 	// Re-fetch to return the stamped UpdatedAt the registry just wrote.
 	resolved := pickProperty(s.vmProps.ListForVM(req.Project, req.VmName), in.Key)
 	logger.Printf("SetVMProperty vm=%s/%s key=%s guest=%t", req.Project, req.VmName, in.Key, in.GuestReadable)
-	return &vzdv1.SetVMPropertyResponse{Property: vmPropToProto(resolved)}, nil
+	return &weftv1.SetVMPropertyResponse{Property: vmPropToProto(resolved)}, nil
 }
 
-func (s *vzdServer) DeleteVMProperty(ctx context.Context, req *vzdv1.DeleteVMPropertyRequest) (*vzdv1.DeleteVMPropertyResponse, error) {
+func (s *weftServer) DeleteVMProperty(ctx context.Context, req *weftv1.DeleteVMPropertyRequest) (*weftv1.DeleteVMPropertyResponse, error) {
 	if err := s.vmPropsReady(); err != nil {
 		return nil, err
 	}
@@ -1643,15 +1664,15 @@ func (s *vzdServer) DeleteVMProperty(ctx context.Context, req *vzdv1.DeleteVMPro
 		return nil, status.Errorf(codes.Internal, "delete vm property: %v", err)
 	}
 	logger.Printf("DeleteVMProperty vm=%s/%s key=%s", req.Project, req.VmName, req.Key)
-	return &vzdv1.DeleteVMPropertyResponse{Deleted: req.Key}, nil
+	return &weftv1.DeleteVMPropertyResponse{Deleted: req.Key}, nil
 }
 
-func vmPropToProto(p weft.VMProperty) *vzdv1.VMProperty {
+func vmPropToProto(p weft.VMProperty) *weftv1.VMProperty {
 	ts := ""
 	if !p.UpdatedAt.IsZero() {
 		ts = p.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
 	}
-	return &vzdv1.VMProperty{
+	return &weftv1.VMProperty{
 		Key: p.Key, Value: p.Value,
 		GuestReadable: p.GuestReadable, UpdatedAt: ts,
 	}
@@ -1678,14 +1699,14 @@ func pickProperty(list []weft.VMProperty, key string) weft.VMProperty {
 // the wire defaults to EFI Global ; the registry normalises before
 // storing.
 
-func (s *vzdServer) uefiVarsReady() error {
+func (s *weftServer) uefiVarsReady() error {
 	if s.uefiVars == nil {
 		return status.Error(codes.Unavailable, "uefi-vars registry not wired on this build")
 	}
 	return nil
 }
 
-func (s *vzdServer) ListUEFIVars(_ context.Context, req *vzdv1.ListUEFIVarsRequest) (*vzdv1.ListUEFIVarsResponse, error) {
+func (s *weftServer) ListUEFIVars(_ context.Context, req *weftv1.ListUEFIVarsRequest) (*weftv1.ListUEFIVarsResponse, error) {
 	if err := s.uefiVarsReady(); err != nil {
 		return nil, err
 	}
@@ -1693,14 +1714,14 @@ func (s *vzdServer) ListUEFIVars(_ context.Context, req *vzdv1.ListUEFIVarsReque
 		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
 	}
 	all := s.uefiVars.ListForVM(req.Project, req.VmName)
-	out := &vzdv1.ListUEFIVarsResponse{Vars: make([]*vzdv1.UEFIVar, 0, len(all))}
+	out := &weftv1.ListUEFIVarsResponse{Vars: make([]*weftv1.UEFIVar, 0, len(all))}
 	for _, v := range all {
 		out.Vars = append(out.Vars, uefiVarToProto(v))
 	}
 	return out, nil
 }
 
-func (s *vzdServer) SetUEFIVar(ctx context.Context, req *vzdv1.SetUEFIVarRequest) (*vzdv1.SetUEFIVarResponse, error) {
+func (s *weftServer) SetUEFIVar(ctx context.Context, req *weftv1.SetUEFIVarRequest) (*weftv1.SetUEFIVarResponse, error) {
 	if err := s.uefiVarsReady(); err != nil {
 		return nil, err
 	}
@@ -1732,10 +1753,10 @@ func (s *vzdServer) SetUEFIVar(ctx context.Context, req *vzdv1.SetUEFIVarRequest
 		}
 	}
 	logger.Printf("SetUEFIVar vm=%s/%s var=%s/%s", req.Project, req.VmName, wantNS, in.Name)
-	return &vzdv1.SetUEFIVarResponse{Var: uefiVarToProto(saved)}, nil
+	return &weftv1.SetUEFIVarResponse{Var: uefiVarToProto(saved)}, nil
 }
 
-func (s *vzdServer) DeleteUEFIVar(ctx context.Context, req *vzdv1.DeleteUEFIVarRequest) (*vzdv1.DeleteUEFIVarResponse, error) {
+func (s *weftServer) DeleteUEFIVar(ctx context.Context, req *weftv1.DeleteUEFIVarRequest) (*weftv1.DeleteUEFIVarResponse, error) {
 	if err := s.uefiVarsReady(); err != nil {
 		return nil, err
 	}
@@ -1749,15 +1770,15 @@ func (s *vzdServer) DeleteUEFIVar(ctx context.Context, req *vzdv1.DeleteUEFIVarR
 		return nil, status.Errorf(codes.Internal, "delete uefi var: %v", err)
 	}
 	logger.Printf("DeleteUEFIVar vm=%s/%s var=%s/%s", req.Project, req.VmName, req.Namespace, req.Name)
-	return &vzdv1.DeleteUEFIVarResponse{Deleted: req.Name}, nil
+	return &weftv1.DeleteUEFIVarResponse{Deleted: req.Name}, nil
 }
 
-func uefiVarToProto(v weft.UEFIVar) *vzdv1.UEFIVar {
+func uefiVarToProto(v weft.UEFIVar) *weftv1.UEFIVar {
 	ts := ""
 	if !v.UpdatedAt.IsZero() {
 		ts = v.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
 	}
-	return &vzdv1.UEFIVar{
+	return &weftv1.UEFIVar{
 		Namespace: v.Namespace, Name: v.Name,
 		ValueHex: v.ValueHex, Attributes: v.Attributes, UpdatedAt: ts,
 	}
@@ -1770,14 +1791,14 @@ func uefiVarToProto(v weft.UEFIVar) *vzdv1.UEFIVar {
 // re-add (same fingerprint = no duplication). Admin-only writes ;
 // reads open to any authenticated caller.
 
-func (s *vzdServer) vmKeysReady() error {
+func (s *weftServer) vmKeysReady() error {
 	if s.vmKeys == nil {
 		return status.Error(codes.Unavailable, "vm-sshkey registry not wired on this build")
 	}
 	return nil
 }
 
-func (s *vzdServer) ListVMSSHKeys(_ context.Context, req *vzdv1.ListVMSSHKeysRequest) (*vzdv1.ListVMSSHKeysResponse, error) {
+func (s *weftServer) ListVMSSHKeys(_ context.Context, req *weftv1.ListVMSSHKeysRequest) (*weftv1.ListVMSSHKeysResponse, error) {
 	if err := s.vmKeysReady(); err != nil {
 		return nil, err
 	}
@@ -1785,14 +1806,14 @@ func (s *vzdServer) ListVMSSHKeys(_ context.Context, req *vzdv1.ListVMSSHKeysReq
 		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
 	}
 	all := s.vmKeys.ListForVM(req.Project, req.VmName)
-	out := &vzdv1.ListVMSSHKeysResponse{Keys: make([]*vzdv1.VMSSHKey, 0, len(all))}
+	out := &weftv1.ListVMSSHKeysResponse{Keys: make([]*weftv1.VMSSHKey, 0, len(all))}
 	for _, k := range all {
 		out.Keys = append(out.Keys, vmKeyToProto(k))
 	}
 	return out, nil
 }
 
-func (s *vzdServer) AddVMSSHKey(ctx context.Context, req *vzdv1.AddVMSSHKeyRequest) (*vzdv1.AddVMSSHKeyResponse, error) {
+func (s *weftServer) AddVMSSHKey(ctx context.Context, req *weftv1.AddVMSSHKeyRequest) (*weftv1.AddVMSSHKeyResponse, error) {
 	if err := s.vmKeysReady(); err != nil {
 		return nil, err
 	}
@@ -1807,10 +1828,10 @@ func (s *vzdServer) AddVMSSHKey(ctx context.Context, req *vzdv1.AddVMSSHKeyReque
 		return nil, status.Errorf(codes.InvalidArgument, "add vm ssh key: %v", err)
 	}
 	logger.Printf("AddVMSSHKey vm=%s/%s fp=%s", req.Project, req.VmName, entry.Fingerprint)
-	return &vzdv1.AddVMSSHKeyResponse{Key: vmKeyToProto(entry)}, nil
+	return &weftv1.AddVMSSHKeyResponse{Key: vmKeyToProto(entry)}, nil
 }
 
-func (s *vzdServer) RemoveVMSSHKey(ctx context.Context, req *vzdv1.RemoveVMSSHKeyRequest) (*vzdv1.RemoveVMSSHKeyResponse, error) {
+func (s *weftServer) RemoveVMSSHKey(ctx context.Context, req *weftv1.RemoveVMSSHKeyRequest) (*weftv1.RemoveVMSSHKeyResponse, error) {
 	if err := s.vmKeysReady(); err != nil {
 		return nil, err
 	}
@@ -1824,15 +1845,15 @@ func (s *vzdServer) RemoveVMSSHKey(ctx context.Context, req *vzdv1.RemoveVMSSHKe
 		return nil, status.Errorf(codes.Internal, "remove vm ssh key: %v", err)
 	}
 	logger.Printf("RemoveVMSSHKey vm=%s/%s fp=%s", req.Project, req.VmName, req.Fingerprint)
-	return &vzdv1.RemoveVMSSHKeyResponse{Removed: req.Fingerprint}, nil
+	return &weftv1.RemoveVMSSHKeyResponse{Removed: req.Fingerprint}, nil
 }
 
-func vmKeyToProto(k weft.VMSSHKey) *vzdv1.VMSSHKey {
+func vmKeyToProto(k weft.VMSSHKey) *weftv1.VMSSHKey {
 	ts := ""
 	if !k.AddedAt.IsZero() {
 		ts = k.AddedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
 	}
-	return &vzdv1.VMSSHKey{
+	return &weftv1.VMSSHKey{
 		Fingerprint: k.Fingerprint, Type: k.Type,
 		PublicKey: k.PublicKey, Comment: k.Comment, AddedAt: ts,
 	}
@@ -1840,10 +1861,10 @@ func vmKeyToProto(k weft.VMSSHKey) *vzdv1.VMSSHKey {
 
 // AddProjectMember grants project access to a user-UUID. Admin-
 // only: the operator promising "this token's `sub` matches that
-// vzd user" is a security-sensitive call. The membership
+// weft user" is a security-sensitive call. The membership
 // shows up immediately in the caller's next VisibleProjects /
 // AuthorizeProject evaluation.
-func (s *vzdServer) AddProjectMember(ctx context.Context, req *vzdv1.AddProjectMemberRequest) (*vzdv1.AddProjectMemberResponse, error) {
+func (s *weftServer) AddProjectMember(ctx context.Context, req *weftv1.AddProjectMemberRequest) (*weftv1.AddProjectMemberResponse, error) {
 	if req.ProjectUuid == "" || req.UserUuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "project_uuid and user_uuid are required")
 	}
@@ -1851,20 +1872,20 @@ func (s *vzdServer) AddProjectMember(ctx context.Context, req *vzdv1.AddProjectM
 		return nil, err
 	}
 	if _, ok := s.adp.UserByUUID(req.UserUuid); !ok {
-		return nil, status.Errorf(codes.NotFound, "user %s not in registry — login first or use `vzc user ls` to find the UUID", req.UserUuid)
+		return nil, status.Errorf(codes.NotFound, "user %s not in registry — login first or use `weft user ls` to find the UUID", req.UserUuid)
 	}
 	if err := s.adp.AddProjectMember(req.ProjectUuid, req.UserUuid); err != nil {
 		return nil, status.Errorf(codes.Internal, "add member: %v", err)
 	}
 	members, _ := s.adp.ProjectMembers(req.ProjectUuid)
 	logger.Printf("AddProjectMember project=%s user=%s (count=%d)", req.ProjectUuid, req.UserUuid, len(members))
-	return &vzdv1.AddProjectMemberResponse{UserUuids: members}, nil
+	return &weftv1.AddProjectMemberResponse{UserUuids: members}, nil
 }
 
 // RemoveProjectMember revokes the platform-side grant. Admin
 // only. Note this does NOT clear a `project:<uuid>` dex group
 // claim — those revocations happen on the IdP side.
-func (s *vzdServer) RemoveProjectMember(ctx context.Context, req *vzdv1.RemoveProjectMemberRequest) (*vzdv1.RemoveProjectMemberResponse, error) {
+func (s *weftServer) RemoveProjectMember(ctx context.Context, req *weftv1.RemoveProjectMemberRequest) (*weftv1.RemoveProjectMemberResponse, error) {
 	if req.ProjectUuid == "" || req.UserUuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "project_uuid and user_uuid are required")
 	}
@@ -1876,14 +1897,14 @@ func (s *vzdServer) RemoveProjectMember(ctx context.Context, req *vzdv1.RemovePr
 	}
 	members, _ := s.adp.ProjectMembers(req.ProjectUuid)
 	logger.Printf("RemoveProjectMember project=%s user=%s (count=%d)", req.ProjectUuid, req.UserUuid, len(members))
-	return &vzdv1.RemoveProjectMemberResponse{UserUuids: members}, nil
+	return &weftv1.RemoveProjectMemberResponse{UserUuids: members}, nil
 }
 
 // ListProjectMembers returns the member UUIDs. AuthorizeProject
 // gates the read — a project member can list their own peers
 // without needing platform-admin, but a non-member can't probe
 // who's in.
-func (s *vzdServer) ListProjectMembers(ctx context.Context, req *vzdv1.ListProjectMembersRequest) (*vzdv1.ListProjectMembersResponse, error) {
+func (s *weftServer) ListProjectMembers(ctx context.Context, req *weftv1.ListProjectMembersRequest) (*weftv1.ListProjectMembersResponse, error) {
 	if req.ProjectUuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "project_uuid is required")
 	}
@@ -1894,11 +1915,11 @@ func (s *vzdServer) ListProjectMembers(ctx context.Context, req *vzdv1.ListProje
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "project %s not found", req.ProjectUuid)
 	}
-	return &vzdv1.ListProjectMembersResponse{UserUuids: members}, nil
+	return &weftv1.ListProjectMembersResponse{UserUuids: members}, nil
 }
 
 // WaitVM polls until the VM has an IP address or the timeout elapses.
-func (s *vzdServer) WaitVM(ctx context.Context, req *vzdv1.WaitVMRequest) (*vzdv1.WaitVMResponse, error) {
+func (s *weftServer) WaitVM(ctx context.Context, req *weftv1.WaitVMRequest) (*weftv1.WaitVMResponse, error) {
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
@@ -1911,7 +1932,7 @@ func (s *vzdServer) WaitVM(ctx context.Context, req *vzdv1.WaitVMRequest) (*vzdv
 		return nil, status.Errorf(codes.DeadlineExceeded, "wait vm: %v", err)
 	}
 	ip, _ := s.adp.IP(req.Name)
-	return &vzdv1.WaitVMResponse{Ip: ip}, nil
+	return &weftv1.WaitVMResponse{Ip: ip}, nil
 }
 
 // enrichVMConfig reads config.json from vmDir and merges extra fields into it.
@@ -1962,8 +1983,8 @@ func waitForIP(a weft.VZAdapter, name string, timeout time.Duration) error {
 
 // ---- helpers ---------------------------------------------------------------
 
-func rowToProto(r imock.Row) *vzdv1.VMInfo {
-	return &vzdv1.VMInfo{
+func rowToProto(r imock.Row) *weftv1.VMInfo {
+	return &weftv1.VMInfo{
 		Name:   r.Name,
 		State:  stateToProto(r.State),
 		Os:     r.OS,
@@ -1975,22 +1996,22 @@ func rowToProto(r imock.Row) *vzdv1.VMInfo {
 	}
 }
 
-func stateToProto(s string) vzdv1.VMState {
+func stateToProto(s string) weftv1.VMState {
 	switch s {
 	case "running":
-		return vzdv1.VMState_VM_STATE_RUNNING
+		return weftv1.VMState_VM_STATE_RUNNING
 	case "stopped":
-		return vzdv1.VMState_VM_STATE_STOPPED
+		return weftv1.VMState_VM_STATE_STOPPED
 	case "not-created":
-		return vzdv1.VMState_VM_STATE_NOT_CREATED
+		return weftv1.VMState_VM_STATE_NOT_CREATED
 	default:
-		return vzdv1.VMState_VM_STATE_UNSPECIFIED
+		return weftv1.VMState_VM_STATE_UNSPECIFIED
 	}
 }
 
 // applyDiskFileOps writes each DiskFileOp into the VM disk image and runs any
 // requested post-copy trigger. Logic is delegated to the grub package.
-func applyDiskFileOps(diskPath string, ops []*vzdv1.DiskFileOp) error {
+func applyDiskFileOps(diskPath string, ops []*weftv1.DiskFileOp) error {
 	fileOps := make([]grubpkg.FileOp, len(ops))
 	for i, op := range ops {
 		fileOps[i] = grubpkg.NewFileOp(op.Content, op.Dst, op.Trigger)
@@ -1999,7 +2020,7 @@ func applyDiskFileOps(diskPath string, ops []*vzdv1.DiskFileOp) error {
 }
 
 // deleteDiskFileOps removes each DiskDeleteOp path from the disk image.
-func deleteDiskFileOps(diskPath string, ops []*vzdv1.DiskDeleteOp) error {
+func deleteDiskFileOps(diskPath string, ops []*weftv1.DiskDeleteOp) error {
 	dsts := make([]string, len(ops))
 	for i, op := range ops {
 		dsts[i] = op.Dst
@@ -2008,7 +2029,7 @@ func deleteDiskFileOps(diskPath string, ops []*vzdv1.DiskDeleteOp) error {
 }
 
 // modDiskFileOps applies each DiskModOp in-place substitution to the disk image.
-func modDiskFileOps(diskPath string, ops []*vzdv1.DiskModOp) error {
+func modDiskFileOps(diskPath string, ops []*weftv1.DiskModOp) error {
 	modOps := make([]grubpkg.ModOp, len(ops))
 	for i, op := range ops {
 		modOps[i] = grubpkg.NewModOp(op.Dst, op.Old, op.New)
