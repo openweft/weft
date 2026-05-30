@@ -138,6 +138,8 @@ func (a *Adapter) selfRegisterHost() error {
 	_, err = a.RegisterHost(RegisterHostSpec{
 		UUID:           uuid,
 		Hostname:       hostname,
+		AZ:             os.Getenv("WEFT_AZ"),
+		Rack:           os.Getenv("WEFT_RACK"),
 		Hypervisor:     hv,
 		Architecture:   runtime.GOARCH,
 		NetworkTypes:   []string{"nat", "bridged", "isolated", "mesh"},

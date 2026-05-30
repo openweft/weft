@@ -173,6 +173,8 @@ func agentCmd() *cobra.Command {
 	var controlPlaneURL string
 	var hypervisor string
 	var tcpListen string
+	var az string
+	var rack string
 
 	home, _ := os.UserHomeDir()
 	defaultSocket := filepath.Join(home, ".weft", "weft.sock")
@@ -199,6 +201,16 @@ continuity (same sockets, same registry on-disk layout).`,
 			// nest (non-nested dev VM).
 			if hypervisor != "" {
 				_ = os.Setenv("WEFT_HYPERVISOR", hypervisor)
+			}
+			// Same env-var bridge for placement metadata — selfRegisterHost
+			// reads $WEFT_AZ / $WEFT_RACK before constructing its
+			// RegisterHostSpec, and the scheduler matches plans that ask
+			// for az=different / rack=different against those values.
+			if az != "" {
+				_ = os.Setenv("WEFT_AZ", az)
+			}
+			if rack != "" {
+				_ = os.Setenv("WEFT_RACK", rack)
 			}
 			// HCL config (optional) supplies defaults for any flag
 			// the operator did not explicitly pass on the command
@@ -273,6 +285,8 @@ continuity (same sockets, same registry on-disk layout).`,
 	cmd.Flags().StringVar(&sshSocket, "ssh-socket", defaultSSHSocket, "Unix socket path for the SSH-secured gRPC listener (empty to disable)")
 	cmd.Flags().StringVar(&sshAuthorizedKeys, "ssh-authorized-keys", defaultAuthorizedKeys, "Path to authorized_keys for SSH client authentication")
 	cmd.Flags().StringVar(&tcpListen, "tcp-listen", "", "host:port for an additional plain-TCP gRPC listener — dev-mode cross-host bring-up; production should use the SSH transport. Empty disables.")
+	cmd.Flags().StringVar(&az, "az", "", "Availability-zone label for this host (matched by scheduler placement rules; mirrors $WEFT_AZ).")
+	cmd.Flags().StringVar(&rack, "rack", "", "Rack label for this host (sub-AZ placement domain; mirrors $WEFT_RACK).")
 	cmd.Flags().StringVar(&oidcIssuer, "oidc-issuer", "", "OIDC issuer URL (empty = dev mode, no token validation)")
 	cmd.Flags().StringVar(&oidcClientID, "oidc-client-id", "", "OIDC audience that tokens must be issued for")
 	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", `Registry persistence backend: "file" (dev, local disk), "etcd" (prod, 3-DC cluster), or "embed-etcd" (single-host, in-process etcd under <configDir>/etcd-embed). Empty = HCL config decides; HCL empty = "file".`)

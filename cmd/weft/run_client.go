@@ -27,8 +27,8 @@ import (
 	"syscall"
 
 	weft "github.com/openweft/weft"
-	vzclient "github.com/openweft/weft-client"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftclient "github.com/openweft/weft-client"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft/agent"
 )
 
@@ -46,14 +46,14 @@ func runClient(t fileConfigTargets) error {
 	// Unix-socket-or-SSH dial logic the operator CLI uses, so
 	// the same transport options apply (--ssh-socket / --ssh-key
 	// for cross-host setups when we get there).
-	conn, err := vzclient.Dial(t.controlPlaneURL)
+	conn, err := weftclient.Dial(t.controlPlaneURL)
 	if err != nil {
 		return fmt.Errorf("dial control plane %s: %w", t.controlPlaneURL, err)
 	}
 	defer conn.Close()
 
-	cpClient := vzdv1.NewWeftAgentClient(conn)
-	dispatchClient := vzdv1.NewAgentDispatchClient(conn)
+	cpClient := weftv1.NewWeftAgentClient(conn)
+	dispatchClient := weftv1.NewAgentDispatchClient(conn)
 	cp := agent.NewGRPCControlPlane(cpClient, logger)
 	logger.Printf("weft agent --client: dialed control plane at %s", t.controlPlaneURL)
 
@@ -65,8 +65,8 @@ func runClient(t fileConfigTargets) error {
 	a, err := agent.New(agent.Options{
 		StateDir:     t.configDir, // operator can re-use existing dir
 		Hostname:     hostnameOrEmpty(),
-		AZ:           "", // operator can extend via --az flag in a follow-up
-		Rack:         "",
+		AZ:           os.Getenv("WEFT_AZ"),
+		Rack:         os.Getenv("WEFT_RACK"),
 		Endpoint:     "",
 		ControlPlane: cp,
 	})
@@ -130,10 +130,10 @@ func runClient(t fileConfigTargets) error {
 // case ; today CreateVMOp (placeholder) + RegisterMicroVMOp
 // (real, calls the local Adapter). Unknown ops surface a clean
 // "not implemented" reply so the control plane sees the gap.
-func buildDriverHandler(a weft.VZAdapter) func(context.Context, *vzdv1.DriverRequest) *vzdv1.DriverReply {
-	return func(_ context.Context, req *vzdv1.DriverRequest) *vzdv1.DriverReply {
+func buildDriverHandler(a weft.VZAdapter) func(context.Context, *weftv1.DriverRequest) *weftv1.DriverReply {
+	return func(_ context.Context, req *weftv1.DriverRequest) *weftv1.DriverReply {
 		switch op := req.Op.(type) {
-		case *vzdv1.DriverRequest_RegisterMicroVm:
+		case *weftv1.DriverRequest_RegisterMicroVm:
 			err := a.RegisterMicroVM(op.RegisterMicroVm.Project, op.RegisterMicroVm.Name,
 				weft.MicroVMBoot{
 					BootISO: op.RegisterMicroVm.BootIso,
@@ -143,59 +143,59 @@ func buildDriverHandler(a weft.VZAdapter) func(context.Context, *vzdv1.DriverReq
 				},
 				toMicroVMShares(op.RegisterMicroVm.Shares),
 			)
-			reply := &vzdv1.DriverReply{
+			reply := &weftv1.DriverReply{
 				RequestId: req.RequestId,
-				Result:    &vzdv1.DriverReply_RegisterMicroVm{RegisterMicroVm: &vzdv1.RegisterMicroVMResult{}},
+				Result:    &weftv1.DriverReply_RegisterMicroVm{RegisterMicroVm: &weftv1.RegisterMicroVMResult{}},
 			}
 			if err != nil {
 				reply.Error = fmt.Sprintf("RegisterMicroVM: %v", err)
 			}
 			return reply
-		case *vzdv1.DriverRequest_CreateVm:
+		case *weftv1.DriverRequest_CreateVm:
 			// CreateVM dispatch lands when the Adapter's CreateVM
 			// surface settles ; today it's a placeholder. Surfacing
 			// the explicit "not implemented" keeps the control plane
 			// from waiting on a reply that would never carry useful
 			// data.
-			return &vzdv1.DriverReply{
+			return &weftv1.DriverReply{
 				RequestId: req.RequestId,
 				Error:     "CreateVMOp dispatch is not yet wired on the agent",
 			}
-		case *vzdv1.DriverRequest_StartVm:
+		case *weftv1.DriverRequest_StartVm:
 			// StartVM has no cloud-init payload from the dispatch
 			// path — the boot artefacts are baked in at RegisterMicroVM
 			// time, so the second arg stays empty.
 			err := a.StartVM(op.StartVm.Name, "")
-			reply := &vzdv1.DriverReply{
+			reply := &weftv1.DriverReply{
 				RequestId: req.RequestId,
-				Result:    &vzdv1.DriverReply_StartVm{StartVm: &vzdv1.StartVMResult{}},
+				Result:    &weftv1.DriverReply_StartVm{StartVm: &weftv1.StartVMResult{}},
 			}
 			if err != nil {
 				reply.Error = fmt.Sprintf("StartVM: %v", err)
 			}
 			return reply
-		case *vzdv1.DriverRequest_StopVm:
+		case *weftv1.DriverRequest_StopVm:
 			err := a.StopVM(op.StopVm.Name)
-			reply := &vzdv1.DriverReply{
+			reply := &weftv1.DriverReply{
 				RequestId: req.RequestId,
-				Result:    &vzdv1.DriverReply_StopVm{StopVm: &vzdv1.StopVMResult{}},
+				Result:    &weftv1.DriverReply_StopVm{StopVm: &weftv1.StopVMResult{}},
 			}
 			if err != nil {
 				reply.Error = fmt.Sprintf("StopVM: %v", err)
 			}
 			return reply
-		case *vzdv1.DriverRequest_DeleteVm:
+		case *weftv1.DriverRequest_DeleteVm:
 			err := a.DeleteVM(op.DeleteVm.Name)
-			reply := &vzdv1.DriverReply{
+			reply := &weftv1.DriverReply{
 				RequestId: req.RequestId,
-				Result:    &vzdv1.DriverReply_DeleteVm{DeleteVm: &vzdv1.DeleteVMResult{}},
+				Result:    &weftv1.DriverReply_DeleteVm{DeleteVm: &weftv1.DeleteVMResult{}},
 			}
 			if err != nil {
 				reply.Error = fmt.Sprintf("DeleteVM: %v", err)
 			}
 			return reply
 		default:
-			return &vzdv1.DriverReply{
+			return &weftv1.DriverReply{
 				RequestId: req.RequestId,
 				Error:     fmt.Sprintf("unknown driver op: %T", op),
 			}
@@ -206,7 +206,7 @@ func buildDriverHandler(a weft.VZAdapter) func(context.Context, *vzdv1.DriverReq
 // toMicroVMShares converts the proto wire shape to the
 // Adapter's struct slice. Done in one place so future share
 // fields (`clone`, `read_only`) are handled consistently.
-func toMicroVMShares(in []*vzdv1.MicroVMShare) []weft.MicroVMShare {
+func toMicroVMShares(in []*weftv1.MicroVMShare) []weft.MicroVMShare {
 	if len(in) == 0 {
 		return nil
 	}
