@@ -61,10 +61,22 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		if e := c.Drivers.Env(); len(e) > 0 {
 			env = strings.Join(e, " ") + " "
 		}
+		var args, label string
 		if a.Host == seed.ID {
-			return a.Host, env + "weft agent --server" + hv + "   # seed control-plane"
+			args, label = "--server"+hv, "seed control-plane"
+		} else {
+			args, label = fmt.Sprintf("--client --control-plane=%s%s", seed.Address, hv), "join seed"
 		}
-		return a.Host, fmt.Sprintf("%sweft agent --client --control-plane=%s%s   # join seed", env, seed.Address, hv)
+		// The agent is a long-lived daemon — detach it from the SSH session so
+		// the per-action CombinedOutput() returns once it's launched, otherwise
+		// `weft up --apply` would hang on the very first ensure-host. The
+		// pgrep guard makes the action idempotent on re-apply: if a `weft`
+		// process is already running we leave it alone instead of failing on
+		// a duplicate socket bind.
+		return a.Host, fmt.Sprintf(
+			"pgrep -x weft >/dev/null || (nohup %sweft agent %s >/tmp/weft-agent.log 2>&1 </dev/null & sleep 0.3)   # %s",
+			env, args, label,
+		)
 	case MeshSync:
 		return seed.ID, "# mesh: publish overlay peer set to [" + strings.Join(a.Hosts, ",") + "] (wgcoord + mesh.PublishAll)"
 	case PlaceReplica:
