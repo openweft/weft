@@ -118,6 +118,23 @@ func TestRenderSSH_RolesAndPlacement(t *testing.T) {
 	}
 }
 
+// TestRenderAction_AgentDetachedAndIdempotent: the EnsureHost command must
+// detach the long-lived agent (nohup + &) so Apply's CombinedOutput returns,
+// and gate the launch on a pgrep guard so re-applies don't double-start it.
+func TestRenderAction_AgentDetachedAndIdempotent(t *testing.T) {
+	c := threeHostCluster()
+	c.Hosts[0].Hypervisor = "qemu"
+	c.Hosts[1].Hypervisor = "qemu"
+	for _, host := range []string{c.Hosts[0].ID, c.Hosts[1].ID} {
+		_, cmd := renderAction(c, Action{Kind: EnsureHost, Host: host})
+		for _, frag := range []string{"pgrep -x weft", "nohup ", "weft agent ", " &", "/tmp/weft-agent.log"} {
+			if !strings.Contains(cmd, frag) {
+				t.Errorf("EnsureHost cmd for %s missing %q: %s", host, frag, cmd)
+			}
+		}
+	}
+}
+
 func TestRenderAction_CrossHostAnchoredOnSeed(t *testing.T) {
 	c := threeHostCluster()
 	// mesh-sync and grow-quorum run on the seed and are notes (not exec'd).
