@@ -1,15 +1,15 @@
 // Pod mode (Args.Pod set): boot a micro-VM that runs *several* OCI
 // containers under weft-init (a supervisor PID 1 from
-// openweft/weft-microvm-init), instead of the single-container ncl-init
+// openweft/weft-microvm-init), instead of the single-container weft-microvm-init
 // path.
 //
 // The manifest is a small user-facing shape — a pod id plus a list
 // of {id, image, optional command/env/...}. We expand it: pull +
 // extract each image (reusing Pull, so each rootfs lands in the same
-// cache with a derived .ncl/config.json), then emit the
+// cache with a derived .weft-microvm/config.json), then emit the
 // authoritative on-VM spec (weft-microvm-init/pkg/pod.Spec) as pod.json.
 //
-// Delivery mirrors ncl-init's cmdline convention: a dedicated
+// Delivery mirrors weft-microvm-init's cmdline convention: a dedicated
 // virtio-fs config share (tag "weftcfg") carries pod.json, and the
 // guest cmdline carries `weft.config=virtiofs:weftcfg`. weft-init
 // mounts that share early, reads /run/weft/pod.json, then mounts the
@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	weftpod "github.com/openweft/weft-microvm-init/pkg/pod"
 )
 
@@ -64,7 +64,7 @@ func RunPod(a Args) error {
 	}
 
 	spec := weftpod.Spec{PodID: man.PodID, Network: man.Network}
-	shares := []*vzdv1.MicroVMShare{} // populated with one rootfs share per container
+	shares := []*weftv1.MicroVMShare{} // populated with one rootfs share per container
 
 	for i := range man.Containers {
 		c := &man.Containers[i]
@@ -74,8 +74,8 @@ func RunPod(a Args) error {
 		rs := refsafe(c.Image)
 		rootfs := rootfsPath(rs)
 		if _, err := os.Stat(rootfs); err != nil {
-			if os.Getenv("NCL_NO_AUTO_PULL") == "1" {
-				return fmt.Errorf("container %q: image %q not pulled and NCL_NO_AUTO_PULL=1 (missing %s)", c.ID, c.Image, rootfs)
+			if os.Getenv("WEFT_NO_AUTO_PULL") == "1" {
+				return fmt.Errorf("container %q: image %q not pulled and WEFT_NO_AUTO_PULL=1 (missing %s)", c.ID, c.Image, rootfs)
 			}
 			fmt.Fprintf(os.Stderr, "weft-microvm: pulling %s for container %q …\n", c.Image, c.ID)
 			if err := Pull(c.Image); err != nil {
@@ -92,7 +92,7 @@ func RunPod(a Args) error {
 			Tag:        tag,
 			MountPoint: "/run/weft/rootfs/" + c.ID,
 		})
-		shares = append(shares, &vzdv1.MicroVMShare{
+		shares = append(shares, &weftv1.MicroVMShare{
 			Tag: tag, Path: rootfs, ReadOnly: false, Clone: true,
 		})
 	}
@@ -107,7 +107,7 @@ func RunPod(a Args) error {
 	}
 	// The config share is read-only and prepended so weft-init can
 	// mount it before the rootfs shares.
-	shares = append([]*vzdv1.MicroVMShare{
+	shares = append([]*weftv1.MicroVMShare{
 		{Tag: configTag, Path: cfgShare, ReadOnly: true, Clone: false},
 	}, shares...)
 
@@ -116,8 +116,8 @@ func RunPod(a Args) error {
 		return err
 	}
 
-	vmName := "ncl-pod-" + man.PodID
-	req := &vzdv1.RegisterMicroVMRequest{
+	vmName := "weft-microvm-pod-" + man.PodID
+	req := &weftv1.RegisterMicroVMRequest{
 		Name:    vmName,
 		Project: a.Project,
 		Shares:  shares,
@@ -126,7 +126,7 @@ func RunPod(a Args) error {
 		Cmdline: fmt.Sprintf("weft.config=virtiofs:%s console=hvc0", configTag),
 	}
 
-	client, conn, err := dialVzd(a.VzdSocket)
+	client, conn, err := dialWeft(a.WeftSocket)
 	if err != nil {
 		return err
 	}
@@ -138,13 +138,13 @@ func RunPod(a Args) error {
 	fmt.Fprintf(os.Stderr, "weft-microvm: RegisterMicroVM name=%s containers=%d kernel=%s initrd=%s\n",
 		vmName, len(spec.Containers), kernel, initrd)
 	if _, err := client.RegisterMicroVM(ctx, req); err != nil {
-		return fmt.Errorf("vzd RegisterMicroVM: %w", err)
+		return fmt.Errorf("weft RegisterMicroVM: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "weft-microvm: StartVM name=%s\n", vmName)
-	if _, err := client.StartVM(ctx, &vzdv1.StartVMRequest{Name: vmName}); err != nil {
-		return fmt.Errorf("vzd StartVM: %w", err)
+	if _, err := client.StartVM(ctx, &weftv1.StartVMRequest{Name: vmName}); err != nil {
+		return fmt.Errorf("weft StartVM: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "weft-microvm: %s started — `vzc instance status %s` for status\n", vmName, vmName)
+	fmt.Fprintf(os.Stderr, "weft-microvm: %s started — `weft instance status %s` for status\n", vmName, vmName)
 	return nil
 }
 
@@ -176,9 +176,9 @@ func loadManifest(path string) (*podManifest, error) {
 
 // containerFromImage maps a manifest container onto a weft pod
 // container, filling command/env/cwd/user from the image-derived
-// <rootfs>/.ncl/config.json unless the manifest overrides them.
+// <rootfs>/.weft-microvm/config.json unless the manifest overrides them.
 func containerFromImage(c *manifestCtr, tag, rootfs string) (weftpod.Container, error) {
-	cfgPath := filepath.Join(rootfs, ".ncl", "config.json")
+	cfgPath := filepath.Join(rootfs, ".weft-microvm", "config.json")
 	b, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return weftpod.Container{}, fmt.Errorf("read %s: %w", cfgPath, err)
@@ -252,27 +252,27 @@ func writePodJSON(podID string, spec weftpod.Spec) (string, error) {
 // locatePodBoot resolves the kernel + weft-init initramfs for pod
 // mode. Pod mode is direct-Linux only (weft-init is an initramfs
 // PID 1), so a kernel is required. The initrd is the weft-init
-// initramfs, kept separate from ncl-init's.
+// initramfs, kept separate from weft-microvm-init's.
 //
 // Resolution:
 //
-//	kernel: $NCL_KERNEL, else $XDG_DATA_HOME/weft-microvm/kernel
-//	initrd: $NCL_POD_INITRD, else $XDG_DATA_HOME/weft-microvm/pod-initrd
+//	kernel: $WEFT_KERNEL, else $XDG_DATA_HOME/weft-microvm/kernel
+//	initrd: $WEFT_POD_INITRD, else $XDG_DATA_HOME/weft-microvm/pod-initrd
 func locatePodBoot() (kernel, initrd string, err error) {
-	kernel = os.Getenv("NCL_KERNEL")
+	kernel = os.Getenv("WEFT_KERNEL")
 	if kernel == "" {
 		kernel = filepath.Join(dataDir(), "kernel")
 	}
 	if _, err := os.Stat(kernel); err != nil {
-		return "", "", fmt.Errorf("kernel not found at %s (set $NCL_KERNEL)", kernel)
+		return "", "", fmt.Errorf("kernel not found at %s (set $WEFT_KERNEL)", kernel)
 	}
-	initrd = os.Getenv("NCL_POD_INITRD")
+	initrd = os.Getenv("WEFT_POD_INITRD")
 	if initrd == "" {
 		initrd = filepath.Join(dataDir(), "pod-initrd")
 	}
 	if _, err := os.Stat(initrd); err != nil {
 		return "", "", fmt.Errorf(
-			"weft-init initramfs not found at %s (set $NCL_POD_INITRD)\n"+
+			"weft-init initramfs not found at %s (set $WEFT_POD_INITRD)\n"+
 				"build it:\n"+
 				"  GOOS=linux GOARCH=<arch> CGO_ENABLED=0 go build -o weft-init github.com/openweft/weft-microvm-init/cmd/weft-init\n"+
 				"  weft microvm pod-init-build --init weft-init [--crun … --cfs-client … --agent …] -o %s",

@@ -2,7 +2,7 @@
 // exposes the daemon-level settings block plus the table of VM definitions.
 //
 // It owns the parser end-to-end: types, HCL parsing, OCI/HTTP resolution,
-// and the row-building logic consumed by weft, weft-ui, and
+// and the row-building logic consumed by weft, weft-webui, and
 // terraform-provider-weft.
 package hclconfig
 

@@ -1,18 +1,18 @@
 // Package drivers defines the side-effecting interfaces that
-// turn vzd registry state into actual host-level resources:
+// turn weft registry state into actual host-level resources:
 // VMs running on a hypervisor, virtio-net devices wired to a
 // bridge or WireGuard interface, disk images on a storage
 // backend, OCI artifacts in a local cache.
 //
-// The split between this package and the registries in vzd/ is
-// deliberate (see [[vzd-driver-registry-split]] memory entry):
+// The split between this package and the registries in weft/ is
+// deliberate (see [[weft-driver-registry-split]] memory entry):
 //
-//   * vzd/<name>.go owns data + ACL + HCL + Storage. Stays
+//   * weft/<name>.go owns data + ACL + HCL + Storage. Stays
 //     in-process. No side effects.
 //   * drivers/<name>.go owns the actual implementation that talks
 //     to the kernel / hypervisor / SAN. Designed from day one as
 //     a context-aware interface so it can later be swapped for a
-//     go-plugin process or a remote vzd-agent without touching
+//     go-plugin process or a remote weft-agent without touching
 //     call sites.
 //
 // All driver methods:
@@ -31,7 +31,7 @@
 //     This matters for reconciliation loops.
 //
 // Multi-host shape (target): one driver instance per (Host, type).
-// vzd-control's scheduler picks the Host UUID for a workload, then
+// weft-control's scheduler picks the Host UUID for a workload, then
 // dispatches the driver call to that host's agent. Today the
 // "agent" is in-process; tomorrow it's gRPC over MTLS.
 package drivers

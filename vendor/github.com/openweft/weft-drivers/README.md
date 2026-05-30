@@ -1,6 +1,6 @@
-# vzd-drivers
+# weft-drivers
 
-Driver interfaces + types for vzd. This Go module is the only
+Driver interfaces + types for weft. This Go module is the only
 dependency every driver implementation (Apple VZ, QEMU/KVM,
 WireGuard, Ceph, …) needs to import.
 
@@ -13,9 +13,9 @@ stable for years.
 This module currently lives inside the `mock` monorepo to keep
 the dev loop fast. The eventual home is its own git repo:
 
-    github.com/cloud-boot/vzd-drivers-api
+    github.com/cloud-boot/weft-drivers-api
 
-See the `vzd-one-repo-per-driver` memory entry for the full
+See the `weft-one-repo-per-driver` memory entry for the full
 multi-repo layout and rationale.
 
 ## Adding a new driver type
@@ -41,6 +41,6 @@ ImageDriver). To add a new driver type:
   can be added, fields can be added with sensible zero defaults.
 - Major releases (v2.0.0) — breaking changes allowed. Drivers
   opt in to the new major version by importing
-  `github.com/cloud-boot/vzd-drivers-api/v2`.
-- vzd-control supports multiple major versions simultaneously
+  `github.com/cloud-boot/weft-drivers-api/v2`.
+- weft-control supports multiple major versions simultaneously
   via the driver dispatch layer.

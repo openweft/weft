@@ -6,9 +6,9 @@ syntax = "proto3";
 // uses to dispatch driver calls (Hypervisor / Network / Volume
 // / Image) back into the agent.
 //
-// Why a separate file from vzd.proto:
+// Why a separate file from weft.proto:
 //
-//   * `VzdService` is the public operator API (CLI, dashboard,
+//   * `WeftService` is the public operator API (CLI, dashboard,
 //     terraform-provider). It carries operator-side
 //     RegisterHost/Heartbeat too — but those are operator
 //     intent, surfaced under operator auth.
@@ -17,10 +17,10 @@ syntax = "proto3";
 //     the simplest setup). Keeping it in its own .proto file +
 //     its own service name makes the security policy easy to
 //     state ("operators don't speak AgentControlPlane ; only
-//     vzd-agents do").
+//     weft-agents do").
 //
 // See [[openweft-module-layout]] for the broader naming map and
-// [[vzd-driver-registry-split]] for why each driver type
+// [[weft-driver-registry-split]] for why each driver type
 // surfaces here individually.
 
 package weft.agent.v1;

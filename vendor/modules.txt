@@ -23,10 +23,6 @@ github.com/clipperhouse/displaywidth
 # github.com/clipperhouse/uax29/v2 v2.6.0
 ## explicit; go 1.18
 github.com/clipperhouse/uax29/v2/graphemes
-# github.com/cloud-boot/init v0.0.0 => ../../cloud-boot/init
-## explicit; go 1.25.1
-github.com/cloud-boot/init/pkg/cpio
-github.com/cloud-boot/init/pkg/oci
 # github.com/coreos/go-oidc/v3 v3.18.0
 ## explicit; go 1.25.0
 github.com/coreos/go-oidc/v3/oidc
@@ -264,7 +260,9 @@ github.com/openweft/weft-drivers
 # github.com/openweft/weft-microvm v0.0.0 => ../weft-microvm
 ## explicit; go 1.25.1
 github.com/openweft/weft-microvm
+github.com/openweft/weft-microvm/cpio
 github.com/openweft/weft-microvm/initbuild
+github.com/openweft/weft-microvm/oci
 # github.com/openweft/weft-microvm-init v0.0.0 => ../weft-microvm-init
 ## explicit; go 1.25.0
 github.com/openweft/weft-microvm-init/pkg/pod
@@ -819,7 +817,6 @@ sigs.k8s.io/json/internal/golang/encoding/json
 ## explicit; go 1.12
 sigs.k8s.io/yaml
 sigs.k8s.io/yaml/goyaml.v2
-# github.com/cloud-boot/init => ../../cloud-boot/init
 # github.com/go-bootloaders/systemd-boot => ../../go-bootloaders/systemd-boot
 # github.com/go-coff/peln => ../../go-coff/peln
 # github.com/go-compressions/lzfse => ../../go-compressions/lzfse

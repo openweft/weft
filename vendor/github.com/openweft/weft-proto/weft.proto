@@ -270,8 +270,8 @@ message WaitVMResponse { string ip = 1; }
 
 // --- VMTimings (per-VM lifecycle event log) ---
 
-// TimingEvent mirrors vzd's internal vzd.TimingEvent — one entry
-// from <vmDir>/timings.jsonl. Used by tools (vzc + future
+// TimingEvent mirrors weft's internal weft.TimingEvent — one entry
+// from <vmDir>/timings.jsonl. Used by tools (weft + future
 // integrators) to render the full server+guest lifecycle timeline
 // of a single VM without parsing JSONL themselves.
 message TimingEvent {
@@ -318,7 +318,7 @@ message ListProjectMembersResponse { repeated string user_uuids = 1; }
 // --- Users (UUID-keyed authenticated principals) ---
 
 // UserInfo is one entry in the user registry. Identity is the
-// (Issuer, Subject) pair the OIDC provider issued; UUID is vzd's
+// (Issuer, Subject) pair the OIDC provider issued; UUID is weft's
 // stable handle that survives display-name or email changes.
 // Email + Groups + LastSeenAt are refreshed on every successful
 // auth via RegisterUser.
@@ -350,7 +350,7 @@ message GetUserRequest  { string uuid = 1; }
 message GetUserResponse { UserInfo user = 1; }
 
 // Me returns the caller's own UserInfo — the authoritative form of
-// `vzc whoami` that consults vzd rather than decoding the local
+// `weft whoami` that consults weft rather than decoding the local
 // id_token. Dev-mode callers get a synthesised entry with the
 // `dev:` subject.
 message MeRequest  {}
@@ -428,7 +428,7 @@ message SetNetworkDefaultSecurityGroupsResponse { NetworkInfo network = 1; }
 
 // --- SecurityGroups (UUID-keyed L3/L4 rule sets per project) ---
 
-// SecurityRule mirrors vzd.SecurityRule. Direction is "ingress" |
+// SecurityRule mirrors weft.SecurityRule. Direction is "ingress" |
 // "egress"; Protocol is "tcp" | "udp" | "icmp" | "any". PortMin /
 // PortMax are 0 when N/A (ICMP or "any"). Exactly one of
 // RemoteCidr or RemoteGroupUuid is non-empty: the rule either
@@ -543,7 +543,7 @@ message DeleteVolumeResponse {}
 
 // --- WatchEvents (server-streaming event bus) ---
 
-// PlatformEvent is one event published on vzd's bus. Schema is
+// PlatformEvent is one event published on weft's bus. Schema is
 // deliberately the same shape as TimingEvent so the wire reuses
 // the operator's existing mental model: kind, ts, opaque meta.
 // Adds `subject` (VM name or project UUID, depending on `kind`)
@@ -569,8 +569,8 @@ message PlatformEvent {
 // the ACL filter that always applies).
 //
 // `subject` (optional) — narrow to events whose `subject` field
-// matches exactly. The canonical use is `--vm <name>` in vzc /
-// ncl: an operator wanting only the lifecycle + boot timeline of
+// matches exactly. The canonical use is `--vm <name>` in weft /
+// weft-microvm: an operator wanting only the lifecycle + boot timeline of
 // one VM without scanning the rest of the bus.
 message WatchEventsRequest {
   repeated string kind_prefix = 1;
@@ -580,14 +580,14 @@ message WatchEventsRequest {
 
 // --- Admin / NATS authorization renderer ---
 
-// RenderNATSAuthorizationRequest asks vzd to render the NATS-conf
+// RenderNATSAuthorizationRequest asks weft to render the NATS-conf
 // `authorization { ... }` block from the current project registry.
 // Admin-gated: the rendered block reveals every project's NATS
 // pubkey, which is fine for operators but not for tenants.
 message RenderNATSAuthorizationRequest {
   // Optional NATS user-NKey public key ("U...") of the platform
-  // itself, granted full pub/sub on vzd.>. Leave empty in dev /
-  // single-host mode where vzd publishes anonymously.
+  // itself, granted full pub/sub on weft.>. Leave empty in dev /
+  // single-host mode where weft publishes anonymously.
   string admin_pubkey = 1;
 }
 
@@ -598,19 +598,19 @@ message RenderNATSAuthorizationResponse {
   bytes config = 1; // utf-8 text of the authorization { ... } block
 }
 
-// --- RegisterMicroVM (nano-container-linux integration) ---
+// --- RegisterMicroVM (weft-microvm integration) ---
 
 // MicroVMShare is one virtio-fs share exposed to a microVM.
-// nano-container-linux's `ncl run` uses these to plumb an extracted
-// OCI image rootfs to the guest, where ncl-init mounts it on
+// weft-microvm's `weft-microvm run` uses these to plumb an extracted
+// OCI image rootfs to the guest, where weft-microvm-init mounts it on
 // /newroot before pivot_root.
 message MicroVMShare {
   string tag       = 1; // mount tag the guest sees (e.g. "rootfs0")
   string path      = 2; // absolute host directory to expose
   bool   read_only = 3; // optional; default = false
-  // When true, vzd materialises a copy-on-write clone of `path` into
+  // When true, weft materialises a copy-on-write clone of `path` into
   // <vmDir>/<tag>/ before exposing it (macOS clonefile(2) — instant,
-  // shares blocks until written). Lets ncl boot multiple instances
+  // shares blocks until written). Lets weft-microvm boot multiple instances
   // from the same OCI rootfs without their writes leaking back into
   // the shared cache. The cloned tree is deleted with the VM dir at
   // DeleteVM time. Host must be on APFS for the clone to succeed.
@@ -621,17 +621,17 @@ message MicroVMShare {
 // microVM-style boot. Two boot modes are supported, controlled by
 // which of the path fields are set:
 //
-//   * UKI mode: set `boot_iso` only. vzd attaches the ISO as a
+//   * UKI mode: set `boot_iso` only. weft attaches the ISO as a
 //     read-only primary disk and the firmware's EFI loader picks
 //     up the UKI from \EFI\BOOT\bootaa64.efi.
 //   * Direct-Linux mode: set `kernel` (and optionally `initrd`).
-//     vzd uses `vz.LinuxBootLoader` and skips EFI/UKI entirely.
+//     weft uses `vz.LinuxBootLoader` and skips EFI/UKI entirely.
 //     Faster cold-boot, smaller artefacts.
 //
 // `cmdline` overrides the default Linux kernel cmdline (which for
 // the direct-Linux path defaults to `console=hvc0 root=/dev/vda2
 // rw` — fine for cloud-init disk images, not for microVMs that
-// want `ncl.rootfs=virtiofs:rootfs0`). Empty means "use the
+// want `weft.rootfs=virtiofs:rootfs0`). Empty means "use the
 // existing default".
 //
 // `shares` is one or more virtio-fs directory shares exposed to
@@ -645,7 +645,7 @@ message RegisterMicroVMRequest {
   repeated MicroVMShare shares = 3;
   string kernel  = 4; // absolute host path to a Linux kernel image (direct-Linux mode)
   string initrd  = 5; // absolute host path to an initramfs (optional, direct-Linux mode)
-  string cmdline = 6; // kernel cmdline override (e.g. "ncl.rootfs=virtiofs:rootfs0")
+  string cmdline = 6; // kernel cmdline override (e.g. "weft.rootfs=virtiofs:rootfs0")
   string project = 7;
   // host_uuid optionally pins the VM to a specific compute host.
   // Empty / matching-local : server runs RegisterMicroVM in-
@@ -691,7 +691,7 @@ message PublishShareToProjectResponse {
   uint32 vm_count = 1; // number of VMs the mount was fanned out to
 }
 
-// VzdService is the gRPC API exposed by vzd.
+// WeftService is the gRPC API exposed by weft.
 service WeftAgent {
   rpc ListVMs       (ListVMsRequest)       returns (ListVMsResponse);
   rpc VMStatus      (VMStatusRequest)      returns (VMStatusResponse);
@@ -709,19 +709,19 @@ service WeftAgent {
   rpc WaitVM        (WaitVMRequest)        returns (WaitVMResponse);
 
   // Nano-Container-Linux integration: register a VM directory that
-  // boots from a read-only ncl-init UKI ISO and exposes the OCI
+  // boots from a read-only weft-microvm-init UKI ISO and exposes the OCI
   // rootfs to the guest via virtio-fs. After this returns the VM
   // is in VM_STATE_STOPPED; call StartVM to boot it.
   rpc RegisterMicroVM (RegisterMicroVMRequest) returns (RegisterMicroVMResponse);
 
   // Per-VM lifecycle event log: every transition the daemon
-  // observed (server-side state + folded guest-side NCL_MARK
+  // observed (server-side state + folded guest-side WEFT_MARK
   // lines from the console). Returned in wall-clock order.
   rpc VMTimings (VMTimingsRequest) returns (VMTimingsResponse);
 
   // Read a VM's serial console log (the raw byte stream the guest
-  // produced on hvc0 / serial port — boot messages, ncl-init log
-  // lines, NCL_MARK markers, and the container's own stdout/
+  // produced on hvc0 / serial port — boot messages, weft-microvm-init log
+  // lines, WEFT_MARK markers, and the container's own stdout/
   // stderr, all interleaved). Single-shot read; `tail_bytes` caps
   // the response to the last N bytes when non-zero.
   rpc VMLogs (VMLogsRequest) returns (VMLogsResponse);
@@ -789,13 +789,13 @@ service WeftAgent {
   // RenderNATSAuthorization returns the NATS-conf `authorization`
   // block (per-project NKey allow-list, default-deny) for the
   // operator to splice into nats.conf. Admin-gated.
-  // Per [[vzd-tenant-event-access]] Phase 3.
+  // Per [[weft-tenant-event-access]] Phase 3.
   rpc RenderNATSAuthorization (RenderNATSAuthorizationRequest) returns (RenderNATSAuthorizationResponse);
 
   // Host registry RPCs. The Host inventory drives multi-host
   // placement: every hypervisor instance registers itself (or is
   // registered by the operator) and the scheduler picks among
-  // them honouring [[vzd-placement-rules]].
+  // them honouring [[weft-placement-rules]].
   rpc RegisterHost   (RegisterHostRequest)   returns (RegisterHostResponse);
   rpc ListHosts      (ListHostsRequest)      returns (ListHostsResponse);
   rpc GetHost        (GetHostRequest)        returns (GetHostResponse);
@@ -888,7 +888,7 @@ message HostInfo {
 }
 
 // RegisterHost adds a new host or refreshes an existing one
-// (idempotent by UUID). Per [[vzd-placement-rules]] the `rack`
+// (idempotent by UUID). Per [[weft-placement-rules]] the `rack`
 // field is the sub-AZ failure domain — set it on every host in
 // multi-rack clusters so the scheduler's `rack: "different"`
 // can succeed.

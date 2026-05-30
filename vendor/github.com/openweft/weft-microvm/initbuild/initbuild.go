@@ -4,7 +4,7 @@
 // The artefact is a "newc"-format cpio archive (the format the Linux
 // kernel's initrd loader expects), gzipped. The kernel unpacks it into the
 // initial rootfs (tmpfs) and runs /init as PID 1. For mono-container that
-// init is `ncl-init`; for pod mode it's `weft-init`, and the same archive
+// init is `weft-microvm-init`; for pod mode it's `weft-init`, and the same archive
 // also carries the helper binaries the guest execs (crun, cfs-client, the
 // in-VM agent) at their own paths — no go:embed, no extraction copy, the
 // kernel places them directly.
@@ -21,7 +21,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cloud-boot/init/pkg/cpio"
+	"github.com/openweft/weft-microvm/cpio"
 )
 
 // File is one regular-file entry to place in the initramfs.

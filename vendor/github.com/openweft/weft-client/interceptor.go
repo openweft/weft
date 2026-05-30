@@ -1,15 +1,15 @@
-// Package vzclient — interceptor.go installs a gRPC client-side
+// Package weftclient — interceptor.go installs a gRPC client-side
 // interceptor that attaches the cached OIDC access token to every
-// outgoing call as `Authorization: Bearer <…>`. Used by vzc and
-// ncl so the operator who ran `vzc login` doesn't have to thread
+// outgoing call as `Authorization: Bearer <…>`. Used by weft and
+// weft-microvm so the operator who ran `weft login` doesn't have to thread
 // the token through every CLI flag.
 //
 // Absence of a cached token (or an expired one without a refresh
 // path wired yet) means: send no Authorization header at all. The
-// server side (vzd) treats that as a dev-mode caller when its
+// server side (weft) treats that as a dev-mode caller when its
 // validator is unset, and as Unauthenticated when it isn't —
 // matching the contract in pkg/openweft/weft/auth.go.
-package vzclient
+package weftclient
 
 import (
 	"context"
@@ -47,7 +47,7 @@ func BearerStreamInterceptor(tokenSource func() string) grpc.StreamClientInterce
 // CachedTokenSource is the canonical tokenSource closure: it
 // reads the on-disk cache on every call. Cheap (one file read on
 // disk, kernel page cache makes it near-free), correct (picks up
-// a fresh token after `vzc login` without restarting), and
+// a fresh token after `weft login` without restarting), and
 // failure-safe (returns "" rather than panicking on an unreadable
 // cache).
 func CachedTokenSource() func() string {

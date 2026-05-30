@@ -1,5 +1,5 @@
-// Package vzclient — device.go implements the OAuth 2.0 Device
-// Authorization Grant (RFC 8628) used by `vzc login` to obtain a
+// Package weftclient — device.go implements the OAuth 2.0 Device
+// Authorization Grant (RFC 8628) used by `weft login` to obtain a
 // token from dex without a callback URL. The flow is:
 //
 //   1. POST <issuer>/device/code with client_id + scope
@@ -16,7 +16,7 @@
 // stdlib encoding/json for the OIDC responses (the dex wire format
 // is JSON regardless of our HCL preference; HCL is for config we
 // own).
-package vzclient
+package weftclient
 
 import (
 	"context"

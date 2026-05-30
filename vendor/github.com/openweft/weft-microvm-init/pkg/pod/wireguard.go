@@ -8,7 +8,7 @@ import (
 
 // LoadWireGuard reads a standalone WireGuard overlay config (the same shape
 // as Spec.WireGuard) from path. This is how the host delivers a per-VM
-// overlay without owning the whole pod spec: vzd drops wireguard.json into
+// overlay without owning the whole pod spec: weft drops wireguard.json into
 // the config share alongside pod.json, and weft-init applies it when the
 // pod spec itself carries no WireGuard block.
 //

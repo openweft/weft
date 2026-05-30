@@ -1,6 +1,6 @@
 # hclconfig
 
-Public façade over the internal HCL configuration loader. Re-exports types and functions from `internal/mock` so that external packages (`vzd`, `terraform-provider-vzd`, …) can import them without violating Go's internal-package visibility rules.
+Public façade over the internal HCL configuration loader. Re-exports types and functions from `internal/mock` so that external packages (`weft`, `terraform-provider-weft`, …) can import them without violating Go's internal-package visibility rules.
 
 ## Module
 
@@ -42,6 +42,6 @@ rows, err := hclconfig.BuildRowsFromConfig(".mock/hcl", "dev", vmStateMap, ociMa
 
 ## Used by
 
-- [`pkg/openweft/weft`](../apple-vz/vzd) — reads daemon config and VM definitions
-- [`pkg/openweft/weft-ui`](../apple-vz/vzui) — populates the VM table
-- [`pkg/terraform-provider-vzd`](../terraform-provider-vzd) — reads image URLs from HCL
+- [`weft`](../weft) — reads daemon config and VM definitions
+- [`weft-webui`](../weft-webui) — populates the VM table (Svelte SPA + Go API)
+- [`terraform-provider-weft`](../terraform-provider-weft) — reads image URLs from HCL

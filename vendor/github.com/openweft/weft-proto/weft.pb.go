@@ -2378,8 +2378,8 @@ func (x *WaitVMResponse) GetIp() string {
 	return ""
 }
 
-// TimingEvent mirrors vzd's internal vzd.TimingEvent — one entry
-// from <vmDir>/timings.jsonl. Used by tools (vzc + future
+// TimingEvent mirrors weft's internal weft.TimingEvent — one entry
+// from <vmDir>/timings.jsonl. Used by tools (weft + future
 // integrators) to render the full server+guest lifecycle timeline
 // of a single VM without parsing JSONL themselves.
 type TimingEvent struct {
@@ -2934,7 +2934,7 @@ func (x *ListProjectMembersResponse) GetUserUuids() []string {
 }
 
 // UserInfo is one entry in the user registry. Identity is the
-// (Issuer, Subject) pair the OIDC provider issued; UUID is vzd's
+// (Issuer, Subject) pair the OIDC provider issued; UUID is weft's
 // stable handle that survives display-name or email changes.
 // Email + Groups + LastSeenAt are refreshed on every successful
 // auth via RegisterUser.
@@ -3235,7 +3235,7 @@ func (x *GetUserResponse) GetUser() *UserInfo {
 }
 
 // Me returns the caller's own UserInfo — the authoritative form of
-// `vzc whoami` that consults vzd rather than decoding the local
+// `weft whoami` that consults weft rather than decoding the local
 // id_token. Dev-mode callers get a synthesised entry with the
 // `dev:` subject.
 type MeRequest struct {
@@ -4225,7 +4225,7 @@ func (x *SetNetworkDefaultSecurityGroupsResponse) GetNetwork() *NetworkInfo {
 	return nil
 }
 
-// SecurityRule mirrors vzd.SecurityRule. Direction is "ingress" |
+// SecurityRule mirrors weft.SecurityRule. Direction is "ingress" |
 // "egress"; Protocol is "tcp" | "udp" | "icmp" | "any". PortMin /
 // PortMax are 0 when N/A (ICMP or "any"). Exactly one of
 // RemoteCidr or RemoteGroupUuid is non-empty: the rule either
@@ -5777,7 +5777,7 @@ func (*DeleteVolumeResponse) Descriptor() ([]byte, []int) {
 	return file_weft_proto_rawDescGZIP(), []int{105}
 }
 
-// PlatformEvent is one event published on vzd's bus. Schema is
+// PlatformEvent is one event published on weft's bus. Schema is
 // deliberately the same shape as TimingEvent so the wire reuses
 // the operator's existing mental model: kind, ts, opaque meta.
 // Adds `subject` (VM name or project UUID, depending on `kind`)
@@ -5871,8 +5871,8 @@ func (x *PlatformEvent) GetMeta() map[string]string {
 // the ACL filter that always applies).
 //
 // `subject` (optional) — narrow to events whose `subject` field
-// matches exactly. The canonical use is `--vm <name>` in vzc /
-// ncl: an operator wanting only the lifecycle + boot timeline of
+// matches exactly. The canonical use is `--vm <name>` in weft /
+// weft-microvm: an operator wanting only the lifecycle + boot timeline of
 // one VM without scanning the rest of the bus.
 type WatchEventsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -5934,15 +5934,15 @@ func (x *WatchEventsRequest) GetSubject() string {
 	return ""
 }
 
-// RenderNATSAuthorizationRequest asks vzd to render the NATS-conf
+// RenderNATSAuthorizationRequest asks weft to render the NATS-conf
 // `authorization { ... }` block from the current project registry.
 // Admin-gated: the rendered block reveals every project's NATS
 // pubkey, which is fine for operators but not for tenants.
 type RenderNATSAuthorizationRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional NATS user-NKey public key ("U...") of the platform
-	// itself, granted full pub/sub on vzd.>. Leave empty in dev /
-	// single-host mode where vzd publishes anonymously.
+	// itself, granted full pub/sub on weft.>. Leave empty in dev /
+	// single-host mode where weft publishes anonymously.
 	AdminPubkey   string `protobuf:"bytes,1,opt,name=admin_pubkey,json=adminPubkey,proto3" json:"admin_pubkey,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6033,17 +6033,17 @@ func (x *RenderNATSAuthorizationResponse) GetConfig() []byte {
 }
 
 // MicroVMShare is one virtio-fs share exposed to a microVM.
-// nano-container-linux's `ncl run` uses these to plumb an extracted
-// OCI image rootfs to the guest, where ncl-init mounts it on
+// weft-microvm's `weft-microvm run` uses these to plumb an extracted
+// OCI image rootfs to the guest, where weft-microvm-init mounts it on
 // /newroot before pivot_root.
 type MicroVMShare struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Tag      string                 `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`                            // mount tag the guest sees (e.g. "rootfs0")
 	Path     string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`                          // absolute host directory to expose
 	ReadOnly bool                   `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"` // optional; default = false
-	// When true, vzd materialises a copy-on-write clone of `path` into
+	// When true, weft materialises a copy-on-write clone of `path` into
 	// <vmDir>/<tag>/ before exposing it (macOS clonefile(2) — instant,
-	// shares blocks until written). Lets ncl boot multiple instances
+	// shares blocks until written). Lets weft-microvm boot multiple instances
 	// from the same OCI rootfs without their writes leaking back into
 	// the shared cache. The cloned tree is deleted with the VM dir at
 	// DeleteVM time. Host must be on APFS for the clone to succeed.
@@ -6114,17 +6114,17 @@ func (x *MicroVMShare) GetClone() bool {
 // microVM-style boot. Two boot modes are supported, controlled by
 // which of the path fields are set:
 //
-//   - UKI mode: set `boot_iso` only. vzd attaches the ISO as a
+//   - UKI mode: set `boot_iso` only. weft attaches the ISO as a
 //     read-only primary disk and the firmware's EFI loader picks
 //     up the UKI from \EFI\BOOT\bootaa64.efi.
 //   - Direct-Linux mode: set `kernel` (and optionally `initrd`).
-//     vzd uses `vz.LinuxBootLoader` and skips EFI/UKI entirely.
+//     weft uses `vz.LinuxBootLoader` and skips EFI/UKI entirely.
 //     Faster cold-boot, smaller artefacts.
 //
 // `cmdline` overrides the default Linux kernel cmdline (which for
 // the direct-Linux path defaults to `console=hvc0 root=/dev/vda2
 // rw` — fine for cloud-init disk images, not for microVMs that
-// want `ncl.rootfs=virtiofs:rootfs0`). Empty means "use the
+// want `weft.rootfs=virtiofs:rootfs0`). Empty means "use the
 // existing default".
 //
 // `shares` is one or more virtio-fs directory shares exposed to
@@ -6139,7 +6139,7 @@ type RegisterMicroVMRequest struct {
 	Shares  []*MicroVMShare        `protobuf:"bytes,3,rep,name=shares,proto3" json:"shares,omitempty"`
 	Kernel  string                 `protobuf:"bytes,4,opt,name=kernel,proto3" json:"kernel,omitempty"`   // absolute host path to a Linux kernel image (direct-Linux mode)
 	Initrd  string                 `protobuf:"bytes,5,opt,name=initrd,proto3" json:"initrd,omitempty"`   // absolute host path to an initramfs (optional, direct-Linux mode)
-	Cmdline string                 `protobuf:"bytes,6,opt,name=cmdline,proto3" json:"cmdline,omitempty"` // kernel cmdline override (e.g. "ncl.rootfs=virtiofs:rootfs0")
+	Cmdline string                 `protobuf:"bytes,6,opt,name=cmdline,proto3" json:"cmdline,omitempty"` // kernel cmdline override (e.g. "weft.rootfs=virtiofs:rootfs0")
 	Project string                 `protobuf:"bytes,7,opt,name=project,proto3" json:"project,omitempty"`
 	// host_uuid optionally pins the VM to a specific compute host.
 	// Empty / matching-local : server runs RegisterMicroVM in-
@@ -6684,7 +6684,7 @@ func (x *HostInfo) GetLastSeenAtUnixNs() int64 {
 }
 
 // RegisterHost adds a new host or refreshes an existing one
-// (idempotent by UUID). Per [[vzd-placement-rules]] the `rack`
+// (idempotent by UUID). Per [[weft-placement-rules]] the `rack`
 // field is the sub-AZ failure domain — set it on every host in
 // multi-rack clusters so the scheduler's `rack: "different"`
 // can succeed.

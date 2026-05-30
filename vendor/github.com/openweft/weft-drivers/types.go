@@ -1,12 +1,12 @@
 package drivers
 
 // types.go holds the protobuf-friendly data structures every
-// driver consumes. They mirror the corresponding vzd registry
+// driver consumes. They mirror the corresponding weft registry
 // types (weft.Network → drivers.NetworkSpec etc.) but live in this
-// package to avoid a cycle: drivers must not import vzd, since
-// vzd uses drivers.
+// package to avoid a cycle: drivers must not import weft, since
+// weft uses drivers.
 //
-// The Adapter in vzd/ does the conversion at the boundary:
+// The Adapter in weft/ does the conversion at the boundary:
 //
 //   spec := drivers.NetworkSpec{
 //       UUID:        n.UUID,
@@ -21,7 +21,7 @@ package drivers
 //   * Primitive-valued (no pointers, no interfaces, no time.Time
 //     in the wire shape — use Unix-ns int64 instead).
 //
-// time.Time appears in vzd registries; at the driver boundary we
+// time.Time appears in weft registries; at the driver boundary we
 // don't need it (drivers act on the present moment).
 
 // HostInfo identifies a compute node in the cluster. Returned by
@@ -90,7 +90,7 @@ type VolumeSpec struct {
 // AttachedVolume is what AttachVolume returns: the path / URI the
 // hypervisor opens, plus access mode.
 type AttachedVolume struct {
-	BackingPath string // /var/lib/vzd/.../disk.qcow2 — local file path or rbd:// URI
+	BackingPath string // /var/lib/weft/.../disk.qcow2 — local file path or rbd:// URI
 	ReadOnly    bool
 }
 
