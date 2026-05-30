@@ -400,6 +400,12 @@ type RegisterHostSpec struct {
 	Endpoint       string
 	Hypervisor     string
 	Architecture   string
+	// Drivers is the full capability list — one entry per
+	// weft-driver-<kind> subprocess the registering agent has
+	// launched. Optional ; empty falls back to a single-driver
+	// registration described by (Hypervisor, Architecture). See
+	// [[Host.Drivers]] for the model.
+	Drivers        []HostDriver
 	NetworkTypes   []string
 	VolumeBackends []string
 	Labels         map[string]string
@@ -439,6 +445,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 			existing.Endpoint = spec.Endpoint
 			existing.Hypervisor = spec.Hypervisor
 			existing.Architecture = spec.Architecture
+			existing.Drivers = cloneHostDrivers(spec.Drivers)
 			existing.NetworkTypes = append([]string(nil), spec.NetworkTypes...)
 			existing.VolumeBackends = append([]string(nil), spec.VolumeBackends...)
 			if len(spec.Labels) > 0 {
@@ -484,6 +491,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		Endpoint:       spec.Endpoint,
 		Hypervisor:     spec.Hypervisor,
 		Architecture:   spec.Architecture,
+		Drivers:        cloneHostDrivers(spec.Drivers),
 		NetworkTypes:   append([]string(nil), spec.NetworkTypes...),
 		VolumeBackends: append([]string(nil), spec.VolumeBackends...),
 		Labels:         labels,
@@ -499,6 +507,23 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		return Host{}, err
 	}
 	return h, nil
+}
+
+// cloneHostDrivers deep-copies a Drivers slice so the registry can't
+// be mutated through the caller's spec pointer. Nil-in / empty-in →
+// nil-out, keeping the JSON-omitempty contract on the registry side.
+func cloneHostDrivers(src []HostDriver) []HostDriver {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]HostDriver, len(src))
+	for i, d := range src {
+		out[i] = HostDriver{
+			Kind:   d.Kind,
+			Arches: append([]string(nil), d.Arches...),
+		}
+	}
+	return out
 }
 
 // heartbeat updates LastSeenAt and (when applicable) flips State

@@ -53,6 +53,7 @@ func (cp adapterControlPlane) RegisterHost(ctx context.Context, reg agent.HostRe
 		Endpoint:       reg.Endpoint,
 		Hypervisor:     reg.Hypervisor,
 		Architecture:   reg.Architecture,
+		Drivers:        translateAgentDrivers(reg.Drivers),
 		NetworkTypes:   reg.NetworkTypes,
 		VolumeBackends: reg.VolumeBackends,
 		Labels:         reg.Labels,
@@ -62,6 +63,24 @@ func (cp adapterControlPlane) RegisterHost(ctx context.Context, reg agent.HostRe
 		return "", err
 	}
 	return h.UUID, nil
+}
+
+// translateAgentDrivers converts the agent-side capability list
+// (agent.HostDriverCapability) into the registry-side HostDriver
+// shape. Same fields ; the type split is the agent / weft import
+// boundary (agent must not import weft).
+func translateAgentDrivers(src []agent.HostDriverCapability) []HostDriver {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]HostDriver, len(src))
+	for i, d := range src {
+		out[i] = HostDriver{
+			Kind:   d.Kind,
+			Arches: append([]string(nil), d.Arches...),
+		}
+	}
+	return out
 }
 
 // AttachDrivers translates DriverHandles into HostHandle and
