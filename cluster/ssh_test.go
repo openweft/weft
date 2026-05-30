@@ -135,6 +135,19 @@ func TestRenderAction_AgentDetachedAndIdempotent(t *testing.T) {
 	}
 }
 
+// TestRenderAction_PlaceReplicaUsesUploadedPlan: PlaceReplica must point
+// `weft infra deploy --plan` at the per-host uploaded plan.hcl, since the
+// source tree isn't present on the remote.
+func TestRenderAction_PlaceReplicaUsesUploadedPlan(t *testing.T) {
+	c := threeHostCluster()
+	_, cmd := renderAction(c, Action{Kind: PlaceReplica, Host: c.Hosts[0].ID, Service: "etcd", Replica: 1, DC: "dc1"})
+	for _, frag := range []string{"weft infra deploy etcd", "--plan ", "/infra/etcd/plan.hcl"} {
+		if !strings.Contains(cmd, frag) {
+			t.Errorf("PlaceReplica cmd missing %q: %s", frag, cmd)
+		}
+	}
+}
+
 // TestRenderAction_CrossHostTCPTransport: the seed exposes a --tcp-listen
 // for the dev-mode cross-host control plane, and non-seed hosts dial that
 // TCP target via --control-plane=tcp:<seed>:<port>.

@@ -79,7 +79,7 @@ per host through the same infra deploy primitive as 'weft infra bootstrap'.`,
 
 			if apply {
 				fmt.Println("\napplying over SSH…")
-				return cluster.Apply(cl, plan, func(f string, a ...any) { logger.Printf(f, a...) })
+				return cluster.Apply(cl, plan, root, func(f string, a ...any) { logger.Printf(f, a...) })
 			}
 			return nil
 		},
