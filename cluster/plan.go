@@ -87,6 +87,14 @@ func (a Action) String() string {
 		return fmt.Sprintf("place-replica %s/%d → %s (dc=%s)", a.Service, a.Replica, a.Host, a.DC)
 	case GrowQuorum:
 		return fmt.Sprintf("grow-quorum   %s %d→%d", a.Service, a.From, a.To)
+	case StopReplica:
+		return fmt.Sprintf("stop-replica  %s/%d on %s (dc=%s)", a.Service, a.Replica, a.Host, a.DC)
+	case StopAgent:
+		return fmt.Sprintf("stop-agent    %s", a.Host)
+	case TeardownMesh:
+		return fmt.Sprintf("teardown-mesh %s", a.Host)
+	case Purge:
+		return fmt.Sprintf("purge         %s (~/.weft, /var/lib/weft)", a.Host)
 	default:
 		return string(a.Kind)
 	}

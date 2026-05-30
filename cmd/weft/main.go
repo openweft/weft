@@ -117,6 +117,7 @@ running agent.`,
 	registerHostCommands(root)
 	root.AddCommand(newInfraCmd())
 	root.AddCommand(newUpCmd())
+	root.AddCommand(newDownCmd())
 
 	// Client subcommands (was: weft). All speak gRPC to the running agent.
 	root.AddCommand(
