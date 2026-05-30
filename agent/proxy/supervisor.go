@@ -102,6 +102,11 @@ func (s *Supervisor) startOnce_(ctx context.Context) error {
 	s.cmd.Stderr = s.opts.LogWriter
 	// Isolate Caddy's $XDG_DATA_HOME so cert storage doesn't collide
 	// with an operator's interactive `caddy run` on the same machine.
+	//
+	// TODO(proxy-etcd-storage): swap filesystem cert storage for the
+	// caddy-storage-etcd adapter so multiple agents share issued certs.
+	// Today each host re-mints its own — fine for one-host clusters,
+	// a coordination tax at 3-DC scale. See doc.go for context.
 	s.cmd.Env = append(os.Environ(),
 		"XDG_DATA_HOME="+filepath.Join(s.opts.StateDir, "data"),
 		"XDG_CONFIG_HOME="+filepath.Join(s.opts.StateDir, "cfg"),
