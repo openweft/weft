@@ -1,13 +1,13 @@
-// Package logs implements `vzc instance logs` — dumps the raw
+// Package logs implements `weft instance logs` — dumps the raw
 // console.log bytes for a VM via the VMLogs RPC.
 //
 // CLI shape:
 //
-//	vzc instance logs <name> [--tail BYTES]
+//	weft instance logs <name> [--tail BYTES]
 //
 // Output is the byte stream the guest produced on its serial port
 // (boot messages, init log, container stdout/stderr, all
-// interleaved). vzd does not interpret it; this command is the
+// interleaved). weft does not interpret it; this command is the
 // thinnest possible reader.
 package logs
 
@@ -17,11 +17,11 @@ import (
 	"os"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
-// Command returns the `vzc instance logs` cobra command.
+// Command returns the `weft instance logs` cobra command.
 func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	var tail int64
 	cmd := &cobra.Command{
@@ -34,7 +34,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.VMLogs(context.Background(), &vzdv1.VMLogsRequest{
+			resp, err := c.VMLogs(context.Background(), &weftv1.VMLogsRequest{
 				Name:      args[0],
 				TailBytes: tail,
 			})
@@ -48,7 +48,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 			// piped reads of the log itself.
 			if tail > 0 && resp.TotalBytes > int64(len(resp.Contents)) {
 				fmt.Fprintf(os.Stderr,
-					"\n[vzc: truncated — showed last %d B of %d B]\n",
+					"\n[weft: truncated — showed last %d B of %d B]\n",
 					len(resp.Contents), resp.TotalBytes)
 			}
 			return nil

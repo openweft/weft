@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -55,8 +55,8 @@ func TestCommand_Structure(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListFlavorsFn = func(_ context.Context, _ *vzdv1.ListFlavorsRequest) (*vzdv1.ListFlavorsResponse, error) {
-		return &vzdv1.ListFlavorsResponse{Flavors: []*vzdv1.Flavor{
+	srv.ListFlavorsFn = func(_ context.Context, _ *weftv1.ListFlavorsRequest) (*weftv1.ListFlavorsResponse, error) {
+		return &weftv1.ListFlavorsResponse{Flavors: []*weftv1.Flavor{
 			{Name: "small", Vcpu: 2, Ram: "4Gi", EphemeralGb: 20},
 			{Name: "gpu", Vcpu: 8, Ram: "32Gi", EphemeralGb: 100, Gpu: "1×A100-40G"},
 		}}, nil
@@ -85,8 +85,8 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestLs_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListFlavorsFn = func(_ context.Context, _ *vzdv1.ListFlavorsRequest) (*vzdv1.ListFlavorsResponse, error) {
-		return &vzdv1.ListFlavorsResponse{Flavors: []*vzdv1.Flavor{
+	srv.ListFlavorsFn = func(_ context.Context, _ *weftv1.ListFlavorsRequest) (*weftv1.ListFlavorsResponse, error) {
+		return &weftv1.ListFlavorsResponse{Flavors: []*weftv1.Flavor{
 			{Name: "small", Vcpu: 2, Ram: "4Gi"},
 		}}, nil
 	}
@@ -110,9 +110,9 @@ func TestLs_JSONFormat(t *testing.T) {
 func TestGet_PassesName(t *testing.T) {
 	srv := testutil.NewServer(t)
 	var seen string
-	srv.GetFlavorFn = func(_ context.Context, in *vzdv1.GetFlavorRequest) (*vzdv1.GetFlavorResponse, error) {
+	srv.GetFlavorFn = func(_ context.Context, in *weftv1.GetFlavorRequest) (*weftv1.GetFlavorResponse, error) {
 		seen = in.Name
-		return &vzdv1.GetFlavorResponse{Flavor: &vzdv1.Flavor{Name: in.Name, Vcpu: 4, Ram: "8Gi"}}, nil
+		return &weftv1.GetFlavorResponse{Flavor: &weftv1.Flavor{Name: in.Name, Vcpu: 4, Ram: "8Gi"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -133,10 +133,10 @@ func TestGet_PassesName(t *testing.T) {
 
 func TestSet_RoundTrip(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var saved *vzdv1.Flavor
-	srv.SetFlavorFn = func(_ context.Context, in *vzdv1.SetFlavorRequest) (*vzdv1.SetFlavorResponse, error) {
+	var saved *weftv1.Flavor
+	srv.SetFlavorFn = func(_ context.Context, in *weftv1.SetFlavorRequest) (*weftv1.SetFlavorResponse, error) {
 		saved = in.Flavor
-		return &vzdv1.SetFlavorResponse{Flavor: in.Flavor}, nil
+		return &weftv1.SetFlavorResponse{Flavor: in.Flavor}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -155,7 +155,7 @@ func TestSet_RoundTrip(t *testing.T) {
 
 func TestSet_ErrorBubblesUp(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetFlavorFn = func(_ context.Context, _ *vzdv1.SetFlavorRequest) (*vzdv1.SetFlavorResponse, error) {
+	srv.SetFlavorFn = func(_ context.Context, _ *weftv1.SetFlavorRequest) (*weftv1.SetFlavorResponse, error) {
 		return nil, errors.New("vcpu must be > 0")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -174,9 +174,9 @@ func TestSet_ErrorBubblesUp(t *testing.T) {
 func TestRm_PassesName(t *testing.T) {
 	srv := testutil.NewServer(t)
 	var seen string
-	srv.DeleteFlavorFn = func(_ context.Context, in *vzdv1.DeleteFlavorRequest) (*vzdv1.DeleteFlavorResponse, error) {
+	srv.DeleteFlavorFn = func(_ context.Context, in *weftv1.DeleteFlavorRequest) (*weftv1.DeleteFlavorResponse, error) {
 		seen = in.Name
-		return &vzdv1.DeleteFlavorResponse{Deleted: in.Name}, nil
+		return &weftv1.DeleteFlavorResponse{Deleted: in.Name}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

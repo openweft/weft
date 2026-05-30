@@ -21,13 +21,13 @@ import (
 	"context"
 
 	"github.com/openweft/weft"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func toVolumeInfo(v weft.Volume) *vzdv1.VolumeInfo {
-	return &vzdv1.VolumeInfo{
+func toVolumeInfo(v weft.Volume) *weftv1.VolumeInfo {
+	return &weftv1.VolumeInfo{
 		Uuid:            v.UUID,
 		ProjectUuid:     v.ProjectUUID,
 		Name:            v.Name,
@@ -38,7 +38,7 @@ func toVolumeInfo(v weft.Volume) *vzdv1.VolumeInfo {
 	}
 }
 
-func (s *vzdServer) ListVolumes(ctx context.Context, req *vzdv1.ListVolumesRequest) (*vzdv1.ListVolumesResponse, error) {
+func (s *weftServer) ListVolumes(ctx context.Context, req *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error) {
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {
 		return nil, err
@@ -53,7 +53,7 @@ func (s *vzdServer) ListVolumes(ctx context.Context, req *vzdv1.ListVolumesReque
 		}
 		wantProjectUUID = uuid
 	}
-	out := []*vzdv1.VolumeInfo{}
+	out := []*weftv1.VolumeInfo{}
 	for _, v := range s.adp.Volumes() {
 		if wantProjectUUID != "" && v.ProjectUUID != wantProjectUUID {
 			continue
@@ -65,10 +65,10 @@ func (s *vzdServer) ListVolumes(ctx context.Context, req *vzdv1.ListVolumesReque
 		}
 		out = append(out, toVolumeInfo(v))
 	}
-	return &vzdv1.ListVolumesResponse{Volumes: out}, nil
+	return &weftv1.ListVolumesResponse{Volumes: out}, nil
 }
 
-func (s *vzdServer) CreateVolume(ctx context.Context, req *vzdv1.CreateVolumeRequest) (*vzdv1.CreateVolumeResponse, error) {
+func (s *weftServer) CreateVolume(ctx context.Context, req *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error) {
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
@@ -93,13 +93,13 @@ func (s *vzdServer) CreateVolume(ctx context.Context, req *vzdv1.CreateVolumeReq
 		return nil, status.Errorf(codes.Internal, "create volume: %v", err)
 	}
 	logger.Printf("CreateVolume name=%s project=%s uuid=%s size_gib=%d", v.Name, v.ProjectUUID, v.UUID, v.SizeGiB)
-	return &vzdv1.CreateVolumeResponse{Volume: toVolumeInfo(v)}, nil
+	return &weftv1.CreateVolumeResponse{Volume: toVolumeInfo(v)}, nil
 }
 
 // authVolume looks up a volume by UUID and runs the caller through
 // the project-ACL gate. Returns the resolved Volume so the handler
 // can chain the actual mutation without a second lookup.
-func (s *vzdServer) authVolume(ctx context.Context, uuid string) (weft.Volume, error) {
+func (s *weftServer) authVolume(ctx context.Context, uuid string) (weft.Volume, error) {
 	if uuid == "" {
 		return weft.Volume{}, status.Error(codes.InvalidArgument, "uuid is required")
 	}
@@ -116,7 +116,7 @@ func (s *vzdServer) authVolume(ctx context.Context, uuid string) (weft.Volume, e
 	return v, nil
 }
 
-func (s *vzdServer) RenameVolume(ctx context.Context, req *vzdv1.RenameVolumeRequest) (*vzdv1.RenameVolumeResponse, error) {
+func (s *weftServer) RenameVolume(ctx context.Context, req *weftv1.RenameVolumeRequest) (*weftv1.RenameVolumeResponse, error) {
 	if req.NewName == "" {
 		return nil, status.Error(codes.InvalidArgument, "new_name is required")
 	}
@@ -127,10 +127,10 @@ func (s *vzdServer) RenameVolume(ctx context.Context, req *vzdv1.RenameVolumeReq
 		return nil, status.Errorf(codes.Internal, "rename volume: %v", err)
 	}
 	v, _ := s.adp.VolumeByUUID(req.Uuid)
-	return &vzdv1.RenameVolumeResponse{Volume: toVolumeInfo(v)}, nil
+	return &weftv1.RenameVolumeResponse{Volume: toVolumeInfo(v)}, nil
 }
 
-func (s *vzdServer) ResizeVolume(ctx context.Context, req *vzdv1.ResizeVolumeRequest) (*vzdv1.ResizeVolumeResponse, error) {
+func (s *weftServer) ResizeVolume(ctx context.Context, req *weftv1.ResizeVolumeRequest) (*weftv1.ResizeVolumeResponse, error) {
 	if req.NewSizeGib <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "new_size_gib must be > 0")
 	}
@@ -141,10 +141,10 @@ func (s *vzdServer) ResizeVolume(ctx context.Context, req *vzdv1.ResizeVolumeReq
 		return nil, status.Errorf(codes.Internal, "resize volume: %v", err)
 	}
 	v, _ := s.adp.VolumeByUUID(req.Uuid)
-	return &vzdv1.ResizeVolumeResponse{Volume: toVolumeInfo(v)}, nil
+	return &weftv1.ResizeVolumeResponse{Volume: toVolumeInfo(v)}, nil
 }
 
-func (s *vzdServer) AttachVolume(ctx context.Context, req *vzdv1.AttachVolumeRequest) (*vzdv1.AttachVolumeResponse, error) {
+func (s *weftServer) AttachVolume(ctx context.Context, req *weftv1.AttachVolumeRequest) (*weftv1.AttachVolumeResponse, error) {
 	if req.VmUuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_uuid is required")
 	}
@@ -155,10 +155,10 @@ func (s *vzdServer) AttachVolume(ctx context.Context, req *vzdv1.AttachVolumeReq
 		return nil, status.Errorf(codes.FailedPrecondition, "attach volume: %v", err)
 	}
 	v, _ := s.adp.VolumeByUUID(req.Uuid)
-	return &vzdv1.AttachVolumeResponse{Volume: toVolumeInfo(v)}, nil
+	return &weftv1.AttachVolumeResponse{Volume: toVolumeInfo(v)}, nil
 }
 
-func (s *vzdServer) DetachVolume(ctx context.Context, req *vzdv1.DetachVolumeRequest) (*vzdv1.DetachVolumeResponse, error) {
+func (s *weftServer) DetachVolume(ctx context.Context, req *weftv1.DetachVolumeRequest) (*weftv1.DetachVolumeResponse, error) {
 	if _, err := s.authVolume(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
@@ -166,10 +166,10 @@ func (s *vzdServer) DetachVolume(ctx context.Context, req *vzdv1.DetachVolumeReq
 		return nil, status.Errorf(codes.Internal, "detach volume: %v", err)
 	}
 	v, _ := s.adp.VolumeByUUID(req.Uuid)
-	return &vzdv1.DetachVolumeResponse{Volume: toVolumeInfo(v)}, nil
+	return &weftv1.DetachVolumeResponse{Volume: toVolumeInfo(v)}, nil
 }
 
-func (s *vzdServer) DeleteVolume(ctx context.Context, req *vzdv1.DeleteVolumeRequest) (*vzdv1.DeleteVolumeResponse, error) {
+func (s *weftServer) DeleteVolume(ctx context.Context, req *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error) {
 	if _, err := s.authVolume(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
@@ -177,5 +177,5 @@ func (s *vzdServer) DeleteVolume(ctx context.Context, req *vzdv1.DeleteVolumeReq
 		return nil, status.Errorf(codes.FailedPrecondition, "delete volume: %v", err)
 	}
 	logger.Printf("DeleteVolume uuid=%s", req.Uuid)
-	return &vzdv1.DeleteVolumeResponse{}, nil
+	return &weftv1.DeleteVolumeResponse{}, nil
 }

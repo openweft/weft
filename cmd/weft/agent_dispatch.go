@@ -33,16 +33,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // agentDispatchServer holds the per-host stream registry. One
-// `vzdServer` owns one of these (instantiated in main.go's
+// `weftServer` owns one of these (instantiated in main.go's
 // run() alongside the other gRPC handlers).
 type agentDispatchServer struct {
-	vzdv1.UnimplementedAgentDispatchServer
+	weftv1.UnimplementedAgentDispatchServer
 
 	mu       sync.Mutex
 	sessions map[string]*agentSession // host_uuid → session
@@ -84,12 +84,12 @@ type agentDispatchServer struct {
 type agentSession struct {
 	hostUUID    string
 	sessionID   string
-	stream      vzdv1.AgentDispatch_ConnectServer
+	stream      weftv1.AgentDispatch_ConnectServer
 	connectedAt time.Time
 	// send funnels outgoing ControlMessages to the stream's
 	// Send goroutine — gRPC bidi streams aren't safe for
 	// concurrent writes, so all senders enqueue here.
-	send chan *vzdv1.ControlMessage
+	send chan *weftv1.ControlMessage
 	// pending correlates outstanding DriverRequests with the
 	// goroutines awaiting their DriverReply. The receiver
 	// goroutine looks up the reply chan by request_id and
@@ -111,19 +111,19 @@ type agentSession struct {
 // pushes the reply, then unregisters.
 type pendingReplies struct {
 	mu sync.Mutex
-	m  map[string]chan *vzdv1.DriverReply
+	m  map[string]chan *weftv1.DriverReply
 }
 
-func (p *pendingReplies) register(id string, ch chan *vzdv1.DriverReply) {
+func (p *pendingReplies) register(id string, ch chan *weftv1.DriverReply) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.m == nil {
-		p.m = make(map[string]chan *vzdv1.DriverReply)
+		p.m = make(map[string]chan *weftv1.DriverReply)
 	}
 	p.m[id] = ch
 }
 
-func (p *pendingReplies) deliver(id string, reply *vzdv1.DriverReply) bool {
+func (p *pendingReplies) deliver(id string, reply *weftv1.DriverReply) bool {
 	p.mu.Lock()
 	ch, ok := p.m[id]
 	if ok {
@@ -154,7 +154,7 @@ func (p *pendingReplies) drainAll(reason string) {
 	p.mu.Unlock()
 	for id, ch := range pending {
 		select {
-		case ch <- &vzdv1.DriverReply{RequestId: id, Error: reason}:
+		case ch <- &weftv1.DriverReply{RequestId: id, Error: reason}:
 		default:
 		}
 	}
@@ -171,7 +171,7 @@ func newAgentDispatchServer() *agentDispatchServer {
 
 // Connect is the bidi-stream handler. Blocks until the agent
 // disconnects or the server closes the stream.
-func (s *agentDispatchServer) Connect(stream vzdv1.AgentDispatch_ConnectServer) error {
+func (s *agentDispatchServer) Connect(stream weftv1.AgentDispatch_ConnectServer) error {
 	// First message MUST be Hello — gate every other variant
 	// until we've identified the host.
 	msg, err := stream.Recv()
@@ -191,7 +191,7 @@ func (s *agentDispatchServer) Connect(stream vzdv1.AgentDispatch_ConnectServer) 
 		sessionID:   newSessionID(),
 		stream:      stream,
 		connectedAt: time.Now().UTC(),
-		send:        make(chan *vzdv1.ControlMessage, 16),
+		send:        make(chan *weftv1.ControlMessage, 16),
 	}
 	// Seed the pong clock so a freshly-connected agent isn't
 	// immediately considered stale by the liveness check.
@@ -220,8 +220,8 @@ func (s *agentDispatchServer) Connect(stream vzdv1.AgentDispatch_ConnectServer) 
 	}()
 
 	// Send the Hello ack so the agent knows it's registered.
-	ack := &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{
-		HelloAck: &vzdv1.ControlHelloAck{SessionId: sess.sessionID},
+	ack := &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{
+		HelloAck: &weftv1.ControlHelloAck{SessionId: sess.sessionID},
 	}}
 	if err := stream.Send(ack); err != nil {
 		return status.Errorf(codes.Unavailable, "send hello-ack: %v", err)
@@ -279,13 +279,13 @@ func (s *agentDispatchServer) runReceiver(_ context.Context, sess *agentSession,
 			return
 		}
 		switch body := msg.Body.(type) {
-		case *vzdv1.AgentMessage_Pong:
+		case *weftv1.AgentMessage_Pong:
 			// Refresh the liveness clock. The exact RTT measurement
 			// (now - body.Pong.PingedUnixNs) is a future telemetry
 			// hook ; today we only care about "the agent is still
 			// talking to us".
 			sess.lastPongUnixNano.Store(time.Now().UnixNano())
-		case *vzdv1.AgentMessage_Reply:
+		case *weftv1.AgentMessage_Reply:
 			// Route the reply to the goroutine awaiting it. An
 			// unknown request_id is the result of a server-side
 			// timeout that already gave up — log + drop.
@@ -293,7 +293,7 @@ func (s *agentDispatchServer) runReceiver(_ context.Context, sess *agentSession,
 				logger.Printf("agent-dispatch: %s reply for unknown request_id %q (caller already timed out?)",
 					sess.hostUUID, body.Reply.RequestId)
 			}
-		case *vzdv1.AgentMessage_Hello:
+		case *weftv1.AgentMessage_Hello:
 			// Hello after the first one is a protocol violation —
 			// drop the connection.
 			errCh <- status.Error(codes.InvalidArgument, "duplicate Hello on established session")
@@ -330,8 +330,8 @@ func (s *agentDispatchServer) runKeepalive(ctx context.Context, sess *agentSessi
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			ping := &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Ping{
-				Ping: &vzdv1.ControlPing{
+			ping := &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Ping{
+				Ping: &weftv1.ControlPing{
 					SessionId:  sess.sessionID,
 					SentUnixNs: time.Now().UnixNano(),
 				},
@@ -398,7 +398,7 @@ func (s *agentDispatchServer) runLivenessCheck(ctx context.Context, sess *agentS
 //     the reply arrives.
 //   - codes.Aborted when the session drains while the call is
 //     in flight (agent disconnected — the caller may retry).
-func (s *agentDispatchServer) Dispatch(ctx context.Context, hostUUID string, op *vzdv1.DriverRequest) (*vzdv1.DriverReply, error) {
+func (s *agentDispatchServer) Dispatch(ctx context.Context, hostUUID string, op *weftv1.DriverRequest) (*weftv1.DriverReply, error) {
 	s.mu.Lock()
 	sess, ok := s.sessions[hostUUID]
 	s.mu.Unlock()
@@ -414,10 +414,10 @@ func (s *agentDispatchServer) Dispatch(ctx context.Context, hostUUID string, op 
 	reqID := newSessionID() + newSessionID() // 32 hex chars
 	op.RequestId = reqID
 
-	replyCh := make(chan *vzdv1.DriverReply, 1)
+	replyCh := make(chan *weftv1.DriverReply, 1)
 	sess.pending.register(reqID, replyCh)
 
-	wrapped := &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Request{Request: op}}
+	wrapped := &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Request{Request: op}}
 	select {
 	case sess.send <- wrapped:
 	case <-ctx.Done():

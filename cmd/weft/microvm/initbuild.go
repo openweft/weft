@@ -1,5 +1,5 @@
 // initbuild.go implements `weft microvm init-build` — packs a Linux
-// ncl-init ELF into an initramfs cpio.gz the microVM boot path loads.
+// weft-microvm-init ELF into an initramfs cpio.gz the microVM boot path loads.
 // Delegates the packing to the shared weft-microvm/initbuild library;
 // this file only resolves the default output location.
 package microvm
@@ -17,11 +17,11 @@ func initBuildCmd() *cobra.Command {
 	var out string
 	cmd := &cobra.Command{
 		Use:   "init-build INIT_BINARY",
-		Short: "Pack a Linux ncl-init binary into an initramfs cpio.gz",
-		Long: `Packs a Linux ncl-init ELF into an initramfs cpio.gz the microVM
+		Short: "Pack a Linux weft-microvm-init binary into an initramfs cpio.gz",
+		Long: `Packs a Linux weft-microvm-init ELF into an initramfs cpio.gz the microVM
 boot path loads. Cross-compile the binary first, e.g.:
 
-	GOOS=linux GOARCH=arm64 go build -o /tmp/ncl-init ./cmd/ncl-init`,
+	GOOS=linux GOARCH=arm64 go build -o /tmp/weft-microvm-init ./cmd/weft-microvm-init`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			dst := out
@@ -31,19 +31,19 @@ boot path loads. Cross-compile the binary first, e.g.:
 			return initbuild.PackToFile(args[0], dst)
 		},
 	}
-	cmd.Flags().StringVarP(&out, "output", "o", "", "output path for the initramfs cpio.gz (default $XDG_DATA_HOME/ncl/initrd)")
+	cmd.Flags().StringVarP(&out, "output", "o", "", "output path for the initramfs cpio.gz (default $XDG_DATA_HOME/weft-microvm/initrd)")
 	return cmd
 }
 
 // defaultInitrdPath returns where the microVM boot path looks for the
-// initramfs by default. Mirrors the original ncl runner's
+// initramfs by default. Mirrors the original weft-microvm runner's
 // defaultInitrdPath so both front-ends agree on the cache location.
 func defaultInitrdPath() string {
 	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
-		return filepath.Join(v, "ncl", "initrd")
+		return filepath.Join(v, "weft-microvm", "initrd")
 	}
 	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".local", "share", "ncl", "initrd")
+		return filepath.Join(h, ".local", "share", "weft-microvm", "initrd")
 	}
-	return "/tmp/ncl-initrd"
+	return "/tmp/weft-microvm-initrd"
 }

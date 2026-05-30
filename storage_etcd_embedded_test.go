@@ -109,9 +109,9 @@ func TestEtcdStorage_EmbeddedRoundTrip(t *testing.T) {
 	}
 	defer cli.Close()
 
-	s := NewEtcdStorageWithClient(cli, "/vzd/test/", "projects")
-	if got := s.Key(); got != "/vzd/test/projects" {
-		t.Errorf("Key = %q, want /vzd/test/projects", got)
+	s := NewEtcdStorageWithClient(cli, "/weft/test/", "projects")
+	if got := s.Key(); got != "/weft/test/projects" {
+		t.Errorf("Key = %q, want /weft/test/projects", got)
 	}
 
 	// Fresh key → Load returns (nil, nil) — same as FileStorage on
@@ -151,7 +151,7 @@ func TestEtcdStorage_EmbeddedRoundTrip(t *testing.T) {
 	}
 
 	// Independent registry on the same client gets its own key.
-	s2 := NewEtcdStorageWithClient(cli, "/vzd/test/", "users")
+	s2 := NewEtcdStorageWithClient(cli, "/weft/test/", "users")
 	if got, _ := s2.Load(ctx); got != nil {
 		t.Errorf("users Load should be nil (different key), got %q", got)
 	}
@@ -186,7 +186,7 @@ func TestProjectRegistry_RoundTripViaEmbeddedEtcd(t *testing.T) {
 	}
 	defer cli.Close()
 
-	storage := NewEtcdStorageWithClient(cli, "/vzd/test/", "projects")
+	storage := NewEtcdStorageWithClient(cli, "/weft/test/", "projects")
 
 	// First load — empty registry.
 	reg, err := loadProjectRegistry(ctx, storage)

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc"
 )
 
@@ -22,21 +22,21 @@ import (
 // the hood.
 type fakeBidiStream struct {
 	grpc.ClientStream
-	sendCh chan *vzdv1.AgentMessage   // agent → "server"
-	recvCh chan *vzdv1.ControlMessage // "server" → agent
+	sendCh chan *weftv1.AgentMessage   // agent → "server"
+	recvCh chan *weftv1.ControlMessage // "server" → agent
 	closed chan struct{}
 	once   sync.Once
 }
 
 func newFakeBidi() *fakeBidiStream {
 	return &fakeBidiStream{
-		sendCh: make(chan *vzdv1.AgentMessage, 16),
-		recvCh: make(chan *vzdv1.ControlMessage, 16),
+		sendCh: make(chan *weftv1.AgentMessage, 16),
+		recvCh: make(chan *weftv1.ControlMessage, 16),
 		closed: make(chan struct{}),
 	}
 }
 
-func (f *fakeBidiStream) Send(m *vzdv1.AgentMessage) error {
+func (f *fakeBidiStream) Send(m *weftv1.AgentMessage) error {
 	select {
 	case <-f.closed:
 		return errors.New("stream closed")
@@ -45,7 +45,7 @@ func (f *fakeBidiStream) Send(m *vzdv1.AgentMessage) error {
 	}
 }
 
-func (f *fakeBidiStream) Recv() (*vzdv1.ControlMessage, error) {
+func (f *fakeBidiStream) Recv() (*weftv1.ControlMessage, error) {
 	select {
 	case <-f.closed:
 		return nil, io.EOF
@@ -64,7 +64,7 @@ func (f *fakeBidiStream) close() {
 // fakeDispatchClient hands out one pre-built bidi stream.
 type fakeDispatchClient struct{ s *fakeBidiStream }
 
-func (f *fakeDispatchClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[vzdv1.AgentMessage, vzdv1.ControlMessage], error) {
+func (f *fakeDispatchClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[weftv1.AgentMessage, weftv1.ControlMessage], error) {
 	return f.s, nil
 }
 
@@ -95,14 +95,14 @@ func TestRunDispatchClient_HandshakeAndPong(t *testing.T) {
 	}
 
 	// Server replies with HelloAck.
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{
-		HelloAck: &vzdv1.ControlHelloAck{SessionId: "sess-1"},
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{
+		HelloAck: &weftv1.ControlHelloAck{SessionId: "sess-1"},
 	}}
 
 	// Server sends a Ping.
 	pingedAt := time.Now().UnixNano()
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Ping{
-		Ping: &vzdv1.ControlPing{SessionId: "sess-1", SentUnixNs: pingedAt},
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Ping{
+		Ping: &weftv1.ControlPing{SessionId: "sess-1", SentUnixNs: pingedAt},
 	}}
 
 	// Expect a Pong back with matching session_id + echoed timestamp.
@@ -152,17 +152,17 @@ func TestRunDispatchClient_DriverRequest_RoundTrip(t *testing.T) {
 	c := &fakeDispatchClient{s: s}
 
 	var handlerCalls int
-	handler := func(_ context.Context, req *vzdv1.DriverRequest) *vzdv1.DriverReply {
+	handler := func(_ context.Context, req *weftv1.DriverRequest) *weftv1.DriverReply {
 		handlerCalls++
 		// Make sure we got the CreateVM op variant.
 		create := req.GetCreateVm()
 		if create == nil {
 			t.Errorf("handler got %T, want CreateVMOp", req.Op)
 		}
-		return &vzdv1.DriverReply{
+		return &weftv1.DriverReply{
 			RequestId: req.RequestId,
-			Result: &vzdv1.DriverReply_CreateVm{
-				CreateVm: &vzdv1.CreateVMResult{VmUuid: "vm-" + create.Project},
+			Result: &weftv1.DriverReply_CreateVm{
+				CreateVm: &weftv1.CreateVMResult{VmUuid: "vm-" + create.Project},
 			},
 		}
 	}
@@ -175,13 +175,13 @@ func TestRunDispatchClient_DriverRequest_RoundTrip(t *testing.T) {
 		})
 	}()
 	<-s.sendCh // drain Hello
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "sess-1"}}}
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "sess-1"}}}
 
 	// Send a DriverRequest with a CreateVM op.
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Request{
-		Request: &vzdv1.DriverRequest{
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Request{
+		Request: &weftv1.DriverRequest{
 			RequestId: "req-abc",
-			Op: &vzdv1.DriverRequest_CreateVm{CreateVm: &vzdv1.CreateVMOp{
+			Op: &weftv1.DriverRequest_CreateVm{CreateVm: &weftv1.CreateVMOp{
 				VmUuid:  "",
 				Project: "alpha",
 				Image:   "alpine:3.21",
@@ -228,15 +228,15 @@ func TestRunDispatchClient_RegisterMicroVMOp_RoundTrip(t *testing.T) {
 	s := newFakeBidi()
 	c := &fakeDispatchClient{s: s}
 
-	var seen *vzdv1.RegisterMicroVMOp
-	handler := func(_ context.Context, req *vzdv1.DriverRequest) *vzdv1.DriverReply {
+	var seen *weftv1.RegisterMicroVMOp
+	handler := func(_ context.Context, req *weftv1.DriverRequest) *weftv1.DriverReply {
 		seen = req.GetRegisterMicroVm()
 		if seen == nil {
 			t.Errorf("handler got %T, want RegisterMicroVMOp", req.Op)
 		}
-		return &vzdv1.DriverReply{
+		return &weftv1.DriverReply{
 			RequestId: req.RequestId,
-			Result:    &vzdv1.DriverReply_RegisterMicroVm{RegisterMicroVm: &vzdv1.RegisterMicroVMResult{}},
+			Result:    &weftv1.DriverReply_RegisterMicroVm{RegisterMicroVm: &weftv1.RegisterMicroVMResult{}},
 		}
 	}
 
@@ -248,19 +248,19 @@ func TestRunDispatchClient_RegisterMicroVMOp_RoundTrip(t *testing.T) {
 		})
 	}()
 	<-s.sendCh // drain Hello
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "sess-1"}}}
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "sess-1"}}}
 
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Request{
-		Request: &vzdv1.DriverRequest{
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Request{
+		Request: &weftv1.DriverRequest{
 			RequestId: "req-xyz",
-			Op: &vzdv1.DriverRequest_RegisterMicroVm{
-				RegisterMicroVm: &vzdv1.RegisterMicroVMOp{
+			Op: &weftv1.DriverRequest_RegisterMicroVm{
+				RegisterMicroVm: &weftv1.RegisterMicroVMOp{
 					Project: "infra",
 					Name:    "infra-etcd-dc1",
 					Kernel:  "/data/kernel",
 					Initrd:  "/data/initrd",
-					Cmdline: "ncl.rootfs=virtiofs:rootfs0 console=hvc0",
-					Shares: []*vzdv1.MicroVMShare{
+					Cmdline: "weft.rootfs=virtiofs:rootfs0 console=hvc0",
+					Shares: []*weftv1.MicroVMShare{
 						{Tag: "rootfs0", Path: "/data/rootfs", ReadOnly: false, Clone: true},
 					},
 				},
@@ -296,15 +296,15 @@ func TestRunDispatchClient_StartVMOp_RoundTrip(t *testing.T) {
 	s := newFakeBidi()
 	c := &fakeDispatchClient{s: s}
 
-	var seen *vzdv1.StartVMOp
-	handler := func(_ context.Context, req *vzdv1.DriverRequest) *vzdv1.DriverReply {
+	var seen *weftv1.StartVMOp
+	handler := func(_ context.Context, req *weftv1.DriverRequest) *weftv1.DriverReply {
 		seen = req.GetStartVm()
 		if seen == nil {
 			t.Errorf("handler got %T, want StartVMOp", req.Op)
 		}
-		return &vzdv1.DriverReply{
+		return &weftv1.DriverReply{
 			RequestId: req.RequestId,
-			Result:    &vzdv1.DriverReply_StartVm{StartVm: &vzdv1.StartVMResult{}},
+			Result:    &weftv1.DriverReply_StartVm{StartVm: &weftv1.StartVMResult{}},
 		}
 	}
 
@@ -316,13 +316,13 @@ func TestRunDispatchClient_StartVMOp_RoundTrip(t *testing.T) {
 		})
 	}()
 	<-s.sendCh // drain Hello
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "sess-1"}}}
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "sess-1"}}}
 
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Request{
-		Request: &vzdv1.DriverRequest{
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Request{
+		Request: &weftv1.DriverRequest{
 			RequestId: "req-start",
-			Op: &vzdv1.DriverRequest_StartVm{
-				StartVm: &vzdv1.StartVMOp{Project: "infra", Name: "infra-etcd-dc1"},
+			Op: &weftv1.DriverRequest_StartVm{
+				StartVm: &weftv1.StartVMOp{Project: "infra", Name: "infra-etcd-dc1"},
 			},
 		},
 	}}
@@ -351,15 +351,15 @@ func TestRunDispatchClient_StopVMOp_RoundTrip(t *testing.T) {
 	s := newFakeBidi()
 	c := &fakeDispatchClient{s: s}
 
-	var seen *vzdv1.StopVMOp
-	handler := func(_ context.Context, req *vzdv1.DriverRequest) *vzdv1.DriverReply {
+	var seen *weftv1.StopVMOp
+	handler := func(_ context.Context, req *weftv1.DriverRequest) *weftv1.DriverReply {
 		seen = req.GetStopVm()
 		if seen == nil {
 			t.Errorf("handler got %T, want StopVMOp", req.Op)
 		}
-		return &vzdv1.DriverReply{
+		return &weftv1.DriverReply{
 			RequestId: req.RequestId,
-			Result:    &vzdv1.DriverReply_StopVm{StopVm: &vzdv1.StopVMResult{}},
+			Result:    &weftv1.DriverReply_StopVm{StopVm: &weftv1.StopVMResult{}},
 		}
 	}
 
@@ -371,13 +371,13 @@ func TestRunDispatchClient_StopVMOp_RoundTrip(t *testing.T) {
 		})
 	}()
 	<-s.sendCh // drain Hello
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "sess-1"}}}
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "sess-1"}}}
 
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Request{
-		Request: &vzdv1.DriverRequest{
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Request{
+		Request: &weftv1.DriverRequest{
 			RequestId: "req-stop",
-			Op: &vzdv1.DriverRequest_StopVm{
-				StopVm: &vzdv1.StopVMOp{Project: "infra", Name: "infra-etcd-dc1"},
+			Op: &weftv1.DriverRequest_StopVm{
+				StopVm: &weftv1.StopVMOp{Project: "infra", Name: "infra-etcd-dc1"},
 			},
 		},
 	}}
@@ -406,15 +406,15 @@ func TestRunDispatchClient_DeleteVMOp_RoundTrip(t *testing.T) {
 	s := newFakeBidi()
 	c := &fakeDispatchClient{s: s}
 
-	var seen *vzdv1.DeleteVMOp
-	handler := func(_ context.Context, req *vzdv1.DriverRequest) *vzdv1.DriverReply {
+	var seen *weftv1.DeleteVMOp
+	handler := func(_ context.Context, req *weftv1.DriverRequest) *weftv1.DriverReply {
 		seen = req.GetDeleteVm()
 		if seen == nil {
 			t.Errorf("handler got %T, want DeleteVMOp", req.Op)
 		}
-		return &vzdv1.DriverReply{
+		return &weftv1.DriverReply{
 			RequestId: req.RequestId,
-			Result:    &vzdv1.DriverReply_DeleteVm{DeleteVm: &vzdv1.DeleteVMResult{}},
+			Result:    &weftv1.DriverReply_DeleteVm{DeleteVm: &weftv1.DeleteVMResult{}},
 		}
 	}
 
@@ -426,13 +426,13 @@ func TestRunDispatchClient_DeleteVMOp_RoundTrip(t *testing.T) {
 		})
 	}()
 	<-s.sendCh // drain Hello
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "sess-1"}}}
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "sess-1"}}}
 
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Request{
-		Request: &vzdv1.DriverRequest{
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Request{
+		Request: &weftv1.DriverRequest{
 			RequestId: "req-del",
-			Op: &vzdv1.DriverRequest_DeleteVm{
-				DeleteVm: &vzdv1.DeleteVMOp{Project: "infra", Name: "infra-etcd-dc1"},
+			Op: &weftv1.DriverRequest_DeleteVm{
+				DeleteVm: &weftv1.DeleteVMOp{Project: "infra", Name: "infra-etcd-dc1"},
 			},
 		},
 	}}
@@ -467,11 +467,11 @@ func TestRunDispatchClient_DriverRequest_NoHandler(t *testing.T) {
 		done <- RunDispatchClient(context.Background(), c, DispatchOptions{HostUUID: "h-1"})
 	}()
 	<-s.sendCh // Hello
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "x"}}}
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Request{
-		Request: &vzdv1.DriverRequest{
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "x"}}}
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Request{
+		Request: &weftv1.DriverRequest{
 			RequestId: "req-1",
-			Op:        &vzdv1.DriverRequest_CreateVm{CreateVm: &vzdv1.CreateVMOp{}},
+			Op:        &weftv1.DriverRequest_CreateVm{CreateVm: &weftv1.CreateVMOp{}},
 		},
 	}}
 	select {
@@ -581,21 +581,21 @@ func TestWithJitter(t *testing.T) {
 // reply ; handler that returns nil → clean reply ; handler
 // that forgets to echo request_id → wrapper fills it in.
 func TestDispatchDriverRequest_DefensiveDefaults(t *testing.T) {
-	req := &vzdv1.DriverRequest{RequestId: "req-99"}
+	req := &weftv1.DriverRequest{RequestId: "req-99"}
 
 	got := dispatchDriverRequest(context.Background(), nil, req)
 	if got.RequestId != "req-99" || got.Error == "" {
 		t.Errorf("nil handler should produce echo+error, got %+v", got)
 	}
 
-	nilReply := func(_ context.Context, _ *vzdv1.DriverRequest) *vzdv1.DriverReply { return nil }
+	nilReply := func(_ context.Context, _ *weftv1.DriverRequest) *weftv1.DriverReply { return nil }
 	got = dispatchDriverRequest(context.Background(), nilReply, req)
 	if got.RequestId != "req-99" || got.Error == "" {
 		t.Errorf("nil-returning handler should produce echo+error, got %+v", got)
 	}
 
-	bareReply := func(_ context.Context, _ *vzdv1.DriverRequest) *vzdv1.DriverReply {
-		return &vzdv1.DriverReply{} // forgot to set RequestId
+	bareReply := func(_ context.Context, _ *weftv1.DriverRequest) *weftv1.DriverReply {
+		return &weftv1.DriverReply{} // forgot to set RequestId
 	}
 	got = dispatchDriverRequest(context.Background(), bareReply, req)
 	if got.RequestId != "req-99" {
@@ -615,8 +615,8 @@ func TestRunDispatchClient_NoHelloAckErrors(t *testing.T) {
 		done <- RunDispatchClient(context.Background(), c, DispatchOptions{HostUUID: "h-1"})
 	}()
 	<-s.sendCh // drain the Hello
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Ping{
-		Ping: &vzdv1.ControlPing{SessionId: "x"},
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Ping{
+		Ping: &weftv1.ControlPing{SessionId: "x"},
 	}}
 	select {
 	case err := <-done:

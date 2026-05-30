@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 // strPtr is a tiny helper. The Command signature takes *string for
@@ -75,8 +75,8 @@ func TestNatsAuthz_BadSocketReturnsError(t *testing.T) {
 
 func TestNatsAuthz_StdoutSuccess(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenderNATSAuthorizationFn = func(_ context.Context, _ *vzdv1.RenderNATSAuthorizationRequest) (*vzdv1.RenderNATSAuthorizationResponse, error) {
-		return &vzdv1.RenderNATSAuthorizationResponse{Config: []byte("authorization { hello }")}, nil
+	srv.RenderNATSAuthorizationFn = func(_ context.Context, _ *weftv1.RenderNATSAuthorizationRequest) (*weftv1.RenderNATSAuthorizationResponse, error) {
+		return &weftv1.RenderNATSAuthorizationResponse{Config: []byte("authorization { hello }")}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -92,8 +92,8 @@ func TestNatsAuthz_StdoutSuccess(t *testing.T) {
 
 func TestNatsAuthz_WritesToOutFile(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenderNATSAuthorizationFn = func(_ context.Context, _ *vzdv1.RenderNATSAuthorizationRequest) (*vzdv1.RenderNATSAuthorizationResponse, error) {
-		return &vzdv1.RenderNATSAuthorizationResponse{Config: []byte("hi")}, nil
+	srv.RenderNATSAuthorizationFn = func(_ context.Context, _ *weftv1.RenderNATSAuthorizationRequest) (*weftv1.RenderNATSAuthorizationResponse, error) {
+		return &weftv1.RenderNATSAuthorizationResponse{Config: []byte("hi")}, nil
 	}
 	tmp := filepath.Join(t.TempDir(), "out.conf")
 	// Capture stderr too — the command logs the file write to stderr.
@@ -124,8 +124,8 @@ func TestNatsAuthz_WritesToOutFile(t *testing.T) {
 
 func TestNatsAuthz_OutFileWriteError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenderNATSAuthorizationFn = func(_ context.Context, _ *vzdv1.RenderNATSAuthorizationRequest) (*vzdv1.RenderNATSAuthorizationResponse, error) {
-		return &vzdv1.RenderNATSAuthorizationResponse{Config: []byte("hi")}, nil
+	srv.RenderNATSAuthorizationFn = func(_ context.Context, _ *weftv1.RenderNATSAuthorizationRequest) (*weftv1.RenderNATSAuthorizationResponse, error) {
+		return &weftv1.RenderNATSAuthorizationResponse{Config: []byte("hi")}, nil
 	}
 	// Target a path whose parent doesn't exist → write fails.
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -138,7 +138,7 @@ func TestNatsAuthz_OutFileWriteError(t *testing.T) {
 
 func TestNatsAuthz_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenderNATSAuthorizationFn = func(_ context.Context, _ *vzdv1.RenderNATSAuthorizationRequest) (*vzdv1.RenderNATSAuthorizationResponse, error) {
+	srv.RenderNATSAuthorizationFn = func(_ context.Context, _ *weftv1.RenderNATSAuthorizationRequest) (*weftv1.RenderNATSAuthorizationResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

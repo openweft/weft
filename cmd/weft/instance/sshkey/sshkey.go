@@ -25,7 +25,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -58,7 +58,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListVMSSHKeys(context.Background(), &vzdv1.ListVMSSHKeysRequest{
+			resp, err := c.ListVMSSHKeys(context.Background(), &weftv1.ListVMSSHKeysRequest{
 				VmName: args[0], Project: project,
 			})
 			if err != nil {
@@ -108,7 +108,7 @@ func addCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.AddVMSSHKey(context.Background(), &vzdv1.AddVMSSHKeyRequest{
+			resp, err := c.AddVMSSHKey(context.Background(), &weftv1.AddVMSSHKeyRequest{
 				VmName: args[0], Project: project, PublicKey: line,
 			})
 			if err != nil {
@@ -136,7 +136,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			if _, err := c.RemoveVMSSHKey(context.Background(), &vzdv1.RemoveVMSSHKeyRequest{
+			if _, err := c.RemoveVMSSHKey(context.Background(), &weftv1.RemoveVMSSHKeyRequest{
 				VmName: args[0], Project: project, Fingerprint: args[1],
 			}); err != nil {
 				return err
@@ -170,7 +170,7 @@ func readKey(path string) (string, error) {
 	return strings.TrimRight(string(raw), "\r\n"), nil
 }
 
-func renderTable(keys []*vzdv1.VMSSHKey) error {
+func renderTable(keys []*weftv1.VMSSHKey) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "FINGERPRINT\tTYPE\tCOMMENT\tADDED_AT")
 	for _, k := range keys {
@@ -183,7 +183,7 @@ func renderTable(keys []*vzdv1.VMSSHKey) error {
 	return tw.Flush()
 }
 
-func dumpJSON(keys []*vzdv1.VMSSHKey) error {
+func dumpJSON(keys []*weftv1.VMSSHKey) error {
 	type out struct {
 		Fingerprint string `json:"fingerprint"`
 		Type        string `json:"type"`

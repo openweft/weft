@@ -1,4 +1,4 @@
-# vzd project registry — UUID-keyed, see vzd_uuid_keyed_resources.md
+# weft project registry — UUID-keyed, see weft_uuid_keyed_resources.md
 # Edit `name` to rename a project; never edit the block label (UUID).
 
  project "37a5f76c-0488-4261-962a-1176efe8235b" {

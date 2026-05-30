@@ -1,8 +1,8 @@
-// Package events implements `vzc events` — opens a WatchEvents
-// stream against vzd and prints every event in human or JSON
+// Package events implements `weft events` — opens a WatchEvents
+// stream against weft and prints every event in human or JSON
 // form. Closes cleanly on Ctrl-C; the cached OIDC token (from
-// `vzc login`) reaches vzd via the bearer interceptor in
-// vzclient.Dial.
+// `weft login`) reaches weft via the bearer interceptor in
+// weftclient.Dial.
 package events
 
 import (
@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Command returns the `vzc events` cobra command.
+// Command returns the `weft events` cobra command.
 func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	var kindPrefixes []string
 	var project string
@@ -24,8 +24,8 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
 		Use:   "events",
-		Short: "Stream vzd platform events (VMs, projects, lifecycle) live",
-		Long: `Open a server-streaming WatchEvents subscription against vzd
+		Short: "Stream weft platform events (VMs, projects, lifecycle) live",
+		Long: `Open a server-streaming WatchEvents subscription against weft
 and print every event as it arrives. The bus is ACL-scoped
 server-side, so non-admin callers only see events from the
 projects their OIDC token grants access to.
@@ -43,7 +43,7 @@ Stop with Ctrl-C.`,
 				return err
 			}
 			defer conn.Close()
-			return vzclient.StreamEvents(ctx, c, vzclient.EventStreamOptions{
+			return weftclient.StreamEvents(ctx, c, weftclient.EventStreamOptions{
 				KindPrefixes: kindPrefixes,
 				Project:      project,
 				Subject:      vm,

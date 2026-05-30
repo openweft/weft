@@ -38,7 +38,7 @@ func TestIsTenantSafeKind(t *testing.T) {
 }
 
 func TestNATSSubjectShape(t *testing.T) {
-	b := &NATSEventBus{subjectPrefix: "vzd.events"}
+	b := &NATSEventBus{subjectPrefix: "weft.events"}
 	cases := []struct {
 		kind        string
 		wantGlobal  string
@@ -47,13 +47,13 @@ func TestNATSSubjectShape(t *testing.T) {
 	}{
 		{
 			kind:        "vm.state.running",
-			wantGlobal:  "vzd.events.vm.state.running",
+			wantGlobal:  "weft.events.vm.state.running",
 			projectUUID: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-			wantProject: "vzd.events.project.f47ac10b-58cc-4372-a567-0e02b2c3d479.events.vm.state.running",
+			wantProject: "weft.events.project.f47ac10b-58cc-4372-a567-0e02b2c3d479.events.vm.state.running",
 		},
 		{
 			kind:       "",
-			wantGlobal: "vzd.events.unknown",
+			wantGlobal: "weft.events.unknown",
 		},
 	}
 	for _, c := range cases {

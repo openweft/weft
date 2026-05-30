@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -49,14 +49,14 @@ func TestWait_BadSocketErrors(t *testing.T) {
 
 func TestWait_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.WaitVMFn = func(_ context.Context, in *vzdv1.WaitVMRequest) (*vzdv1.WaitVMResponse, error) {
+	srv.WaitVMFn = func(_ context.Context, in *weftv1.WaitVMRequest) (*weftv1.WaitVMResponse, error) {
 		if in.Name != "alpha" {
 			t.Errorf("expected name=alpha, got %q", in.Name)
 		}
 		if in.TimeoutSeconds != 5 {
 			t.Errorf("expected timeout=5, got %d", in.TimeoutSeconds)
 		}
-		return &vzdv1.WaitVMResponse{Ip: "10.0.0.5"}, nil
+		return &weftv1.WaitVMResponse{Ip: "10.0.0.5"}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -72,7 +72,7 @@ func TestWait_Success(t *testing.T) {
 
 func TestWait_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.WaitVMFn = func(_ context.Context, _ *vzdv1.WaitVMRequest) (*vzdv1.WaitVMResponse, error) {
+	srv.WaitVMFn = func(_ context.Context, _ *weftv1.WaitVMRequest) (*weftv1.WaitVMResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

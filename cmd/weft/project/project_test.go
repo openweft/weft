@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -72,8 +72,8 @@ func TestLooksLikeUUID(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
-		return &vzdv1.ListProjectsResponse{Projects: []*vzdv1.ProjectInfo{
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
+		return &weftv1.ListProjectsResponse{Projects: []*weftv1.ProjectInfo{
 			{Uuid: "u1", Name: "p1", CreatedAtUnixNs: 1700000000000000000},
 		}}, nil
 	}
@@ -91,8 +91,8 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestLs_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
-		return &vzdv1.ListProjectsResponse{Projects: []*vzdv1.ProjectInfo{
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
+		return &weftv1.ListProjectsResponse{Projects: []*weftv1.ProjectInfo{
 			{Uuid: "u1", Name: "p1"},
 		}}, nil
 	}
@@ -110,7 +110,7 @@ func TestLs_JSONFormat(t *testing.T) {
 
 func TestLs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -124,8 +124,8 @@ func TestLs_RPCError(t *testing.T) {
 
 func TestCreate_NewProject(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CreateProjectFn = func(_ context.Context, in *vzdv1.CreateProjectRequest) (*vzdv1.CreateProjectResponse, error) {
-		return &vzdv1.CreateProjectResponse{Project: &vzdv1.ProjectInfo{Uuid: "u1", Name: in.Name}, Created: true}, nil
+	srv.CreateProjectFn = func(_ context.Context, in *weftv1.CreateProjectRequest) (*weftv1.CreateProjectResponse, error) {
+		return &weftv1.CreateProjectResponse{Project: &weftv1.ProjectInfo{Uuid: "u1", Name: in.Name}, Created: true}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -141,8 +141,8 @@ func TestCreate_NewProject(t *testing.T) {
 
 func TestCreate_ExistingProject(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CreateProjectFn = func(_ context.Context, in *vzdv1.CreateProjectRequest) (*vzdv1.CreateProjectResponse, error) {
-		return &vzdv1.CreateProjectResponse{Project: &vzdv1.ProjectInfo{Uuid: "u1", Name: in.Name}, Created: false}, nil
+	srv.CreateProjectFn = func(_ context.Context, in *weftv1.CreateProjectRequest) (*weftv1.CreateProjectResponse, error) {
+		return &weftv1.CreateProjectResponse{Project: &weftv1.ProjectInfo{Uuid: "u1", Name: in.Name}, Created: false}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -158,7 +158,7 @@ func TestCreate_ExistingProject(t *testing.T) {
 
 func TestCreate_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CreateProjectFn = func(_ context.Context, _ *vzdv1.CreateProjectRequest) (*vzdv1.CreateProjectResponse, error) {
+	srv.CreateProjectFn = func(_ context.Context, _ *weftv1.CreateProjectRequest) (*weftv1.CreateProjectResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -172,8 +172,8 @@ func TestCreate_RPCError(t *testing.T) {
 
 func TestRename_ByUUID(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenameProjectFn = func(_ context.Context, in *vzdv1.RenameProjectRequest) (*vzdv1.RenameProjectResponse, error) {
-		return &vzdv1.RenameProjectResponse{Project: &vzdv1.ProjectInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
+	srv.RenameProjectFn = func(_ context.Context, in *weftv1.RenameProjectRequest) (*weftv1.RenameProjectResponse, error) {
+		return &weftv1.RenameProjectResponse{Project: &weftv1.ProjectInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"rename", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "new"})
@@ -184,16 +184,16 @@ func TestRename_ByUUID(t *testing.T) {
 
 func TestRename_ByName_LookupSuccess(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
-		return &vzdv1.ListProjectsResponse{Projects: []*vzdv1.ProjectInfo{
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
+		return &weftv1.ListProjectsResponse{Projects: []*weftv1.ProjectInfo{
 			{Uuid: "u1", Name: "alpha"},
 		}}, nil
 	}
-	srv.RenameProjectFn = func(_ context.Context, in *vzdv1.RenameProjectRequest) (*vzdv1.RenameProjectResponse, error) {
+	srv.RenameProjectFn = func(_ context.Context, in *weftv1.RenameProjectRequest) (*weftv1.RenameProjectResponse, error) {
 		if in.Uuid != "u1" {
 			t.Errorf("expected uuid=u1, got %q", in.Uuid)
 		}
-		return &vzdv1.RenameProjectResponse{Project: &vzdv1.ProjectInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
+		return &weftv1.RenameProjectResponse{Project: &weftv1.ProjectInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"rename", "alpha", "beta"})
@@ -204,8 +204,8 @@ func TestRename_ByName_LookupSuccess(t *testing.T) {
 
 func TestRename_ByName_NotFound(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
-		return &vzdv1.ListProjectsResponse{}, nil
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
+		return &weftv1.ListProjectsResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"rename", "ghost", "new"})
@@ -217,7 +217,7 @@ func TestRename_ByName_NotFound(t *testing.T) {
 
 func TestRename_ListProjectsError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -229,7 +229,7 @@ func TestRename_ListProjectsError(t *testing.T) {
 
 func TestRename_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenameProjectFn = func(_ context.Context, _ *vzdv1.RenameProjectRequest) (*vzdv1.RenameProjectResponse, error) {
+	srv.RenameProjectFn = func(_ context.Context, _ *weftv1.RenameProjectRequest) (*weftv1.RenameProjectResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -257,7 +257,7 @@ func TestRm_Success(t *testing.T) {
 
 func TestRm_ResolveError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -269,7 +269,7 @@ func TestRm_ResolveError(t *testing.T) {
 
 func TestRm_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.DeleteProjectFn = func(_ context.Context, _ *vzdv1.DeleteProjectRequest) (*vzdv1.DeleteProjectResponse, error) {
+	srv.DeleteProjectFn = func(_ context.Context, _ *weftv1.DeleteProjectRequest) (*weftv1.DeleteProjectResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -283,8 +283,8 @@ func TestRm_RPCError(t *testing.T) {
 
 func TestAddUser_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.AddProjectMemberFn = func(_ context.Context, in *vzdv1.AddProjectMemberRequest) (*vzdv1.AddProjectMemberResponse, error) {
-		return &vzdv1.AddProjectMemberResponse{UserUuids: []string{in.UserUuid}}, nil
+	srv.AddProjectMemberFn = func(_ context.Context, in *weftv1.AddProjectMemberRequest) (*weftv1.AddProjectMemberResponse, error) {
+		return &weftv1.AddProjectMemberResponse{UserUuids: []string{in.UserUuid}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -300,7 +300,7 @@ func TestAddUser_Success(t *testing.T) {
 
 func TestAddUser_ResolveError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -312,7 +312,7 @@ func TestAddUser_ResolveError(t *testing.T) {
 
 func TestAddUser_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.AddProjectMemberFn = func(_ context.Context, _ *vzdv1.AddProjectMemberRequest) (*vzdv1.AddProjectMemberResponse, error) {
+	srv.AddProjectMemberFn = func(_ context.Context, _ *weftv1.AddProjectMemberRequest) (*weftv1.AddProjectMemberResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -326,8 +326,8 @@ func TestAddUser_RPCError(t *testing.T) {
 
 func TestRemoveUser_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RemoveProjectMemberFn = func(_ context.Context, _ *vzdv1.RemoveProjectMemberRequest) (*vzdv1.RemoveProjectMemberResponse, error) {
-		return &vzdv1.RemoveProjectMemberResponse{UserUuids: []string{}}, nil
+	srv.RemoveProjectMemberFn = func(_ context.Context, _ *weftv1.RemoveProjectMemberRequest) (*weftv1.RemoveProjectMemberResponse, error) {
+		return &weftv1.RemoveProjectMemberResponse{UserUuids: []string{}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -343,7 +343,7 @@ func TestRemoveUser_Success(t *testing.T) {
 
 func TestRemoveUser_ResolveError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -355,7 +355,7 @@ func TestRemoveUser_ResolveError(t *testing.T) {
 
 func TestRemoveUser_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RemoveProjectMemberFn = func(_ context.Context, _ *vzdv1.RemoveProjectMemberRequest) (*vzdv1.RemoveProjectMemberResponse, error) {
+	srv.RemoveProjectMemberFn = func(_ context.Context, _ *weftv1.RemoveProjectMemberRequest) (*weftv1.RemoveProjectMemberResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -369,8 +369,8 @@ func TestRemoveUser_RPCError(t *testing.T) {
 
 func TestMembers_EmptyList(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectMembersFn = func(_ context.Context, _ *vzdv1.ListProjectMembersRequest) (*vzdv1.ListProjectMembersResponse, error) {
-		return &vzdv1.ListProjectMembersResponse{}, nil
+	srv.ListProjectMembersFn = func(_ context.Context, _ *weftv1.ListProjectMembersRequest) (*weftv1.ListProjectMembersResponse, error) {
+		return &weftv1.ListProjectMembersResponse{}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -386,8 +386,8 @@ func TestMembers_EmptyList(t *testing.T) {
 
 func TestMembers_RawUUIDList(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectMembersFn = func(_ context.Context, _ *vzdv1.ListProjectMembersRequest) (*vzdv1.ListProjectMembersResponse, error) {
-		return &vzdv1.ListProjectMembersResponse{UserUuids: []string{"u-1", "u-2"}}, nil
+	srv.ListProjectMembersFn = func(_ context.Context, _ *weftv1.ListProjectMembersRequest) (*weftv1.ListProjectMembersResponse, error) {
+		return &weftv1.ListProjectMembersResponse{UserUuids: []string{"u-1", "u-2"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -403,14 +403,14 @@ func TestMembers_RawUUIDList(t *testing.T) {
 
 func TestMembers_ResolveMode(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectMembersFn = func(_ context.Context, _ *vzdv1.ListProjectMembersRequest) (*vzdv1.ListProjectMembersResponse, error) {
-		return &vzdv1.ListProjectMembersResponse{UserUuids: []string{"u-good", "u-bad"}}, nil
+	srv.ListProjectMembersFn = func(_ context.Context, _ *weftv1.ListProjectMembersRequest) (*weftv1.ListProjectMembersResponse, error) {
+		return &weftv1.ListProjectMembersResponse{UserUuids: []string{"u-good", "u-bad"}}, nil
 	}
-	srv.GetUserFn = func(_ context.Context, in *vzdv1.GetUserRequest) (*vzdv1.GetUserResponse, error) {
+	srv.GetUserFn = func(_ context.Context, in *weftv1.GetUserRequest) (*weftv1.GetUserResponse, error) {
 		if in.Uuid == "u-bad" {
 			return nil, errors.New("not found")
 		}
-		return &vzdv1.GetUserResponse{User: &vzdv1.UserInfo{Uuid: in.Uuid, DisplayName: "Alice", Email: "a@x"}}, nil
+		return &weftv1.GetUserResponse{User: &weftv1.UserInfo{Uuid: in.Uuid, DisplayName: "Alice", Email: "a@x"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -430,13 +430,13 @@ func TestMembers_ResolveMode(t *testing.T) {
 
 func TestMembers_ResolveMode_PartialUser(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectMembersFn = func(_ context.Context, _ *vzdv1.ListProjectMembersRequest) (*vzdv1.ListProjectMembersResponse, error) {
-		return &vzdv1.ListProjectMembersResponse{UserUuids: []string{"u-1"}}, nil
+	srv.ListProjectMembersFn = func(_ context.Context, _ *weftv1.ListProjectMembersRequest) (*weftv1.ListProjectMembersResponse, error) {
+		return &weftv1.ListProjectMembersResponse{UserUuids: []string{"u-1"}}, nil
 	}
 	// User exists but DisplayName + Email are empty → fallthrough
 	// branch in resolve mode (`name` and `email` stay as "-").
-	srv.GetUserFn = func(_ context.Context, in *vzdv1.GetUserRequest) (*vzdv1.GetUserResponse, error) {
-		return &vzdv1.GetUserResponse{User: &vzdv1.UserInfo{Uuid: in.Uuid}}, nil
+	srv.GetUserFn = func(_ context.Context, in *weftv1.GetUserRequest) (*weftv1.GetUserResponse, error) {
+		return &weftv1.GetUserResponse{User: &weftv1.UserInfo{Uuid: in.Uuid}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -452,7 +452,7 @@ func TestMembers_ResolveMode_PartialUser(t *testing.T) {
 
 func TestMembers_ResolveError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectsFn = func(_ context.Context, _ *vzdv1.ListProjectsRequest) (*vzdv1.ListProjectsResponse, error) {
+	srv.ListProjectsFn = func(_ context.Context, _ *weftv1.ListProjectsRequest) (*weftv1.ListProjectsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -464,7 +464,7 @@ func TestMembers_ResolveError(t *testing.T) {
 
 func TestMembers_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListProjectMembersFn = func(_ context.Context, _ *vzdv1.ListProjectMembersRequest) (*vzdv1.ListProjectMembersResponse, error) {
+	srv.ListProjectMembersFn = func(_ context.Context, _ *weftv1.ListProjectMembersRequest) (*weftv1.ListProjectMembersResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

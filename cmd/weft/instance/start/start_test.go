@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -29,9 +29,9 @@ func TestStart_BadSocketErrors(t *testing.T) {
 func TestStart_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
 	got := ""
-	srv.StartVMFn = func(_ context.Context, in *vzdv1.StartVMRequest) (*vzdv1.StartVMResponse, error) {
+	srv.StartVMFn = func(_ context.Context, in *weftv1.StartVMRequest) (*weftv1.StartVMResponse, error) {
 		got = in.Name
-		return &vzdv1.StartVMResponse{}, nil
+		return &weftv1.StartVMResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"alpha"})
@@ -45,7 +45,7 @@ func TestStart_Success(t *testing.T) {
 
 func TestStart_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.StartVMFn = func(_ context.Context, _ *vzdv1.StartVMRequest) (*vzdv1.StartVMResponse, error) {
+	srv.StartVMFn = func(_ context.Context, _ *weftv1.StartVMRequest) (*weftv1.StartVMResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

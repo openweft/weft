@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -110,9 +110,9 @@ func TestLoadRulesFile_Valid(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListSecurityGroupsFn = func(_ context.Context, _ *vzdv1.ListSecurityGroupsRequest) (*vzdv1.ListSecurityGroupsResponse, error) {
-		return &vzdv1.ListSecurityGroupsResponse{Groups: []*vzdv1.SecurityGroupInfo{
-			{Uuid: "u1", ProjectUuid: "p1", Name: "ssh", Description: "ssh in", Rules: []*vzdv1.SecurityRule{{Direction: "ingress", Protocol: "tcp", PortMin: 22, PortMax: 22, RemoteCidr: "0/0"}}, CreatedAtUnixNs: 1700000000000000000},
+	srv.ListSecurityGroupsFn = func(_ context.Context, _ *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error) {
+		return &weftv1.ListSecurityGroupsResponse{Groups: []*weftv1.SecurityGroupInfo{
+			{Uuid: "u1", ProjectUuid: "p1", Name: "ssh", Description: "ssh in", Rules: []*weftv1.SecurityRule{{Direction: "ingress", Protocol: "tcp", PortMin: 22, PortMax: 22, RemoteCidr: "0/0"}}, CreatedAtUnixNs: 1700000000000000000},
 			{Uuid: "u2", ProjectUuid: "p2", Name: "noop"}, // empty desc → dash
 		}}, nil
 	}
@@ -130,9 +130,9 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestLs_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListSecurityGroupsFn = func(_ context.Context, _ *vzdv1.ListSecurityGroupsRequest) (*vzdv1.ListSecurityGroupsResponse, error) {
-		return &vzdv1.ListSecurityGroupsResponse{Groups: []*vzdv1.SecurityGroupInfo{
-			{Uuid: "u1", Name: "ssh", Rules: []*vzdv1.SecurityRule{{Direction: "ingress", Protocol: "tcp"}}},
+	srv.ListSecurityGroupsFn = func(_ context.Context, _ *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error) {
+		return &weftv1.ListSecurityGroupsResponse{Groups: []*weftv1.SecurityGroupInfo{
+			{Uuid: "u1", Name: "ssh", Rules: []*weftv1.SecurityRule{{Direction: "ingress", Protocol: "tcp"}}},
 		}}, nil
 	}
 	out := captureStdout(t, func() {
@@ -149,7 +149,7 @@ func TestLs_JSONFormat(t *testing.T) {
 
 func TestLs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListSecurityGroupsFn = func(_ context.Context, _ *vzdv1.ListSecurityGroupsRequest) (*vzdv1.ListSecurityGroupsResponse, error) {
+	srv.ListSecurityGroupsFn = func(_ context.Context, _ *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -163,10 +163,10 @@ func TestLs_RPCError(t *testing.T) {
 
 func TestCreate_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.CreateSecurityGroupRequest
-	srv.CreateSecurityGroupFn = func(_ context.Context, in *vzdv1.CreateSecurityGroupRequest) (*vzdv1.CreateSecurityGroupResponse, error) {
+	var got *weftv1.CreateSecurityGroupRequest
+	srv.CreateSecurityGroupFn = func(_ context.Context, in *weftv1.CreateSecurityGroupRequest) (*weftv1.CreateSecurityGroupResponse, error) {
 		got = in
-		return &vzdv1.CreateSecurityGroupResponse{Group: &vzdv1.SecurityGroupInfo{Uuid: "u1", Name: in.Name, Rules: in.Rules}}, nil
+		return &weftv1.CreateSecurityGroupResponse{Group: &weftv1.SecurityGroupInfo{Uuid: "u1", Name: in.Name, Rules: in.Rules}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -185,11 +185,11 @@ func TestCreate_Success(t *testing.T) {
 
 func TestCreate_WithRulesFile(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CreateSecurityGroupFn = func(_ context.Context, in *vzdv1.CreateSecurityGroupRequest) (*vzdv1.CreateSecurityGroupResponse, error) {
+	srv.CreateSecurityGroupFn = func(_ context.Context, in *weftv1.CreateSecurityGroupRequest) (*weftv1.CreateSecurityGroupResponse, error) {
 		if len(in.Rules) != 2 {
 			t.Errorf("expected 2 rules, got %d", len(in.Rules))
 		}
-		return &vzdv1.CreateSecurityGroupResponse{Group: &vzdv1.SecurityGroupInfo{Uuid: "u1", Name: in.Name, Rules: in.Rules}}, nil
+		return &weftv1.CreateSecurityGroupResponse{Group: &weftv1.SecurityGroupInfo{Uuid: "u1", Name: in.Name, Rules: in.Rules}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"create", "--name", "ssh", "--rules-file", writeRulesFile(t)})
@@ -208,7 +208,7 @@ func TestCreate_LoadRulesError(t *testing.T) {
 
 func TestCreate_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CreateSecurityGroupFn = func(_ context.Context, _ *vzdv1.CreateSecurityGroupRequest) (*vzdv1.CreateSecurityGroupResponse, error) {
+	srv.CreateSecurityGroupFn = func(_ context.Context, _ *weftv1.CreateSecurityGroupRequest) (*weftv1.CreateSecurityGroupResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -222,8 +222,8 @@ func TestCreate_RPCError(t *testing.T) {
 
 func TestRename_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenameSecurityGroupFn = func(_ context.Context, in *vzdv1.RenameSecurityGroupRequest) (*vzdv1.RenameSecurityGroupResponse, error) {
-		return &vzdv1.RenameSecurityGroupResponse{Group: &vzdv1.SecurityGroupInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
+	srv.RenameSecurityGroupFn = func(_ context.Context, in *weftv1.RenameSecurityGroupRequest) (*weftv1.RenameSecurityGroupResponse, error) {
+		return &weftv1.RenameSecurityGroupResponse{Group: &weftv1.SecurityGroupInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"rename", "u1", "new"})
@@ -234,7 +234,7 @@ func TestRename_Success(t *testing.T) {
 
 func TestRename_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenameSecurityGroupFn = func(_ context.Context, _ *vzdv1.RenameSecurityGroupRequest) (*vzdv1.RenameSecurityGroupResponse, error) {
+	srv.RenameSecurityGroupFn = func(_ context.Context, _ *weftv1.RenameSecurityGroupRequest) (*weftv1.RenameSecurityGroupResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -248,8 +248,8 @@ func TestRename_RPCError(t *testing.T) {
 
 func TestSetDescription_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetSecurityGroupDescriptionFn = func(_ context.Context, in *vzdv1.SetSecurityGroupDescriptionRequest) (*vzdv1.SetSecurityGroupDescriptionResponse, error) {
-		return &vzdv1.SetSecurityGroupDescriptionResponse{Group: &vzdv1.SecurityGroupInfo{Uuid: in.Uuid, Description: in.Description}}, nil
+	srv.SetSecurityGroupDescriptionFn = func(_ context.Context, in *weftv1.SetSecurityGroupDescriptionRequest) (*weftv1.SetSecurityGroupDescriptionResponse, error) {
+		return &weftv1.SetSecurityGroupDescriptionResponse{Group: &weftv1.SecurityGroupInfo{Uuid: in.Uuid, Description: in.Description}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"set-description", "u1", "new desc"})
@@ -260,7 +260,7 @@ func TestSetDescription_Success(t *testing.T) {
 
 func TestSetDescription_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetSecurityGroupDescriptionFn = func(_ context.Context, _ *vzdv1.SetSecurityGroupDescriptionRequest) (*vzdv1.SetSecurityGroupDescriptionResponse, error) {
+	srv.SetSecurityGroupDescriptionFn = func(_ context.Context, _ *weftv1.SetSecurityGroupDescriptionRequest) (*weftv1.SetSecurityGroupDescriptionResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -274,8 +274,8 @@ func TestSetDescription_RPCError(t *testing.T) {
 
 func TestSetRules_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetSecurityGroupRulesFn = func(_ context.Context, in *vzdv1.SetSecurityGroupRulesRequest) (*vzdv1.SetSecurityGroupRulesResponse, error) {
-		return &vzdv1.SetSecurityGroupRulesResponse{Group: &vzdv1.SecurityGroupInfo{Uuid: in.Uuid, Rules: in.Rules}}, nil
+	srv.SetSecurityGroupRulesFn = func(_ context.Context, in *weftv1.SetSecurityGroupRulesRequest) (*weftv1.SetSecurityGroupRulesResponse, error) {
+		return &weftv1.SetSecurityGroupRulesResponse{Group: &weftv1.SecurityGroupInfo{Uuid: in.Uuid, Rules: in.Rules}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"set-rules", "u1", "--rules-file", writeRulesFile(t)})
@@ -294,7 +294,7 @@ func TestSetRules_LoadError(t *testing.T) {
 
 func TestSetRules_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetSecurityGroupRulesFn = func(_ context.Context, _ *vzdv1.SetSecurityGroupRulesRequest) (*vzdv1.SetSecurityGroupRulesResponse, error) {
+	srv.SetSecurityGroupRulesFn = func(_ context.Context, _ *weftv1.SetSecurityGroupRulesRequest) (*weftv1.SetSecurityGroupRulesResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -322,7 +322,7 @@ func TestRm_Success(t *testing.T) {
 
 func TestRm_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.DeleteSecurityGroupFn = func(_ context.Context, _ *vzdv1.DeleteSecurityGroupRequest) (*vzdv1.DeleteSecurityGroupResponse, error) {
+	srv.DeleteSecurityGroupFn = func(_ context.Context, _ *weftv1.DeleteSecurityGroupRequest) (*weftv1.DeleteSecurityGroupResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

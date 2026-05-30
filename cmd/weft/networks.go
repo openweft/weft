@@ -10,13 +10,13 @@ import (
 	"context"
 
 	"github.com/openweft/weft"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func toNetworkInfo(n weft.Network) *vzdv1.NetworkInfo {
-	return &vzdv1.NetworkInfo{
+func toNetworkInfo(n weft.Network) *weftv1.NetworkInfo {
+	return &weftv1.NetworkInfo{
 		Uuid:                      n.UUID,
 		ProjectUuid:               n.ProjectUUID,
 		Name:                      n.Name,
@@ -29,7 +29,7 @@ func toNetworkInfo(n weft.Network) *vzdv1.NetworkInfo {
 	}
 }
 
-func (s *vzdServer) ListNetworks(ctx context.Context, req *vzdv1.ListNetworksRequest) (*vzdv1.ListNetworksResponse, error) {
+func (s *weftServer) ListNetworks(ctx context.Context, req *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error) {
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func (s *vzdServer) ListNetworks(ctx context.Context, req *vzdv1.ListNetworksReq
 		}
 		wantProjectUUID = uuid
 	}
-	out := []*vzdv1.NetworkInfo{}
+	out := []*weftv1.NetworkInfo{}
 	for _, n := range s.adp.Networks() {
 		if wantProjectUUID != "" && n.ProjectUUID != wantProjectUUID {
 			continue
@@ -54,10 +54,10 @@ func (s *vzdServer) ListNetworks(ctx context.Context, req *vzdv1.ListNetworksReq
 		}
 		out = append(out, toNetworkInfo(n))
 	}
-	return &vzdv1.ListNetworksResponse{Networks: out}, nil
+	return &weftv1.ListNetworksResponse{Networks: out}, nil
 }
 
-func (s *vzdServer) CreateNetwork(ctx context.Context, req *vzdv1.CreateNetworkRequest) (*vzdv1.CreateNetworkResponse, error) {
+func (s *weftServer) CreateNetwork(ctx context.Context, req *weftv1.CreateNetworkRequest) (*weftv1.CreateNetworkResponse, error) {
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
@@ -84,14 +84,14 @@ func (s *vzdServer) CreateNetwork(ctx context.Context, req *vzdv1.CreateNetworkR
 		return nil, status.Errorf(codes.Internal, "create network: %v", err)
 	}
 	logger.Printf("CreateNetwork name=%s project=%s uuid=%s cidr=%s", n.Name, n.ProjectUUID, n.UUID, n.CIDR)
-	return &vzdv1.CreateNetworkResponse{Network: toNetworkInfo(n)}, nil
+	return &weftv1.CreateNetworkResponse{Network: toNetworkInfo(n)}, nil
 }
 
 // authNetwork mirrors authVolume: resolve by UUID, check the
 // caller's project access. Hides existence from cross-project
 // peeking by returning PermissionDenied for both unknown and
 // unauthorised cases.
-func (s *vzdServer) authNetwork(ctx context.Context, uuid string) (weft.Network, error) {
+func (s *weftServer) authNetwork(ctx context.Context, uuid string) (weft.Network, error) {
 	if uuid == "" {
 		return weft.Network{}, status.Error(codes.InvalidArgument, "uuid is required")
 	}
@@ -105,7 +105,7 @@ func (s *vzdServer) authNetwork(ctx context.Context, uuid string) (weft.Network,
 	return n, nil
 }
 
-func (s *vzdServer) RenameNetwork(ctx context.Context, req *vzdv1.RenameNetworkRequest) (*vzdv1.RenameNetworkResponse, error) {
+func (s *weftServer) RenameNetwork(ctx context.Context, req *weftv1.RenameNetworkRequest) (*weftv1.RenameNetworkResponse, error) {
 	if req.NewName == "" {
 		return nil, status.Error(codes.InvalidArgument, "new_name is required")
 	}
@@ -116,10 +116,10 @@ func (s *vzdServer) RenameNetwork(ctx context.Context, req *vzdv1.RenameNetworkR
 		return nil, status.Errorf(codes.Internal, "rename network: %v", err)
 	}
 	n, _ := s.adp.NetworkByUUID(req.Uuid)
-	return &vzdv1.RenameNetworkResponse{Network: toNetworkInfo(n)}, nil
+	return &weftv1.RenameNetworkResponse{Network: toNetworkInfo(n)}, nil
 }
 
-func (s *vzdServer) SetNetworkDNS(ctx context.Context, req *vzdv1.SetNetworkDNSRequest) (*vzdv1.SetNetworkDNSResponse, error) {
+func (s *weftServer) SetNetworkDNS(ctx context.Context, req *weftv1.SetNetworkDNSRequest) (*weftv1.SetNetworkDNSResponse, error) {
 	if _, err := s.authNetwork(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (s *vzdServer) SetNetworkDNS(ctx context.Context, req *vzdv1.SetNetworkDNSR
 		return nil, status.Errorf(codes.Internal, "set dns: %v", err)
 	}
 	n, _ := s.adp.NetworkByUUID(req.Uuid)
-	return &vzdv1.SetNetworkDNSResponse{Network: toNetworkInfo(n)}, nil
+	return &weftv1.SetNetworkDNSResponse{Network: toNetworkInfo(n)}, nil
 }
 
 // SetNetworkDefaultSecurityGroups replaces the network's default
@@ -135,7 +135,7 @@ func (s *vzdServer) SetNetworkDNS(ctx context.Context, req *vzdv1.SetNetworkDNSR
 // same project as the network is done registry-side
 // (setDefaultSecurityGroups) so we don't have to re-implement it
 // at the wire boundary.
-func (s *vzdServer) SetNetworkDefaultSecurityGroups(ctx context.Context, req *vzdv1.SetNetworkDefaultSecurityGroupsRequest) (*vzdv1.SetNetworkDefaultSecurityGroupsResponse, error) {
+func (s *weftServer) SetNetworkDefaultSecurityGroups(ctx context.Context, req *weftv1.SetNetworkDefaultSecurityGroupsRequest) (*weftv1.SetNetworkDefaultSecurityGroupsResponse, error) {
 	if _, err := s.authNetwork(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
@@ -144,10 +144,10 @@ func (s *vzdServer) SetNetworkDefaultSecurityGroups(ctx context.Context, req *vz
 	}
 	n, _ := s.adp.NetworkByUUID(req.Uuid)
 	logger.Printf("SetNetworkDefaultSecurityGroups uuid=%s count=%d", req.Uuid, len(req.SecurityGroupUuids))
-	return &vzdv1.SetNetworkDefaultSecurityGroupsResponse{Network: toNetworkInfo(n)}, nil
+	return &weftv1.SetNetworkDefaultSecurityGroupsResponse{Network: toNetworkInfo(n)}, nil
 }
 
-func (s *vzdServer) DeleteNetwork(ctx context.Context, req *vzdv1.DeleteNetworkRequest) (*vzdv1.DeleteNetworkResponse, error) {
+func (s *weftServer) DeleteNetwork(ctx context.Context, req *weftv1.DeleteNetworkRequest) (*weftv1.DeleteNetworkResponse, error) {
 	if _, err := s.authNetwork(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
@@ -155,5 +155,5 @@ func (s *vzdServer) DeleteNetwork(ctx context.Context, req *vzdv1.DeleteNetworkR
 		return nil, status.Errorf(codes.FailedPrecondition, "delete network: %v", err)
 	}
 	logger.Printf("DeleteNetwork uuid=%s", req.Uuid)
-	return &vzdv1.DeleteNetworkResponse{}, nil
+	return &weftv1.DeleteNetworkResponse{}, nil
 }

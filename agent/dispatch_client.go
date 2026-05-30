@@ -20,16 +20,16 @@ import (
 	"math/rand"
 	"time"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc"
 )
 
 // AgentDispatchClient is the slim slice of the gRPC client this
 // loop needs — just opens the bidi stream. The real generated
-// `vzdv1.AgentDispatchClient` satisfies this interface
+// `weftv1.AgentDispatchClient` satisfies this interface
 // structurally so callers can pass it directly.
 type AgentDispatchClient interface {
-	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[vzdv1.AgentMessage, vzdv1.ControlMessage], error)
+	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[weftv1.AgentMessage, weftv1.ControlMessage], error)
 }
 
 // DispatchOptions controls the agent-side stream lifecycle.
@@ -50,7 +50,7 @@ type DispatchOptions struct {
 	// The handler must populate `reply.RequestId` with the
 	// matching `req.RequestId` so the control plane can route
 	// the reply back to the awaiting goroutine.
-	DriverHandler func(ctx context.Context, req *vzdv1.DriverRequest) *vzdv1.DriverReply
+	DriverHandler func(ctx context.Context, req *weftv1.DriverRequest) *weftv1.DriverReply
 }
 
 // RunDispatchClient opens the stream, sends Hello, then loops
@@ -72,8 +72,8 @@ func RunDispatchClient(ctx context.Context, c AgentDispatchClient, opts Dispatch
 
 	// Send the Hello first thing. Anything else is a protocol
 	// violation on the server side.
-	hello := &vzdv1.AgentMessage{Body: &vzdv1.AgentMessage_Hello{
-		Hello: &vzdv1.AgentHello{
+	hello := &weftv1.AgentMessage{Body: &weftv1.AgentMessage_Hello{
+		Hello: &weftv1.AgentHello{
 			HostUuid:     opts.HostUUID,
 			AgentVersion: opts.AgentVersion,
 		},
@@ -109,9 +109,9 @@ func RunDispatchClient(ctx context.Context, c AgentDispatchClient, opts Dispatch
 			return fmt.Errorf("recv: %w", err)
 		}
 		switch body := msg.Body.(type) {
-		case *vzdv1.ControlMessage_Ping:
-			pong := &vzdv1.AgentMessage{Body: &vzdv1.AgentMessage_Pong{
-				Pong: &vzdv1.AgentPong{
+		case *weftv1.ControlMessage_Ping:
+			pong := &weftv1.AgentMessage{Body: &weftv1.AgentMessage_Pong{
+				Pong: &weftv1.AgentPong{
 					SessionId:     body.Ping.SessionId,
 					PingedUnixNs:  body.Ping.SentUnixNs,
 					RepliedUnixNs: time.Now().UnixNano(),
@@ -120,18 +120,18 @@ func RunDispatchClient(ctx context.Context, c AgentDispatchClient, opts Dispatch
 			if err := stream.Send(pong); err != nil {
 				return fmt.Errorf("send pong: %w", err)
 			}
-		case *vzdv1.ControlMessage_Request:
+		case *weftv1.ControlMessage_Request:
 			// DriverRequest : dispatch to the configured handler,
 			// echo the request_id back in the reply. A handler-
 			// less agent surfaces a clean diagnostic over the
 			// stream so the control plane sees the reason instead
 			// of timing out.
 			reply := dispatchDriverRequest(ctx, opts.DriverHandler, body.Request)
-			out := &vzdv1.AgentMessage{Body: &vzdv1.AgentMessage_Reply{Reply: reply}}
+			out := &weftv1.AgentMessage{Body: &weftv1.AgentMessage_Reply{Reply: reply}}
 			if err := stream.Send(out); err != nil {
 				return fmt.Errorf("send driver reply: %w", err)
 			}
-		case *vzdv1.ControlMessage_HelloAck:
+		case *weftv1.ControlMessage_HelloAck:
 			// Duplicate HelloAck (unusual but harmless) — log
 			// for telemetry, keep the connection.
 			if opts.Logger != nil {
@@ -170,7 +170,7 @@ type RetryOptions struct {
 //
 // `dialer` returns a fresh client view of the underlying gRPC
 // connection — typical caller passes the same generated
-// `vzdv1.AgentDispatchClient` every time (the *grpc.ClientConn
+// `weftv1.AgentDispatchClient` every time (the *grpc.ClientConn
 // handles transport reconnects underneath), but tests can
 // substitute a stub that returns errors / different streams.
 func RunDispatchClientWithRetry(ctx context.Context, dialer func() (AgentDispatchClient, error), opts DispatchOptions, retry RetryOptions) error {
@@ -238,13 +238,13 @@ func withJitter(base time.Duration, frac float64) time.Duration {
 // guarantees a non-nil reply with a matching request_id ; nil
 // handler / nil-returning handler surface a clean error rather
 // than hanging the server.
-func dispatchDriverRequest(ctx context.Context, handler func(context.Context, *vzdv1.DriverRequest) *vzdv1.DriverReply, req *vzdv1.DriverRequest) *vzdv1.DriverReply {
+func dispatchDriverRequest(ctx context.Context, handler func(context.Context, *weftv1.DriverRequest) *weftv1.DriverReply, req *weftv1.DriverRequest) *weftv1.DriverReply {
 	if handler == nil {
-		return &vzdv1.DriverReply{RequestId: req.RequestId, Error: "no driver handler configured on this agent"}
+		return &weftv1.DriverReply{RequestId: req.RequestId, Error: "no driver handler configured on this agent"}
 	}
 	reply := handler(ctx, req)
 	if reply == nil {
-		return &vzdv1.DriverReply{RequestId: req.RequestId, Error: "driver handler returned nil reply"}
+		return &weftv1.DriverReply{RequestId: req.RequestId, Error: "driver handler returned nil reply"}
 	}
 	// Defensive : enforce the request_id echo so a buggy
 	// handler can't silently break correlation.

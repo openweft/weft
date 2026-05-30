@@ -1,13 +1,13 @@
-// Package network implements the `vzc network` subcommand group:
-// CRUD over vzd's UUID-keyed network registry.
+// Package network implements the `weft network` subcommand group:
+// CRUD over weft's UUID-keyed network registry.
 //
-//	vzc network ls [--project NAME-OR-UUID] [--format json]
-//	vzc network create --project P --name N --cidr 10.0.0.0/24 \
+//	weft network ls [--project NAME-OR-UUID] [--format json]
+//	weft network create --project P --name N --cidr 10.0.0.0/24 \
 //	                   [--gateway 10.0.0.1] [--dns 1.1.1.1,8.8.8.8] \
 //	                   [--type nat|bridged|isolated]
-//	vzc network rename <UUID> <new-name>
-//	vzc network set-dns <UUID> <server1,server2,...>
-//	vzc network rm <UUID>
+//	weft network rename <UUID> <new-name>
+//	weft network set-dns <UUID> <server1,server2,...>
+//	weft network rm <UUID>
 package network
 
 import (
@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -52,7 +52,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListNetworks(context.Background(), &vzdv1.ListNetworksRequest{Project: project})
+			resp, err := c.ListNetworks(context.Background(), &weftv1.ListNetworksRequest{Project: project})
 			if err != nil {
 				return err
 			}
@@ -80,7 +80,7 @@ func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.CreateNetwork(context.Background(), &vzdv1.CreateNetworkRequest{
+			resp, err := c.CreateNetwork(context.Background(), &weftv1.CreateNetworkRequest{
 				Project:    project,
 				Name:       name,
 				Cidr:       cidr,
@@ -118,7 +118,7 @@ func renameCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.RenameNetwork(context.Background(), &vzdv1.RenameNetworkRequest{
+			resp, err := c.RenameNetwork(context.Background(), &weftv1.RenameNetworkRequest{
 				Uuid: args[0], NewName: args[1],
 			})
 			if err != nil {
@@ -142,7 +142,7 @@ func setDNSCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.SetNetworkDNS(context.Background(), &vzdv1.SetNetworkDNSRequest{
+			resp, err := c.SetNetworkDNS(context.Background(), &weftv1.SetNetworkDNSRequest{
 				Uuid: args[0], DnsServers: servers,
 			})
 			if err != nil {
@@ -157,7 +157,7 @@ func setDNSCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 // setSGsCmd replaces the network's default security-group list
 // atomically. Pass an empty list (just the comma or "" in shell)
 // to clear it. The server validates every UUID is an SG in the
-// same project as the network — see networks.go in vzd.
+// same project as the network — see networks.go in weft.
 func setSGsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set-sgs <UUID> <sg-uuid[,sg-uuid,...]>",
@@ -170,7 +170,7 @@ func setSGsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.SetNetworkDefaultSecurityGroups(context.Background(), &vzdv1.SetNetworkDefaultSecurityGroupsRequest{
+			resp, err := c.SetNetworkDefaultSecurityGroups(context.Background(), &weftv1.SetNetworkDefaultSecurityGroupsRequest{
 				Uuid:               args[0],
 				SecurityGroupUuids: sgs,
 			})
@@ -198,7 +198,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			if _, err := c.DeleteNetwork(context.Background(), &vzdv1.DeleteNetworkRequest{Uuid: args[0]}); err != nil {
+			if _, err := c.DeleteNetwork(context.Background(), &weftv1.DeleteNetworkRequest{Uuid: args[0]}); err != nil {
 				return err
 			}
 			fmt.Println(args[0])
@@ -221,7 +221,7 @@ func splitNonEmpty(s, sep string) []string {
 	return out
 }
 
-func renderTable(nets []*vzdv1.NetworkInfo) error {
+func renderTable(nets []*weftv1.NetworkInfo) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "UUID\tPROJECT_UUID\tNAME\tCIDR\tGATEWAY\tTYPE\tDNS\tDEFAULT_SGS\tCREATED")
 	for _, n := range nets {
@@ -244,7 +244,7 @@ func renderTable(nets []*vzdv1.NetworkInfo) error {
 	return tw.Flush()
 }
 
-func dumpJSON(nets []*vzdv1.NetworkInfo) error {
+func dumpJSON(nets []*weftv1.NetworkInfo) error {
 	type out struct {
 		UUID                string   `json:"uuid"`
 		ProjectUUID         string   `json:"project_uuid"`

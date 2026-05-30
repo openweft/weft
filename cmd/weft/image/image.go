@@ -1,4 +1,4 @@
-// Package image implements the vzc image sub-command group.
+// Package image implements the weft image sub-command group.
 package image
 
 import (
@@ -6,7 +6,7 @@ import (
 
 	"github.com/openweft/weft/cmd/weft/image/pull"
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +34,7 @@ func listCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListImages(context.Background(), &vzdv1.ListImagesRequest{})
+			resp, err := c.ListImages(context.Background(), &weftv1.ListImagesRequest{})
 			if err != nil {
 				return err
 			}

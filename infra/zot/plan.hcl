@@ -1,4 +1,4 @@
-# vzd infra plan — zot OCI registry
+# weft infra plan — zot OCI registry
 #
 # 1 VM per DC, sync-mirroring between them. Each VM uses S3-
 # compatible object storage by default (matches the
@@ -33,7 +33,7 @@ service "zot" {
     size_gib = 256
   }
 
-  # Tenant-facing — every vzd consumer + every developer pushes
+  # Tenant-facing — every weft consumer + every developer pushes
   # / pulls from zot. The infra subnet doesn't need zot (etcd /
   # dex never speak OCI).
   network {
@@ -41,7 +41,7 @@ service "zot" {
     static_ip = ["10.255.2.30", "10.255.2.31", "10.255.2.32"]
   }
 
-  cmdline = "ncl.rootfs=virtiofs:rootfs0 ncl.config=virtiofs:cfg"
+  cmdline = "weft.rootfs=virtiofs:rootfs0 weft.config=virtiofs:cfg"
 
   # zot config — JSON because that's what zot reads. The HCL
   # plan around it stays HCL ; only this third-party file is
@@ -70,7 +70,7 @@ service "zot" {
             "openID": {
               "providers": {
                 "dex": {
-                  "name":         "vzd-dex",
+                  "name":         "weft-dex",
                   "clientid":     "zot-registry",
                   "clientsecret": "$ZOT_CLIENT_SECRET",
                   "scopes":       ["openid", "email", "groups"],

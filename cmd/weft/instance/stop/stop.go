@@ -1,11 +1,11 @@
-// Package stop implements the vzc stop sub-command.
+// Package stop implements the weft stop sub-command.
 package stop
 
 import (
 	"context"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +21,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			_, err = c.StopVM(context.Background(), &vzdv1.StopVMRequest{Name: args[0]})
+			_, err = c.StopVM(context.Background(), &weftv1.StopVMRequest{Name: args[0]})
 			return err
 		},
 	}

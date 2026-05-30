@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -53,8 +53,8 @@ func TestCommand_Structure(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListUsersFn = func(_ context.Context, _ *vzdv1.ListUsersRequest) (*vzdv1.ListUsersResponse, error) {
-		return &vzdv1.ListUsersResponse{Users: []*vzdv1.UserInfo{
+	srv.ListUsersFn = func(_ context.Context, _ *weftv1.ListUsersRequest) (*weftv1.ListUsersResponse, error) {
+		return &weftv1.ListUsersResponse{Users: []*weftv1.UserInfo{
 			{Uuid: "u1", OidcIssuer: "dex", OidcSubject: "s1", Email: "a@x", DisplayName: "Alice", Groups: []string{"g1"}, LastSeenAtUnixNs: 1700000000000000000},
 			{Uuid: "u2"}, // empty fallback path
 		}}, nil
@@ -73,8 +73,8 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestLs_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListUsersFn = func(_ context.Context, _ *vzdv1.ListUsersRequest) (*vzdv1.ListUsersResponse, error) {
-		return &vzdv1.ListUsersResponse{Users: []*vzdv1.UserInfo{
+	srv.ListUsersFn = func(_ context.Context, _ *weftv1.ListUsersRequest) (*weftv1.ListUsersResponse, error) {
+		return &weftv1.ListUsersResponse{Users: []*weftv1.UserInfo{
 			{Uuid: "u1", DisplayName: "Alice", LastSeenAtUnixNs: 1700000000000000000},
 		}}, nil
 	}
@@ -92,7 +92,7 @@ func TestLs_JSONFormat(t *testing.T) {
 
 func TestLs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListUsersFn = func(_ context.Context, _ *vzdv1.ListUsersRequest) (*vzdv1.ListUsersResponse, error) {
+	srv.ListUsersFn = func(_ context.Context, _ *weftv1.ListUsersRequest) (*weftv1.ListUsersResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -106,8 +106,8 @@ func TestLs_RPCError(t *testing.T) {
 
 func TestGet_Table(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.GetUserFn = func(_ context.Context, in *vzdv1.GetUserRequest) (*vzdv1.GetUserResponse, error) {
-		return &vzdv1.GetUserResponse{User: &vzdv1.UserInfo{Uuid: in.Uuid, DisplayName: "Bob"}}, nil
+	srv.GetUserFn = func(_ context.Context, in *weftv1.GetUserRequest) (*weftv1.GetUserResponse, error) {
+		return &weftv1.GetUserResponse{User: &weftv1.UserInfo{Uuid: in.Uuid, DisplayName: "Bob"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -123,8 +123,8 @@ func TestGet_Table(t *testing.T) {
 
 func TestGet_JSON(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.GetUserFn = func(_ context.Context, in *vzdv1.GetUserRequest) (*vzdv1.GetUserResponse, error) {
-		return &vzdv1.GetUserResponse{User: &vzdv1.UserInfo{Uuid: in.Uuid, DisplayName: "Bob"}}, nil
+	srv.GetUserFn = func(_ context.Context, in *weftv1.GetUserRequest) (*weftv1.GetUserResponse, error) {
+		return &weftv1.GetUserResponse{User: &weftv1.UserInfo{Uuid: in.Uuid, DisplayName: "Bob"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -140,7 +140,7 @@ func TestGet_JSON(t *testing.T) {
 
 func TestGet_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.GetUserFn = func(_ context.Context, _ *vzdv1.GetUserRequest) (*vzdv1.GetUserResponse, error) {
+	srv.GetUserFn = func(_ context.Context, _ *weftv1.GetUserRequest) (*weftv1.GetUserResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -154,8 +154,8 @@ func TestGet_RPCError(t *testing.T) {
 
 func TestMe_Table(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.MeFn = func(_ context.Context, _ *vzdv1.MeRequest) (*vzdv1.MeResponse, error) {
-		return &vzdv1.MeResponse{User: &vzdv1.UserInfo{Uuid: "u1", DisplayName: "Caller"}}, nil
+	srv.MeFn = func(_ context.Context, _ *weftv1.MeRequest) (*weftv1.MeResponse, error) {
+		return &weftv1.MeResponse{User: &weftv1.UserInfo{Uuid: "u1", DisplayName: "Caller"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -171,8 +171,8 @@ func TestMe_Table(t *testing.T) {
 
 func TestMe_JSON(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.MeFn = func(_ context.Context, _ *vzdv1.MeRequest) (*vzdv1.MeResponse, error) {
-		return &vzdv1.MeResponse{User: &vzdv1.UserInfo{Uuid: "u1"}}, nil
+	srv.MeFn = func(_ context.Context, _ *weftv1.MeRequest) (*weftv1.MeResponse, error) {
+		return &weftv1.MeResponse{User: &weftv1.UserInfo{Uuid: "u1"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -188,7 +188,7 @@ func TestMe_JSON(t *testing.T) {
 
 func TestMe_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.MeFn = func(_ context.Context, _ *vzdv1.MeRequest) (*vzdv1.MeResponse, error) {
+	srv.MeFn = func(_ context.Context, _ *weftv1.MeRequest) (*weftv1.MeResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -202,8 +202,8 @@ func TestMe_RPCError(t *testing.T) {
 
 func TestSetDisplayName_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetUserDisplayNameFn = func(_ context.Context, in *vzdv1.SetUserDisplayNameRequest) (*vzdv1.SetUserDisplayNameResponse, error) {
-		return &vzdv1.SetUserDisplayNameResponse{User: &vzdv1.UserInfo{Uuid: in.Uuid, DisplayName: in.DisplayName}}, nil
+	srv.SetUserDisplayNameFn = func(_ context.Context, in *weftv1.SetUserDisplayNameRequest) (*weftv1.SetUserDisplayNameResponse, error) {
+		return &weftv1.SetUserDisplayNameResponse{User: &weftv1.UserInfo{Uuid: in.Uuid, DisplayName: in.DisplayName}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"set-display-name", "u1", "NewName"})
@@ -214,7 +214,7 @@ func TestSetDisplayName_Success(t *testing.T) {
 
 func TestSetDisplayName_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetUserDisplayNameFn = func(_ context.Context, _ *vzdv1.SetUserDisplayNameRequest) (*vzdv1.SetUserDisplayNameResponse, error) {
+	srv.SetUserDisplayNameFn = func(_ context.Context, _ *weftv1.SetUserDisplayNameRequest) (*weftv1.SetUserDisplayNameResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -242,7 +242,7 @@ func TestRm_Success(t *testing.T) {
 
 func TestRm_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.DeleteUserFn = func(_ context.Context, _ *vzdv1.DeleteUserRequest) (*vzdv1.DeleteUserResponse, error) {
+	srv.DeleteUserFn = func(_ context.Context, _ *weftv1.DeleteUserRequest) (*weftv1.DeleteUserResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

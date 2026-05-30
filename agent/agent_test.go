@@ -184,7 +184,7 @@ func TestHeartbeatLoop_Fires(t *testing.T) {
 
 // TestUUIDPersistsAcrossInstances: two consecutive Agents
 // against the same StateDir resolve to the same host UUID.
-// Mirrors the vzd-control invariant — restart safety.
+// Mirrors the weft-control invariant — restart safety.
 func TestUUIDPersistsAcrossInstances(t *testing.T) {
 	dir := t.TempDir()
 	cp1 := newRecordingCP()

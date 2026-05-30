@@ -1,9 +1,9 @@
 package agent
 
 // types.go declares the protobuf-friendly value types crossed
-// between vzd-agent and vzd-control via the ControlPlane
-// interface. Kept in this module on purpose — vzd-agent must
-// not import the vzd control-plane module (see README); each
+// between weft-agent and weft-control via the ControlPlane
+// interface. Kept in this module on purpose — weft-agent must
+// not import the weft control-plane module (see README); each
 // side carries its own copy of these tiny records.
 //
 // Mirror types: weft.RegisterHostSpec, weft.HostHandle, and the
@@ -25,12 +25,12 @@ type HostRegistration struct {
 	UUID string
 	// Hostname / AZ / Rack tag the physical machine. Hostname
 	// must be unique cluster-wide; AZ + Rack drive placement
-	// rules per [[vzd-placement-rules]].
+	// rules per [[weft-placement-rules]].
 	Hostname string
 	AZ       string
 	Rack     string
 	// Endpoint is the agent's gRPC listener (host:port). Empty
-	// when the agent is embedded in vzd-control's process.
+	// when the agent is embedded in weft-control's process.
 	Endpoint string
 	// Hypervisor / Architecture describe what this host can run.
 	Hypervisor   string

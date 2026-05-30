@@ -26,7 +26,7 @@ package weft
 //
 //   * Size is immutable on shrink (resize() refuses smaller). Grow
 //     is allowed and merely updates the registry; the actual file-
-//     extend is the caller's problem (vzd's storage backend is the
+//     extend is the caller's problem (weft's storage backend is the
 //     ground truth for the byte layout).
 //   * delete() refuses when AttachedTo != "" — explicit detach
 //     first. Prevents orphaning a guest's data disk.
@@ -44,7 +44,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// VolumeFormat enumerates the on-disk layouts vzd writes.
+// VolumeFormat enumerates the on-disk layouts weft writes.
 type VolumeFormat string
 
 const (
@@ -144,14 +144,14 @@ func volumeNameKey(projectUUID, name string) string {
 }
 
 // saveLocked writes via Storage. Caller must hold mu. Output is
-// sorted by UUID for stable diffs across vzd runs.
+// sorted by UUID for stable diffs across weft runs.
 func (r *volumeRegistry) saveLocked() error {
 	f := hclwrite.NewEmptyFile()
 	body := f.Body()
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{
 		Type: 0,
 		Bytes: []byte(
-			"# vzd volume registry — UUID-keyed per [[vzd-uuid-keyed-resources]].\n" +
+			"# weft volume registry — UUID-keyed per [[weft-uuid-keyed-resources]].\n" +
 				"# Edit `name` freely; never change the block label (UUID),\n" +
 				"# `project_uuid`, or `format`. `size_gib` is grow-only.\n\n",
 		),

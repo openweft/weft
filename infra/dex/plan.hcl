@@ -1,11 +1,11 @@
-# vzd infra plan — dex OIDC identity provider
+# weft infra plan — dex OIDC identity provider
 #
 # 1 VM per DC, all 3 backed by the same etcd cluster (storage
 # backend "etcd"). HA via a small load balancer in front; clients
 # get whichever pod is closest.
 
 service "dex" {
-  description = "OIDC identity provider — issues tokens for vzd/ncl/vzc/zot"
+  description = "OIDC identity provider — issues tokens for weft/weft-microvm/weft/zot"
   oci_image   = "ghcr.io/dexidp/dex:v2.40.0"
 
   resources {
@@ -18,14 +18,14 @@ service "dex" {
   # static client configs all live in etcd keys. No `volume` block
   # by design : the `[]VolumeRef` decoder treats absence as empty.
 
-  # Tenant-facing subnet — both vzd / zot / vzc need to reach dex
+  # Tenant-facing subnet — both weft / zot / weft need to reach dex
   # to validate bearer tokens.
   network {
     name      = "tenant-services"
     static_ip = ["10.255.2.20", "10.255.2.21", "10.255.2.22"]
   }
 
-  cmdline = "ncl.rootfs=virtiofs:rootfs0 ncl.config=virtiofs:cfg"
+  cmdline = "weft.rootfs=virtiofs:rootfs0 weft.config=virtiofs:cfg"
 
   # Dex's config.yaml — generated per VM. The OCI image's
   # entrypoint reads this from /etc/dex/config.yaml.
@@ -60,20 +60,20 @@ service "dex" {
 
       # Client registrations for the platform's own consumers.
       staticClients:
-        - id: vzd-api
-          name: vzd API server
+        - id: weft-api
+          name: weft API server
           redirectURIs:
-            - https://vzd.$BASE_DOMAIN/oidc/callback
-          secret: '$VZD_CLIENT_SECRET'
+            - https://weft.$BASE_DOMAIN/oidc/callback
+          secret: '$WEFT_CLIENT_SECRET'
         - id: zot-registry
           name: zot OCI registry
           redirectURIs:
             - https://zot.$BASE_DOMAIN/auth/oidc/callback
           secret: '$ZOT_CLIENT_SECRET'
-        - id: vzc-cli
-          name: vzc CLI (device-grant)
+        - id: weft-cli
+          name: weft CLI (device-grant)
           public: true
-          # vzc uses the device-grant flow — no client secret.
+          # weft uses the device-grant flow — no client secret.
     EOT
   }
 

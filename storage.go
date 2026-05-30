@@ -1,7 +1,7 @@
 package weft
 
 // storage.go defines the persistence backend abstraction every
-// vzd registry (projects, users, networks, volumes, security
+// weft registry (projects, users, networks, volumes, security
 // rules, shares, …) goes through. The shape is intentionally
 // minimal — the registry consumer encodes/decodes the on-disk
 // format itself, the Storage just carries the blob.
@@ -15,7 +15,7 @@ package weft
 //   * etcd backend (production, 3-DC cluster — see
 //     etcd_control_plane.md): one etcd key per registry, the value
 //     is the same HCL blob the file backend would have written.
-//     Put is naturally linearizable so concurrent vzd processes
+//     Put is naturally linearizable so concurrent weft processes
 //     across DCs see the same snapshot.
 //   * In-memory backend (tests): a sync.Mutex + []byte; no I/O,
 //     no temp files, no leftover state between test runs.
@@ -43,7 +43,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-// Storage is the persistence backend for a single vzd registry.
+// Storage is the persistence backend for a single weft registry.
 //
 // Load returns the registry's current blob. A registry that
 // doesn't exist yet (fresh install) returns (nil, nil) — NOT an
@@ -182,12 +182,12 @@ type EtcdConfig struct {
 	// transparently and follows the cluster across leader
 	// changes.
 	Endpoints []string
-	// Username / Password authenticate the vzd identity to etcd.
+	// Username / Password authenticate the weft identity to etcd.
 	// Empty means anonymous (dev only).
 	Username string
 	Password string
 	// KeyPrefix scopes every registry key under a tenant /
-	// cluster prefix (e.g. "/vzd/prod/"). The full key for a
+	// cluster prefix (e.g. "/weft/prod/"). The full key for a
 	// registry named "projects" is `KeyPrefix + "projects"`.
 	KeyPrefix string
 }
@@ -197,7 +197,7 @@ type EtcdConfig struct {
 // per registry; each maps to a single etcd key holding the HCL
 // blob the registry would have written to disk under FileStorage.
 //
-// Concurrency: etcd Put is naturally linearizable, so two vzd
+// Concurrency: etcd Put is naturally linearizable, so two weft
 // processes (different DCs) writing to the same registry land in
 // a strict order. Blind last-writer-wins is acceptable for the
 // registries we have today (projects, users, …); a future

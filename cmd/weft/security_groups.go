@@ -9,13 +9,13 @@ import (
 	"context"
 
 	"github.com/openweft/weft"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func ruleToProto(r weft.SecurityRule) *vzdv1.SecurityRule {
-	return &vzdv1.SecurityRule{
+func ruleToProto(r weft.SecurityRule) *weftv1.SecurityRule {
+	return &weftv1.SecurityRule{
 		Direction:       string(r.Direction),
 		Protocol:        string(r.Protocol),
 		PortMin:         int32(r.PortMin),
@@ -25,7 +25,7 @@ func ruleToProto(r weft.SecurityRule) *vzdv1.SecurityRule {
 	}
 }
 
-func ruleFromProto(p *vzdv1.SecurityRule) weft.SecurityRule {
+func ruleFromProto(p *weftv1.SecurityRule) weft.SecurityRule {
 	return weft.SecurityRule{
 		Direction:   weft.SecurityRuleDirection(p.Direction),
 		Protocol:    weft.SecurityRuleProtocol(p.Protocol),
@@ -36,12 +36,12 @@ func ruleFromProto(p *vzdv1.SecurityRule) weft.SecurityRule {
 	}
 }
 
-func toSecurityGroupInfo(g weft.SecurityGroup) *vzdv1.SecurityGroupInfo {
-	rules := make([]*vzdv1.SecurityRule, len(g.Rules))
+func toSecurityGroupInfo(g weft.SecurityGroup) *weftv1.SecurityGroupInfo {
+	rules := make([]*weftv1.SecurityRule, len(g.Rules))
 	for i, r := range g.Rules {
 		rules[i] = ruleToProto(r)
 	}
-	return &vzdv1.SecurityGroupInfo{
+	return &weftv1.SecurityGroupInfo{
 		Uuid:            g.UUID,
 		ProjectUuid:     g.ProjectUUID,
 		Name:            g.Name,
@@ -51,7 +51,7 @@ func toSecurityGroupInfo(g weft.SecurityGroup) *vzdv1.SecurityGroupInfo {
 	}
 }
 
-func (s *vzdServer) ListSecurityGroups(ctx context.Context, req *vzdv1.ListSecurityGroupsRequest) (*vzdv1.ListSecurityGroupsResponse, error) {
+func (s *weftServer) ListSecurityGroups(ctx context.Context, req *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error) {
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (s *vzdServer) ListSecurityGroups(ctx context.Context, req *vzdv1.ListSecur
 		}
 		wantProjectUUID = uuid
 	}
-	out := []*vzdv1.SecurityGroupInfo{}
+	out := []*weftv1.SecurityGroupInfo{}
 	for _, g := range s.adp.SecurityGroups() {
 		if wantProjectUUID != "" && g.ProjectUUID != wantProjectUUID {
 			continue
@@ -76,10 +76,10 @@ func (s *vzdServer) ListSecurityGroups(ctx context.Context, req *vzdv1.ListSecur
 		}
 		out = append(out, toSecurityGroupInfo(g))
 	}
-	return &vzdv1.ListSecurityGroupsResponse{Groups: out}, nil
+	return &weftv1.ListSecurityGroupsResponse{Groups: out}, nil
 }
 
-func (s *vzdServer) CreateSecurityGroup(ctx context.Context, req *vzdv1.CreateSecurityGroupRequest) (*vzdv1.CreateSecurityGroupResponse, error) {
+func (s *weftServer) CreateSecurityGroup(ctx context.Context, req *weftv1.CreateSecurityGroupRequest) (*weftv1.CreateSecurityGroupResponse, error) {
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
@@ -101,10 +101,10 @@ func (s *vzdServer) CreateSecurityGroup(ctx context.Context, req *vzdv1.CreateSe
 		return nil, status.Errorf(codes.Internal, "create security group: %v", err)
 	}
 	logger.Printf("CreateSecurityGroup name=%s project=%s uuid=%s rules=%d", g.Name, g.ProjectUUID, g.UUID, len(g.Rules))
-	return &vzdv1.CreateSecurityGroupResponse{Group: toSecurityGroupInfo(g)}, nil
+	return &weftv1.CreateSecurityGroupResponse{Group: toSecurityGroupInfo(g)}, nil
 }
 
-func (s *vzdServer) authSecurityGroup(ctx context.Context, uuid string) (weft.SecurityGroup, error) {
+func (s *weftServer) authSecurityGroup(ctx context.Context, uuid string) (weft.SecurityGroup, error) {
 	if uuid == "" {
 		return weft.SecurityGroup{}, status.Error(codes.InvalidArgument, "uuid is required")
 	}
@@ -118,7 +118,7 @@ func (s *vzdServer) authSecurityGroup(ctx context.Context, uuid string) (weft.Se
 	return g, nil
 }
 
-func (s *vzdServer) RenameSecurityGroup(ctx context.Context, req *vzdv1.RenameSecurityGroupRequest) (*vzdv1.RenameSecurityGroupResponse, error) {
+func (s *weftServer) RenameSecurityGroup(ctx context.Context, req *weftv1.RenameSecurityGroupRequest) (*weftv1.RenameSecurityGroupResponse, error) {
 	if req.NewName == "" {
 		return nil, status.Error(codes.InvalidArgument, "new_name is required")
 	}
@@ -129,10 +129,10 @@ func (s *vzdServer) RenameSecurityGroup(ctx context.Context, req *vzdv1.RenameSe
 		return nil, status.Errorf(codes.Internal, "rename security group: %v", err)
 	}
 	g, _ := s.adp.SecurityGroupByUUID(req.Uuid)
-	return &vzdv1.RenameSecurityGroupResponse{Group: toSecurityGroupInfo(g)}, nil
+	return &weftv1.RenameSecurityGroupResponse{Group: toSecurityGroupInfo(g)}, nil
 }
 
-func (s *vzdServer) SetSecurityGroupDescription(ctx context.Context, req *vzdv1.SetSecurityGroupDescriptionRequest) (*vzdv1.SetSecurityGroupDescriptionResponse, error) {
+func (s *weftServer) SetSecurityGroupDescription(ctx context.Context, req *weftv1.SetSecurityGroupDescriptionRequest) (*weftv1.SetSecurityGroupDescriptionResponse, error) {
 	if _, err := s.authSecurityGroup(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
@@ -140,10 +140,10 @@ func (s *vzdServer) SetSecurityGroupDescription(ctx context.Context, req *vzdv1.
 		return nil, status.Errorf(codes.Internal, "set description: %v", err)
 	}
 	g, _ := s.adp.SecurityGroupByUUID(req.Uuid)
-	return &vzdv1.SetSecurityGroupDescriptionResponse{Group: toSecurityGroupInfo(g)}, nil
+	return &weftv1.SetSecurityGroupDescriptionResponse{Group: toSecurityGroupInfo(g)}, nil
 }
 
-func (s *vzdServer) SetSecurityGroupRules(ctx context.Context, req *vzdv1.SetSecurityGroupRulesRequest) (*vzdv1.SetSecurityGroupRulesResponse, error) {
+func (s *weftServer) SetSecurityGroupRules(ctx context.Context, req *weftv1.SetSecurityGroupRulesRequest) (*weftv1.SetSecurityGroupRulesResponse, error) {
 	if _, err := s.authSecurityGroup(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
@@ -155,10 +155,10 @@ func (s *vzdServer) SetSecurityGroupRules(ctx context.Context, req *vzdv1.SetSec
 		return nil, status.Errorf(codes.InvalidArgument, "set rules: %v", err)
 	}
 	g, _ := s.adp.SecurityGroupByUUID(req.Uuid)
-	return &vzdv1.SetSecurityGroupRulesResponse{Group: toSecurityGroupInfo(g)}, nil
+	return &weftv1.SetSecurityGroupRulesResponse{Group: toSecurityGroupInfo(g)}, nil
 }
 
-func (s *vzdServer) DeleteSecurityGroup(ctx context.Context, req *vzdv1.DeleteSecurityGroupRequest) (*vzdv1.DeleteSecurityGroupResponse, error) {
+func (s *weftServer) DeleteSecurityGroup(ctx context.Context, req *weftv1.DeleteSecurityGroupRequest) (*weftv1.DeleteSecurityGroupResponse, error) {
 	if _, err := s.authSecurityGroup(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
@@ -166,5 +166,5 @@ func (s *vzdServer) DeleteSecurityGroup(ctx context.Context, req *vzdv1.DeleteSe
 		return nil, status.Errorf(codes.FailedPrecondition, "delete security group: %v", err)
 	}
 	logger.Printf("DeleteSecurityGroup uuid=%s", req.Uuid)
-	return &vzdv1.DeleteSecurityGroupResponse{}, nil
+	return &weftv1.DeleteSecurityGroupResponse{}, nil
 }

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -64,10 +64,10 @@ func TestRegisterMicroVM_DialError(t *testing.T) {
 
 func TestRegisterMicroVM_SuccessBootISO(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.RegisterMicroVMRequest
-	srv.RegisterMicroVMFn = func(_ context.Context, in *vzdv1.RegisterMicroVMRequest) (*vzdv1.RegisterMicroVMResponse, error) {
+	var got *weftv1.RegisterMicroVMRequest
+	srv.RegisterMicroVMFn = func(_ context.Context, in *weftv1.RegisterMicroVMRequest) (*weftv1.RegisterMicroVMResponse, error) {
 		got = in
-		return &vzdv1.RegisterMicroVMResponse{}, nil
+		return &weftv1.RegisterMicroVMResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"vm-uki", "--boot-iso", "/path/to/iso", "--share", "rootfs0=/data:ro", "--share", "extra=/var/lib/extra"})
@@ -90,24 +90,24 @@ func TestRegisterMicroVM_SuccessBootISO(t *testing.T) {
 
 func TestRegisterMicroVM_SuccessKernelMode(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.RegisterMicroVMRequest
-	srv.RegisterMicroVMFn = func(_ context.Context, in *vzdv1.RegisterMicroVMRequest) (*vzdv1.RegisterMicroVMResponse, error) {
+	var got *weftv1.RegisterMicroVMRequest
+	srv.RegisterMicroVMFn = func(_ context.Context, in *weftv1.RegisterMicroVMRequest) (*weftv1.RegisterMicroVMResponse, error) {
 		got = in
-		return &vzdv1.RegisterMicroVMResponse{}, nil
+		return &weftv1.RegisterMicroVMResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"vm-kernel", "--kernel", "/k", "--initrd", "/i", "--cmdline", "ncl.rootfs=virtiofs:r", "--share", "r=/r"})
+	cmd.SetArgs([]string{"vm-kernel", "--kernel", "/k", "--initrd", "/i", "--cmdline", "weft.rootfs=virtiofs:r", "--share", "r=/r"})
 	if err := cmd.Execute(); err != nil {
 		t.Errorf("Execute: %v", err)
 	}
-	if got.Kernel != "/k" || got.Initrd != "/i" || got.Cmdline != "ncl.rootfs=virtiofs:r" {
+	if got.Kernel != "/k" || got.Initrd != "/i" || got.Cmdline != "weft.rootfs=virtiofs:r" {
 		t.Errorf("got = %+v", got)
 	}
 }
 
 func TestRegisterMicroVM_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RegisterMicroVMFn = func(_ context.Context, _ *vzdv1.RegisterMicroVMRequest) (*vzdv1.RegisterMicroVMResponse, error) {
+	srv.RegisterMicroVMFn = func(_ context.Context, _ *weftv1.RegisterMicroVMRequest) (*weftv1.RegisterMicroVMResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

@@ -1,7 +1,7 @@
 package weft
 
 // projects.go owns the mapping (project display name ↔ project UUID)
-// that lets vzd rename a project without touching the on-disk path
+// that lets weft rename a project without touching the on-disk path
 // of any VM attached to it.
 //
 // Wire model:
@@ -10,13 +10,13 @@ package weft
 //
 // The on-disk format is HCL — one `project "<uuid>"` block per
 // entry, with `name` and `created_at` attributes. HCL is preferred
-// over JSON for vzd registries: comments are allowed and the shape
+// over JSON for weft registries: comments are allowed and the shape
 // stays readable when an operator pokes at it by hand.
 //
 // Resolution rules in ResolveProjectUUID:
 //   1. empty input    → caller's default project (currently
-//                       `usr-<vzd-os-user>`; auto-created on first
-//                       call so a fresh vzd just works)
+//                       `usr-<weft-os-user>`; auto-created on first
+//                       call so a fresh weft just works)
 //   2. valid UUID     → return verbatim (callers can refer to
 //                       projects by UUID for stability across
 //                       renames)
@@ -48,11 +48,11 @@ import (
 //
 // Members carries the user-UUIDs that have access to the project
 // independently of any dex group claim. Two ways to grant access
-// today (per [[vzd-uuid-keyed-resources]]'s ACL model):
+// today (per [[weft-uuid-keyed-resources]]'s ACL model):
 //
 //   1. dex issues the caller a `project:<uuid>` group → caller's
 //      token already carries the grant.
-//   2. an admin runs `vzc project add-user <project-uuid>
+//   2. an admin runs `weft project add-user <project-uuid>
 //      <user-uuid>` → the user's UUID lands in Members and
 //      callerOwnsProject resolves it via the user registry.
 //
@@ -66,10 +66,10 @@ type Project struct {
 	// NATSUserSeed is the project's NATS user NKey seed ("SU…"),
 	// minted lazily on first RegisterMicroVM for the project and
 	// materialised into each microVM under <vmDir>/nats/nats.nkey.
-	// Per [[vzd-tenant-event-access]] Phase 2: enables tenant
+	// Per [[weft-tenant-event-access]] Phase 2: enables tenant
 	// workloads to authenticate to the bus from inside the guest
 	// (Phase 3 wires the matching server-side subject permissions).
-	// Sensitive material — kept off `vzc project show` output by
+	// Sensitive material — kept off `weft project show` output by
 	// default; only admin-scoped diagnostics surface the public key.
 	NATSUserSeed string `json:"nats_user_seed,omitempty"`
 }
@@ -153,7 +153,7 @@ func (r *projectRegistry) saveLocked() error {
 	body := f.Body()
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{
 		Type:  0,
-		Bytes: []byte("# vzd project registry — UUID-keyed, see vzd_uuid_keyed_resources.md\n# Edit `name` to rename a project; never edit the block label (UUID).\n\n"),
+		Bytes: []byte("# weft project registry — UUID-keyed, see weft_uuid_keyed_resources.md\n# Edit `name` to rename a project; never edit the block label (UUID).\n\n"),
 	}})
 	uuids := make([]string, 0, len(r.byUUID))
 	for u := range r.byUUID {
@@ -425,13 +425,13 @@ func isUUID(s string) bool {
 }
 
 // newUUID returns a fresh random 8-4-4-4-12 hex UUID. We avoid the
-// google/uuid dep to keep vzd's import surface minimal; the bytes
+// google/uuid dep to keep weft's import surface minimal; the bytes
 // come from crypto/rand, which is plenty for unique identifiers.
 func newUUID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		// crypto/rand failing means the host RNG is broken — fall
-		// back to a timestamp-based ID so vzd at least keeps running.
+		// back to a timestamp-based ID so weft at least keeps running.
 		ns := time.Now().UnixNano()
 		for i := range b {
 			b[i] = byte(ns >> (i * 8))
@@ -447,7 +447,7 @@ func newUUID() string {
 }
 
 // defaultProjectName is the display name used for the auto-created
-// project for the OS user vzd runs as. Phase 2 swaps this for the
+// project for the OS user weft runs as. Phase 2 swaps this for the
 // authenticated caller's identity.
 func defaultProjectName() string {
 	u, err := user.Current()

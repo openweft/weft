@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -49,8 +49,8 @@ func TestTimings_BadSocketErrors(t *testing.T) {
 
 func TestTimings_EmptyEventList(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMTimingsFn = func(_ context.Context, _ *vzdv1.VMTimingsRequest) (*vzdv1.VMTimingsResponse, error) {
-		return &vzdv1.VMTimingsResponse{}, nil
+	srv.VMTimingsFn = func(_ context.Context, _ *weftv1.VMTimingsRequest) (*weftv1.VMTimingsResponse, error) {
+		return &weftv1.VMTimingsResponse{}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -66,8 +66,8 @@ func TestTimings_EmptyEventList(t *testing.T) {
 
 func TestTimings_HumanFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMTimingsFn = func(_ context.Context, _ *vzdv1.VMTimingsRequest) (*vzdv1.VMTimingsResponse, error) {
-		return &vzdv1.VMTimingsResponse{Events: []*vzdv1.TimingEvent{
+	srv.VMTimingsFn = func(_ context.Context, _ *weftv1.VMTimingsRequest) (*weftv1.VMTimingsResponse, error) {
+		return &weftv1.VMTimingsResponse{Events: []*weftv1.TimingEvent{
 			// Out of order so sort.SliceStable runs.
 			{Name: "server.start_attempted", TsUnixNs: 200000000, Meta: map[string]string{"mode": "direct_linux"}},
 			{Name: "registered", TsUnixNs: 100000000},
@@ -94,8 +94,8 @@ func TestTimings_HumanFormat(t *testing.T) {
 
 func TestTimings_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMTimingsFn = func(_ context.Context, _ *vzdv1.VMTimingsRequest) (*vzdv1.VMTimingsResponse, error) {
-		return &vzdv1.VMTimingsResponse{Events: []*vzdv1.TimingEvent{
+	srv.VMTimingsFn = func(_ context.Context, _ *weftv1.VMTimingsRequest) (*weftv1.VMTimingsResponse, error) {
+		return &weftv1.VMTimingsResponse{Events: []*weftv1.TimingEvent{
 			{Name: "boot", TsUnixNs: 100, Meta: map[string]string{"k": "v"}},
 		}}, nil
 	}
@@ -116,7 +116,7 @@ func TestTimings_JSONFormat(t *testing.T) {
 
 func TestTimings_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMTimingsFn = func(_ context.Context, _ *vzdv1.VMTimingsRequest) (*vzdv1.VMTimingsResponse, error) {
+	srv.VMTimingsFn = func(_ context.Context, _ *weftv1.VMTimingsRequest) (*weftv1.VMTimingsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -155,7 +155,7 @@ func TestRenderTimeline_PicksLongestName(t *testing.T) {
 	// Drive renderTimeline directly to make sure the maxNameLen
 	// path runs even when no row has a meta map.
 	out := captureStdout(t, func() {
-		_ = renderTimeline([]*vzdv1.TimingEvent{
+		_ = renderTimeline([]*weftv1.TimingEvent{
 			{Name: "x", TsUnixNs: 1},
 			{Name: "much-longer", TsUnixNs: 2},
 		}, "vm")

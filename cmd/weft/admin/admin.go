@@ -1,4 +1,4 @@
-// Package admin implements `vzc admin …` — operator-side surface
+// Package admin implements `weft admin …` — operator-side surface
 // for control-plane introspection that doesn't fit under the
 // per-resource trees (project/user/network/volume/…). Today this
 // is the NATS authorization renderer; future siblings will be
@@ -11,11 +11,11 @@ import (
 	"os"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
-// Command returns the `vzc admin` cobra command + subcommands.
+// Command returns the `weft admin` cobra command + subcommands.
 func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "admin",
@@ -25,7 +25,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	return cmd
 }
 
-// natsAuthzCommand pulls the NATS authorization block from vzd's
+// natsAuthzCommand pulls the NATS authorization block from weft's
 // project registry and writes it to stdout (or `--out` file). The
 // rendered block is the static `authorization { ... }` snippet an
 // operator splices into nats.conf — see infra/nats/README.md for
@@ -35,7 +35,7 @@ func natsAuthzCommand(socket, sshSocket, sshKey *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "nats-authz",
 		Short: "Render the NATS authorization block from the project registry",
-		Long: `Pull the NATS conf "authorization { … }" block from vzd. The
+		Long: `Pull the NATS conf "authorization { … }" block from weft. The
 block lists one user entry per project (subscribe allow-list on
 that project's wildcard subject, publish denied) plus a
 default-deny on everything else.
@@ -51,7 +51,7 @@ infra/nats/README.md for the full bootstrap.`,
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.RenderNATSAuthorization(context.Background(), &vzdv1.RenderNATSAuthorizationRequest{
+			resp, err := c.RenderNATSAuthorization(context.Background(), &weftv1.RenderNATSAuthorizationRequest{
 				AdminPubkey: adminPubkey,
 			})
 			if err != nil {
@@ -61,14 +61,14 @@ infra/nats/README.md for the full bootstrap.`,
 				if err := os.WriteFile(outPath, resp.Config, 0o600); err != nil {
 					return fmt.Errorf("write %s: %w", outPath, err)
 				}
-				fmt.Fprintf(os.Stderr, "vzc admin nats-authz: wrote %d bytes to %s\n", len(resp.Config), outPath)
+				fmt.Fprintf(os.Stderr, "weft admin nats-authz: wrote %d bytes to %s\n", len(resp.Config), outPath)
 				return nil
 			}
 			_, err = os.Stdout.Write(resp.Config)
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&adminPubkey, "admin-pubkey", "", "NATS user-NKey pubkey (U…) of the platform itself; granted full pub/sub on vzd.>")
+	cmd.Flags().StringVar(&adminPubkey, "admin-pubkey", "", "NATS user-NKey pubkey (U…) of the platform itself; granted full pub/sub on weft.>")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Write rendered block to this file (mode 0600) instead of stdout")
 	return cmd
 }

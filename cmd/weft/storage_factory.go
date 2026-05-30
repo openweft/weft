@@ -38,7 +38,7 @@ import (
 )
 
 // storageFactory bundles the per-registry constructor + a tear-down
-// hook. Close() is called at vzd shutdown to release any shared
+// hook. Close() is called at weft shutdown to release any shared
 // connection (etcd) the factory keeps alive.
 type storageFactory struct {
 	new   func(name string) weft.Storage
@@ -61,13 +61,13 @@ func buildStorageFactory(t fileConfigTargets) (*storageFactory, error) {
 		return &storageFactory{new: nil, close: func() error { return nil }}, nil
 	case "etcd":
 		if len(t.etcdEndpoints) == 0 {
-			return nil, fmt.Errorf("storage backend = etcd but no endpoints configured (set storage.etcd.endpoints in vzd.hcl, or use embed-etcd for in-process)")
+			return nil, fmt.Errorf("storage backend = etcd but no endpoints configured (set storage.etcd.endpoints in weft.hcl, or use embed-etcd for in-process)")
 		}
 		return newEtcdStorageFactory(append([]string(nil), t.etcdEndpoints...), t.etcdUsername, t.etcdPassword, t.etcdKeyPrefix, nil)
 	case "embed-etcd":
 		// Spin the in-process etcd under <configDir>/etcd-embed,
 		// then dial it like any other etcd. configDir is the natural
-		// rooting point — same place vzd.hcl lives, so the embedded
+		// rooting point — same place weft.hcl lives, so the embedded
 		// data dir travels with the operator's config.
 		embed, err := startEmbedEtcd(t.configDir)
 		if err != nil {

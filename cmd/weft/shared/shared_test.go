@@ -1,5 +1,5 @@
 // Tests for package shared. The four wrappers (Dial / Client /
-// HumanBytes / ProtoStateStr) are thin pass-throughs over vzclient,
+// HumanBytes / ProtoStateStr) are thin pass-throughs over weftclient,
 // but they still need exercising so the cmd/weft/* tree clears 100 %
 // coverage. Renderers and JSON printers eat real proto fixtures.
 package shared
@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 // captureStdout pipes os.Stdout through an os.Pipe so tests can
@@ -80,9 +80,9 @@ func TestRenderTable_EmptyAndPopulated(t *testing.T) {
 		t.Errorf("empty render missing header: %q", out)
 	}
 	out = captureStdout(t, func() {
-		RenderTable([]*vzdv1.VMInfo{
-			{Name: "alpha", State: vzdv1.VMState_VM_STATE_RUNNING, Os: "linux", Cpu: 2, MemMb: 2048, DiskGb: 20, Ip: "10.0.0.1"},
-			{Name: "beta", State: vzdv1.VMState_VM_STATE_STOPPED, Os: "linux", Cpu: 1, MemMb: 1024, DiskGb: 10, Ip: ""},
+		RenderTable([]*weftv1.VMInfo{
+			{Name: "alpha", State: weftv1.VMState_VM_STATE_RUNNING, Os: "linux", Cpu: 2, MemMb: 2048, DiskGb: 20, Ip: "10.0.0.1"},
+			{Name: "beta", State: weftv1.VMState_VM_STATE_STOPPED, Os: "linux", Cpu: 1, MemMb: 1024, DiskGb: 10, Ip: ""},
 		})
 	})
 	if !strings.Contains(out, "alpha") || !strings.Contains(out, "beta") {
@@ -92,8 +92,8 @@ func TestRenderTable_EmptyAndPopulated(t *testing.T) {
 
 func TestPrintJSON_FormatsRows(t *testing.T) {
 	out := captureStdout(t, func() {
-		_ = PrintJSON([]*vzdv1.VMInfo{
-			{Name: "alpha", State: vzdv1.VMState_VM_STATE_RUNNING, Os: "linux", Cpu: 2, MemMb: 2048, DiskGb: 20, Ip: "10.0.0.1"},
+		_ = PrintJSON([]*weftv1.VMInfo{
+			{Name: "alpha", State: weftv1.VMState_VM_STATE_RUNNING, Os: "linux", Cpu: 2, MemMb: 2048, DiskGb: 20, Ip: "10.0.0.1"},
 		})
 	})
 	if !strings.Contains(out, `"name":"alpha"`) {
@@ -106,7 +106,7 @@ func TestPrintJSON_FormatsRows(t *testing.T) {
 
 func TestRenderImagesTable(t *testing.T) {
 	out := captureStdout(t, func() {
-		RenderImagesTable([]*vzdv1.ImageInfo{
+		RenderImagesTable([]*weftv1.ImageInfo{
 			{Name: "ubuntu", Format: "qcow2", Url: "https://example.com/ubuntu.img", SizeBytes: 1024 * 1024 * 512},
 		})
 	})
@@ -117,7 +117,7 @@ func TestRenderImagesTable(t *testing.T) {
 
 func TestPrintImagesJSON(t *testing.T) {
 	out := captureStdout(t, func() {
-		_ = PrintImagesJSON([]*vzdv1.ImageInfo{
+		_ = PrintImagesJSON([]*weftv1.ImageInfo{
 			{Name: "ubuntu", Format: "qcow2", Url: "u", SizeBytes: 42},
 		})
 	})
@@ -136,10 +136,10 @@ func TestHumanBytes(t *testing.T) {
 }
 
 func TestProtoStateStr(t *testing.T) {
-	if got := ProtoStateStr(vzdv1.VMState_VM_STATE_RUNNING); got != "running" {
+	if got := ProtoStateStr(weftv1.VMState_VM_STATE_RUNNING); got != "running" {
 		t.Errorf("ProtoStateStr running = %q", got)
 	}
-	if got := ProtoStateStr(vzdv1.VMState_VM_STATE_STOPPED); got != "stopped" {
+	if got := ProtoStateStr(weftv1.VMState_VM_STATE_STOPPED); got != "stopped" {
 		t.Errorf("ProtoStateStr stopped = %q", got)
 	}
 }

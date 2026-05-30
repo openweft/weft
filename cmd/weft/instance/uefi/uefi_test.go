@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -50,8 +50,8 @@ func TestCommand_Structure(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListUEFIVarsFn = func(_ context.Context, _ *vzdv1.ListUEFIVarsRequest) (*vzdv1.ListUEFIVarsResponse, error) {
-		return &vzdv1.ListUEFIVarsResponse{Vars: []*vzdv1.UEFIVar{
+	srv.ListUEFIVarsFn = func(_ context.Context, _ *weftv1.ListUEFIVarsRequest) (*weftv1.ListUEFIVarsResponse, error) {
+		return &weftv1.ListUEFIVarsResponse{Vars: []*weftv1.UEFIVar{
 			{Namespace: efiGlobalNS, Name: "BootOrder", ValueHex: "00000001", Attributes: []string{"NonVolatile"}, UpdatedAt: "2026-05-29T10:00:00Z"},
 			{Namespace: efiGlobalNS, Name: "SecureBoot", ValueHex: "", UpdatedAt: "2026-05-29T10:00:00Z"},
 		}}, nil
@@ -72,10 +72,10 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestSet_DefaultsToEFIGlobalNS(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var seen *vzdv1.SetUEFIVarRequest
-	srv.SetUEFIVarFn = func(_ context.Context, in *vzdv1.SetUEFIVarRequest) (*vzdv1.SetUEFIVarResponse, error) {
+	var seen *weftv1.SetUEFIVarRequest
+	srv.SetUEFIVarFn = func(_ context.Context, in *weftv1.SetUEFIVarRequest) (*weftv1.SetUEFIVarResponse, error) {
 		seen = in
-		return &vzdv1.SetUEFIVarResponse{Var: in.Var}, nil
+		return &weftv1.SetUEFIVarResponse{Var: in.Var}, nil
 	}
 	captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -101,10 +101,10 @@ func TestSet_DefaultsToEFIGlobalNS(t *testing.T) {
 func TestSet_ExplicitNamespace(t *testing.T) {
 	srv := testutil.NewServer(t)
 	const customNS = "11111111-1111-1111-1111-111111111111"
-	var seen *vzdv1.SetUEFIVarRequest
-	srv.SetUEFIVarFn = func(_ context.Context, in *vzdv1.SetUEFIVarRequest) (*vzdv1.SetUEFIVarResponse, error) {
+	var seen *weftv1.SetUEFIVarRequest
+	srv.SetUEFIVarFn = func(_ context.Context, in *weftv1.SetUEFIVarRequest) (*weftv1.SetUEFIVarResponse, error) {
 		seen = in
-		return &vzdv1.SetUEFIVarResponse{Var: in.Var}, nil
+		return &weftv1.SetUEFIVarResponse{Var: in.Var}, nil
 	}
 	captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -120,10 +120,10 @@ func TestSet_ExplicitNamespace(t *testing.T) {
 
 func TestRm_DefaultsToEFIGlobalNS(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var seen *vzdv1.DeleteUEFIVarRequest
-	srv.DeleteUEFIVarFn = func(_ context.Context, in *vzdv1.DeleteUEFIVarRequest) (*vzdv1.DeleteUEFIVarResponse, error) {
+	var seen *weftv1.DeleteUEFIVarRequest
+	srv.DeleteUEFIVarFn = func(_ context.Context, in *weftv1.DeleteUEFIVarRequest) (*weftv1.DeleteUEFIVarResponse, error) {
 		seen = in
-		return &vzdv1.DeleteUEFIVarResponse{}, nil
+		return &weftv1.DeleteUEFIVarResponse{}, nil
 	}
 	captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

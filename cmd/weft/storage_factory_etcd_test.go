@@ -16,7 +16,7 @@ func TestBuildStorageFactory_EtcdLazyClient(t *testing.T) {
 	sf, err := buildStorageFactory(fileConfigTargets{
 		storageBackend: "etcd",
 		etcdEndpoints:  []string{"http://127.0.0.1:2379"},
-		etcdKeyPrefix:  "/vzd/test/",
+		etcdKeyPrefix:  "/weft/test/",
 	})
 	if err != nil {
 		t.Fatalf("buildStorageFactory(etcd): %v", err)

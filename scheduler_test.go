@@ -197,7 +197,7 @@ func TestAdapter_ScheduleVM_RoutesThroughHostRegistry(t *testing.T) {
 
 // TestAdapter_SetScheduler swaps the policy at runtime — useful
 // for tests that want a forced outcome or for operators picking
-// a different default policy via vzd.hcl.
+// a different default policy via weft.hcl.
 func TestAdapter_SetScheduler(t *testing.T) {
 	stateDir := t.TempDir()
 	factory := func(name string) Storage { return NewMemStorage() }

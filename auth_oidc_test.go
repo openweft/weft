@@ -134,7 +134,7 @@ func TestOIDCValidator_ValidateHappyPath(t *testing.T) {
 	it := newOIDCTestIssuer(t)
 	v, err := NewOIDCValidator(context.Background(), OIDCConfig{
 		Issuer:   it.issuer,
-		ClientID: "vzd",
+		ClientID: "weft",
 	})
 	if err != nil {
 		t.Fatalf("NewOIDCValidator: %v", err)
@@ -143,7 +143,7 @@ func TestOIDCValidator_ValidateHappyPath(t *testing.T) {
 		t.Errorf("Issuer() = %q, want %q", v.Issuer(), it.issuer)
 	}
 
-	token := it.mintToken(t, "ldap:alice", "vzd", "alice@example.com", []string{"team-alpha"})
+	token := it.mintToken(t, "ldap:alice", "weft", "alice@example.com", []string{"team-alpha"})
 	caller, err := v.Validate(context.Background(), token)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
@@ -169,7 +169,7 @@ func TestOIDCValidator_ValidateRejectsBadToken(t *testing.T) {
 	it := newOIDCTestIssuer(t)
 	v, err := NewOIDCValidator(context.Background(), OIDCConfig{
 		Issuer:   it.issuer,
-		ClientID: "vzd",
+		ClientID: "weft",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -196,8 +196,8 @@ func TestOIDCValidator_NilReceiverIsDevMode(t *testing.T) {
 
 func TestUnaryInterceptor_ValidToken(t *testing.T) {
 	it := newOIDCTestIssuer(t)
-	v, _ := NewOIDCValidator(context.Background(), OIDCConfig{Issuer: it.issuer, ClientID: "vzd"})
-	token := it.mintToken(t, "ldap:carol", "vzd", "carol@x", nil)
+	v, _ := NewOIDCValidator(context.Background(), OIDCConfig{Issuer: it.issuer, ClientID: "weft"})
+	token := it.mintToken(t, "ldap:carol", "weft", "carol@x", nil)
 
 	var persisted *Caller
 	interceptor := UnaryAuthInterceptor(v, func(c *Caller) { persisted = c })
@@ -252,8 +252,8 @@ func TestStreamInterceptor_DevMode(t *testing.T) {
 
 func TestStreamInterceptor_ValidToken(t *testing.T) {
 	it := newOIDCTestIssuer(t)
-	v, _ := NewOIDCValidator(context.Background(), OIDCConfig{Issuer: it.issuer, ClientID: "vzd"})
-	token := it.mintToken(t, "ldap:dave", "vzd", "dave@x", nil)
+	v, _ := NewOIDCValidator(context.Background(), OIDCConfig{Issuer: it.issuer, ClientID: "weft"})
+	token := it.mintToken(t, "ldap:dave", "weft", "dave@x", nil)
 
 	var persisted *Caller
 	interceptor := StreamAuthInterceptor(v, func(c *Caller) { persisted = c })
@@ -295,8 +295,8 @@ func TestStreamInterceptor_MissingToken(t *testing.T) {
 
 func TestAuthenticate_ValidToken(t *testing.T) {
 	it := newOIDCTestIssuer(t)
-	v, _ := NewOIDCValidator(context.Background(), OIDCConfig{Issuer: it.issuer, ClientID: "vzd"})
-	token := it.mintToken(t, "ldap:erin", "vzd", "erin@x", nil)
+	v, _ := NewOIDCValidator(context.Background(), OIDCConfig{Issuer: it.issuer, ClientID: "weft"})
+	token := it.mintToken(t, "ldap:erin", "weft", "erin@x", nil)
 	ctx := metadata.NewIncomingContext(context.Background(),
 		metadata.Pairs("authorization", "Bearer "+token))
 	c, err := authenticate(ctx, v)
@@ -317,7 +317,7 @@ func TestAuthenticate_NoMetadata(t *testing.T) {
 
 func TestAuthenticate_InvalidToken(t *testing.T) {
 	it := newOIDCTestIssuer(t)
-	v, _ := NewOIDCValidator(context.Background(), OIDCConfig{Issuer: it.issuer, ClientID: "vzd"})
+	v, _ := NewOIDCValidator(context.Background(), OIDCConfig{Issuer: it.issuer, ClientID: "weft"})
 	ctx := metadata.NewIncomingContext(context.Background(),
 		metadata.Pairs("authorization", "Bearer not-a-jwt"))
 	if _, err := authenticate(ctx, v); err == nil {

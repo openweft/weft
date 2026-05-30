@@ -2,13 +2,13 @@ package weft
 
 // agent_cp.go implements `agent.ControlPlane` against the
 // in-process Adapter. This is the single-process integration
-// target: vzd-control runs an embedded vzd-agent inside the
+// target: weft-control runs an embedded weft-agent inside the
 // same binary; the agent registers + heartbeats by calling
 // these wrappers directly instead of going over gRPC.
 //
 // Pattern: type-conversion shim. Each method translates the
 // agent-side value type (agent.HostRegistration,
-// agent.DriverHandles) into the vzd-control-side type
+// agent.DriverHandles) into the weft-control-side type
 // (RegisterHostSpec, HostHandle) and delegates to the existing
 // Adapter methods. No new business logic — just plumbing.
 //
@@ -17,7 +17,7 @@ package weft
 // Adapter methods through the RPC handler. The agent code
 // stays identical.
 //
-// See [[vzd-driver-registry-split]] for the broader design
+// See [[weft-driver-registry-split]] for the broader design
 // and pkg/openweft/weft/agent/README.md for the agent shape.
 
 import (
@@ -29,7 +29,7 @@ import (
 // AsControlPlane returns a `agent.ControlPlane` view of this
 // Adapter. The returned value retains a pointer to `a`, so
 // callers should be ok with the agent + adapter sharing the
-// same lifetime (typical: agent embedded in vzd-control).
+// same lifetime (typical: agent embedded in weft-control).
 func (a *Adapter) AsControlPlane() agent.ControlPlane {
 	return adapterControlPlane{a: a}
 }

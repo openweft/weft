@@ -1,8 +1,8 @@
 // Package ps implements `weft instance ps` — list a micro-VM's process
 // table (ps aux) by dialing the VM's Introspect gRPC service directly
 // over a userspace WireGuard overlay. Unlike the other instance
-// subcommands this talks to the VM, not to vzd, so it takes WireGuard
-// peer flags instead of the vzd socket/SSH flags.
+// subcommands this talks to the VM, not to weft, so it takes WireGuard
+// peer flags instead of the weft socket/SSH flags.
 package ps
 
 import (

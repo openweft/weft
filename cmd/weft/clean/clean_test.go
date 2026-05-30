@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -52,11 +52,11 @@ func TestClean_BadSocketErrors(t *testing.T) {
 
 func TestClean_DryRunListsAndAnnotates(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CleanImagesFn = func(_ context.Context, in *vzdv1.CleanImagesRequest) (*vzdv1.CleanImagesResponse, error) {
+	srv.CleanImagesFn = func(_ context.Context, in *weftv1.CleanImagesRequest) (*weftv1.CleanImagesResponse, error) {
 		if !in.DryRun {
 			t.Errorf("expected dry-run when --yes not set, got DryRun=%v", in.DryRun)
 		}
-		return &vzdv1.CleanImagesResponse{Deleted: []string{"img-a", "img-b"}}, nil
+		return &weftv1.CleanImagesResponse{Deleted: []string{"img-a", "img-b"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -75,11 +75,11 @@ func TestClean_DryRunListsAndAnnotates(t *testing.T) {
 
 func TestClean_ConfirmedDeletesNoBanner(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CleanImagesFn = func(_ context.Context, in *vzdv1.CleanImagesRequest) (*vzdv1.CleanImagesResponse, error) {
+	srv.CleanImagesFn = func(_ context.Context, in *weftv1.CleanImagesRequest) (*weftv1.CleanImagesResponse, error) {
 		if in.DryRun {
 			t.Errorf("expected DryRun=false when --yes was set")
 		}
-		return &vzdv1.CleanImagesResponse{Deleted: []string{"img-z"}}, nil
+		return &weftv1.CleanImagesResponse{Deleted: []string{"img-z"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -98,8 +98,8 @@ func TestClean_ConfirmedDeletesNoBanner(t *testing.T) {
 
 func TestClean_NothingToCleanMessage(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CleanImagesFn = func(_ context.Context, _ *vzdv1.CleanImagesRequest) (*vzdv1.CleanImagesResponse, error) {
-		return &vzdv1.CleanImagesResponse{}, nil
+	srv.CleanImagesFn = func(_ context.Context, _ *weftv1.CleanImagesRequest) (*weftv1.CleanImagesResponse, error) {
+		return &weftv1.CleanImagesResponse{}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -115,7 +115,7 @@ func TestClean_NothingToCleanMessage(t *testing.T) {
 
 func TestClean_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CleanImagesFn = func(_ context.Context, _ *vzdv1.CleanImagesRequest) (*vzdv1.CleanImagesResponse, error) {
+	srv.CleanImagesFn = func(_ context.Context, _ *weftv1.CleanImagesRequest) (*weftv1.CleanImagesResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

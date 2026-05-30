@@ -1,7 +1,7 @@
 package weft
 
 // eventbus_nats.go is the NATS-backed implementation of EventBus
-// (per [[vzd-event-bus-nats]]). Selected at startup via HCL
+// (per [[weft-event-bus-nats]]). Selected at startup via HCL
 // `event_bus { backend = "nats"; nats { url = "..." } }`.
 //
 // Wire model:
@@ -44,10 +44,10 @@ type NATSConfig struct {
 	URL             string
 	CredentialsFile string // optional .creds for NKeys-based auth
 	Name            string // ConnectionName visible on nats-server
-	SubjectPrefix   string // default "vzd.events"
+	SubjectPrefix   string // default "weft.events"
 }
 
-// NATSEventBus is the production backend. Open one per vzd
+// NATSEventBus is the production backend. Open one per weft
 // process; share across registries via Adapter.SetEventBus.
 type NATSEventBus struct {
 	nc            *nats.Conn
@@ -70,16 +70,16 @@ type natsSubscription struct {
 // NewNATSEventBus opens a NATS connection and returns the bus
 // wrapper. Per-call defaults match the cloud-platform shape: a
 // 3-DC NATS cluster reachable on `nats://nats.internal:4222`,
-// generic client name "vzd".
+// generic client name "weft".
 func NewNATSEventBus(cfg NATSConfig) (*NATSEventBus, error) {
 	if cfg.URL == "" {
 		return nil, errors.New("nats event bus: URL is required")
 	}
 	if cfg.SubjectPrefix == "" {
-		cfg.SubjectPrefix = "vzd.events"
+		cfg.SubjectPrefix = "weft.events"
 	}
 	if cfg.Name == "" {
-		cfg.Name = "vzd"
+		cfg.Name = "weft"
 	}
 	opts := []nats.Option{
 		nats.Name(cfg.Name),
@@ -108,7 +108,7 @@ func NewNATSEventBus(cfg NATSConfig) (*NATSEventBus, error) {
 // silently no-ops (errors are logged at startup, not surfaced
 // per-event so a transient NATS hiccup doesn't break callers).
 //
-// Per [[vzd-tenant-event-access]] events whose `kind` matches the
+// Per [[weft-tenant-event-access]] events whose `kind` matches the
 // tenantSafeKindPrefix allowlist *also* publish to the per-project
 // subject `<prefix>.project.<uuid>.events.<kind>` — that's how
 // workloads inside a project subscribe to their own events without
@@ -125,11 +125,11 @@ func (b *NATSEventBus) Publish(ev PlatformEvent) {
 	if err != nil {
 		return
 	}
-	// Global subject — operators consume via vzc events.
+	// Global subject — operators consume via weft events.
 	_ = b.nc.Publish(b.subjectFor(ev.Kind), payload)
 	// Per-project subject — tenants inside the project consume via
-	// `nats sub vzd.project.<uuid>.events.>` (Phase-1 of
-	// [[vzd-tenant-event-access]]: dual-publish without auth
+	// `nats sub weft.project.<uuid>.events.>` (Phase-1 of
+	// [[weft-tenant-event-access]]: dual-publish without auth
 	// wiring; Phase 2+ adds NKey gating). Only events whose kind
 	// is in tenantSafeKindPrefixes are mirrored — project.* and
 	// user.* stay global-only.
@@ -164,7 +164,7 @@ func (b *NATSEventBus) subjectFor(kind string) string {
 
 // projectSubjectFor returns the per-project subject:
 // `<prefix>.project.<uuid>.events.<kind>`. Used by Publish's
-// tenant-mirror path. Per [[vzd-tenant-event-access]] the
+// tenant-mirror path. Per [[weft-tenant-event-access]] the
 // subject keys on UUID (not display name) so a project rename
 // never disrupts subscribers.
 func (b *NATSEventBus) projectSubjectFor(projectUUID, kind string) string {
@@ -284,7 +284,7 @@ func (b *NATSEventBus) subjectsFor(prefixes []string) []string {
 
 // SubscriberCount returns 0 for the NATS-backed bus: subscribers
 // elsewhere on the cluster aren't visible from this process. The
-// local count (Go-channel consumers attached to this vzd) is
+// local count (Go-channel consumers attached to this weft) is
 // available via b.localSubs() for diagnostics if needed.
 func (b *NATSEventBus) SubscriberCount() int { return 0 }
 

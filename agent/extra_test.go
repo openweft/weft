@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc"
 )
 
@@ -272,7 +272,7 @@ type failingConnectClient struct {
 	err error
 }
 
-func (f *failingConnectClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[vzdv1.AgentMessage, vzdv1.ControlMessage], error) {
+func (f *failingConnectClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[weftv1.AgentMessage, weftv1.ControlMessage], error) {
 	return nil, f.err
 }
 
@@ -301,7 +301,7 @@ func newPreClosedBidi() *preClosedBidiStream {
 
 type preClosedDispatchClient struct{ s *preClosedBidiStream }
 
-func (p *preClosedDispatchClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[vzdv1.AgentMessage, vzdv1.ControlMessage], error) {
+func (p *preClosedDispatchClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[weftv1.AgentMessage, weftv1.ControlMessage], error) {
 	return p.s, nil
 }
 
@@ -341,7 +341,7 @@ func TestRunDispatchClient_RecvHelloAckError(t *testing.T) {
 // "send pong" / "send driver reply" failure branches.
 type sendFailingBidi struct {
 	grpc.ClientStream
-	recvCh chan *vzdv1.ControlMessage
+	recvCh chan *weftv1.ControlMessage
 	// once Recv has emitted a HelloAck + a follow-up, future Sends fail.
 	sendsAllowed int // atomic-ish: only the goroutine that calls Send sets it
 	sendErr      error
@@ -349,12 +349,12 @@ type sendFailingBidi struct {
 
 func newSendFailingBidi(sendErr error) *sendFailingBidi {
 	return &sendFailingBidi{
-		recvCh:  make(chan *vzdv1.ControlMessage, 16),
+		recvCh:  make(chan *weftv1.ControlMessage, 16),
 		sendErr: sendErr,
 	}
 }
 
-func (f *sendFailingBidi) Send(_ *vzdv1.AgentMessage) error {
+func (f *sendFailingBidi) Send(_ *weftv1.AgentMessage) error {
 	f.sendsAllowed++
 	if f.sendsAllowed == 1 {
 		// First Send is the Hello — let it through.
@@ -363,7 +363,7 @@ func (f *sendFailingBidi) Send(_ *vzdv1.AgentMessage) error {
 	return f.sendErr
 }
 
-func (f *sendFailingBidi) Recv() (*vzdv1.ControlMessage, error) {
+func (f *sendFailingBidi) Recv() (*weftv1.ControlMessage, error) {
 	m, ok := <-f.recvCh
 	if !ok {
 		return nil, io.EOF
@@ -373,7 +373,7 @@ func (f *sendFailingBidi) Recv() (*vzdv1.ControlMessage, error) {
 
 type sendFailingDispatchClient struct{ s *sendFailingBidi }
 
-func (c *sendFailingDispatchClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[vzdv1.AgentMessage, vzdv1.ControlMessage], error) {
+func (c *sendFailingDispatchClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[weftv1.AgentMessage, weftv1.ControlMessage], error) {
 	return c.s, nil
 }
 
@@ -383,8 +383,8 @@ func TestRunDispatchClient_SendPongError(t *testing.T) {
 	s := newSendFailingBidi(errors.New("write failed"))
 	go func() {
 		// Push HelloAck then a Ping so the loop tries to Send a Pong.
-		s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "x"}}}
-		s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Ping{Ping: &vzdv1.ControlPing{SessionId: "x"}}}
+		s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "x"}}}
+		s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Ping{Ping: &weftv1.ControlPing{SessionId: "x"}}}
 	}()
 	err := RunDispatchClient(context.Background(), &sendFailingDispatchClient{s: s}, DispatchOptions{HostUUID: "h-1"})
 	if err == nil {
@@ -400,11 +400,11 @@ func TestRunDispatchClient_SendPongError(t *testing.T) {
 func TestRunDispatchClient_SendDriverReplyError_Deterministic(t *testing.T) {
 	s := newSendFailingBidi(errors.New("write failed"))
 	go func() {
-		s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "x"}}}
-		s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Request{Request: &vzdv1.DriverRequest{RequestId: "req"}}}
+		s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "x"}}}
+		s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Request{Request: &weftv1.DriverRequest{RequestId: "req"}}}
 	}()
-	handler := func(_ context.Context, req *vzdv1.DriverRequest) *vzdv1.DriverReply {
-		return &vzdv1.DriverReply{RequestId: req.RequestId}
+	handler := func(_ context.Context, req *weftv1.DriverRequest) *weftv1.DriverReply {
+		return &weftv1.DriverReply{RequestId: req.RequestId}
 	}
 	err := RunDispatchClient(context.Background(), &sendFailingDispatchClient{s: s}, DispatchOptions{HostUUID: "h-1", DriverHandler: handler})
 	if err == nil {
@@ -424,13 +424,13 @@ type recvErrorBidi struct {
 	recvErr error
 }
 
-func (f *recvErrorBidi) Send(_ *vzdv1.AgentMessage) error { return nil }
+func (f *recvErrorBidi) Send(_ *weftv1.AgentMessage) error { return nil }
 
-func (f *recvErrorBidi) Recv() (*vzdv1.ControlMessage, error) {
+func (f *recvErrorBidi) Recv() (*weftv1.ControlMessage, error) {
 	f.step++
 	switch f.step {
 	case 1:
-		return &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "x"}}}, nil
+		return &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "x"}}}, nil
 	default:
 		return nil, f.recvErr
 	}
@@ -438,7 +438,7 @@ func (f *recvErrorBidi) Recv() (*vzdv1.ControlMessage, error) {
 
 type recvErrorDispatchClient struct{ s *recvErrorBidi }
 
-func (c *recvErrorDispatchClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[vzdv1.AgentMessage, vzdv1.ControlMessage], error) {
+func (c *recvErrorDispatchClient) Connect(_ context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[weftv1.AgentMessage, weftv1.ControlMessage], error) {
 	return c.s, nil
 }
 
@@ -468,9 +468,9 @@ func TestRunDispatchClient_DuplicateHelloAckLogged(t *testing.T) {
 		done <- RunDispatchClient(context.Background(), c, DispatchOptions{HostUUID: "h-1", Logger: logger})
 	}()
 	<-s.sendCh
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "sess-A"}}}
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "sess-A"}}}
 	// Duplicate HelloAck — logged + ignored.
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "sess-B"}}}
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "sess-B"}}}
 	time.Sleep(20 * time.Millisecond) // let goroutine catch up
 	s.close()
 	<-done
@@ -485,8 +485,8 @@ func TestRunDispatchClient_SendDriverReplyError(t *testing.T) {
 	s := newFakeBidi()
 	c := &fakeDispatchClient{s: s}
 
-	handler := func(_ context.Context, req *vzdv1.DriverRequest) *vzdv1.DriverReply {
-		return &vzdv1.DriverReply{RequestId: req.RequestId, Error: "no-op"}
+	handler := func(_ context.Context, req *weftv1.DriverRequest) *weftv1.DriverReply {
+		return &weftv1.DriverReply{RequestId: req.RequestId, Error: "no-op"}
 	}
 
 	done := make(chan error, 1)
@@ -494,13 +494,13 @@ func TestRunDispatchClient_SendDriverReplyError(t *testing.T) {
 		done <- RunDispatchClient(context.Background(), c, DispatchOptions{HostUUID: "h-1", DriverHandler: handler})
 	}()
 	<-s.sendCh
-	s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "x"}}}
+	s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "x"}}}
 	// Close before sending Request so Send fails.
 	s.close()
 	// Push a DriverRequest; the recv loop will see EOF before processing,
 	// so we just accept whatever the test surface returns.
 	select {
-	case s.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_Request{Request: &vzdv1.DriverRequest{RequestId: "rq-1"}}}:
+	case s.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_Request{Request: &weftv1.DriverRequest{RequestId: "rq-1"}}}:
 	default:
 	}
 	<-done
@@ -588,7 +588,7 @@ func TestRunDispatchClientWithRetry_LongSessionResetsBackoff(t *testing.T) {
 				return
 			}
 			select {
-			case stream.recvCh <- &vzdv1.ControlMessage{Body: &vzdv1.ControlMessage_HelloAck{HelloAck: &vzdv1.ControlHelloAck{SessionId: "s1"}}}:
+			case stream.recvCh <- &weftv1.ControlMessage{Body: &weftv1.ControlMessage_HelloAck{HelloAck: &weftv1.ControlHelloAck{SessionId: "s1"}}}:
 			default:
 				return
 			}

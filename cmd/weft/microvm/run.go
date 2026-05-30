@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// runCmd returns the `weft microvm run` command. The VzdSocket field
+// runCmd returns the `weft microvm run` command. The WeftSocket field
 // is sourced from the shared --socket flag so the library dials the
 // same agent the rest of the CLI talks to.
 func runCmd(socket *string) *cobra.Command {
@@ -44,7 +44,7 @@ entrypoint+cmd, e.g.:
 				Cmd:       cmdOverride,
 				Detach:    detach,
 				MountTag:  mountTag,
-				VzdSocket: *socket,
+				WeftSocket: *socket,
 				Project:   project,
 				Pod:       pod,
 			})

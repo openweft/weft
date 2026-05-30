@@ -1,4 +1,4 @@
-// Package instance implements the vzc instance sub-command group.
+// Package instance implements the weft instance sub-command group.
 package instance
 
 import (
@@ -15,7 +15,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/instance/timings"
 	"github.com/openweft/weft/cmd/weft/instance/uefi"
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -45,14 +45,14 @@ func listCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List VMs managed by vzd",
+		Short: "List VMs managed by weft",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListVMs(context.Background(), &vzdv1.ListVMsRequest{})
+			resp, err := c.ListVMs(context.Background(), &weftv1.ListVMsRequest{})
 			if err != nil {
 				return err
 			}

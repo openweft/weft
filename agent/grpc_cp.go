@@ -34,19 +34,19 @@ import (
 	"fmt"
 	"log"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc"
 )
 
 // HostRegistryClient is the slim slice of the gRPC client this
 // stub needs : the two Host-registry methods. Defining it here
-// (rather than taking the full `vzdv1.WeftAgentClient`) keeps
+// (rather than taking the full `weftv1.WeftAgentClient`) keeps
 // tests trivial — mock just these two — and avoids dragging
 // dozens of unrelated methods into the agent's import surface.
 // The real generated client satisfies this interface structurally.
 type HostRegistryClient interface {
-	RegisterHost(ctx context.Context, in *vzdv1.RegisterHostRequest, opts ...grpc.CallOption) (*vzdv1.RegisterHostResponse, error)
-	HeartbeatHost(ctx context.Context, in *vzdv1.HeartbeatHostRequest, opts ...grpc.CallOption) (*vzdv1.HeartbeatHostResponse, error)
+	RegisterHost(ctx context.Context, in *weftv1.RegisterHostRequest, opts ...grpc.CallOption) (*weftv1.RegisterHostResponse, error)
+	HeartbeatHost(ctx context.Context, in *weftv1.HeartbeatHostRequest, opts ...grpc.CallOption) (*weftv1.HeartbeatHostResponse, error)
 }
 
 // NewGRPCControlPlane wraps an existing gRPC client into a
@@ -69,7 +69,7 @@ type grpcControlPlane struct {
 // returned UUID matches `reg.UUID` for the agent-restart case ;
 // the server mints a fresh one when reg.UUID is empty.
 func (g *grpcControlPlane) RegisterHost(ctx context.Context, reg HostRegistration) (string, error) {
-	req := &vzdv1.RegisterHostRequest{
+	req := &weftv1.RegisterHostRequest{
 		Uuid:           reg.UUID,
 		Hostname:       reg.Hostname,
 		Az:             reg.AZ,
@@ -105,7 +105,7 @@ func (g *grpcControlPlane) AttachDrivers(_ context.Context, hostUUID string, _ D
 // bubble up so the agent's heartbeat goroutine can decide
 // whether to back off + retry.
 func (g *grpcControlPlane) Heartbeat(ctx context.Context, hostUUID string) error {
-	_, err := g.c.HeartbeatHost(ctx, &vzdv1.HeartbeatHostRequest{Uuid: hostUUID})
+	_, err := g.c.HeartbeatHost(ctx, &weftv1.HeartbeatHostRequest{Uuid: hostUUID})
 	if err != nil {
 		return fmt.Errorf("grpc HeartbeatHost: %w", err)
 	}

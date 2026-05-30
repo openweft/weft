@@ -56,12 +56,12 @@ func TestCmdlineForGuest_Override(t *testing.T) {
 }
 
 // TestDefaultRootfsPath_XDGOverride exercises the $XDG_DATA_HOME branch
-// of nclDataHome.
+// of microvmDataHome.
 func TestDefaultRootfsPath_XDGOverride(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "/var/lib/share")
 	p := &Plan{OCIImage: "x/y:z"}
 	got := p.DefaultRootfsPath()
-	if !strings.Contains(got, "/var/lib/share/ncl/images/") {
+	if !strings.Contains(got, "/var/lib/share/weft-microvm/images/") {
 		t.Errorf("DefaultRootfsPath = %q, expected XDG path", got)
 	}
 }
@@ -70,7 +70,7 @@ func TestDefaultRootfsPath_XDGOverride(t *testing.T) {
 func TestDefaultArtefact_Resolves(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "/srv/xdg")
 	got := DefaultArtefact("kernel")
-	if got != filepath.Join("/srv/xdg", "ncl", "kernel") {
+	if got != filepath.Join("/srv/xdg", "weft-microvm", "kernel") {
 		t.Errorf("DefaultArtefact = %q", got)
 	}
 }
@@ -560,7 +560,7 @@ func TestTopologicalSort_LongerCycle(t *testing.T) {
 	}
 }
 
-// -- nclDataHome with no XDG_DATA_HOME -------------------------------------
+// -- microvmDataHome with no XDG_DATA_HOME -------------------------------------
 
 // TestDefaultRootfsPath_NoXDG exercises the fallback to ~/.local/share.
 // Use t.Setenv to remove XDG_DATA_HOME and rely on the home-dir lookup.
@@ -568,7 +568,7 @@ func TestDefaultRootfsPath_NoXDG(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 	p := &Plan{OCIImage: "registry/img:tag"}
 	got := p.DefaultRootfsPath()
-	if !strings.Contains(got, ".local/share/ncl/images/") {
+	if !strings.Contains(got, ".local/share/weft-microvm/images/") {
 		t.Errorf("DefaultRootfsPath fallback = %q", got)
 	}
 }

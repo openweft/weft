@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc"
 )
 
@@ -15,14 +15,14 @@ import (
 // programmable responses. Implements the HostRegistryClient
 // surface so the gRPC stub takes it directly.
 type fakeGRPCClient struct {
-	regCalls  []*vzdv1.RegisterHostRequest
-	hbCalls   []*vzdv1.HeartbeatHostRequest
-	regResp   *vzdv1.RegisterHostResponse
+	regCalls  []*weftv1.RegisterHostRequest
+	hbCalls   []*weftv1.HeartbeatHostRequest
+	regResp   *weftv1.RegisterHostResponse
 	regErr    error
 	hbErr     error
 }
 
-func (f *fakeGRPCClient) RegisterHost(_ context.Context, in *vzdv1.RegisterHostRequest, _ ...grpc.CallOption) (*vzdv1.RegisterHostResponse, error) {
+func (f *fakeGRPCClient) RegisterHost(_ context.Context, in *weftv1.RegisterHostRequest, _ ...grpc.CallOption) (*weftv1.RegisterHostResponse, error) {
 	f.regCalls = append(f.regCalls, in)
 	if f.regErr != nil {
 		return nil, f.regErr
@@ -30,12 +30,12 @@ func (f *fakeGRPCClient) RegisterHost(_ context.Context, in *vzdv1.RegisterHostR
 	return f.regResp, nil
 }
 
-func (f *fakeGRPCClient) HeartbeatHost(_ context.Context, in *vzdv1.HeartbeatHostRequest, _ ...grpc.CallOption) (*vzdv1.HeartbeatHostResponse, error) {
+func (f *fakeGRPCClient) HeartbeatHost(_ context.Context, in *weftv1.HeartbeatHostRequest, _ ...grpc.CallOption) (*weftv1.HeartbeatHostResponse, error) {
 	f.hbCalls = append(f.hbCalls, in)
 	if f.hbErr != nil {
 		return nil, f.hbErr
 	}
-	return &vzdv1.HeartbeatHostResponse{}, nil
+	return &weftv1.HeartbeatHostResponse{}, nil
 }
 
 // TestGRPCControlPlane_RegisterHost pins the agent→server
@@ -44,7 +44,7 @@ func (f *fakeGRPCClient) HeartbeatHost(_ context.Context, in *vzdv1.HeartbeatHos
 // agent's struct shape and the proto.
 func TestGRPCControlPlane_RegisterHost(t *testing.T) {
 	fake := &fakeGRPCClient{
-		regResp: &vzdv1.RegisterHostResponse{Host: &vzdv1.HostInfo{Uuid: "h-abc"}},
+		regResp: &weftv1.RegisterHostResponse{Host: &weftv1.HostInfo{Uuid: "h-abc"}},
 	}
 	cp := NewGRPCControlPlane(fake, nil)
 
@@ -89,7 +89,7 @@ func TestGRPCControlPlane_RegisterHost(t *testing.T) {
 // protocol violation ; the stub surfaces it as an error rather
 // than returning an empty UUID.
 func TestGRPCControlPlane_RegisterHost_EmptyResponse(t *testing.T) {
-	fake := &fakeGRPCClient{regResp: &vzdv1.RegisterHostResponse{Host: nil}}
+	fake := &fakeGRPCClient{regResp: &weftv1.RegisterHostResponse{Host: nil}}
 	cp := NewGRPCControlPlane(fake, nil)
 	_, err := cp.RegisterHost(context.Background(), HostRegistration{Hostname: "h"})
 	if err == nil {

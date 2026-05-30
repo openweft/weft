@@ -58,8 +58,8 @@ func TestRenderNATSAuthorization_ProjectGetsItsSubject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderNATSAuthorization: %v", err)
 	}
-	wantSub := "vzd.events.project." + p.UUID + ".events.>"
-	wantPub := "vzd.events.project." + p.UUID + ".app.>"
+	wantSub := "weft.events.project." + p.UUID + ".events.>"
+	wantPub := "weft.events.project." + p.UUID + ".app.>"
 	if !strings.Contains(out, wantSub) {
 		t.Errorf("output missing per-project subscribe subject %q:\n%s", wantSub, out)
 	}
@@ -95,7 +95,7 @@ func TestRenderNATSAuthorization_AppNamespaceIsolated(t *testing.T) {
 	// The events subject must appear only in the subscribe context,
 	// never as a publish allow-list entry — we look for the exact
 	// shape an attacker would need to forge platform events.
-	forbidden := "publish:   { allow: [\"vzd.events.project." + p.UUID + ".events.>\"] }"
+	forbidden := "publish:   { allow: [\"weft.events.project." + p.UUID + ".events.>\"] }"
 	if strings.Contains(out, forbidden) {
 		t.Errorf("tenant must not get publish on the events subject:\n%s", out)
 	}
@@ -103,7 +103,7 @@ func TestRenderNATSAuthorization_AppNamespaceIsolated(t *testing.T) {
 
 // TestRenderNATSAuthorization_AdminUserEmitted confirms the
 // AdminPubkey path: when set, an extra user block shows up at the
-// top of the list with full pub/sub on vzd.> so vzd's own server-
+// top of the list with full pub/sub on weft.> so weft's own server-
 // side consumers + publishers keep working under Phase-3 enforcement.
 func TestRenderNATSAuthorization_AdminUserEmitted(t *testing.T) {
 	dir := t.TempDir()
@@ -117,7 +117,7 @@ func TestRenderNATSAuthorization_AdminUserEmitted(t *testing.T) {
 	if !strings.Contains(out, adminPub) {
 		t.Errorf("admin pubkey absent from output:\n%s", out)
 	}
-	if !strings.Contains(out, `publish:   { allow: ["vzd.>"] }`) {
+	if !strings.Contains(out, `publish:   { allow: ["weft.>"] }`) {
 		t.Errorf("admin pub-allow missing:\n%s", out)
 	}
 }
@@ -250,7 +250,7 @@ func TestAutoRenderNATSAuthorization_WritesAfterSeedMint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s: %v", authzPath, err)
 	}
-	wantSubj := "vzd.events.project." + p.UUID + ".events.>"
+	wantSubj := "weft.events.project." + p.UUID + ".events.>"
 	if !strings.Contains(string(body), wantSubj) {
 		t.Errorf("rendered file missing subject %q:\n%s", wantSubj, body)
 	}

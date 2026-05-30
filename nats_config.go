@@ -2,7 +2,7 @@ package weft
 
 // nats_config.go renders the NATS server's `authorization` block
 // from the current project registry. This is Phase 3 of
-// [[vzd-tenant-event-access]]: per-pubkey subject permissions on
+// [[weft-tenant-event-access]]: per-pubkey subject permissions on
 // the running NATS server that finally enforce what Phase 2's NKey
 // material was set up for.
 //
@@ -15,13 +15,13 @@ package weft
 // Wire model:
 //
 //   - One `user` entry per project: nkey = project pubkey,
-//     subscribe = vzd.events.project.<uuid>.events.>, publish
-//     = vzd.events.project.<uuid>.app.> (Phase 4: tenants can
+//     subscribe = weft.events.project.<uuid>.events.>, publish
+//     = weft.events.project.<uuid>.app.> (Phase 4: tenants can
 //     emit their own app-level events on a sibling namespace
 //     while the operator-events tree stays read-only for them).
 //
-//   - One `user` entry for the platform itself ("vzd-admin"):
-//     full subscribe + publish on `vzd.>` so vzd's own server-side
+//   - One `user` entry for the platform itself ("weft-admin"):
+//     full subscribe + publish on `weft.>` so weft's own server-side
 //     consumers + publishers keep working. The admin nkey lives
 //     on the Adapter (loaded at startup, separate from any user
 //     project; future work: rotate via dex).
@@ -39,9 +39,9 @@ import (
 
 // NATSAuthorizationOptions controls what the renderer emits.
 // AdminPubkey is the NATS user-NKey public key (`U...`) that
-// vzd itself uses to open its outbound bus connection — when
+// weft itself uses to open its outbound bus connection — when
 // empty, the renderer skips the admin block and only emits
-// per-project users (single-host dev where vzd publishes
+// per-project users (single-host dev where weft publishes
 // anonymously through `no_auth_user`).
 type NATSAuthorizationOptions struct {
 	AdminPubkey string
@@ -61,7 +61,7 @@ type NATSAuthorizationOptions struct {
 // project with no VMs needs no NATS access.
 func (a *Adapter) RenderNATSAuthorization(opts NATSAuthorizationOptions) (string, error) {
 	if a == nil || a.projects == nil {
-		return "", fmt.Errorf("vzd: projects registry not initialised")
+		return "", fmt.Errorf("weft: projects registry not initialised")
 	}
 	projects := a.projects.list()
 	// Stable order: list() sorts by display name, but we want UUID
@@ -72,10 +72,10 @@ func (a *Adapter) RenderNATSAuthorization(opts NATSAuthorizationOptions) (string
 	})
 
 	var b strings.Builder
-	b.WriteString("# vzd-rendered NATS authorization block.\n")
-	b.WriteString("# Auto-generated from vzd's project registry — do not edit by hand;\n")
-	b.WriteString("# vzd re-renders on every project create/delete and signals nats-server\n")
-	b.WriteString("# to reload. See [[vzd-tenant-event-access]] Phase 3.\n")
+	b.WriteString("# weft-rendered NATS authorization block.\n")
+	b.WriteString("# Auto-generated from weft's project registry — do not edit by hand;\n")
+	b.WriteString("# weft re-renders on every project create/delete and signals nats-server\n")
+	b.WriteString("# to reload. See [[weft-tenant-event-access]] Phase 3.\n")
 	b.WriteString("\n")
 	b.WriteString("authorization {\n")
 	b.WriteString("  default_permissions = {\n")
@@ -84,10 +84,10 @@ func (a *Adapter) RenderNATSAuthorization(opts NATSAuthorizationOptions) (string
 	b.WriteString("  }\n")
 	b.WriteString("  users = [\n")
 	if opts.AdminPubkey != "" {
-		b.WriteString("    # vzd itself — publishes platform events, reads operator subscriptions.\n")
+		b.WriteString("    # weft itself — publishes platform events, reads operator subscriptions.\n")
 		fmt.Fprintf(&b, "    { nkey: %q, permissions: {\n", opts.AdminPubkey)
-		b.WriteString("      publish:   { allow: [\"vzd.>\"] }\n")
-		b.WriteString("      subscribe: { allow: [\"vzd.>\"] }\n")
+		b.WriteString("      publish:   { allow: [\"weft.>\"] }\n")
+		b.WriteString("      subscribe: { allow: [\"weft.>\"] }\n")
 		b.WriteString("    } },\n")
 	}
 	for _, p := range projects {
@@ -115,7 +115,7 @@ func (a *Adapter) RenderNATSAuthorization(opts NATSAuthorizationOptions) (string
 // changes its output: a new project seed, a project delete. The
 // `adminPubkey` (optional) is rendered as the platform's own NKey
 // user. Empty path disables the hook — operators can still drive
-// the renderer manually via `vzc admin nats-authz`.
+// the renderer manually via `weft admin nats-authz`.
 //
 // Not thread-safe with concurrent calls; settle this at startup
 // before mutations begin.
@@ -131,7 +131,7 @@ func (a *Adapter) SetNATSAuthorizationFile(path, adminPubkey string) {
 // roll back — but in practice the existing callers ignore the
 // error: a registry change has already succeeded and we don't
 // want to undo it just because the nats.conf file failed to
-// update. The operator can re-run `vzc admin nats-authz` to
+// update. The operator can re-run `weft admin nats-authz` to
 // recover.
 func (a *Adapter) autoRenderNATSAuthorization() error {
 	if a == nil || a.natsAuthzPath == "" {
@@ -161,7 +161,7 @@ func (a *Adapter) autoRenderNATSAuthorization() error {
 // project's tenant user is allowed to subscribe to. Centralised
 // here so a future subject-scheme tweak only needs one edit.
 func projectSubscribeSubject(projectUUID string) string {
-	return "vzd.events.project." + projectUUID + ".events.>"
+	return "weft.events.project." + projectUUID + ".events.>"
 }
 
 // projectAppPublishSubject returns the wildcard subject the
@@ -170,7 +170,7 @@ func projectSubscribeSubject(projectUUID string) string {
 // the operational stream don't see this by default; the
 // dual-namespace layout (events./app.) is exactly the read-only-
 // to-tenant + read-write-on-app contract from
-// [[vzd-tenant-event-access]] Phase 4.
+// [[weft-tenant-event-access]] Phase 4.
 func projectAppPublishSubject(projectUUID string) string {
-	return "vzd.events.project." + projectUUID + ".app.>"
+	return "weft.events.project." + projectUUID + ".app.>"
 }

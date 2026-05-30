@@ -1,6 +1,6 @@
 // Package host implements the `weft host` CLI subcommand group :
 // CRUD over the platform's Host registry. The Host inventory
-// drives multi-host placement (per [[vzd-placement-rules]]) —
+// drives multi-host placement (per [[weft-placement-rules]]) —
 // operators register each hypervisor instance and the scheduler
 // picks among them honouring the per-replica PlacementRule.
 //
@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -75,7 +75,7 @@ actually succeed.`,
 				return err
 			}
 			defer conn.Close()
-			req := &vzdv1.RegisterHostRequest{
+			req := &weftv1.RegisterHostRequest{
 				Uuid:           uuid,
 				Hostname:       hostname,
 				Az:             az,
@@ -125,7 +125,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListHosts(context.Background(), &vzdv1.ListHostsRequest{Az: azFilter})
+			resp, err := c.ListHosts(context.Background(), &weftv1.ListHostsRequest{Az: azFilter})
 			if err != nil {
 				return fmt.Errorf("ListHosts: %w", err)
 			}
@@ -165,7 +165,7 @@ func showCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			req := &vzdv1.GetHostRequest{}
+			req := &weftv1.GetHostRequest{}
 			if byHostname {
 				req.Hostname = args[0]
 			} else {
@@ -196,7 +196,7 @@ Down     — heartbeat aged past TTL OR explicit operator decommission.`,
 				return err
 			}
 			defer conn.Close()
-			_, err = c.SetHostState(context.Background(), &vzdv1.SetHostStateRequest{Uuid: args[0], State: args[1]})
+			_, err = c.SetHostState(context.Background(), &weftv1.SetHostStateRequest{Uuid: args[0], State: args[1]})
 			if err != nil {
 				return fmt.Errorf("SetHostState: %w", err)
 			}
@@ -221,7 +221,7 @@ func setLabelsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			_, err = c.SetHostLabels(context.Background(), &vzdv1.SetHostLabelsRequest{Uuid: args[0], Labels: labels})
+			_, err = c.SetHostLabels(context.Background(), &weftv1.SetHostLabelsRequest{Uuid: args[0], Labels: labels})
 			if err != nil {
 				return fmt.Errorf("SetHostLabels: %w", err)
 			}
@@ -242,7 +242,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			_, err = c.DeleteHost(context.Background(), &vzdv1.DeleteHostRequest{Uuid: args[0]})
+			_, err = c.DeleteHost(context.Background(), &weftv1.DeleteHostRequest{Uuid: args[0]})
 			if err != nil {
 				return fmt.Errorf("DeleteHost: %w", err)
 			}

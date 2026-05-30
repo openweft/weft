@@ -32,7 +32,7 @@ func runEmbeddedNATS(t *testing.T) string {
 // Subscribe registers a wildcard subscription, Publish fans the event out,
 // and the subscriber channel receives it. Closes cleanly at the end.
 //
-// The subscriber uses SeeAll (operator-style, like `vzc events`) so
+// The subscriber uses SeeAll (operator-style, like `weft events`) so
 // project-scoped events reach it — EventFilter without SeeAll/Visible
 // rejects events that carry a ProjectUUID.
 func TestNATSEventBus_EmbeddedRoundTrip(t *testing.T) {

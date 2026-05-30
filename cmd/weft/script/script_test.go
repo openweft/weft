@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -56,8 +56,8 @@ func TestCommand_Structure(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListScriptsFn = func(_ context.Context, _ *vzdv1.ListScriptsRequest) (*vzdv1.ListScriptsResponse, error) {
-		return &vzdv1.ListScriptsResponse{Scripts: []*vzdv1.Script{
+	srv.ListScriptsFn = func(_ context.Context, _ *weftv1.ListScriptsRequest) (*weftv1.ListScriptsResponse, error) {
+		return &weftv1.ListScriptsResponse{Scripts: []*weftv1.Script{
 			{Name: "deploy", Description: "Bring up the static site", Body: "echo hi\necho there\n", UpdatedAt: "2026-05-29T10:00:00Z", UpdatedBy: "alice@x"},
 		}}, nil
 	}
@@ -79,8 +79,8 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestGet_BodyOnly(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.GetScriptFn = func(_ context.Context, in *vzdv1.GetScriptRequest) (*vzdv1.GetScriptResponse, error) {
-		return &vzdv1.GetScriptResponse{Script: &vzdv1.Script{Name: in.Name, Body: "#!/bin/sh\necho ok\n"}}, nil
+	srv.GetScriptFn = func(_ context.Context, in *weftv1.GetScriptRequest) (*weftv1.GetScriptResponse, error) {
+		return &weftv1.GetScriptResponse{Script: &weftv1.Script{Name: in.Name, Body: "#!/bin/sh\necho ok\n"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -96,8 +96,8 @@ func TestGet_BodyOnly(t *testing.T) {
 
 func TestGet_FullRender(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.GetScriptFn = func(_ context.Context, in *vzdv1.GetScriptRequest) (*vzdv1.GetScriptResponse, error) {
-		return &vzdv1.GetScriptResponse{Script: &vzdv1.Script{
+	srv.GetScriptFn = func(_ context.Context, in *weftv1.GetScriptRequest) (*weftv1.GetScriptResponse, error) {
+		return &weftv1.GetScriptResponse{Script: &weftv1.Script{
 			Name: in.Name, Description: "demo", Body: "echo hi\n",
 			UpdatedAt: "2026-05-29T10:00:00Z", UpdatedBy: "alice@x",
 		}}, nil
@@ -120,10 +120,10 @@ func TestGet_FullRender(t *testing.T) {
 
 func TestSet_FromFile(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var saved *vzdv1.Script
-	srv.SetScriptFn = func(_ context.Context, in *vzdv1.SetScriptRequest) (*vzdv1.SetScriptResponse, error) {
+	var saved *weftv1.Script
+	srv.SetScriptFn = func(_ context.Context, in *weftv1.SetScriptRequest) (*weftv1.SetScriptResponse, error) {
 		saved = in.Script
-		return &vzdv1.SetScriptResponse{Script: in.Script}, nil
+		return &weftv1.SetScriptResponse{Script: in.Script}, nil
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "deploy.sh")
@@ -147,10 +147,10 @@ func TestSet_FromFile(t *testing.T) {
 
 func TestSet_FromBodyInline(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var saved *vzdv1.Script
-	srv.SetScriptFn = func(_ context.Context, in *vzdv1.SetScriptRequest) (*vzdv1.SetScriptResponse, error) {
+	var saved *weftv1.Script
+	srv.SetScriptFn = func(_ context.Context, in *weftv1.SetScriptRequest) (*weftv1.SetScriptResponse, error) {
 		saved = in.Script
-		return &vzdv1.SetScriptResponse{Script: in.Script}, nil
+		return &weftv1.SetScriptResponse{Script: in.Script}, nil
 	}
 	captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -188,7 +188,7 @@ func TestSet_RequiresFileOrBody(t *testing.T) {
 
 func TestSet_ErrorBubblesUp(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetScriptFn = func(_ context.Context, _ *vzdv1.SetScriptRequest) (*vzdv1.SetScriptResponse, error) {
+	srv.SetScriptFn = func(_ context.Context, _ *weftv1.SetScriptRequest) (*weftv1.SetScriptResponse, error) {
 		return nil, errors.New("name is required")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -205,9 +205,9 @@ func TestSet_ErrorBubblesUp(t *testing.T) {
 func TestRm_PassesName(t *testing.T) {
 	srv := testutil.NewServer(t)
 	var seen string
-	srv.DeleteScriptFn = func(_ context.Context, in *vzdv1.DeleteScriptRequest) (*vzdv1.DeleteScriptResponse, error) {
+	srv.DeleteScriptFn = func(_ context.Context, in *weftv1.DeleteScriptRequest) (*weftv1.DeleteScriptResponse, error) {
 		seen = in.Name
-		return &vzdv1.DeleteScriptResponse{Deleted: in.Name}, nil
+		return &weftv1.DeleteScriptResponse{Deleted: in.Name}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

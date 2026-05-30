@@ -93,7 +93,7 @@ func TestAdapter_LocalHandleRegisteredOnBoot(t *testing.T) {
 // TestAdapter_HypervisorOn_UnknownHost surfaces a clear error
 // when a caller asks for a host that never registered. This is
 // the failure mode for "stale VM inventory points at a host
-// that vzd-agent disconnected from".
+// that weft-agent disconnected from".
 func TestAdapter_HypervisorOn_UnknownHost(t *testing.T) {
 	a := newAdapterForDispatchTest(t)
 	_, err := a.HypervisorOn("definitely-not-a-real-uuid")
@@ -119,7 +119,7 @@ func TestAdapter_RegisterHostHandle_RejectsInvalid(t *testing.T) {
 
 // TestAdapter_RegisterHostHandle_AddsRemoteDispatch wires a
 // fake remote driver under a synthetic host UUID, then verifies
-// HypervisorOn routes to it. This is the path vzd-agent will
+// HypervisorOn routes to it. This is the path weft-agent will
 // use post-multi-host: agent registers, gRPC stubs land in the
 // table, lifecycle methods on the central control plane reach
 // the right host.

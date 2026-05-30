@@ -1,7 +1,7 @@
 package weft
 
 // creds_jwt.go grows the per-project credentials story from
-// "raw NKey seed" (Phase 2/3 of [[vzd-tenant-event-access]]) to
+// "raw NKey seed" (Phase 2/3 of [[weft-tenant-event-access]]) to
 // a proper operator/account/user JWT hierarchy that nats-server
 // accepts under `operator: ...` + `resolver: MEMORY` config.
 //
@@ -129,7 +129,7 @@ func MintAccount(operatorSeed []byte, name string) (AccountCreds, error) {
 
 // MintUser issues a user JWT signed by the given account. The
 // JWT carries subject permissions matching
-// [[vzd-tenant-event-access]] : subscribe on the project's
+// [[weft-tenant-event-access]] : subscribe on the project's
 // event mirror, publish on the project's app namespace. Pass
 // the project's expected subjects via subscribeAllow +
 // publishAllow ; the function attaches them to the claims.
@@ -183,7 +183,7 @@ func MintUser(accountSeed []byte, name string, subscribeAllow, publishAllow []st
 //   ------END USER NKEY SEED------
 //
 // Centralised here so the renderer + the per-VM credentials
-// materialiser ([[vzd-tenant-event-access]] Phase 2 in
+// materialiser ([[weft-tenant-event-access]] Phase 2 in
 // `adapter.go`) emit identical output.
 func FormatCredsFile(u UserCreds) ([]byte, error) {
 	return jwt.FormatUserConfig(u.JWT, u.Seed)

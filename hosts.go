@@ -1,7 +1,7 @@
 package weft
 
 // hosts.go owns the cluster's Host inventory: one entry per
-// vzd-agent that has registered with the control plane. The
+// weft-agent that has registered with the control plane. The
 // registry is **global** (not per-project): hosts are
 // infrastructure shared across every tenant.
 //
@@ -31,7 +31,7 @@ package weft
 //   }
 //
 // Phase E of [[etcd-control-plane]]: stored alongside the other
-// registries. Once vzd-agents come online, each agent calls
+// registries. Once weft-agents come online, each agent calls
 // RegisterHost on startup and SetHostHeartbeat on a timer; the
 // control plane drifts a host to "down" when LastSeenAt ages
 // past a configurable TTL.
@@ -56,17 +56,17 @@ const (
 	// HostStateActive — accepts new VM placements.
 	HostStateActive HostState = "active"
 	// HostStateDraining — no new placements; existing VMs keep
-	// running. Set by `vzc host drain` for maintenance.
+	// running. Set by `weft host drain` for maintenance.
 	HostStateDraining HostState = "draining"
 	// HostStateDown — heartbeat aged past TTL OR explicit
-	// `vzc host stop`. Scheduler treats as unavailable; VMs
+	// `weft host stop`. Scheduler treats as unavailable; VMs
 	// scheduled here are candidates for failover.
 	HostStateDown HostState = "down"
 )
 
 // Host is one compute node in the cluster.
 //
-// Placement hierarchy (per [[vzd-placement-rules]]):
+// Placement hierarchy (per [[weft-placement-rules]]):
 //
 //   AZ (availability zone / datacenter)
 //     └── Rack (top-of-rack switch / power domain)
@@ -182,8 +182,8 @@ func (r *hostRegistry) saveLocked() error {
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{
 		Type: 0,
 		Bytes: []byte(
-			"# vzd host registry — cluster-wide compute node inventory.\n" +
-				"# Each vzd-agent registers itself here on startup. UUID is\n" +
+			"# weft host registry — cluster-wide compute node inventory.\n" +
+				"# Each weft-agent registers itself here on startup. UUID is\n" +
 				"# immutable; hostname unique cluster-wide; state managed by\n" +
 				"# the control plane (heartbeat → active/down).\n\n",
 		),
@@ -277,7 +277,7 @@ func (r *hostRegistry) lookupByHostname(hostname string) (Host, bool) {
 }
 
 // list returns every host, sorted by (AZ, Hostname) — natural
-// tabular order for `vzc host list`.
+// tabular order for `weft host list`.
 func (r *hostRegistry) list() []Host {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -315,14 +315,14 @@ func (r *hostRegistry) listByAZ(az string) []Host {
 // treats the call as "this is who I am, register me OR refresh
 // my entry" — see register() for the idempotent semantics.
 //
-// Setting UUID is how vzd-agents persist their identity across
+// Setting UUID is how weft-agents persist their identity across
 // restarts: the agent loads its UUID from a host-local file
 // (typically <stateDir>/host-uuid) and passes it here.
 type RegisterHostSpec struct {
 	UUID           string // empty → generate; set → idempotent re-register
 	Hostname       string
 	AZ             string
-	Rack           string // optional sub-AZ placement tag; see [[vzd-placement-rules]]
+	Rack           string // optional sub-AZ placement tag; see [[weft-placement-rules]]
 	Endpoint       string
 	Hypervisor     string
 	Architecture   string

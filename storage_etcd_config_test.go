@@ -21,7 +21,7 @@ func TestNewEtcdStorage_ConfigConstructor(t *testing.T) {
 
 	s, err := NewEtcdStorage(ctx, EtcdConfig{
 		Endpoints: []string{clientURL},
-		KeyPrefix: "/vzd/cfgtest/",
+		KeyPrefix: "/weft/cfgtest/",
 	}, "projects")
 	if err != nil {
 		t.Fatalf("NewEtcdStorage: %v", err)

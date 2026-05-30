@@ -7,7 +7,7 @@ package weft
 // One HCL block per script, body as a multi-line string. Same
 // Storage-backed pattern : file backend in dev, etcd in HA, mem in
 // tests. Same exported facade so cmd/weft can hold a *ScriptRegistry
-// alongside the vzdServer.
+// alongside the weftServer.
 
 import (
 	"context"

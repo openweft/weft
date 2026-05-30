@@ -1,11 +1,11 @@
-// Package start implements the vzc start sub-command.
+// Package start implements the weft start sub-command.
 package start
 
 import (
 	"context"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +21,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			_, err = c.StartVM(context.Background(), &vzdv1.StartVMRequest{Name: args[0]})
+			_, err = c.StartVM(context.Background(), &weftv1.StartVMRequest{Name: args[0]})
 			return err
 		},
 	}
