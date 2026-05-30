@@ -91,7 +91,16 @@ func (s *Supervisor) startOnce_(ctx context.Context) error {
 	_ = os.Remove(s.adminSocket)
 
 	bootstrap := Routes(nil) // empty route table — Caddy starts idle
-	bootstrapBytes, err := bootstrap.renderCaddyConfig("unix//" + s.adminSocket)
+	// Operator opt-in: WEFT_PROXY_STORAGE_ETCD_ENDPOINTS=ep1,ep2,ep3 selects
+	// the etcd-backed cert store (requires a caddy binary built with
+	// caddy-storage-etcd via xcaddy). Unset → filesystem default under
+	// StateDir/data.
+	var storage map[string]any
+	if eps := EtcdStorageEndpoints(); len(eps) > 0 {
+		storage = storageEtcdConfig(eps)
+		log.Printf("weft-agent proxy: shared cert storage = etcd (%d endpoint(s))", len(eps))
+	}
+	bootstrapBytes, err := bootstrap.renderCaddyConfigWith("unix//"+s.adminSocket, storage)
 	if err != nil {
 		return fmt.Errorf("render bootstrap config: %w", err)
 	}
@@ -173,7 +182,13 @@ func (s *Supervisor) Apply(ctx context.Context, routes Routes) error {
 	if s.cmd == nil {
 		return errors.New("proxy: Start hasn't run yet")
 	}
-	body, err := routes.renderCaddyConfig("unix//" + s.adminSocket)
+	// Storage block must survive every reload — POST /load replaces the
+	// whole config, so dropping it here would silently revert cert sharing.
+	var storage map[string]any
+	if eps := EtcdStorageEndpoints(); len(eps) > 0 {
+		storage = storageEtcdConfig(eps)
+	}
+	body, err := routes.renderCaddyConfigWith("unix//"+s.adminSocket, storage)
 	if err != nil {
 		return fmt.Errorf("render: %w", err)
 	}
