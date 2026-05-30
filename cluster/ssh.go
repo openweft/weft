@@ -101,9 +101,15 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		return a.Host, fmt.Sprintf("weft microvm pull-kernel %s   # shared kernel into $XDG_DATA_HOME/weft-microvm/kernel", a.Image)
 	case EnsureImage:
 		// Pre-pull the OCI rootfs on the host. weft microvm pull is standalone
-		// (no agent socket needed), and the underlying microvm.Pull is safe to
-		// re-run (overlapping layer extraction overwrites identical blobs).
-		return a.Host, fmt.Sprintf("weft microvm pull %s   # rootfs into host cache", a.Image)
+		// (no agent socket needed). microvm.Pull isn't idempotent on an already-
+		// extracted rootfs (re-extracting over existing files panics mid-layer),
+		// so we guard at the orchestrator level: stat the cache dir, skip pull
+		// when it exists. The refsafe transform mirrors microvm.refsafe().
+		refsafe := strings.NewReplacer("/", "_", ":", "_").Replace(a.Image)
+		return a.Host, fmt.Sprintf(
+			"[ -d $HOME/.local/share/weft-microvm/images/%s/rootfs ] && echo 'cached %s' || weft microvm pull %s   # rootfs into host cache",
+			refsafe, a.Image, a.Image,
+		)
 	case PlaceReplica:
 		// --plan points at the plan.hcl Apply uploads to each host before the
 		// first PlaceReplica action lands. Without it, weft infra deploy would
