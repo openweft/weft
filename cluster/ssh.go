@@ -134,6 +134,26 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		)
 	case GrowQuorum:
 		return seed.ID, fmt.Sprintf("# grow %s quorum %d→%d (etcd member-add / nats route)", a.Service, a.From, a.To)
+	case StopReplica:
+		// Image carries the VM name (BuildDownPlan stashes VMNameFor(r) there).
+		// `|| true` so a re-run on an already-gone VM still succeeds — the
+		// whole teardown chain must stay best-effort idempotent.
+		return a.Host, fmt.Sprintf(
+			"weft microvm rm %s || true   # replica %d (dc=%s)",
+			a.Image, a.Replica, a.DC,
+		)
+	case StopAgent:
+		// Mirror of EnsureHost's `nohup weft agent &` — kill any matching
+		// process, tolerate absence. pkill -x matches the exact binary name
+		// so an unrelated path containing `weft` won't be hit.
+		return a.Host, "pkill -x weft || true   # stop weft agent"
+	case TeardownMesh:
+		return a.Host, "rm -f /etc/wireguard/wg0.conf && wg-quick down wg0 2>/dev/null || true   # tear down overlay"
+	case Purge:
+		// Drop ~/.weft (host UUID, embed-etcd data, caches) AND /var/lib/weft
+		// (system-install layout). Both `|| true` so a missing path doesn't
+		// fail the whole teardown.
+		return a.Host, "rm -rf $HOME/.weft /var/lib/weft || true   # purge host state"
 	default:
 		return seed.ID, "# " + a.String()
 	}
