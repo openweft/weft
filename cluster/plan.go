@@ -44,6 +44,11 @@ const (
 	// MeshSync: (re)publish the full WireGuard peer set after membership
 	// changed — reuses wgcoord.MeshPeers + mesh.PublishAll.
 	MeshSync ActionKind = "mesh-sync"
+	// EnsureImage: pre-pull a service's OCI rootfs onto a host so the
+	// subsequent PlaceReplica `weft infra deploy` finds it in the local
+	// weft-microvm image cache. One action per distinct (host, image) pair,
+	// k0sctl-style "Prepare" phase.
+	EnsureImage ActionKind = "ensure-image"
 	// PlaceReplica: deploy replica N of a service on a host (via the per-host
 	// `weft infra` deploy of that service's plan).
 	PlaceReplica ActionKind = "place-replica"
@@ -55,12 +60,13 @@ const (
 // Action is one ordered convergence step.
 type Action struct {
 	Kind     ActionKind
-	Host     string // EnsureHost, PlaceReplica
+	Host     string // EnsureHost, PlaceReplica, EnsureImage
 	DC       string
 	Service  string // PlaceReplica, GrowQuorum
 	Replica  int    // PlaceReplica (1-indexed)
 	From, To int    // GrowQuorum
 	Hosts    []string // MeshSync (the full desired member set)
+	Image    string // EnsureImage (OCI ref, e.g. quay.io/coreos/etcd:v3.6.0)
 }
 
 func (a Action) String() string {
@@ -69,6 +75,8 @@ func (a Action) String() string {
 		return fmt.Sprintf("ensure-host   %s (dc=%s)", a.Host, a.DC)
 	case MeshSync:
 		return fmt.Sprintf("mesh-sync     members=[%s]", strings.Join(a.Hosts, ","))
+	case EnsureImage:
+		return fmt.Sprintf("ensure-image  %s on %s", a.Image, a.Host)
 	case PlaceReplica:
 		return fmt.Sprintf("place-replica %s/%d → %s (dc=%s)", a.Service, a.Replica, a.Host, a.DC)
 	case GrowQuorum:
@@ -159,13 +167,25 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 	}
 
 	// 3. Place each service's replicas in dependency order; skip any already
-	//    on the right host (idempotent).
+	//    on the right host (idempotent). Each (host, image) pair gets one
+	//    preceding EnsureImage so the OCI rootfs is in the host cache before
+	//    `weft infra deploy` runs.
+	pulled := map[string]bool{} // "<host>|<image>" → EnsureImage already emitted
 	for _, plan := range infraOrder {
 		eff := effectiveReplicas(plan, hostCount)
 		for r := 1; r <= eff; r++ {
 			h := c.Hosts[(r-1)%hostCount]
 			if cur, ok := cur.replicaHost(plan.Service, r); ok && cur == h.ID {
 				continue // already placed correctly
+			}
+			if plan.OCIImage != "" {
+				key := h.ID + "|" + plan.OCIImage
+				if !pulled[key] {
+					p.Actions = append(p.Actions, Action{
+						Kind: EnsureImage, Host: h.ID, Image: plan.OCIImage,
+					})
+					pulled[key] = true
+				}
 			}
 			p.Actions = append(p.Actions, Action{
 				Kind: PlaceReplica, Service: plan.Service, Replica: r, Host: h.ID, DC: h.DC,
