@@ -135,6 +135,20 @@ func TestRenderAction_AgentDetachedAndIdempotent(t *testing.T) {
 	}
 }
 
+// TestRenderAction_EnsureImagePullsOCIRootfs: EnsureImage actions render as
+// `weft microvm pull <ref>` on the target host so the rootfs lands in the
+// local weft-microvm cache before the subsequent PlaceReplica deploys.
+func TestRenderAction_EnsureImagePullsOCIRootfs(t *testing.T) {
+	c := threeHostCluster()
+	host, cmd := renderAction(c, Action{Kind: EnsureImage, Host: c.Hosts[0].ID, Image: "quay.io/coreos/etcd:v3.6.0"})
+	if host != c.Hosts[0].ID {
+		t.Errorf("EnsureImage rendered host=%q, want %q", host, c.Hosts[0].ID)
+	}
+	if !strings.Contains(cmd, "weft microvm pull quay.io/coreos/etcd:v3.6.0") {
+		t.Errorf("EnsureImage cmd missing pull: %s", cmd)
+	}
+}
+
 // TestRenderAction_PlaceReplicaUsesUploadedPlan: PlaceReplica must point
 // `weft infra deploy --plan` at the per-host uploaded plan.hcl, since the
 // source tree isn't present on the remote.

@@ -94,6 +94,11 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		)
 	case MeshSync:
 		return seed.ID, "# mesh: publish overlay peer set to [" + strings.Join(a.Hosts, ",") + "] (wgcoord + mesh.PublishAll)"
+	case EnsureImage:
+		// Pre-pull the OCI rootfs on the host. weft microvm pull is standalone
+		// (no agent socket needed), and the underlying microvm.Pull is safe to
+		// re-run (overlapping layer extraction overwrites identical blobs).
+		return a.Host, fmt.Sprintf("weft microvm pull %s   # rootfs into host cache", a.Image)
 	case PlaceReplica:
 		// --plan points at the plan.hcl Apply uploads to each host before the
 		// first PlaceReplica action lands. Without it, weft infra deploy would
