@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc"
 )
 
@@ -64,9 +64,9 @@ func TestEvents_DialError(t *testing.T) {
 // default zero-value response).
 func TestEvents_StreamCompletes(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.WatchEventsFn = func(_ *vzdv1.WatchEventsRequest, stream grpc.ServerStreamingServer[vzdv1.PlatformEvent]) error {
-		_ = stream.Send(&vzdv1.PlatformEvent{TsUnixNs: 1700000000000000000, Kind: "vm.created", Subject: "alpha", ProjectUuid: "p1"})
-		_ = stream.Send(&vzdv1.PlatformEvent{TsUnixNs: 1700000000000000001, Kind: "vm.stopped", Subject: "alpha", ProjectUuid: "p1", Meta: map[string]string{"reason": "exit"}})
+	srv.WatchEventsFn = func(_ *weftv1.WatchEventsRequest, stream grpc.ServerStreamingServer[weftv1.PlatformEvent]) error {
+		_ = stream.Send(&weftv1.PlatformEvent{TsUnixNs: 1700000000000000000, Kind: "vm.created", Subject: "alpha", ProjectUuid: "p1"})
+		_ = stream.Send(&weftv1.PlatformEvent{TsUnixNs: 1700000000000000001, Kind: "vm.stopped", Subject: "alpha", ProjectUuid: "p1", Meta: map[string]string{"reason": "exit"}})
 		return nil
 	}
 	out := captureStdout(t, func() {
@@ -84,8 +84,8 @@ func TestEvents_StreamCompletes(t *testing.T) {
 // TestEvents_JSONFormat exercises the json-format branch.
 func TestEvents_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.WatchEventsFn = func(_ *vzdv1.WatchEventsRequest, stream grpc.ServerStreamingServer[vzdv1.PlatformEvent]) error {
-		_ = stream.Send(&vzdv1.PlatformEvent{Kind: "vm.started", Subject: "beta"})
+	srv.WatchEventsFn = func(_ *weftv1.WatchEventsRequest, stream grpc.ServerStreamingServer[weftv1.PlatformEvent]) error {
+		_ = stream.Send(&weftv1.PlatformEvent{Kind: "vm.started", Subject: "beta"})
 		return nil
 	}
 	out := captureStdout(t, func() {
@@ -103,7 +103,7 @@ func TestEvents_JSONFormat(t *testing.T) {
 // TestEvents_WatchError exercises the recv-error path.
 func TestEvents_WatchError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.WatchEventsFn = func(_ *vzdv1.WatchEventsRequest, _ grpc.ServerStreamingServer[vzdv1.PlatformEvent]) error {
+	srv.WatchEventsFn = func(_ *weftv1.WatchEventsRequest, _ grpc.ServerStreamingServer[weftv1.PlatformEvent]) error {
 		return errors.New("server-side boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -122,7 +122,7 @@ func TestEvents_WatchError(t *testing.T) {
 func TestEvents_SignalCancel(t *testing.T) {
 	srv := testutil.NewServer(t)
 	started := make(chan struct{})
-	srv.WatchEventsFn = func(_ *vzdv1.WatchEventsRequest, stream grpc.ServerStreamingServer[vzdv1.PlatformEvent]) error {
+	srv.WatchEventsFn = func(_ *weftv1.WatchEventsRequest, stream grpc.ServerStreamingServer[weftv1.PlatformEvent]) error {
 		close(started)
 		<-stream.Context().Done()
 		return stream.Context().Err()

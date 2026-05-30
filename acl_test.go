@@ -40,7 +40,7 @@ func newACLFixture(t *testing.T) aclFixture {
 	dir := t.TempDir()
 	a := New(dir).(*Adapter)
 
-	// Register the three users so they have stable vzd UUIDs the
+	// Register the three users so they have stable weft UUIDs the
 	// membership path can reference.
 	adminCaller := &Caller{Subject: "ldap:admin", Issuer: "https://dex.example", Groups: []string{PlatformAdminGroup}}
 	aliceCaller := &Caller{Subject: "ldap:alice", Issuer: "https://dex.example"}
@@ -217,7 +217,7 @@ func TestAuthorizeProject_DevModeUnrestricted(t *testing.T) {
 	f := newACLFixture(t)
 	ctx := WithCaller(context.Background(), &Caller{
 		Subject: "dev:david",
-		Issuer:  "vzd:dev",
+		Issuer:  "weft:dev",
 		Dev:     true,
 	})
 	for _, p := range []string{f.aliceProject, f.bobProject, f.sharedProject, f.claimedProject} {

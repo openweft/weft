@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -79,11 +79,11 @@ func TestSplitKV(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVMPropertiesFn = func(_ context.Context, in *vzdv1.ListVMPropertiesRequest) (*vzdv1.ListVMPropertiesResponse, error) {
+	srv.ListVMPropertiesFn = func(_ context.Context, in *weftv1.ListVMPropertiesRequest) (*weftv1.ListVMPropertiesResponse, error) {
 		if in.VmName != "web-1" {
 			t.Errorf("vm name not forwarded : %q", in.VmName)
 		}
-		return &vzdv1.ListVMPropertiesResponse{Properties: []*vzdv1.VMProperty{
+		return &weftv1.ListVMPropertiesResponse{Properties: []*weftv1.VMProperty{
 			{Key: "owner", Value: "alice@x", UpdatedAt: "2026-05-29T10:00:00Z"},
 			{Key: "exposed", Value: "yes", GuestReadable: true, UpdatedAt: "2026-05-29T10:00:00Z"},
 		}}, nil
@@ -104,10 +104,10 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestSet_PassesGuestFlag(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var seen *vzdv1.SetVMPropertyRequest
-	srv.SetVMPropertyFn = func(_ context.Context, in *vzdv1.SetVMPropertyRequest) (*vzdv1.SetVMPropertyResponse, error) {
+	var seen *weftv1.SetVMPropertyRequest
+	srv.SetVMPropertyFn = func(_ context.Context, in *weftv1.SetVMPropertyRequest) (*weftv1.SetVMPropertyResponse, error) {
 		seen = in
-		return &vzdv1.SetVMPropertyResponse{Property: in.Property}, nil
+		return &weftv1.SetVMPropertyResponse{Property: in.Property}, nil
 	}
 	captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -137,10 +137,10 @@ func TestSet_RejectsBadKV(t *testing.T) {
 
 func TestRm_PassesKey(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var seen *vzdv1.DeleteVMPropertyRequest
-	srv.DeleteVMPropertyFn = func(_ context.Context, in *vzdv1.DeleteVMPropertyRequest) (*vzdv1.DeleteVMPropertyResponse, error) {
+	var seen *weftv1.DeleteVMPropertyRequest
+	srv.DeleteVMPropertyFn = func(_ context.Context, in *weftv1.DeleteVMPropertyRequest) (*weftv1.DeleteVMPropertyResponse, error) {
 		seen = in
-		return &vzdv1.DeleteVMPropertyResponse{}, nil
+		return &weftv1.DeleteVMPropertyResponse{}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

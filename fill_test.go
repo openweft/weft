@@ -40,8 +40,8 @@ func TestMintUser_WithAllowLists(t *testing.T) {
 	}
 	// Exercise the subscribe/publish allow-list branches.
 	u, err := MintUser(acc.Seed, "project:abc",
-		[]string{"vzd.events.project.abc.events.>"},
-		[]string{"vzd.app.project.abc.>"})
+		[]string{"weft.events.project.abc.events.>"},
+		[]string{"weft.app.project.abc.>"})
 	if err != nil {
 		t.Fatalf("MintUser: %v", err)
 	}

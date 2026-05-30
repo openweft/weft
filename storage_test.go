@@ -24,7 +24,7 @@ func TestFileStorage_LoadAbsentReturnsNilNil(t *testing.T) {
 func TestFileStorage_SaveLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	s := NewFileStorage(filepath.Join(dir, "reg.hcl"))
-	const payload = `# vzd registry
+	const payload = `# weft registry
 project "abc-123" {
   name = "demo"
 }
@@ -55,8 +55,8 @@ func TestFileStorage_SaveAtomic(t *testing.T) {
 }
 
 func TestPathInDir(t *testing.T) {
-	got := PathInDir("/var/lib/vzd/vms", "projects")
-	want := "/var/lib/vzd/vms/.projects.hcl"
+	got := PathInDir("/var/lib/weft/vms", "projects")
+	want := "/var/lib/weft/vms/.projects.hcl"
 	if got != want {
 		t.Errorf("PathInDir = %q, want %q", got, want)
 	}
@@ -122,7 +122,7 @@ func TestMemStorage_SaveCopiesInput(t *testing.T) {
 func TestEtcdStorage_NeedsEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if _, err := NewEtcdStorage(ctx, EtcdConfig{KeyPrefix: "/vzd/test/"}, "projects"); err == nil {
+	if _, err := NewEtcdStorage(ctx, EtcdConfig{KeyPrefix: "/weft/test/"}, "projects"); err == nil {
 		t.Fatal("NewEtcdStorage with no endpoints should fail")
 	}
 }
@@ -132,9 +132,9 @@ func TestEtcdStorage_NeedsEndpoints(t *testing.T) {
 // is what the factory in cmd/weft relies on for every registry.
 func TestEtcdStorageWithClient_KeyFormat(t *testing.T) {
 	// Use a nil client — Key() doesn't dereference it.
-	s := NewEtcdStorageWithClient(nil, "/vzd/test/", "projects")
-	if got := s.Key(); got != "/vzd/test/projects" {
-		t.Errorf("Key = %q, want /vzd/test/projects", got)
+	s := NewEtcdStorageWithClient(nil, "/weft/test/", "projects")
+	if got := s.Key(); got != "/weft/test/projects" {
+		t.Errorf("Key = %q, want /weft/test/projects", got)
 	}
 	// Close on a no-client storage is a no-op.
 	if err := s.Close(); err != nil {

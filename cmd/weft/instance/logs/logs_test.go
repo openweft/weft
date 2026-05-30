@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -60,8 +60,8 @@ func TestLogs_BadSocketErrors(t *testing.T) {
 
 func TestLogs_FullLogToStdout(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMLogsFn = func(_ context.Context, _ *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
-		return &vzdv1.VMLogsResponse{Contents: []byte("boot ok\n"), TotalBytes: 8}, nil
+	srv.VMLogsFn = func(_ context.Context, _ *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
+		return &weftv1.VMLogsResponse{Contents: []byte("boot ok\n"), TotalBytes: 8}, nil
 	}
 	stdout, stderr := captureOutputs(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -80,11 +80,11 @@ func TestLogs_FullLogToStdout(t *testing.T) {
 
 func TestLogs_TailWithTruncation(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMLogsFn = func(_ context.Context, in *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
+	srv.VMLogsFn = func(_ context.Context, in *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
 		if in.TailBytes != 5 {
 			t.Errorf("tail = %d", in.TailBytes)
 		}
-		return &vzdv1.VMLogsResponse{Contents: []byte("hello"), TotalBytes: 100}, nil
+		return &weftv1.VMLogsResponse{Contents: []byte("hello"), TotalBytes: 100}, nil
 	}
 	stdout, stderr := captureOutputs(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -106,8 +106,8 @@ func TestLogs_TailWithTruncation(t *testing.T) {
 // branch at the end of the RunE.
 func TestLogs_StdoutWriteError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMLogsFn = func(_ context.Context, _ *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
-		return &vzdv1.VMLogsResponse{Contents: []byte("hello"), TotalBytes: 5}, nil
+	srv.VMLogsFn = func(_ context.Context, _ *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
+		return &weftv1.VMLogsResponse{Contents: []byte("hello"), TotalBytes: 5}, nil
 	}
 	// Replace stdout with the read end of a pipe and close it
 	// immediately. Subsequent writes return EPIPE.
@@ -128,7 +128,7 @@ func TestLogs_StdoutWriteError(t *testing.T) {
 
 func TestLogs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMLogsFn = func(_ context.Context, _ *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
+	srv.VMLogsFn = func(_ context.Context, _ *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

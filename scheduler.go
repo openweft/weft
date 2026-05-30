@@ -6,7 +6,7 @@ package weft
 //
 // Today the only caller is the (future) CloneVM-with-scheduling
 // flow; the in-process Bundle path still bypasses it for
-// single-host dev. As soon as `vzd-agent` lands and there are
+// single-host dev. As soon as `weft-agent` lands and there are
 // multiple compute hosts, every workload-placing flow (CloneVM,
 // RegisterMicroVM, future VM-inventory CreateVM) gets a
 // `host_uuid` field that the scheduler fills in.
@@ -362,7 +362,7 @@ func (a *Adapter) ScheduleVMGroup(ctx context.Context, req GroupScheduleRequest)
 }
 
 // SetScheduler swaps the placement policy. Used by tests and by
-// `vzd.hcl`'s future `scheduler { policy = "..." }` block.
+// `weft.hcl`'s future `scheduler { policy = "..." }` block.
 func (a *Adapter) SetScheduler(s Scheduler) {
 	if s == nil {
 		s = FirstFitScheduler{}

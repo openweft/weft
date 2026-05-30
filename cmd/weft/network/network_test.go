@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -78,8 +78,8 @@ func TestAllSubcommands_DialError(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListNetworksFn = func(_ context.Context, _ *vzdv1.ListNetworksRequest) (*vzdv1.ListNetworksResponse, error) {
-		return &vzdv1.ListNetworksResponse{Networks: []*vzdv1.NetworkInfo{
+	srv.ListNetworksFn = func(_ context.Context, _ *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error) {
+		return &weftv1.ListNetworksResponse{Networks: []*weftv1.NetworkInfo{
 			{Uuid: "u1", ProjectUuid: "p1", Name: "net", Cidr: "10.0.0.0/24", Gateway: "10.0.0.1", Type: "nat", DnsServers: []string{"1.1.1.1"}, DefaultSecurityGroupUuids: []string{"sg1"}, CreatedAtUnixNs: 1700000000000000000},
 			{Uuid: "u2", ProjectUuid: "p2", Name: "net2", Cidr: "10.1.0.0/24"}, // gateway/dns/sgs empty -> dash branch
 		}}, nil
@@ -98,8 +98,8 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestLs_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListNetworksFn = func(_ context.Context, _ *vzdv1.ListNetworksRequest) (*vzdv1.ListNetworksResponse, error) {
-		return &vzdv1.ListNetworksResponse{Networks: []*vzdv1.NetworkInfo{
+	srv.ListNetworksFn = func(_ context.Context, _ *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error) {
+		return &weftv1.ListNetworksResponse{Networks: []*weftv1.NetworkInfo{
 			{Uuid: "u1", Name: "n", Cidr: "10.0.0.0/24", Type: "nat"},
 		}}, nil
 	}
@@ -117,7 +117,7 @@ func TestLs_JSONFormat(t *testing.T) {
 
 func TestLs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListNetworksFn = func(_ context.Context, _ *vzdv1.ListNetworksRequest) (*vzdv1.ListNetworksResponse, error) {
+	srv.ListNetworksFn = func(_ context.Context, _ *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -131,10 +131,10 @@ func TestLs_RPCError(t *testing.T) {
 
 func TestCreate_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.CreateNetworkRequest
-	srv.CreateNetworkFn = func(_ context.Context, in *vzdv1.CreateNetworkRequest) (*vzdv1.CreateNetworkResponse, error) {
+	var got *weftv1.CreateNetworkRequest
+	srv.CreateNetworkFn = func(_ context.Context, in *weftv1.CreateNetworkRequest) (*weftv1.CreateNetworkResponse, error) {
 		got = in
-		return &vzdv1.CreateNetworkResponse{Network: &vzdv1.NetworkInfo{Uuid: "u1", Name: in.Name, Cidr: in.Cidr, Type: in.Type}}, nil
+		return &weftv1.CreateNetworkResponse{Network: &weftv1.NetworkInfo{Uuid: "u1", Name: in.Name, Cidr: in.Cidr, Type: in.Type}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -155,7 +155,7 @@ func TestCreate_Success(t *testing.T) {
 
 func TestCreate_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CreateNetworkFn = func(_ context.Context, _ *vzdv1.CreateNetworkRequest) (*vzdv1.CreateNetworkResponse, error) {
+	srv.CreateNetworkFn = func(_ context.Context, _ *weftv1.CreateNetworkRequest) (*weftv1.CreateNetworkResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -169,8 +169,8 @@ func TestCreate_RPCError(t *testing.T) {
 
 func TestRename_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenameNetworkFn = func(_ context.Context, in *vzdv1.RenameNetworkRequest) (*vzdv1.RenameNetworkResponse, error) {
-		return &vzdv1.RenameNetworkResponse{Network: &vzdv1.NetworkInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
+	srv.RenameNetworkFn = func(_ context.Context, in *weftv1.RenameNetworkRequest) (*weftv1.RenameNetworkResponse, error) {
+		return &weftv1.RenameNetworkResponse{Network: &weftv1.NetworkInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -186,7 +186,7 @@ func TestRename_Success(t *testing.T) {
 
 func TestRename_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenameNetworkFn = func(_ context.Context, _ *vzdv1.RenameNetworkRequest) (*vzdv1.RenameNetworkResponse, error) {
+	srv.RenameNetworkFn = func(_ context.Context, _ *weftv1.RenameNetworkRequest) (*weftv1.RenameNetworkResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -200,10 +200,10 @@ func TestRename_RPCError(t *testing.T) {
 
 func TestSetDNS_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.SetNetworkDNSRequest
-	srv.SetNetworkDNSFn = func(_ context.Context, in *vzdv1.SetNetworkDNSRequest) (*vzdv1.SetNetworkDNSResponse, error) {
+	var got *weftv1.SetNetworkDNSRequest
+	srv.SetNetworkDNSFn = func(_ context.Context, in *weftv1.SetNetworkDNSRequest) (*weftv1.SetNetworkDNSResponse, error) {
 		got = in
-		return &vzdv1.SetNetworkDNSResponse{Network: &vzdv1.NetworkInfo{Uuid: in.Uuid, DnsServers: in.DnsServers}}, nil
+		return &weftv1.SetNetworkDNSResponse{Network: &weftv1.NetworkInfo{Uuid: in.Uuid, DnsServers: in.DnsServers}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -222,7 +222,7 @@ func TestSetDNS_Success(t *testing.T) {
 
 func TestSetDNS_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetNetworkDNSFn = func(_ context.Context, _ *vzdv1.SetNetworkDNSRequest) (*vzdv1.SetNetworkDNSResponse, error) {
+	srv.SetNetworkDNSFn = func(_ context.Context, _ *weftv1.SetNetworkDNSRequest) (*weftv1.SetNetworkDNSResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -236,8 +236,8 @@ func TestSetDNS_RPCError(t *testing.T) {
 
 func TestSetSGs_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetNetworkDefaultSecurityGroupsFn = func(_ context.Context, in *vzdv1.SetNetworkDefaultSecurityGroupsRequest) (*vzdv1.SetNetworkDefaultSecurityGroupsResponse, error) {
-		return &vzdv1.SetNetworkDefaultSecurityGroupsResponse{Network: &vzdv1.NetworkInfo{Uuid: in.Uuid, DefaultSecurityGroupUuids: in.SecurityGroupUuids}}, nil
+	srv.SetNetworkDefaultSecurityGroupsFn = func(_ context.Context, in *weftv1.SetNetworkDefaultSecurityGroupsRequest) (*weftv1.SetNetworkDefaultSecurityGroupsResponse, error) {
+		return &weftv1.SetNetworkDefaultSecurityGroupsResponse{Network: &weftv1.NetworkInfo{Uuid: in.Uuid, DefaultSecurityGroupUuids: in.SecurityGroupUuids}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -253,8 +253,8 @@ func TestSetSGs_Success(t *testing.T) {
 
 func TestSetSGs_EmptyList(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetNetworkDefaultSecurityGroupsFn = func(_ context.Context, _ *vzdv1.SetNetworkDefaultSecurityGroupsRequest) (*vzdv1.SetNetworkDefaultSecurityGroupsResponse, error) {
-		return &vzdv1.SetNetworkDefaultSecurityGroupsResponse{Network: &vzdv1.NetworkInfo{Uuid: "u1"}}, nil
+	srv.SetNetworkDefaultSecurityGroupsFn = func(_ context.Context, _ *weftv1.SetNetworkDefaultSecurityGroupsRequest) (*weftv1.SetNetworkDefaultSecurityGroupsResponse, error) {
+		return &weftv1.SetNetworkDefaultSecurityGroupsResponse{Network: &weftv1.NetworkInfo{Uuid: "u1"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -270,7 +270,7 @@ func TestSetSGs_EmptyList(t *testing.T) {
 
 func TestSetSGs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetNetworkDefaultSecurityGroupsFn = func(_ context.Context, _ *vzdv1.SetNetworkDefaultSecurityGroupsRequest) (*vzdv1.SetNetworkDefaultSecurityGroupsResponse, error) {
+	srv.SetNetworkDefaultSecurityGroupsFn = func(_ context.Context, _ *weftv1.SetNetworkDefaultSecurityGroupsRequest) (*weftv1.SetNetworkDefaultSecurityGroupsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -298,7 +298,7 @@ func TestRm_Success(t *testing.T) {
 
 func TestRm_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.DeleteNetworkFn = func(_ context.Context, _ *vzdv1.DeleteNetworkRequest) (*vzdv1.DeleteNetworkResponse, error) {
+	srv.DeleteNetworkFn = func(_ context.Context, _ *weftv1.DeleteNetworkRequest) (*weftv1.DeleteNetworkResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

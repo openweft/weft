@@ -1,6 +1,6 @@
 package agent
 
-// control_plane.go defines what vzd-agent expects from the
+// control_plane.go defines what weft-agent expects from the
 // control plane it talks to. The interface is deliberately
 // minimal:
 //
@@ -17,8 +17,8 @@ package agent
 //
 // Why an interface (not just gRPC out of the gate):
 //
-//   1. The single-process integration case — vzd-control runs
-//      a co-located vzd-agent inside its own process — needs no
+//   1. The single-process integration case — weft-control runs
+//      a co-located weft-agent inside its own process — needs no
 //      network. The CP impl is a thin shim that delegates to
 //      weft.Adapter's existing methods.
 //   2. Tests use a recording fake (`fakeControlPlane`) to
@@ -32,7 +32,7 @@ package agent
 
 import "context"
 
-// ControlPlane is the vzd-control surface area the agent
+// ControlPlane is the weft-control surface area the agent
 // touches. Implementations must be safe for concurrent use —
 // the agent's heartbeat goroutine + the reconciler may race.
 type ControlPlane interface {

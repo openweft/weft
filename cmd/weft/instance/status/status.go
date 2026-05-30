@@ -1,11 +1,11 @@
-// Package status implements the vzc status sub-command.
+// Package status implements the weft status sub-command.
 package status
 
 import (
 	"context"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -21,11 +21,11 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.VMStatus(context.Background(), &vzdv1.VMStatusRequest{Name: args[0]})
+			resp, err := c.VMStatus(context.Background(), &weftv1.VMStatusRequest{Name: args[0]})
 			if err != nil {
 				return err
 			}
-			shared.RenderTable([]*vzdv1.VMInfo{resp.Vm})
+			shared.RenderTable([]*weftv1.VMInfo{resp.Vm})
 			return nil
 		},
 	}

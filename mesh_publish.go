@@ -12,7 +12,7 @@ import (
 // number of VMs the new mesh state was published to.
 //
 // PublishMesh takes already-resolved members (key, overlay IP, endpoint)
-// because the per-VM WG state lives outside the VM registry today; vzd is
+// because the per-VM WG state lives outside the VM registry today; weft is
 // expected to call this on lifecycle events (provision / delete / move)
 // once the WG state plumbing lands. No CLI for now: mesh updates are
 // derived state, not operator-supplied data — contrast with share attach

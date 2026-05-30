@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -58,10 +58,10 @@ func TestCommand_StructureHasAllSubcommands(t *testing.T) {
 
 func TestLs_FiltersMicroVMs(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVMsFn = func(_ context.Context, _ *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
-		return &vzdv1.ListVMsResponse{Vms: []*vzdv1.VMInfo{
-			{Name: "ncl-alpine_3.21", State: vzdv1.VMState_VM_STATE_RUNNING},
-			{Name: "classic-vm", State: vzdv1.VMState_VM_STATE_RUNNING},
+	srv.ListVMsFn = func(_ context.Context, _ *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
+		return &weftv1.ListVMsResponse{Vms: []*weftv1.VMInfo{
+			{Name: "weft-microvm-alpine_3.21", State: weftv1.VMState_VM_STATE_RUNNING},
+			{Name: "classic-vm", State: weftv1.VMState_VM_STATE_RUNNING},
 		}}, nil
 	}
 	out := captureStdout(t, func() {
@@ -71,7 +71,7 @@ func TestLs_FiltersMicroVMs(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	if !strings.Contains(out, "ncl-alpine_3.21") {
+	if !strings.Contains(out, "weft-microvm-alpine_3.21") {
 		t.Errorf("microVM missing: %q", out)
 	}
 	if strings.Contains(out, "classic-vm") {
@@ -81,10 +81,10 @@ func TestLs_FiltersMicroVMs(t *testing.T) {
 
 func TestLs_AllIncludesNonMicroVMs(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVMsFn = func(_ context.Context, _ *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
-		return &vzdv1.ListVMsResponse{Vms: []*vzdv1.VMInfo{
-			{Name: "ncl-a", State: vzdv1.VMState_VM_STATE_RUNNING},
-			{Name: "classic-vm", State: vzdv1.VMState_VM_STATE_RUNNING},
+	srv.ListVMsFn = func(_ context.Context, _ *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
+		return &weftv1.ListVMsResponse{Vms: []*weftv1.VMInfo{
+			{Name: "weft-microvm-a", State: weftv1.VMState_VM_STATE_RUNNING},
+			{Name: "classic-vm", State: weftv1.VMState_VM_STATE_RUNNING},
 		}}, nil
 	}
 	out := captureStdout(t, func() {
@@ -101,12 +101,12 @@ func TestLs_AllIncludesNonMicroVMs(t *testing.T) {
 
 func TestLs_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVMsFn = func(_ context.Context, in *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
+	srv.ListVMsFn = func(_ context.Context, in *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
 		if in.Project != "team-net" {
 			t.Errorf("project flag not threaded: %q", in.Project)
 		}
-		return &vzdv1.ListVMsResponse{Vms: []*vzdv1.VMInfo{
-			{Name: "ncl-x", State: vzdv1.VMState_VM_STATE_RUNNING, Ip: "10.0.0.5"},
+		return &weftv1.ListVMsResponse{Vms: []*weftv1.VMInfo{
+			{Name: "weft-microvm-x", State: weftv1.VMState_VM_STATE_RUNNING, Ip: "10.0.0.5"},
 		}}, nil
 	}
 	out := captureStdout(t, func() {
@@ -116,14 +116,14 @@ func TestLs_JSONFormat(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	if !strings.Contains(out, `"name":"ncl-x"`) {
+	if !strings.Contains(out, `"name":"weft-microvm-x"`) {
 		t.Errorf("json missing: %q", out)
 	}
 }
 
 func TestLs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVMsFn = func(_ context.Context, _ *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
+	srv.ListVMsFn = func(_ context.Context, _ *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -146,13 +146,13 @@ func TestLs_DialError(t *testing.T) {
 func TestRm_StopThenDelete(t *testing.T) {
 	srv := testutil.NewServer(t)
 	var stopped, deleted string
-	srv.StopVMFn = func(_ context.Context, in *vzdv1.StopVMRequest) (*vzdv1.StopVMResponse, error) {
+	srv.StopVMFn = func(_ context.Context, in *weftv1.StopVMRequest) (*weftv1.StopVMResponse, error) {
 		stopped = in.Name
-		return &vzdv1.StopVMResponse{}, nil
+		return &weftv1.StopVMResponse{}, nil
 	}
-	srv.DeleteVMFn = func(_ context.Context, in *vzdv1.DeleteVMRequest) (*vzdv1.DeleteVMResponse, error) {
+	srv.DeleteVMFn = func(_ context.Context, in *weftv1.DeleteVMRequest) (*weftv1.DeleteVMResponse, error) {
 		deleted = in.Name
-		return &vzdv1.DeleteVMResponse{}, nil
+		return &weftv1.DeleteVMResponse{}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -162,10 +162,10 @@ func TestRm_StopThenDelete(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	if stopped != "ncl-alpine_3.21" || deleted != "ncl-alpine_3.21" {
+	if stopped != "weft-microvm-alpine_3.21" || deleted != "weft-microvm-alpine_3.21" {
 		t.Errorf("stop=%q delete=%q", stopped, deleted)
 	}
-	if !strings.Contains(out, "ncl-alpine_3.21") {
+	if !strings.Contains(out, "weft-microvm-alpine_3.21") {
 		t.Errorf("rm should echo the removed name: %q", out)
 	}
 }
@@ -173,18 +173,18 @@ func TestRm_StopThenDelete(t *testing.T) {
 func TestRm_AlreadyPrefixedName(t *testing.T) {
 	srv := testutil.NewServer(t)
 	var deleted string
-	srv.DeleteVMFn = func(_ context.Context, in *vzdv1.DeleteVMRequest) (*vzdv1.DeleteVMResponse, error) {
+	srv.DeleteVMFn = func(_ context.Context, in *weftv1.DeleteVMRequest) (*weftv1.DeleteVMResponse, error) {
 		deleted = in.Name
-		return &vzdv1.DeleteVMResponse{}, nil
+		return &weftv1.DeleteVMResponse{}, nil
 	}
 	_ = captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-		cmd.SetArgs([]string{"rm", "ncl-already"})
+		cmd.SetArgs([]string{"rm", "weft-microvm-already"})
 		if err := cmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	if deleted != "ncl-already" {
+	if deleted != "weft-microvm-already" {
 		t.Errorf("prefixed name should pass through: %q", deleted)
 	}
 }
@@ -192,13 +192,13 @@ func TestRm_AlreadyPrefixedName(t *testing.T) {
 func TestRm_ForceSkipsStop(t *testing.T) {
 	srv := testutil.NewServer(t)
 	stopCalled := false
-	srv.StopVMFn = func(_ context.Context, _ *vzdv1.StopVMRequest) (*vzdv1.StopVMResponse, error) {
+	srv.StopVMFn = func(_ context.Context, _ *weftv1.StopVMRequest) (*weftv1.StopVMResponse, error) {
 		stopCalled = true
-		return &vzdv1.StopVMResponse{}, nil
+		return &weftv1.StopVMResponse{}, nil
 	}
 	_ = captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-		cmd.SetArgs([]string{"rm", "-f", "ncl-x"})
+		cmd.SetArgs([]string{"rm", "-f", "weft-microvm-x"})
 		if err := cmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
@@ -210,17 +210,17 @@ func TestRm_ForceSkipsStop(t *testing.T) {
 
 func TestRm_StopAlreadyStopped_Tolerated(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.StopVMFn = func(_ context.Context, _ *vzdv1.StopVMRequest) (*vzdv1.StopVMResponse, error) {
+	srv.StopVMFn = func(_ context.Context, _ *weftv1.StopVMRequest) (*weftv1.StopVMResponse, error) {
 		return nil, errors.New("vm is not running")
 	}
 	deleted := false
-	srv.DeleteVMFn = func(_ context.Context, _ *vzdv1.DeleteVMRequest) (*vzdv1.DeleteVMResponse, error) {
+	srv.DeleteVMFn = func(_ context.Context, _ *weftv1.DeleteVMRequest) (*weftv1.DeleteVMResponse, error) {
 		deleted = true
-		return &vzdv1.DeleteVMResponse{}, nil
+		return &weftv1.DeleteVMResponse{}, nil
 	}
 	_ = captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-		cmd.SetArgs([]string{"rm", "ncl-x"})
+		cmd.SetArgs([]string{"rm", "weft-microvm-x"})
 		if err := cmd.Execute(); err != nil {
 			t.Errorf("an 'already stopped' StopVM error should be tolerated: %v", err)
 		}
@@ -232,11 +232,11 @@ func TestRm_StopAlreadyStopped_Tolerated(t *testing.T) {
 
 func TestRm_StopRealError_Reported(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.StopVMFn = func(_ context.Context, _ *vzdv1.StopVMRequest) (*vzdv1.StopVMResponse, error) {
+	srv.StopVMFn = func(_ context.Context, _ *weftv1.StopVMRequest) (*weftv1.StopVMResponse, error) {
 		return nil, errors.New("disk on fire")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"rm", "ncl-x"})
+	cmd.SetArgs([]string{"rm", "weft-microvm-x"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("a non-'already-stopped' stop error should surface")
 	}
@@ -244,11 +244,11 @@ func TestRm_StopRealError_Reported(t *testing.T) {
 
 func TestRm_DeleteError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.DeleteVMFn = func(_ context.Context, _ *vzdv1.DeleteVMRequest) (*vzdv1.DeleteVMResponse, error) {
+	srv.DeleteVMFn = func(_ context.Context, _ *weftv1.DeleteVMRequest) (*weftv1.DeleteVMResponse, error) {
 		return nil, errors.New("delete failed")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"rm", "-f", "ncl-x"})
+	cmd.SetArgs([]string{"rm", "-f", "weft-microvm-x"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected delete error")
 	}
@@ -256,15 +256,15 @@ func TestRm_DeleteError(t *testing.T) {
 
 func TestRm_MultipleArgs_FirstErrorReturned(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.DeleteVMFn = func(_ context.Context, in *vzdv1.DeleteVMRequest) (*vzdv1.DeleteVMResponse, error) {
-		if in.Name == "ncl-bad" {
+	srv.DeleteVMFn = func(_ context.Context, in *weftv1.DeleteVMRequest) (*weftv1.DeleteVMResponse, error) {
+		if in.Name == "weft-microvm-bad" {
 			return nil, errors.New("nope")
 		}
-		return &vzdv1.DeleteVMResponse{}, nil
+		return &weftv1.DeleteVMResponse{}, nil
 	}
 	_ = captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-		cmd.SetArgs([]string{"rm", "-f", "ncl-bad", "ncl-good"})
+		cmd.SetArgs([]string{"rm", "-f", "weft-microvm-bad", "weft-microvm-good"})
 		if err := cmd.Execute(); err == nil {
 			t.Error("expected the first error to be returned even though the second succeeds")
 		}
@@ -273,7 +273,7 @@ func TestRm_MultipleArgs_FirstErrorReturned(t *testing.T) {
 
 func TestRm_DialError(t *testing.T) {
 	cmd := Command(strPtr("/tmp/no-such-microvm-rm.sock"), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"rm", "ncl-x"})
+	cmd.SetArgs([]string{"rm", "weft-microvm-x"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected dial error")
 	}
@@ -294,21 +294,21 @@ func TestRm_RequiresArg(t *testing.T) {
 func TestLogs_ContainerOutputFiltered(t *testing.T) {
 	srv := testutil.NewServer(t)
 	console := "kernel boot junk\n" +
-		"ncl-init: starting\n" +
-		"NCL_MARK exec_ready\n" +
+		"weft-microvm-init: starting\n" +
+		"WEFT_MARK exec_ready\n" +
 		"hello from container\n" +
-		"ncl-init: noise inside window\n" +
-		"NCL_MARK child_exited\n" +
+		"weft-microvm-init: noise inside window\n" +
+		"WEFT_MARK child_exited\n" +
 		"trailing kernel\n"
-	srv.VMLogsFn = func(_ context.Context, in *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
-		if in.Name != "ncl-app" {
+	srv.VMLogsFn = func(_ context.Context, in *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
+		if in.Name != "weft-microvm-app" {
 			t.Errorf("name not resolved: %q", in.Name)
 		}
-		return &vzdv1.VMLogsResponse{Contents: []byte(console)}, nil
+		return &weftv1.VMLogsResponse{Contents: []byte(console)}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-		cmd.SetArgs([]string{"logs", "ncl-app"})
+		cmd.SetArgs([]string{"logs", "weft-microvm-app"})
 		if err := cmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
@@ -317,39 +317,39 @@ func TestLogs_ContainerOutputFiltered(t *testing.T) {
 		t.Errorf("container output missing: %q", out)
 	}
 	if strings.Contains(out, "kernel boot junk") || strings.Contains(out, "noise inside window") ||
-		strings.Contains(out, "NCL_MARK") {
+		strings.Contains(out, "WEFT_MARK") {
 		t.Errorf("filter leaked non-container lines: %q", out)
 	}
 }
 
 func TestLogs_Raw(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMLogsFn = func(_ context.Context, in *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
+	srv.VMLogsFn = func(_ context.Context, in *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
 		if in.TailBytes != 128 {
 			t.Errorf("tail flag not threaded: %d", in.TailBytes)
 		}
-		return &vzdv1.VMLogsResponse{Contents: []byte("kernel junk\nNCL_MARK exec_ready\n")}, nil
+		return &weftv1.VMLogsResponse{Contents: []byte("kernel junk\nWEFT_MARK exec_ready\n")}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-		cmd.SetArgs([]string{"logs", "--raw", "--tail", "128", "ncl-app"})
+		cmd.SetArgs([]string{"logs", "--raw", "--tail", "128", "weft-microvm-app"})
 		if err := cmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	if !strings.Contains(out, "kernel junk") || !strings.Contains(out, "NCL_MARK") {
+	if !strings.Contains(out, "kernel junk") || !strings.Contains(out, "WEFT_MARK") {
 		t.Errorf("--raw should dump everything: %q", out)
 	}
 }
 
 func TestLogs_EmptyContents(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMLogsFn = func(_ context.Context, _ *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
-		return &vzdv1.VMLogsResponse{Contents: nil}, nil
+	srv.VMLogsFn = func(_ context.Context, _ *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
+		return &weftv1.VMLogsResponse{Contents: nil}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-		cmd.SetArgs([]string{"logs", "ncl-app"})
+		cmd.SetArgs([]string{"logs", "weft-microvm-app"})
 		if err := cmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
@@ -361,14 +361,14 @@ func TestLogs_EmptyContents(t *testing.T) {
 
 func TestLogs_NoExecReady_EmptyFiltered(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMLogsFn = func(_ context.Context, _ *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
+	srv.VMLogsFn = func(_ context.Context, _ *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
 		// No exec_ready marker → containerOutput returns nil, so the
 		// command writes nothing.
-		return &vzdv1.VMLogsResponse{Contents: []byte("just kernel\nncl-init: boot\n")}, nil
+		return &weftv1.VMLogsResponse{Contents: []byte("just kernel\nweft-microvm-init: boot\n")}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-		cmd.SetArgs([]string{"logs", "ncl-app"})
+		cmd.SetArgs([]string{"logs", "weft-microvm-app"})
 		if err := cmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
@@ -381,12 +381,12 @@ func TestLogs_NoExecReady_EmptyFiltered(t *testing.T) {
 func TestLogs_TrailingNewlineAdded(t *testing.T) {
 	srv := testutil.NewServer(t)
 	// Raw output without a trailing newline → the command appends one.
-	srv.VMLogsFn = func(_ context.Context, _ *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
-		return &vzdv1.VMLogsResponse{Contents: []byte("no newline at end")}, nil
+	srv.VMLogsFn = func(_ context.Context, _ *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
+		return &weftv1.VMLogsResponse{Contents: []byte("no newline at end")}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-		cmd.SetArgs([]string{"logs", "--raw", "ncl-app"})
+		cmd.SetArgs([]string{"logs", "--raw", "weft-microvm-app"})
 		if err := cmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
@@ -398,11 +398,11 @@ func TestLogs_TrailingNewlineAdded(t *testing.T) {
 
 func TestLogs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.VMLogsFn = func(_ context.Context, _ *vzdv1.VMLogsRequest) (*vzdv1.VMLogsResponse, error) {
+	srv.VMLogsFn = func(_ context.Context, _ *weftv1.VMLogsRequest) (*weftv1.VMLogsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"logs", "ncl-app"})
+	cmd.SetArgs([]string{"logs", "weft-microvm-app"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected RPC error")
 	}
@@ -410,7 +410,7 @@ func TestLogs_RPCError(t *testing.T) {
 
 func TestLogs_DialError(t *testing.T) {
 	cmd := Command(strPtr("/tmp/no-such-microvm-logs.sock"), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"logs", "ncl-app"})
+	cmd.SetArgs([]string{"logs", "weft-microvm-app"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected dial error")
 	}
@@ -436,22 +436,22 @@ func TestContainerOutput_EdgeCases(t *testing.T) {
 	})
 	t.Run("exec_ready as last line (no newline after)", func(t *testing.T) {
 		// startMark present but no newline after it → returns nil.
-		if got := containerOutput([]byte("NCL_MARK exec_ready")); got != nil {
+		if got := containerOutput([]byte("WEFT_MARK exec_ready")); got != nil {
 			t.Errorf("got %q", got)
 		}
 	})
 	t.Run("no child_exited runs to end", func(t *testing.T) {
-		in := "NCL_MARK exec_ready\noutput line\n"
+		in := "WEFT_MARK exec_ready\noutput line\n"
 		got := string(containerOutput([]byte(in)))
 		if got != "output line\n" {
 			t.Errorf("got %q", got)
 		}
 	})
-	t.Run("drops NCL_MARK lines inside the window", func(t *testing.T) {
-		in := "NCL_MARK exec_ready\nreal output\nNCL_MARK some_inner_marker\nmore output\n"
+	t.Run("drops WEFT_MARK lines inside the window", func(t *testing.T) {
+		in := "WEFT_MARK exec_ready\nreal output\nWEFT_MARK some_inner_marker\nmore output\n"
 		got := string(containerOutput([]byte(in)))
 		if got != "real output\nmore output\n" {
-			t.Errorf("inner NCL_MARK not dropped: %q", got)
+			t.Errorf("inner WEFT_MARK not dropped: %q", got)
 		}
 	})
 }
@@ -487,12 +487,12 @@ func TestRun_RequiresArg(t *testing.T) {
 }
 
 func TestRun_NoAutoPull_ErrorPath(t *testing.T) {
-	// run delegates to microvm.Run; with NCL_NO_AUTO_PULL=1 and an
+	// run delegates to microvm.Run; with WEFT_NO_AUTO_PULL=1 and an
 	// unpulled image the lib returns an actionable error. This exercises
 	// the cobra front-end's Args construction + RunE without needing a
 	// real boot/daemon.
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("NCL_NO_AUTO_PULL", "1")
+	t.Setenv("WEFT_NO_AUTO_PULL", "1")
 	cmd := Command(strPtr("/tmp/unused-run.sock"), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"run", "definitely-not-pulled:0.0.0"})
 	cmd.SilenceUsage = true
@@ -512,25 +512,25 @@ func TestRun_CmdOverrideAfterDash(t *testing.T) {
 	//
 	// Two defences against accidentally hitting a real registry :
 	//
-	//   * NCL_NO_AUTO_PULL=1 — strict offline ; the lib hard-errors
+	//   * WEFT_NO_AUTO_PULL=1 — strict offline ; the lib hard-errors
 	//     before auto-pull instead of dialling Docker Hub.
 	//   * Sentinel image name — even if the offline gate were
 	//     bypassed, "weft-test-fixture:override" doesn't resolve
 	//     anywhere on the public registries.
 	//
 	// The cache path is the lib's real layout
-	// ($XDG_DATA_HOME/weft-microvm/images/<refsafe>/rootfs/.ncl/) ;
-	// the legacy ncl/images/ path is gone since the rename to
+	// ($XDG_DATA_HOME/weft-microvm/images/<refsafe>/rootfs/.weft-microvm/) ;
+	// the legacy weft-microvm/images/ path is gone since the rename to
 	// weft-microvm.
 	xdg := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", xdg)
-	t.Setenv("NCL_KERNEL", "")
-	t.Setenv("NCL_INITRD", "")
-	t.Setenv("NCL_INIT_ISO", "")
-	t.Setenv("NCL_NO_AUTO_PULL", "1")
+	t.Setenv("WEFT_KERNEL", "")
+	t.Setenv("WEFT_INITRD", "")
+	t.Setenv("WEFT_INIT_ISO", "")
+	t.Setenv("WEFT_NO_AUTO_PULL", "1")
 	const image = "weft-test-fixture:override"
 	const refsafe = "weft-test-fixture_override"
-	rootfs := filepath.Join(xdg, "weft-microvm", "images", refsafe, "rootfs", ".ncl")
+	rootfs := filepath.Join(xdg, "weft-microvm", "images", refsafe, "rootfs", ".weft-microvm")
 	if err := os.MkdirAll(rootfs, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +588,7 @@ var minimalELF = []byte{0x7f, 'E', 'L', 'F', 2, 1, 1, 0}
 
 func TestInitBuild_HappyPath(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "ncl-init")
+	bin := filepath.Join(dir, "weft-microvm-init")
 	if err := os.WriteFile(bin, minimalELF, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -608,24 +608,24 @@ func TestInitBuild_DefaultOutputPath(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", xdg)
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "ncl-init")
+	bin := filepath.Join(dir, "weft-microvm-init")
 	if err := os.WriteFile(bin, minimalELF, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// defaultInitrdPath() returns $XDG_DATA_HOME/ncl/initrd; the parent
+	// defaultInitrdPath() returns $XDG_DATA_HOME/weft-microvm/initrd; the parent
 	// dir is created by a prior `pull`/cache step in normal use, so the
 	// test pre-creates it (PackToFile only opens the file, it does not
 	// MkdirAll the parent).
-	if err := os.MkdirAll(filepath.Join(xdg, "ncl"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(xdg, "weft-microvm"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// No -o flag → defaultInitrdPath() under XDG_DATA_HOME/ncl/initrd.
+	// No -o flag → defaultInitrdPath() under XDG_DATA_HOME/weft-microvm/initrd.
 	cmd := Command(strPtr("/sock"), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"init-build", bin})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(xdg, "ncl", "initrd")); err != nil {
+	if _, err := os.Stat(filepath.Join(xdg, "weft-microvm", "initrd")); err != nil {
 		t.Fatalf("default output not created: %v", err)
 	}
 }
@@ -653,7 +653,7 @@ func TestInitBuild_RequiresArg(t *testing.T) {
 func TestDefaultInitrdPath_Fallbacks(t *testing.T) {
 	t.Run("XDG set", func(t *testing.T) {
 		t.Setenv("XDG_DATA_HOME", "/xdg")
-		if got := defaultInitrdPath(); got != filepath.Join("/xdg", "ncl", "initrd") {
+		if got := defaultInitrdPath(); got != filepath.Join("/xdg", "weft-microvm", "initrd") {
 			t.Errorf("got %q", got)
 		}
 	})
@@ -661,14 +661,14 @@ func TestDefaultInitrdPath_Fallbacks(t *testing.T) {
 		t.Setenv("XDG_DATA_HOME", "")
 		t.Setenv("HOME", "/home/tester")
 		got := defaultInitrdPath()
-		if !strings.HasSuffix(got, filepath.Join(".local", "share", "ncl", "initrd")) {
+		if !strings.HasSuffix(got, filepath.Join(".local", "share", "weft-microvm", "initrd")) {
 			t.Errorf("got %q", got)
 		}
 	})
 	t.Run("/tmp fallback", func(t *testing.T) {
 		t.Setenv("XDG_DATA_HOME", "")
 		t.Setenv("HOME", "")
-		if got := defaultInitrdPath(); got != "/tmp/ncl-initrd" {
+		if got := defaultInitrdPath(); got != "/tmp/weft-microvm-initrd" {
 			t.Errorf("got %q", got)
 		}
 	})

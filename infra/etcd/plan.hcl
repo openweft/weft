@@ -1,4 +1,4 @@
-# vzd infra plan — etcd control-plane cluster
+# weft infra plan — etcd control-plane cluster
 #
 # Three micro-VMs, one per DC, forming a single etcd cluster.
 # Each VM mounts a dedicated persistent volume for /var/lib/etcd
@@ -38,19 +38,19 @@ service "etcd" {
     size_gib = 32
   }
 
-  # Private control-plane subnet — only vzd / dex / zot speak to
+  # Private control-plane subnet — only weft / dex / zot speak to
   # etcd. User workloads never see this network.
   network {
     name      = "control-plane"
     static_ip = ["10.255.1.10", "10.255.1.11", "10.255.1.12"]
   }
 
-  # Kernel cmdline override merged into ncl-init's default.
+  # Kernel cmdline override merged into weft-microvm-init's default.
   # The OCI image's entrypoint is etcd itself; the config below
   # is materialised at deploy time and exposed via virtio-fs.
-  cmdline = "ncl.rootfs=virtiofs:rootfs0 ncl.config=virtiofs:cfg"
+  cmdline = "weft.rootfs=virtiofs:rootfs0 weft.config=virtiofs:cfg"
 
-  # Service-specific config rendered by vzd at deploy time. The
+  # Service-specific config rendered by weft at deploy time. The
   # tokens marked $REPLICA, $PEERS, $PRIVATE_IP, $DC are filled
   # in per VM. See README.md for the bootstrap detail.
   config_file {
@@ -64,7 +64,7 @@ service "etcd" {
       advertise-client-urls: 'https://$PRIVATE_IP:2379'
       initial-cluster: '$PEERS'
       initial-cluster-state: 'new'
-      initial-cluster-token: 'vzd-control-plane'
+      initial-cluster-token: 'weft-control-plane'
       client-transport-security:
         cert-file:        /etc/etcd/tls/server.crt
         key-file:         /etc/etcd/tls/server.key
@@ -83,7 +83,7 @@ service "etcd" {
   # walks this DAG and deploys depends-on-nothing services first.
   depends_on = []
 
-  # Sanity probes vzd polls before declaring the VM Ready.
+  # Sanity probes weft polls before declaring the VM Ready.
   health {
     type   = "exec"
     cmd    = "/usr/local/bin/etcdctl endpoint health --insecure-skip-tls-verify"

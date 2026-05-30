@@ -1,5 +1,5 @@
 // Package uefi implements `weft instance uefi` :
-// CRUD over a VM's UEFI NVRAM variables, exposed by vzd's
+// CRUD over a VM's UEFI NVRAM variables, exposed by weft's
 // WeftAgent.{List,Set,Delete}UEFIVar RPCs.
 //
 //	weft instance uefi ls  <vm>                                     list vars
@@ -27,7 +27,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -65,7 +65,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListUEFIVars(context.Background(), &vzdv1.ListUEFIVarsRequest{
+			resp, err := c.ListUEFIVars(context.Background(), &weftv1.ListUEFIVarsRequest{
 				VmName: args[0], Project: project,
 			})
 			if err != nil {
@@ -103,9 +103,9 @@ func setCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			if ns == "" {
 				ns = efiGlobalNS
 			}
-			resp, err := c.SetUEFIVar(context.Background(), &vzdv1.SetUEFIVarRequest{
+			resp, err := c.SetUEFIVar(context.Background(), &weftv1.SetUEFIVarRequest{
 				VmName: args[0], Project: project,
-				Var: &vzdv1.UEFIVar{
+				Var: &weftv1.UEFIVar{
 					Namespace:  ns,
 					Name:       args[1],
 					ValueHex:   valueHex,
@@ -146,7 +146,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			if ns == "" {
 				ns = efiGlobalNS
 			}
-			if _, err := c.DeleteUEFIVar(context.Background(), &vzdv1.DeleteUEFIVarRequest{
+			if _, err := c.DeleteUEFIVar(context.Background(), &weftv1.DeleteUEFIVarRequest{
 				VmName: args[0], Project: project, Namespace: ns, Name: args[1],
 			}); err != nil {
 				return err
@@ -160,7 +160,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	return cmd
 }
 
-func renderTable(vars []*vzdv1.UEFIVar) error {
+func renderTable(vars []*weftv1.UEFIVar) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAMESPACE\tNAME\tVALUE_HEX\tATTRIBUTES\tUPDATED_AT")
 	for _, v := range vars {
@@ -181,7 +181,7 @@ func renderTable(vars []*vzdv1.UEFIVar) error {
 	return tw.Flush()
 }
 
-func dumpJSON(vars []*vzdv1.UEFIVar) error {
+func dumpJSON(vars []*weftv1.UEFIVar) error {
 	type out struct {
 		Namespace  string   `json:"namespace"`
 		Name       string   `json:"name"`

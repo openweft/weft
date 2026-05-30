@@ -1,6 +1,6 @@
 package weft
 
-// auth.go is the OIDC bearer-token validation layer. Every vzd
+// auth.go is the OIDC bearer-token validation layer. Every weft
 // gRPC request that arrives with an `Authorization: Bearer <jwt>`
 // header passes through here:
 //
@@ -112,7 +112,7 @@ func devCaller() *Caller {
 	}
 	return &Caller{
 		Subject: sub,
-		Issuer:  "vzd:dev",
+		Issuer:  "weft:dev",
 		Dev:     true,
 	}
 }
@@ -136,8 +136,8 @@ type OIDCConfig struct {
 	// Empty disables OIDC — interceptor falls through to dev mode.
 	Issuer string
 	// ClientID is the audience the token must be issued for. Set
-	// to the OAuth client name vzd was registered under in dex
-	// (typically "vzd"). Empty disables audience checking, which
+	// to the OAuth client name weft was registered under in dex
+	// (typically "weft"). Empty disables audience checking, which
 	// is fine for single-tenant deployments but dangerous for
 	// multi-tenant; warn when this is empty.
 	ClientID string

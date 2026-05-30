@@ -1,5 +1,5 @@
-# vzd host registry — cluster-wide compute node inventory.
-# Each vzd-agent registers itself here on startup. UUID is
+# weft host registry — cluster-wide compute node inventory.
+# Each weft-agent registers itself here on startup. UUID is
 # immutable; hostname unique cluster-wide; state managed by
 # the control plane (heartbeat → active/down).
 

@@ -1,9 +1,9 @@
-// Package timings implements the `vzc instance timings` sub-
-// command — pretty-prints the per-VM lifecycle event log vzd
+// Package timings implements the `weft instance timings` sub-
+// command — pretty-prints the per-VM lifecycle event log weft
 // records at <vmDir>/timings.jsonl.
 //
 // Output shape (matches the unified-timeline format that emerged
-// from the nano-container-linux boot-time measurement):
+// from the weft-microvm boot-time measurement):
 //
 //	T+   0.00ms (+  0.00ms)  registered                 mode=direct_linux
 //	T+   0.60ms (+  0.60ms)  server.start_attempted
@@ -24,7 +24,7 @@ import (
 	"sort"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +32,7 @@ import (
 //
 // CLI shape:
 //
-//	vzc instance timings <name> [--format json]
+//	weft instance timings <name> [--format json]
 //
 // Default format is the human-readable table above. `--format
 // json` dumps the raw events array — useful for piping into jq
@@ -49,12 +49,12 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.VMTimings(context.Background(), &vzdv1.VMTimingsRequest{Name: args[0]})
+			resp, err := c.VMTimings(context.Background(), &weftv1.VMTimingsRequest{Name: args[0]})
 			if err != nil {
 				return err
 			}
 			events := resp.Events
-			// Defensive: vzd already returns events in wall-clock
+			// Defensive: weft already returns events in wall-clock
 			// order, but a future server might break that
 			// invariant and this client should still produce a
 			// sensible timeline.
@@ -74,7 +74,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 // renderTimeline prints the human-readable view. Empty event list
 // prints a one-liner so the operator isn't left wondering whether
 // the call succeeded.
-func renderTimeline(events []*vzdv1.TimingEvent, name string) error {
+func renderTimeline(events []*weftv1.TimingEvent, name string) error {
 	if len(events) == 0 {
 		fmt.Printf("vm %q: no timings recorded (yet)\n", name)
 		return nil
@@ -99,7 +99,7 @@ func renderTimeline(events []*vzdv1.TimingEvent, name string) error {
 	return nil
 }
 
-func dumpJSON(events []*vzdv1.TimingEvent) error {
+func dumpJSON(events []*weftv1.TimingEvent) error {
 	type out struct {
 		Name      string            `json:"name"`
 		TsUnixNs  int64             `json:"ts_unix_ns"`

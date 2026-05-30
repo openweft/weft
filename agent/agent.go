@@ -3,7 +3,7 @@ package agent
 // agent.go implements the Agent lifecycle:
 //
 //   1. Persist the host UUID at <StateDir>/host-uuid (same
-//      mechanism vzd-control uses for self-registration).
+//      mechanism weft-control uses for self-registration).
 //   2. Build the local driver Bundle from
 //      pkg/openweft/weft-driver-vz/builtin.
 //   3. Register with the ControlPlane + attach the driver
@@ -11,13 +11,13 @@ package agent
 //   4. Heartbeat on a timer until Stop().
 //
 // Today this is the in-process integration target: an
-// embedded ControlPlane (single-process vzd-control) calls
+// embedded ControlPlane (single-process weft-control) calls
 // agent.Start() during boot, the agent registers itself, and
 // the dispatch table now has the local Bundle wired via the
 // same code path a remote gRPC agent will use.
 //
 // In a future commit the same Start() is what runs inside the
-// standalone `vzd-agent` binary, with the ControlPlane being a
+// standalone `weft-agent` binary, with the ControlPlane being a
 // gRPC client stub instead of an in-process shim.
 
 import (
@@ -40,8 +40,8 @@ type Options struct {
 	StateDir string
 	// Hostname overrides os.Hostname() in the agent's
 	// HostRegistration. Useful when:
-	//   - the agent runs embedded in vzd-control's process and
-	//     the os hostname is already taken by vzd-control's
+	//   - the agent runs embedded in weft-control's process and
+	//     the os hostname is already taken by weft-control's
 	//     self-registration (embedded integration tests),
 	//   - the operator wants a logical name independent of DNS.
 	// Empty means "use os.Hostname()".
@@ -88,10 +88,10 @@ type Agent struct {
 // error when required Options fields are missing.
 func New(opts Options) (*Agent, error) {
 	if opts.ControlPlane == nil {
-		return nil, fmt.Errorf("vzd-agent: ControlPlane is required")
+		return nil, fmt.Errorf("weft-agent: ControlPlane is required")
 	}
 	if opts.StateDir == "" {
-		return nil, fmt.Errorf("vzd-agent: StateDir is required")
+		return nil, fmt.Errorf("weft-agent: StateDir is required")
 	}
 	if opts.HeartbeatInterval == 0 {
 		opts.HeartbeatInterval = 30 * time.Second
@@ -119,7 +119,7 @@ func (a *Agent) Start(ctx context.Context) error {
 func (a *Agent) start(ctx context.Context) error {
 	uuid, err := loadOrCreateHostUUID(a.opts.StateDir)
 	if err != nil {
-		return fmt.Errorf("vzd-agent: host-uuid: %w", err)
+		return fmt.Errorf("weft-agent: host-uuid: %w", err)
 	}
 	a.hostUUID = uuid
 	hn := a.opts.Hostname
@@ -139,7 +139,7 @@ func (a *Agent) start(ctx context.Context) error {
 	} else {
 		handles, hv, closer, err := buildLocalHandles(a.opts, uuid, hn)
 		if err != nil {
-			return fmt.Errorf("vzd-agent: launch driver plugin: %w", err)
+			return fmt.Errorf("weft-agent: launch driver plugin: %w", err)
 		}
 		a.handles, a.hypervisor, a.pluginCloser = handles, hv, closer
 	}
@@ -157,10 +157,10 @@ func (a *Agent) start(ctx context.Context) error {
 		Labels:         a.opts.Labels,
 	}
 	if _, err := a.opts.ControlPlane.RegisterHost(ctx, reg); err != nil {
-		return fmt.Errorf("vzd-agent: RegisterHost: %w", err)
+		return fmt.Errorf("weft-agent: RegisterHost: %w", err)
 	}
 	if err := a.opts.ControlPlane.AttachDrivers(ctx, uuid, a.handles); err != nil {
-		return fmt.Errorf("vzd-agent: AttachDrivers: %w", err)
+		return fmt.Errorf("weft-agent: AttachDrivers: %w", err)
 	}
 
 	// Spin up the heartbeat goroutine.
@@ -215,7 +215,7 @@ func (a *Agent) heartbeatLoop(ctx context.Context) {
 		case <-t.C:
 			hbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			if err := a.opts.ControlPlane.Heartbeat(hbCtx, a.hostUUID); err != nil {
-				fmt.Fprintf(os.Stderr, "vzd-agent: heartbeat failed: %v\n", err)
+				fmt.Fprintf(os.Stderr, "weft-agent: heartbeat failed: %v\n", err)
 			}
 			cancel()
 		}
@@ -223,9 +223,9 @@ func (a *Agent) heartbeatLoop(ctx context.Context) {
 }
 
 // loadOrCreateHostUUID reads <stateDir>/host-uuid; generates +
-// persists when absent. Same recipe as vzd-control's
+// persists when absent. Same recipe as weft-control's
 // host_self.go — duplicated here so the agent module doesn't
-// import vzd.
+// import weft.
 func loadOrCreateHostUUID(stateDir string) (string, error) {
 	if stateDir == "" {
 		return "", fmt.Errorf("empty state dir")
@@ -262,7 +262,7 @@ func loadOrCreateHostUUID(stateDir string) (string, error) {
 }
 
 // newAgentUUID is a UUIDv4 generator local to this module. We
-// don't import vzd's `newUUID` because that would create a
+// don't import weft's `newUUID` because that would create a
 // dependency in the wrong direction (the agent must stand
 // alone).
 func newAgentUUID() string {

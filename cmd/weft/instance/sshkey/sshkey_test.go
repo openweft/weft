@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -56,8 +56,8 @@ func TestCommand_Structure(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVMSSHKeysFn = func(_ context.Context, _ *vzdv1.ListVMSSHKeysRequest) (*vzdv1.ListVMSSHKeysResponse, error) {
-		return &vzdv1.ListVMSSHKeysResponse{Keys: []*vzdv1.VMSSHKey{
+	srv.ListVMSSHKeysFn = func(_ context.Context, _ *weftv1.ListVMSSHKeysRequest) (*weftv1.ListVMSSHKeysResponse, error) {
+		return &weftv1.ListVMSSHKeysResponse{Keys: []*weftv1.VMSSHKey{
 			{Fingerprint: "SHA256:abc", Type: "ssh-ed25519", Comment: "alice@laptop", AddedAt: "2026-05-29T10:00:00Z"},
 		}}, nil
 	}
@@ -77,10 +77,10 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestAdd_FromFile(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var seen *vzdv1.AddVMSSHKeyRequest
-	srv.AddVMSSHKeyFn = func(_ context.Context, in *vzdv1.AddVMSSHKeyRequest) (*vzdv1.AddVMSSHKeyResponse, error) {
+	var seen *weftv1.AddVMSSHKeyRequest
+	srv.AddVMSSHKeyFn = func(_ context.Context, in *weftv1.AddVMSSHKeyRequest) (*weftv1.AddVMSSHKeyResponse, error) {
 		seen = in
-		return &vzdv1.AddVMSSHKeyResponse{Key: &vzdv1.VMSSHKey{
+		return &weftv1.AddVMSSHKeyResponse{Key: &weftv1.VMSSHKey{
 			Fingerprint: "SHA256:abc", Type: "ssh-ed25519", Comment: "alice@laptop",
 		}}, nil
 	}
@@ -106,10 +106,10 @@ func TestAdd_FromFile(t *testing.T) {
 
 func TestAdd_InlineKey(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var seen *vzdv1.AddVMSSHKeyRequest
-	srv.AddVMSSHKeyFn = func(_ context.Context, in *vzdv1.AddVMSSHKeyRequest) (*vzdv1.AddVMSSHKeyResponse, error) {
+	var seen *weftv1.AddVMSSHKeyRequest
+	srv.AddVMSSHKeyFn = func(_ context.Context, in *weftv1.AddVMSSHKeyRequest) (*weftv1.AddVMSSHKeyResponse, error) {
 		seen = in
-		return &vzdv1.AddVMSSHKeyResponse{Key: &vzdv1.VMSSHKey{Fingerprint: "SHA256:xyz"}}, nil
+		return &weftv1.AddVMSSHKeyResponse{Key: &weftv1.VMSSHKey{Fingerprint: "SHA256:xyz"}}, nil
 	}
 	captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -147,10 +147,10 @@ func TestAdd_RequiresFileOrKey(t *testing.T) {
 
 func TestRm_PassesFingerprint(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var seen *vzdv1.RemoveVMSSHKeyRequest
-	srv.RemoveVMSSHKeyFn = func(_ context.Context, in *vzdv1.RemoveVMSSHKeyRequest) (*vzdv1.RemoveVMSSHKeyResponse, error) {
+	var seen *weftv1.RemoveVMSSHKeyRequest
+	srv.RemoveVMSSHKeyFn = func(_ context.Context, in *weftv1.RemoveVMSSHKeyRequest) (*weftv1.RemoveVMSSHKeyResponse, error) {
 		seen = in
-		return &vzdv1.RemoveVMSSHKeyResponse{}, nil
+		return &weftv1.RemoveVMSSHKeyResponse{}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

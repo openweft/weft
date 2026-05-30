@@ -2,10 +2,10 @@ package infra
 
 // configfile.go materialises the plan's `config_file { path,
 // template }` into a host-side directory the deployer exposes as
-// a read-only virtio-fs share (tag "cfg"). The guest's ncl-init
+// a read-only virtio-fs share (tag "cfg"). The guest's weft-microvm-init
 // (or the OCI image's entrypoint) is then responsible for moving
 // the file into place at its intended in-guest path — for now
-// that's an operator-image concern, not vzd's.
+// that's an operator-image concern, not weft's.
 //
 // Token substitution is intentionally a no-op for this slice:
 // `$REPLICA`, `$DC`, `$PRIVATE_IP`, `$PEERS` stay as literals in
@@ -26,7 +26,7 @@ import (
 // TemplateContext is the substitution payload for config-file
 // templates. Per-replica fields drive `$REPLICA / $DC /
 // $PRIVATE_IP / $PEERS / $PEER_DC` ; deploy-time secrets
-// ($ADMIN_BCRYPT_HASH, $VZD_CLIENT_SECRET, $BASE_DOMAIN, …) are
+// ($ADMIN_BCRYPT_HASH, $WEFT_CLIENT_SECRET, $BASE_DOMAIN, …) are
 // intentionally NOT in scope here — they pass through as
 // literals so operator-side tooling (envsubst, CI templating)
 // handles them.

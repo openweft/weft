@@ -1,7 +1,7 @@
 package weft
 
 // eventbus.go is the in-process publish/subscribe spine for
-// vzd's PlatformEvent stream. Per [[vzd-event-bus]]:
+// weft's PlatformEvent stream. Per [[weft-event-bus]]:
 //
 //   * Publish is non-blocking — a slow subscriber drops events
 //     rather than pushing back on producers. Durable delivery
@@ -14,7 +14,7 @@ package weft
 //
 //   * The shape stays identical when we migrate to an etcd-watch
 //     backbone (Phase-C of [[etcd-control-plane]]): Publish
-//     becomes a `clientv3.Put` on `/vzd/events/...`, Subscribe
+//     becomes a `clientv3.Put` on `/weft/events/...`, Subscribe
 //     becomes a `clientv3.Watch`. Producer + consumer code
 //     never changes — only the backend swaps.
 
@@ -26,7 +26,7 @@ import (
 )
 
 // PlatformEvent is the in-process representation of one event.
-// Mirrors the proto's vzd.v1.PlatformEvent field-for-field; the
+// Mirrors the proto's weft.v1.PlatformEvent field-for-field; the
 // gRPC handler in cmd/weft marshals between the two.
 type PlatformEvent struct {
 	TsUnixNano  int64
@@ -51,7 +51,7 @@ type PlatformEvent struct {
 //   * Project (when set) further narrows the result to one
 //     project UUID, on top of Visible.
 //   * Subject (when set) narrows further to events whose
-//     `Subject` field matches exactly — used by vzc / ncl
+//     `Subject` field matches exactly — used by weft / weft-microvm
 //     `events --vm <name>` to follow a single VM.
 type EventFilter struct {
 	KindPrefixes []string
@@ -102,10 +102,10 @@ func (f EventFilter) accepts(ev PlatformEvent) bool {
 //   * LocalEventBus — in-process channels, default for single-host
 //     dev. No external dep at runtime.
 //   * NATSEventBus  — talks to a NATS cluster on subject
-//     `vzd.events.<kind>`. Production path, selected via HCL
+//     `weft.events.<kind>`. Production path, selected via HCL
 //     `event_bus { backend = "nats"; nats { url = ... } }`.
 //
-// Per [[vzd-event-bus-nats]] the API is identical across both:
+// Per [[weft-event-bus-nats]] the API is identical across both:
 // producer code never has to know which one is wired.
 type EventBus interface {
 	// Publish delivers ev to every accepting subscriber. MUST be

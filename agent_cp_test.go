@@ -92,28 +92,28 @@ func TestAgentControlPlane_AttachDriversAndHeartbeat(t *testing.T) {
 }
 
 // TestAgentEmbedded_EndToEnd is the showcase: spin up an
-// embedded vzd-agent inside this vzd-control process, watch it
+// embedded weft-agent inside this weft-control process, watch it
 // register + attach via AsControlPlane(), and verify a
 // HypervisorOn(agent.HostUUID) call routes to the agent's
 // Bundle.
 //
 // This is the canonical single-process integration path: same
 // agent.Agent code that will eventually drive a remote
-// vzd-agent binary over gRPC; today, the ControlPlane is the
+// weft-agent binary over gRPC; today, the ControlPlane is the
 // in-process Adapter shim.
 func TestAgentEmbedded_EndToEnd(t *testing.T) {
-	// Set up vzd-control.
+	// Set up weft-control.
 	stateDir := t.TempDir()
 	factory := func(name string) Storage { return NewMemStorage() }
 	a := NewWithStorage(stateDir, factory).(*Adapter)
 
-	// Agent uses its own state dir (separate from vzd-control's).
+	// Agent uses its own state dir (separate from weft-control's).
 	// This mirrors the multi-process future: agent owns
-	// /var/lib/vzd-agent, control owns /var/lib/vzd.
+	// /var/lib/weft-agent, control owns /var/lib/weft.
 	agentStateDir := filepath.Join(t.TempDir(), "agent-state")
 	agent, err := agent.New(agent.Options{
 		StateDir: agentStateDir,
-		// Avoid the os.Hostname() collision with vzd-control's
+		// Avoid the os.Hostname() collision with weft-control's
 		// self-registration in the same process — embedded
 		// integration test only.
 		Hostname:          "embedded-agent-test",
@@ -157,9 +157,9 @@ func TestAgentEmbedded_EndToEnd(t *testing.T) {
 
 	// Sanity: the local self-registered host is STILL there.
 	// The embedded agent is a separate host entry, not a
-	// replacement. Single-process vzd-control + embedded agent
+	// replacement. Single-process weft-control + embedded agent
 	// = two host registrations against the same physical host
-	// (one for vzd-control itself, one for the agent).
+	// (one for weft-control itself, one for the agent).
 	if _, ok := a.HostByUUID(a.localHostUUID()); !ok {
 		t.Errorf("local self-registered host disappeared after agent.Start")
 	}

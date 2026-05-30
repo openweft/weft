@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -29,9 +29,9 @@ func TestStop_BadSocketErrors(t *testing.T) {
 func TestStop_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
 	got := ""
-	srv.StopVMFn = func(_ context.Context, in *vzdv1.StopVMRequest) (*vzdv1.StopVMResponse, error) {
+	srv.StopVMFn = func(_ context.Context, in *weftv1.StopVMRequest) (*weftv1.StopVMResponse, error) {
 		got = in.Name
-		return &vzdv1.StopVMResponse{}, nil
+		return &weftv1.StopVMResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"beta"})
@@ -45,7 +45,7 @@ func TestStop_Success(t *testing.T) {
 
 func TestStop_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.StopVMFn = func(_ context.Context, _ *vzdv1.StopVMRequest) (*vzdv1.StopVMResponse, error) {
+	srv.StopVMFn = func(_ context.Context, _ *weftv1.StopVMRequest) (*weftv1.StopVMResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

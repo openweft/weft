@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -33,7 +33,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListVMs(context.Background(), &vzdv1.ListVMsRequest{Project: project})
+			resp, err := c.ListVMs(context.Background(), &weftv1.ListVMsRequest{Project: project})
 			if err != nil {
 				return err
 			}
@@ -53,13 +53,13 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 
 // filterMicroVMs keeps only the VMs whose name carries the microVM
 // prefix, unless `all` is set (then every VM passes through). Mirrors
-// the original `ncl ls` filter so the two front-ends agree on which
+// the original `weft-microvm ls` filter so the two front-ends agree on which
 // VMs count as microVMs.
-func filterMicroVMs(vms []*vzdv1.VMInfo, all bool) []*vzdv1.VMInfo {
+func filterMicroVMs(vms []*weftv1.VMInfo, all bool) []*weftv1.VMInfo {
 	if all {
 		return vms
 	}
-	out := make([]*vzdv1.VMInfo, 0, len(vms))
+	out := make([]*weftv1.VMInfo, 0, len(vms))
 	for _, vm := range vms {
 		if strings.HasPrefix(vm.Name, vmNamePrefix) {
 			out = append(out, vm)

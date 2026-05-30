@@ -1,7 +1,7 @@
 package weft
 
-// creds.go owns the small bits of NATS-credential plumbing vzd
-// needs to land Phase 2 of [[vzd-tenant-event-access]]: mint one
+// creds.go owns the small bits of NATS-credential plumbing weft
+// needs to land Phase 2 of [[weft-tenant-event-access]]: mint one
 // per-project NATS user NKey and materialise it into each microVM
 // so workloads inside the guest can authenticate to the bus on
 // their own (without an OIDC token, which they don't have).
@@ -12,10 +12,10 @@ package weft
 //     its public key. The seed is what tenants present to the
 //     server; the pubkey is what server-side authorization rules
 //     will eventually reference (per-pubkey subject permissions
-//     on `vzd.events.project.<uuid>.events.>`).
+//     on `weft.events.project.<uuid>.events.>`).
 //
 //   - The seed lives on the Project struct (NATSUserSeed) so it
-//     survives a vzd restart: a tenant that already has the seed
+//     survives a weft restart: a tenant that already has the seed
 //     baked into its VM image keeps working after a control-plane
 //     bounce.
 //
@@ -39,11 +39,11 @@ import (
 )
 
 // natsShareTag is the conventional virtio-fs mount tag the guest
-// uses to find its per-project NATS credentials. ncl-init (or any
-// other guest agent) mounts this tag at /run/vzd/ so workloads can
-// read /run/vzd/nats.nkey directly. Reserved name — RegisterMicroVM
+// uses to find its per-project NATS credentials. weft-microvm-init (or any
+// other guest agent) mounts this tag at /run/weft/ so workloads can
+// read /run/weft/nats.nkey directly. Reserved name — RegisterMicroVM
 // refuses caller-supplied shares using the same tag.
-const natsShareTag = "vzd-nats"
+const natsShareTag = "weft-nats"
 
 // projectNKey carries the encoded seed + matching public key.
 // Both are ASCII (NKey base32 encoding), safe to embed in HCL.

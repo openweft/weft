@@ -1,4 +1,4 @@
-// Package wgcoord is vzd's WireGuard overlay coordinator: it mints
+// Package wgcoord is weft's WireGuard overlay coordinator: it mints
 // per-VM (and per-operator) Curve25519 keypairs, allocates overlay IPs
 // from a subnet, and pairs the two sides into ready-to-apply configs —
 // the VM-side block baked into the pod spec, and the operator-side

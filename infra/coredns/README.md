@@ -33,7 +33,7 @@ That gives us :
   up on every CoreDNS replica immediately (etcd's watch).
 - **Quorum HA** — the same 3-DC etcd cluster that protects
   the rest of the control plane protects the DNS zone.
-- **Same backup story** — one etcd snapshot covers vzd's
+- **Same backup story** — one etcd snapshot covers weft's
   registries, dex's sessions, AND the DNS zone.
 
 The data plane stays masterless : every CoreDNS replica
@@ -55,7 +55,7 @@ in order.
 ## Zone-write API
 
 Today : operator writes etcd keys directly via `etcdctl` or
-through a small `vzc dns put` CLI (TBD). The natural follow-up
+through a small `weft dns put` CLI (TBD). The natural follow-up
 is to wire `RegisterHost` / `RegisterMicroVM` into a hook that
 mints A records for each new VM under `<vm-name>.<project>.weft.internal`.
 
@@ -63,7 +63,7 @@ mints A records for each new VM under `<vm-name>.<project>.weft.internal`.
 
 CoreDNS doesn't need OIDC tokens itself — the etcd it consumes
 runs on the private control-plane subnet, behind the same
-mutual-TLS that protects vzd's reads. End-user queries arrive
+mutual-TLS that protects weft's reads. End-user queries arrive
 on UDP/53 unauthenticated (DNS is a public protocol).
 
 ## Plan source

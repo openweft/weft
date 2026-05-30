@@ -1,12 +1,12 @@
-// Package user implements the `vzc user` subcommand group: CRUD
-// over vzd's UUID-keyed user registry. Authoritative
-// counterpart to `vzc whoami` (which decodes the local id_token):
+// Package user implements the `weft user` subcommand group: CRUD
+// over weft's UUID-keyed user registry. Authoritative
+// counterpart to `weft whoami` (which decodes the local id_token):
 //
-//	vzc user ls                                 (platform-admin only)
-//	vzc user get <UUID>                         (self or admin)
-//	vzc user me                                 (every caller — refreshes last_seen)
-//	vzc user set-display-name <UUID> "<name>"   (self or admin)
-//	vzc user rm <UUID>                          (admin only)
+//	weft user ls                                 (platform-admin only)
+//	weft user get <UUID>                         (self or admin)
+//	weft user me                                 (every caller — refreshes last_seen)
+//	weft user set-display-name <UUID> "<name>"   (self or admin)
+//	weft user rm <UUID>                          (admin only)
 package user
 
 import (
@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +50,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListUsers(context.Background(), &vzdv1.ListUsersRequest{})
+			resp, err := c.ListUsers(context.Background(), &weftv1.ListUsersRequest{})
 			if err != nil {
 				return err
 			}
@@ -76,14 +76,14 @@ func getCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.GetUser(context.Background(), &vzdv1.GetUserRequest{Uuid: args[0]})
+			resp, err := c.GetUser(context.Background(), &weftv1.GetUserRequest{Uuid: args[0]})
 			if err != nil {
 				return err
 			}
 			if format == "json" {
-				return dumpJSON([]*vzdv1.UserInfo{resp.User})
+				return dumpJSON([]*weftv1.UserInfo{resp.User})
 			}
-			return renderTable([]*vzdv1.UserInfo{resp.User})
+			return renderTable([]*weftv1.UserInfo{resp.User})
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "", "Output format (json)")
@@ -102,14 +102,14 @@ func meCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.Me(context.Background(), &vzdv1.MeRequest{})
+			resp, err := c.Me(context.Background(), &weftv1.MeRequest{})
 			if err != nil {
 				return err
 			}
 			if format == "json" {
-				return dumpJSON([]*vzdv1.UserInfo{resp.User})
+				return dumpJSON([]*weftv1.UserInfo{resp.User})
 			}
-			return renderTable([]*vzdv1.UserInfo{resp.User})
+			return renderTable([]*weftv1.UserInfo{resp.User})
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "", "Output format (json)")
@@ -127,7 +127,7 @@ func setDisplayNameCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.SetUserDisplayName(context.Background(), &vzdv1.SetUserDisplayNameRequest{
+			resp, err := c.SetUserDisplayName(context.Background(), &weftv1.SetUserDisplayNameRequest{
 				Uuid: args[0], DisplayName: args[1],
 			})
 			if err != nil {
@@ -150,7 +150,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			if _, err := c.DeleteUser(context.Background(), &vzdv1.DeleteUserRequest{Uuid: args[0]}); err != nil {
+			if _, err := c.DeleteUser(context.Background(), &weftv1.DeleteUserRequest{Uuid: args[0]}); err != nil {
 				return err
 			}
 			fmt.Println(args[0])
@@ -159,7 +159,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	}
 }
 
-func renderTable(users []*vzdv1.UserInfo) error {
+func renderTable(users []*weftv1.UserInfo) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "UUID\tISSUER\tSUBJECT\tEMAIL\tDISPLAY_NAME\tGROUPS\tLAST_SEEN")
 	for _, u := range users {
@@ -185,7 +185,7 @@ func renderTable(users []*vzdv1.UserInfo) error {
 	return tw.Flush()
 }
 
-func dumpJSON(users []*vzdv1.UserInfo) error {
+func dumpJSON(users []*weftv1.UserInfo) error {
 	type out struct {
 		UUID        string   `json:"uuid"`
 		Issuer      string   `json:"oidc_issuer"`

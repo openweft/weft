@@ -19,7 +19,7 @@ package main
 //     expected to clean up project ACLs that referenced the
 //     deleted UUID.
 //
-// Per [[vzd-event-bus]] every mutation Publishes a `user.*`
+// Per [[weft-event-bus]] every mutation Publishes a `user.*`
 // event (created in RegisterUser, renamed in SetUserDisplayName,
 // deleted here) that bus subscribers can react to.
 
@@ -27,7 +27,7 @@ import (
 	"context"
 
 	"github.com/openweft/weft"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -46,8 +46,8 @@ func userPersister(a weft.VZAdapter) weft.UserPersister {
 	}
 }
 
-func toUserInfo(u weft.User) *vzdv1.UserInfo {
-	return &vzdv1.UserInfo{
+func toUserInfo(u weft.User) *weftv1.UserInfo {
+	return &weftv1.UserInfo{
 		Uuid:             u.UUID,
 		OidcSubject:      u.Subject,
 		OidcIssuer:       u.Issuer,
@@ -59,23 +59,23 @@ func toUserInfo(u weft.User) *vzdv1.UserInfo {
 	}
 }
 
-func (s *vzdServer) ListUsers(ctx context.Context, _ *vzdv1.ListUsersRequest) (*vzdv1.ListUsersResponse, error) {
+func (s *weftServer) ListUsers(ctx context.Context, _ *weftv1.ListUsersRequest) (*weftv1.ListUsersResponse, error) {
 	if err := weft.RequireAdmin(ctx, "list users"); err != nil {
 		return nil, err
 	}
 	users := s.adp.Users()
-	out := make([]*vzdv1.UserInfo, len(users))
+	out := make([]*weftv1.UserInfo, len(users))
 	for i, u := range users {
 		out[i] = toUserInfo(u)
 	}
-	return &vzdv1.ListUsersResponse{Users: out}, nil
+	return &weftv1.ListUsersResponse{Users: out}, nil
 }
 
 // authUserSelfOrAdmin gates the per-user reads/writes. Returns
 // the resolved User on success. The auth callsite passed to
 // RequireAdmin is used only when the caller isn't `self`, so the
 // error message tells the operator exactly which check failed.
-func (s *vzdServer) authUserSelfOrAdmin(ctx context.Context, uuid, op string) (weft.User, error) {
+func (s *weftServer) authUserSelfOrAdmin(ctx context.Context, uuid, op string) (weft.User, error) {
 	if uuid == "" {
 		return weft.User{}, status.Error(codes.InvalidArgument, "uuid is required")
 	}
@@ -96,19 +96,19 @@ func (s *vzdServer) authUserSelfOrAdmin(ctx context.Context, uuid, op string) (w
 	return u, nil
 }
 
-func (s *vzdServer) GetUser(ctx context.Context, req *vzdv1.GetUserRequest) (*vzdv1.GetUserResponse, error) {
+func (s *weftServer) GetUser(ctx context.Context, req *weftv1.GetUserRequest) (*weftv1.GetUserResponse, error) {
 	u, err := s.authUserSelfOrAdmin(ctx, req.Uuid, "get user")
 	if err != nil {
 		return nil, err
 	}
-	return &vzdv1.GetUserResponse{User: toUserInfo(u)}, nil
+	return &weftv1.GetUserResponse{User: toUserInfo(u)}, nil
 }
 
 // Me returns the caller's own user record. Auto-registers on
 // first sight so a fresh OIDC subject doesn't need a manual
 // provisioning step — the auth interceptor already validated
 // the token, so the caller is trusted-as-claimed.
-func (s *vzdServer) Me(ctx context.Context, _ *vzdv1.MeRequest) (*vzdv1.MeResponse, error) {
+func (s *weftServer) Me(ctx context.Context, _ *weftv1.MeRequest) (*weftv1.MeResponse, error) {
 	caller, _ := weft.CallerFrom(ctx)
 	if caller == nil {
 		return nil, status.Error(codes.Unauthenticated, "no caller in context")
@@ -117,10 +117,10 @@ func (s *vzdServer) Me(ctx context.Context, _ *vzdv1.MeRequest) (*vzdv1.MeRespon
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "register user: %v", err)
 	}
-	return &vzdv1.MeResponse{User: toUserInfo(u)}, nil
+	return &weftv1.MeResponse{User: toUserInfo(u)}, nil
 }
 
-func (s *vzdServer) SetUserDisplayName(ctx context.Context, req *vzdv1.SetUserDisplayNameRequest) (*vzdv1.SetUserDisplayNameResponse, error) {
+func (s *weftServer) SetUserDisplayName(ctx context.Context, req *weftv1.SetUserDisplayNameRequest) (*weftv1.SetUserDisplayNameResponse, error) {
 	if _, err := s.authUserSelfOrAdmin(ctx, req.Uuid, "set user display name"); err != nil {
 		return nil, err
 	}
@@ -128,10 +128,10 @@ func (s *vzdServer) SetUserDisplayName(ctx context.Context, req *vzdv1.SetUserDi
 		return nil, status.Errorf(codes.Internal, "set display name: %v", err)
 	}
 	u, _ := s.adp.UserByUUID(req.Uuid)
-	return &vzdv1.SetUserDisplayNameResponse{User: toUserInfo(u)}, nil
+	return &weftv1.SetUserDisplayNameResponse{User: toUserInfo(u)}, nil
 }
 
-func (s *vzdServer) DeleteUser(ctx context.Context, req *vzdv1.DeleteUserRequest) (*vzdv1.DeleteUserResponse, error) {
+func (s *weftServer) DeleteUser(ctx context.Context, req *weftv1.DeleteUserRequest) (*weftv1.DeleteUserResponse, error) {
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
@@ -142,5 +142,5 @@ func (s *vzdServer) DeleteUser(ctx context.Context, req *vzdv1.DeleteUserRequest
 		return nil, status.Errorf(codes.FailedPrecondition, "delete user: %v", err)
 	}
 	logger.Printf("DeleteUser uuid=%s", req.Uuid)
-	return &vzdv1.DeleteUserResponse{}, nil
+	return &weftv1.DeleteUserResponse{}, nil
 }

@@ -1,13 +1,13 @@
 package main
 
-// infra.go wires `vzd infra deploy <service>` into vzd's cobra
+// infra.go wires `weft infra deploy <service>` into weft's cobra
 // command tree. The subcommand reads a plan from
 // pkg/openweft/weft/infra/<service>/plan.hcl (overridable via
 // --plan), validates the pre-pulled OCI rootfs is on disk, then
 // calls Adapter.RegisterMicroVM + Adapter.StartVM in-process —
-// same code path `ncl run` uses over gRPC.
+// same code path `weft-microvm run` uses over gRPC.
 //
-// In-process rather than gRPC because `vzd infra deploy` is a
+// In-process rather than gRPC because `weft infra deploy` is a
 // bootstrap command: it runs before the daemon's network surface
 // is even reachable for some early services (etcd, dex). The
 // Adapter API is the right boundary.
@@ -49,7 +49,7 @@ func newInfraDeployCmd() *cobra.Command {
 		Use:   "deploy <service>",
 		Short: "Deploy an infrastructure service from its HCL plan",
 		Long: `Deploy reads pkg/openweft/weft/infra/<service>/plan.hcl, validates
-the pre-pulled OCI rootfs is on disk (operator runs ncl pull first),
+the pre-pulled OCI rootfs is on disk (operator runs weft-microvm pull first),
 and registers + starts a micro-VM for the service. The VM lives in
 the "infra" project and is named "infra-<service>".
 
@@ -76,8 +76,8 @@ deployer substitutes it with the booted VM's IP at probe time.`,
 		},
 	}
 	cmd.Flags().StringVar(&planPath, "plan", "", "Path to plan.hcl (default: pkg/openweft/weft/infra/<service>/plan.hcl)")
-	cmd.Flags().StringVar(&rootfsPath, "rootfs", "", "Override the OCI rootfs path (default: ncl image-cache layout)")
-	cmd.Flags().StringVar(&stateDir, "state-dir", ".mock", "vzd state directory (where the VM lands on disk)")
+	cmd.Flags().StringVar(&rootfsPath, "rootfs", "", "Override the OCI rootfs path (default: weft-microvm image-cache layout)")
+	cmd.Flags().StringVar(&stateDir, "state-dir", ".mock", "weft state directory (where the VM lands on disk)")
 	cmd.Flags().BoolVar(&waitHealth, "wait-health", false, "After StartVM, poll the plan's health URL until it returns 2xx")
 	cmd.Flags().DurationVar(&healthTimeout, "health-timeout", 60*time.Second, "Total time to wait for a service to become healthy (only consulted with --wait-health)")
 	return cmd
@@ -98,7 +98,7 @@ func newInfraBootstrapCmd() *cobra.Command {
 		Short: "Deploy multiple infra services in dependency order",
 		Long: `Bootstrap loads every plan.hcl under infra/, sorts them by
 depends_on (a → b means a is deployed before b), and deploys each
-one in order using a shared vzd Adapter.
+one in order using a shared weft Adapter.
 
 Without --services the whole infra tree gets deployed in topo
 order. With --services, only the named services are loaded; their
@@ -136,7 +136,7 @@ poll time.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&stateDir, "state-dir", ".mock", "vzd state directory")
+	cmd.Flags().StringVar(&stateDir, "state-dir", ".mock", "weft state directory")
 	cmd.Flags().StringSliceVar(&serviceFilter, "services", nil, "Comma-separated subset of services to deploy (default: all under infra/)")
 	cmd.Flags().BoolVar(&waitHealth, "wait-health", false, "After StartVM, poll the plan's health URL until 2xx before moving to the next service")
 	cmd.Flags().DurationVar(&healthTimeout, "health-timeout", 60*time.Second, "Total time to wait for a service to become healthy (only consulted with --wait-health)")
@@ -172,7 +172,7 @@ func resolveBootstrapServices(moduleRoot string, filter []string) ([]string, err
 
 // newInfraStatusCmd reports which infra services have a VM
 // registered + whether it's running. Read-only — useful right
-// after `vzd infra bootstrap` to verify the topo-ordered deploy
+// after `weft infra bootstrap` to verify the topo-ordered deploy
 // landed everything. Joins on `infra-<service>` so the output
 // stays stable across project renames.
 func newInfraStatusCmd() *cobra.Command {
@@ -224,14 +224,14 @@ State is one of:
 					// the first column so multi-replica services
 					// are unambiguous; for count=1 this is the
 					// legacy `infra-<service>` shape, matching the
-					// VM the operator would `vzd start/stop`.
+					// VM the operator would `weft start/stop`.
 					fmt.Printf("%s\t%s\t%s\t%s\n", vmName, state, project, p.OCIImage)
 				}
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&stateDir, "state-dir", ".mock", "vzd state directory")
+	cmd.Flags().StringVar(&stateDir, "state-dir", ".mock", "weft state directory")
 	return cmd
 }
 
@@ -293,7 +293,7 @@ With --services, only the listed plans are loaded.`,
 // given Adapter. Shared between `infra deploy` and `infra
 // bootstrap` so the two stay consistent on rootfs validation,
 // boot artefact paths, and the log lines they emit. `stateDir`
-// is the vzd state root — used to anchor the host-side scratch
+// is the weft state root — used to anchor the host-side scratch
 // directory for materialised config files.
 func deployPlan(a weft.VZAdapter, p *infra.Plan, rootfsOverride, stateDir string, waitHealth bool, healthTimeout time.Duration) error {
 	rootfs := rootfsOverride
@@ -301,7 +301,7 @@ func deployPlan(a weft.VZAdapter, p *infra.Plan, rootfsOverride, stateDir string
 		rootfs = p.DefaultRootfsPath()
 	}
 	if _, err := os.Stat(rootfs); err != nil {
-		return fmt.Errorf("rootfs %q not found — run `ncl pull %s` first: %w", rootfs, p.OCIImage, err)
+		return fmt.Errorf("rootfs %q not found — run `weft-microvm pull %s` first: %w", rootfs, p.OCIImage, err)
 	}
 	replicas := p.ReplicaCount()
 
@@ -347,10 +347,10 @@ func deployPlan(a weft.VZAdapter, p *infra.Plan, rootfsOverride, stateDir string
 // this replica (or "" when there are no Hosts registered and
 // the deploy falls back to local-only mode). When set, it
 // replaces the synthetic `dc<i>` label in the rendered config —
-// see [[vzd-placement-rules]] + BuildReplicaContextWithHost.
+// see [[weft-placement-rules]] + BuildReplicaContextWithHost.
 //
 // RegisterMicroVM still always lands on the local host today ;
-// when vzd-agent's per-host gRPC ControlPlane is wired, that
+// when weft-agent's per-host gRPC ControlPlane is wired, that
 // call gates on `pickedHost.UUID` to dispatch to the right node.
 func deployReplica(a weft.VZAdapter, p *infra.Plan, rootfs, stateDir string, replica int, pickedAZ string, waitHealth bool, healthTimeout time.Duration) error {
 	vmName := p.VMNameFor(replica)
@@ -446,9 +446,9 @@ func awaitHealthy(a weft.VZAdapter, vmName string, p *infra.Plan, totalTimeout t
 	return infra.WaitHealthy(context.Background(), url, half, period)
 }
 
-// moduleRoot resolves the absolute path of the vzd module so
+// moduleRoot resolves the absolute path of the weft module so
 // DefaultPlanPath can find plan.hcl regardless of where the
-// operator runs `vzd infra deploy` from. Uses runtime caller
+// operator runs `weft infra deploy` from. Uses runtime caller
 // info — the package itself lives at <module-root>/cmd/weft/.
 func moduleRoot() string {
 	_, file, _, ok := runtime.Caller(0)

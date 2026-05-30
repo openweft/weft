@@ -48,7 +48,7 @@ func TestBuild_EachMemberPeersWithEveryOther(t *testing.T) {
 
 // TestPublish_RoundTripOverBus runs an embedded NATS server, publishes a
 // member's config, and confirms a subscriber receives exactly the desired
-// wg0 config — the event-bus path vzd uses to notify VMs of a mesh update.
+// wg0 config — the event-bus path weft uses to notify VMs of a mesh update.
 func TestPublish_RoundTripOverBus(t *testing.T) {
 	srv := natsserver.RunRandClientPortServer()
 	defer srv.Shutdown()

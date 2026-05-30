@@ -27,7 +27,7 @@ ref globs that zot pulls eagerly on a schedule.
 | S3-compatible | object store (MinIO / AWS S3 / GCS / Ceph RGW) | production at scale |
 
 The plan ships local-fs by default for simplicity. Production
-deploys override at `vzd infra deploy zot --storage=s3
+deploys override at `weft infra deploy zot --storage=s3
 --s3-endpoint=… --s3-bucket=…`.
 
 ## Bearer auth via dex
@@ -40,7 +40,7 @@ Concretely :
    user's workstation.
 2. Docker client doesn't have credentials → 401 from zot →
    challenged with `Bearer realm="https://dex.<base-domain>"`.
-3. User runs `vzc login`, gets a dex token, exports it as
+3. User runs `weft login`, gets a dex token, exports it as
    DOCKER_PASSWORD ; retry succeeds.
 
 ACLs on which user can push where are layered on top of dex's

@@ -22,7 +22,7 @@ func TestExpandHome(t *testing.T) {
 		{"", ""},
 		{"~", home},
 		{"~/", home},
-		{"~/.vzd/vzd.sock", filepath.Join(home, ".vzd/vzd.sock")},
+		{"~/.weft/weft.sock", filepath.Join(home, ".weft/weft.sock")},
 		{"~notme/x", "~notme/x"}, // only "~/" and bare "~" expand
 	}
 	for _, c := range cases {
@@ -117,13 +117,13 @@ func TestLoadFileConfig_ExplicitDecodeError(t *testing.T) {
 }
 
 func TestLoadFileConfig_ExplicitValid(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "vzd.hcl")
+	p := filepath.Join(t.TempDir(), "weft.hcl")
 	content := `
 socket     = "/tmp/test.sock"
 config_dir = "/tmp/hcl"
 oidc {
   issuer    = "https://dex.example.com"
-  client_id = "vzd"
+  client_id = "weft"
 }
 storage {
   backend = "file"
@@ -151,7 +151,7 @@ event_bus {
 }
 
 func TestLoadFileConfig_DefaultDiscoveryNone(t *testing.T) {
-	// With HOME pointed at an empty temp dir and no /etc/vzd file
+	// With HOME pointed at an empty temp dir and no /etc/weft file
 	// (assumed absent on the test host), discovery returns the zero
 	// value with no error.
 	t.Setenv("HOME", t.TempDir())
@@ -159,7 +159,7 @@ func TestLoadFileConfig_DefaultDiscoveryNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default discovery should not error: %v", err)
 	}
-	// On a typical test host /etc/vzd/vzd.hcl doesn't exist, so we
+	// On a typical test host /etc/weft/weft.hcl doesn't exist, so we
 	// expect the zero value. If the host happens to have one, just
 	// assert no error (above) and skip the zero-value check.
 	if p != "" && cfg.Socket == nil {
@@ -170,11 +170,11 @@ func TestLoadFileConfig_DefaultDiscoveryNone(t *testing.T) {
 func TestLoadFileConfig_DefaultDiscoveryHit(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir := filepath.Join(home, ".config", "vzd")
+	dir := filepath.Join(home, ".config", "weft")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(dir, "vzd.hcl")
+	p := filepath.Join(dir, "weft.hcl")
 	if err := os.WriteFile(p, []byte(`socket = "/tmp/discovered.sock"`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestApplyFileConfigDefaults_StorageEtcdBlock(t *testing.T) {
 				Endpoints: []string{"http://a:2379", "http://b:2379"},
 				Username:  "u",
 				Password:  "p",
-				KeyPrefix: "/vzd/",
+				KeyPrefix: "/weft/",
 			},
 		},
 		NATSAuthorization: &natsAuthorizationBlock{
@@ -247,7 +247,7 @@ func TestApplyFileConfigDefaults_StorageEtcdBlock(t *testing.T) {
 	if dst.storageBackend != "etcd" {
 		t.Errorf("storageBackend = %q, want etcd", dst.storageBackend)
 	}
-	if len(dst.etcdEndpoints) != 2 || dst.etcdUsername != "u" || dst.etcdPassword != "p" || dst.etcdKeyPrefix != "/vzd/" {
+	if len(dst.etcdEndpoints) != 2 || dst.etcdUsername != "u" || dst.etcdPassword != "p" || dst.etcdKeyPrefix != "/weft/" {
 		t.Errorf("etcd block not applied: %+v", dst)
 	}
 	if dst.natsAuthzAdminPubkey != "UABC" || dst.natsAuthzPath == "" {

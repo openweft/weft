@@ -1,6 +1,6 @@
 // Package flavor implements the `weft flavor` subcommand group :
 // CRUD over the cluster-wide compute-envelope catalogue exposed by
-// vzd's WeftAgent.{List,Get,Set,Delete}Flavor RPCs.
+// weft's WeftAgent.{List,Get,Set,Delete}Flavor RPCs.
 //
 //	weft flavor ls                  list every flavor
 //	weft flavor get <name>          show one flavor
@@ -21,7 +21,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -52,7 +52,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListFlavors(context.Background(), &vzdv1.ListFlavorsRequest{})
+			resp, err := c.ListFlavors(context.Background(), &weftv1.ListFlavorsRequest{})
 			if err != nil {
 				return err
 			}
@@ -78,14 +78,14 @@ func getCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.GetFlavor(context.Background(), &vzdv1.GetFlavorRequest{Name: args[0]})
+			resp, err := c.GetFlavor(context.Background(), &weftv1.GetFlavorRequest{Name: args[0]})
 			if err != nil {
 				return err
 			}
 			if format == "json" {
-				return dumpJSON([]*vzdv1.Flavor{resp.Flavor})
+				return dumpJSON([]*weftv1.Flavor{resp.Flavor})
 			}
-			return renderTable([]*vzdv1.Flavor{resp.Flavor})
+			return renderTable([]*weftv1.Flavor{resp.Flavor})
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "", "Output format (json)")
@@ -113,8 +113,8 @@ func setCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.SetFlavor(context.Background(), &vzdv1.SetFlavorRequest{
-				Flavor: &vzdv1.Flavor{
+			resp, err := c.SetFlavor(context.Background(), &weftv1.SetFlavorRequest{
+				Flavor: &weftv1.Flavor{
 					Name:        args[0],
 					Vcpu:        vcpu,
 					Ram:         ram,
@@ -149,7 +149,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.DeleteFlavor(context.Background(), &vzdv1.DeleteFlavorRequest{Name: args[0]})
+			resp, err := c.DeleteFlavor(context.Background(), &weftv1.DeleteFlavorRequest{Name: args[0]})
 			if err != nil {
 				return err
 			}
@@ -159,7 +159,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	}
 }
 
-func renderTable(flavors []*vzdv1.Flavor) error {
+func renderTable(flavors []*weftv1.Flavor) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tVCPU\tRAM\tEPHEMERAL\tGPU")
 	for _, f := range flavors {
@@ -172,7 +172,7 @@ func renderTable(flavors []*vzdv1.Flavor) error {
 	return tw.Flush()
 }
 
-func dumpJSON(flavors []*vzdv1.Flavor) error {
+func dumpJSON(flavors []*weftv1.Flavor) error {
 	type out struct {
 		Name        string `json:"name"`
 		VCPU        int32  `json:"vcpu"`

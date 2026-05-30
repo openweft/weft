@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -53,8 +53,8 @@ func TestCommand_Structure(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVolumesFn = func(_ context.Context, _ *vzdv1.ListVolumesRequest) (*vzdv1.ListVolumesResponse, error) {
-		return &vzdv1.ListVolumesResponse{Volumes: []*vzdv1.VolumeInfo{
+	srv.ListVolumesFn = func(_ context.Context, _ *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error) {
+		return &weftv1.ListVolumesResponse{Volumes: []*weftv1.VolumeInfo{
 			{Uuid: "u1", ProjectUuid: "p1", Name: "vol", SizeGib: 10, Format: "raw", AttachedToUuid: "vm-1", CreatedAtUnixNs: 1700000000000000000},
 			{Uuid: "u2", ProjectUuid: "p2", Name: "vol2", SizeGib: 5, Format: "qcow2"},
 		}}, nil
@@ -73,8 +73,8 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestLs_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVolumesFn = func(_ context.Context, _ *vzdv1.ListVolumesRequest) (*vzdv1.ListVolumesResponse, error) {
-		return &vzdv1.ListVolumesResponse{Volumes: []*vzdv1.VolumeInfo{
+	srv.ListVolumesFn = func(_ context.Context, _ *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error) {
+		return &weftv1.ListVolumesResponse{Volumes: []*weftv1.VolumeInfo{
 			{Uuid: "u1", Name: "vol", SizeGib: 10, Format: "raw"},
 		}}, nil
 	}
@@ -92,7 +92,7 @@ func TestLs_JSONFormat(t *testing.T) {
 
 func TestLs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVolumesFn = func(_ context.Context, _ *vzdv1.ListVolumesRequest) (*vzdv1.ListVolumesResponse, error) {
+	srv.ListVolumesFn = func(_ context.Context, _ *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -106,10 +106,10 @@ func TestLs_RPCError(t *testing.T) {
 
 func TestCreate_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.CreateVolumeRequest
-	srv.CreateVolumeFn = func(_ context.Context, in *vzdv1.CreateVolumeRequest) (*vzdv1.CreateVolumeResponse, error) {
+	var got *weftv1.CreateVolumeRequest
+	srv.CreateVolumeFn = func(_ context.Context, in *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error) {
 		got = in
-		return &vzdv1.CreateVolumeResponse{Volume: &vzdv1.VolumeInfo{Uuid: "u1", Name: in.Name, SizeGib: in.SizeGib, Format: in.Format}}, nil
+		return &weftv1.CreateVolumeResponse{Volume: &weftv1.VolumeInfo{Uuid: "u1", Name: in.Name, SizeGib: in.SizeGib, Format: in.Format}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -128,7 +128,7 @@ func TestCreate_Success(t *testing.T) {
 
 func TestCreate_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.CreateVolumeFn = func(_ context.Context, _ *vzdv1.CreateVolumeRequest) (*vzdv1.CreateVolumeResponse, error) {
+	srv.CreateVolumeFn = func(_ context.Context, _ *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -142,8 +142,8 @@ func TestCreate_RPCError(t *testing.T) {
 
 func TestRename_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenameVolumeFn = func(_ context.Context, in *vzdv1.RenameVolumeRequest) (*vzdv1.RenameVolumeResponse, error) {
-		return &vzdv1.RenameVolumeResponse{Volume: &vzdv1.VolumeInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
+	srv.RenameVolumeFn = func(_ context.Context, in *weftv1.RenameVolumeRequest) (*weftv1.RenameVolumeResponse, error) {
+		return &weftv1.RenameVolumeResponse{Volume: &weftv1.VolumeInfo{Uuid: in.Uuid, Name: in.NewName}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"rename", "u1", "new"})
@@ -154,7 +154,7 @@ func TestRename_Success(t *testing.T) {
 
 func TestRename_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RenameVolumeFn = func(_ context.Context, _ *vzdv1.RenameVolumeRequest) (*vzdv1.RenameVolumeResponse, error) {
+	srv.RenameVolumeFn = func(_ context.Context, _ *weftv1.RenameVolumeRequest) (*weftv1.RenameVolumeResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -168,8 +168,8 @@ func TestRename_RPCError(t *testing.T) {
 
 func TestResize_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ResizeVolumeFn = func(_ context.Context, in *vzdv1.ResizeVolumeRequest) (*vzdv1.ResizeVolumeResponse, error) {
-		return &vzdv1.ResizeVolumeResponse{Volume: &vzdv1.VolumeInfo{Uuid: in.Uuid, SizeGib: in.NewSizeGib}}, nil
+	srv.ResizeVolumeFn = func(_ context.Context, in *weftv1.ResizeVolumeRequest) (*weftv1.ResizeVolumeResponse, error) {
+		return &weftv1.ResizeVolumeResponse{Volume: &weftv1.VolumeInfo{Uuid: in.Uuid, SizeGib: in.NewSizeGib}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"resize", "u1", "30"})
@@ -200,7 +200,7 @@ func TestResize_NotANumber(t *testing.T) {
 
 func TestResize_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ResizeVolumeFn = func(_ context.Context, _ *vzdv1.ResizeVolumeRequest) (*vzdv1.ResizeVolumeResponse, error) {
+	srv.ResizeVolumeFn = func(_ context.Context, _ *weftv1.ResizeVolumeRequest) (*weftv1.ResizeVolumeResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -214,8 +214,8 @@ func TestResize_RPCError(t *testing.T) {
 
 func TestAttach_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.AttachVolumeFn = func(_ context.Context, in *vzdv1.AttachVolumeRequest) (*vzdv1.AttachVolumeResponse, error) {
-		return &vzdv1.AttachVolumeResponse{Volume: &vzdv1.VolumeInfo{Uuid: in.Uuid, AttachedToUuid: in.VmUuid}}, nil
+	srv.AttachVolumeFn = func(_ context.Context, in *weftv1.AttachVolumeRequest) (*weftv1.AttachVolumeResponse, error) {
+		return &weftv1.AttachVolumeResponse{Volume: &weftv1.VolumeInfo{Uuid: in.Uuid, AttachedToUuid: in.VmUuid}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"attach", "u1", "vm-1"})
@@ -226,7 +226,7 @@ func TestAttach_Success(t *testing.T) {
 
 func TestAttach_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.AttachVolumeFn = func(_ context.Context, _ *vzdv1.AttachVolumeRequest) (*vzdv1.AttachVolumeResponse, error) {
+	srv.AttachVolumeFn = func(_ context.Context, _ *weftv1.AttachVolumeRequest) (*weftv1.AttachVolumeResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -249,7 +249,7 @@ func TestDetach_Success(t *testing.T) {
 
 func TestDetach_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.DetachVolumeFn = func(_ context.Context, _ *vzdv1.DetachVolumeRequest) (*vzdv1.DetachVolumeResponse, error) {
+	srv.DetachVolumeFn = func(_ context.Context, _ *weftv1.DetachVolumeRequest) (*weftv1.DetachVolumeResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -272,7 +272,7 @@ func TestRm_Success(t *testing.T) {
 
 func TestRm_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.DeleteVolumeFn = func(_ context.Context, _ *vzdv1.DeleteVolumeRequest) (*vzdv1.DeleteVolumeResponse, error) {
+	srv.DeleteVolumeFn = func(_ context.Context, _ *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

@@ -2,12 +2,12 @@
 // for microVMs.
 //
 // The serial console captured by the agent at <vmDir>/console.log
-// mixes four sources: kernel boot messages, ncl-init log lines,
-// NCL_MARK markers, and the container's own stdout/stderr. By default
+// mixes four sources: kernel boot messages, weft-microvm-init log lines,
+// WEFT_MARK markers, and the container's own stdout/stderr. By default
 // this verb returns only the last bucket — what the user's process
 // actually printed — by slicing the byte stream between the
-// `NCL_MARK exec_ready` and `NCL_MARK child_exited` markers and
-// stripping ncl-init / NCL_MARK lines inside that window. `--raw`
+// `WEFT_MARK exec_ready` and `WEFT_MARK child_exited` markers and
+// stripping weft-microvm-init / WEFT_MARK lines inside that window. `--raw`
 // disables the filter and dumps the whole stream (same as
 // `weft instance logs`).
 package microvm
@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -46,7 +46,7 @@ func logsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			vmName := resolveName(args[0])
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			resp, err := c.VMLogs(ctx, &vzdv1.VMLogsRequest{
+			resp, err := c.VMLogs(ctx, &weftv1.VMLogsRequest{
 				Name:      vmName,
 				Project:   project,
 				TailBytes: tail,
@@ -79,14 +79,14 @@ func logsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 }
 
 // containerOutput slices the byte stream between the
-// `NCL_MARK exec_ready` and `NCL_MARK child_exited` markers and drops
-// any ncl-init / NCL_MARK lines that landed inside the window. If
+// `WEFT_MARK exec_ready` and `WEFT_MARK child_exited` markers and drops
+// any weft-microvm-init / WEFT_MARK lines that landed inside the window. If
 // exec_ready is absent (the VM never executed the entrypoint), returns
 // an empty slice — better than dumping the boot transcript when the
 // user asked for "container output".
 func containerOutput(b []byte) []byte {
-	const startMark = "NCL_MARK exec_ready"
-	const endMark = "NCL_MARK child_exited"
+	const startMark = "WEFT_MARK exec_ready"
+	const endMark = "WEFT_MARK child_exited"
 	startIdx := bytes.Index(b, []byte(startMark))
 	if startIdx < 0 {
 		return nil
@@ -109,10 +109,10 @@ func containerOutput(b []byte) []byte {
 	var buf bytes.Buffer
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "NCL_MARK ") {
+		if strings.HasPrefix(line, "WEFT_MARK ") {
 			continue
 		}
-		if strings.HasPrefix(line, "ncl-init: ") {
+		if strings.HasPrefix(line, "weft-microvm-init: ") {
 			continue
 		}
 		buf.WriteString(line)

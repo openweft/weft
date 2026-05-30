@@ -1,11 +1,11 @@
-// Package pull implements the vzc pull sub-command.
+// Package pull implements the weft pull sub-command.
 package pull
 
 import (
 	"context"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -15,14 +15,14 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	var parallel int
 	cmd := &cobra.Command{
 		Use:   "pull",
-		Short: "Pull images defined in the HCL config (via vzd)",
+		Short: "Pull images defined in the HCL config (via weft)",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
-			_, err = c.PullImages(context.Background(), &vzdv1.PullImagesRequest{
+			_, err = c.PullImages(context.Background(), &weftv1.PullImagesRequest{
 				ConfigDir: cfgDir,
 				Parallel:  int32(parallel),
 			})

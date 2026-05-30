@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -18,10 +18,10 @@ import (
 // receives the right reply and the entry is removed.
 func TestPendingReplies_RegisterDeliver(t *testing.T) {
 	var p pendingReplies
-	ch := make(chan *vzdv1.DriverReply, 1)
+	ch := make(chan *weftv1.DriverReply, 1)
 	p.register("req-1", ch)
 
-	ok := p.deliver("req-1", &vzdv1.DriverReply{RequestId: "req-1", Error: ""})
+	ok := p.deliver("req-1", &weftv1.DriverReply{RequestId: "req-1", Error: ""})
 	if !ok {
 		t.Fatal("deliver returned false for a registered request_id")
 	}
@@ -35,7 +35,7 @@ func TestPendingReplies_RegisterDeliver(t *testing.T) {
 	}
 
 	// Second deliver for the same id should fail-soft (already gone).
-	if p.deliver("req-1", &vzdv1.DriverReply{}) {
+	if p.deliver("req-1", &weftv1.DriverReply{}) {
 		t.Errorf("second deliver should return false (entry already removed)")
 	}
 }
@@ -45,10 +45,10 @@ func TestPendingReplies_RegisterDeliver(t *testing.T) {
 // the session ends.
 func TestPendingReplies_DrainAll(t *testing.T) {
 	var p pendingReplies
-	chs := map[string]chan *vzdv1.DriverReply{
-		"r1": make(chan *vzdv1.DriverReply, 1),
-		"r2": make(chan *vzdv1.DriverReply, 1),
-		"r3": make(chan *vzdv1.DriverReply, 1),
+	chs := map[string]chan *weftv1.DriverReply{
+		"r1": make(chan *weftv1.DriverReply, 1),
+		"r2": make(chan *weftv1.DriverReply, 1),
+		"r3": make(chan *weftv1.DriverReply, 1),
 	}
 	for id, ch := range chs {
 		p.register(id, ch)
@@ -75,7 +75,7 @@ func TestDispatch_RoundTrip(t *testing.T) {
 	sess := &agentSession{
 		hostUUID:  "h-1",
 		sessionID: "s-1",
-		send:      make(chan *vzdv1.ControlMessage, 4),
+		send:      make(chan *weftv1.ControlMessage, 4),
 	}
 	srv.register(sess)
 	defer srv.deregister(sess)
@@ -85,18 +85,18 @@ func TestDispatch_RoundTrip(t *testing.T) {
 	go func() {
 		for msg := range sess.send {
 			if req := msg.GetRequest(); req != nil {
-				sess.pending.deliver(req.RequestId, &vzdv1.DriverReply{
+				sess.pending.deliver(req.RequestId, &weftv1.DriverReply{
 					RequestId: req.RequestId,
-					Result: &vzdv1.DriverReply_CreateVm{
-						CreateVm: &vzdv1.CreateVMResult{VmUuid: "vm-result"},
+					Result: &weftv1.DriverReply_CreateVm{
+						CreateVm: &weftv1.CreateVMResult{VmUuid: "vm-result"},
 					},
 				})
 			}
 		}
 	}()
 
-	reply, err := srv.Dispatch(context.Background(), "h-1", &vzdv1.DriverRequest{
-		Op: &vzdv1.DriverRequest_CreateVm{CreateVm: &vzdv1.CreateVMOp{Project: "alpha"}},
+	reply, err := srv.Dispatch(context.Background(), "h-1", &weftv1.DriverRequest{
+		Op: &weftv1.DriverRequest_CreateVm{CreateVm: &weftv1.CreateVMOp{Project: "alpha"}},
 	})
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
@@ -111,7 +111,7 @@ func TestDispatch_RoundTrip(t *testing.T) {
 // instead of blocking.
 func TestDispatch_NoConnectedAgent(t *testing.T) {
 	srv := newAgentDispatchServer()
-	_, err := srv.Dispatch(context.Background(), "h-missing", &vzdv1.DriverRequest{})
+	_, err := srv.Dispatch(context.Background(), "h-missing", &weftv1.DriverRequest{})
 	if err == nil {
 		t.Fatal("expected error for missing agent")
 	}
@@ -130,7 +130,7 @@ func TestRunKeepalive_EmitsPing(t *testing.T) {
 	sess := &agentSession{
 		hostUUID:  "h-1",
 		sessionID: "sess-keep",
-		send:      make(chan *vzdv1.ControlMessage, 4),
+		send:      make(chan *weftv1.ControlMessage, 4),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -160,7 +160,7 @@ func TestRunKeepalive_DisabledZeroInterval(t *testing.T) {
 	srv := newAgentDispatchServer()
 	srv.keepaliveInterval = 0
 	sess := &agentSession{
-		send: make(chan *vzdv1.ControlMessage, 1),
+		send: make(chan *weftv1.ControlMessage, 1),
 	}
 	done := make(chan struct{})
 	go func() {
@@ -189,7 +189,7 @@ func TestRunLivenessCheck_KillsStaleSession(t *testing.T) {
 	srv.livenessTimeout = 15 * time.Millisecond
 	sess := &agentSession{
 		hostUUID: "h-stale",
-		send:     make(chan *vzdv1.ControlMessage, 1),
+		send:     make(chan *weftv1.ControlMessage, 1),
 	}
 	// Backdate the pong clock so the very first tick declares
 	// the session stale.
@@ -218,7 +218,7 @@ func TestRunLivenessCheck_FreshPongKeepsAlive(t *testing.T) {
 	srv.livenessTimeout = 20 * time.Millisecond
 	sess := &agentSession{
 		hostUUID: "h-live",
-		send:     make(chan *vzdv1.ControlMessage, 1),
+		send:     make(chan *weftv1.ControlMessage, 1),
 	}
 	sess.lastPongUnixNano.Store(time.Now().UnixNano())
 
@@ -364,7 +364,7 @@ func TestRunKeepalive_StopsOnCtxCancel(t *testing.T) {
 	srv := newAgentDispatchServer()
 	srv.keepaliveInterval = 1 * time.Millisecond
 	sess := &agentSession{
-		send: make(chan *vzdv1.ControlMessage, 8),
+		send: make(chan *weftv1.ControlMessage, 8),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -389,37 +389,37 @@ func TestRunKeepalive_StopsOnCtxCancel(t *testing.T) {
 func TestShouldDispatch_LocalVsRemote(t *testing.T) {
 	cases := []struct {
 		name         string
-		s            *vzdServer
+		s            *weftServer
 		hostUUID     string
 		wantDispatch bool
 	}{
 		{
 			name:         "empty host_uuid",
-			s:            &vzdServer{dispatch: newAgentDispatchServer(), localHostUUID: "local-1"},
+			s:            &weftServer{dispatch: newAgentDispatchServer(), localHostUUID: "local-1"},
 			hostUUID:     "",
 			wantDispatch: false,
 		},
 		{
 			name:         "self-match",
-			s:            &vzdServer{dispatch: newAgentDispatchServer(), localHostUUID: "local-1"},
+			s:            &weftServer{dispatch: newAgentDispatchServer(), localHostUUID: "local-1"},
 			hostUUID:     "local-1",
 			wantDispatch: false,
 		},
 		{
 			name:         "remote target",
-			s:            &vzdServer{dispatch: newAgentDispatchServer(), localHostUUID: "local-1"},
+			s:            &weftServer{dispatch: newAgentDispatchServer(), localHostUUID: "local-1"},
 			hostUUID:     "remote-1",
 			wantDispatch: true,
 		},
 		{
 			name:         "nil dispatch registry forces local",
-			s:            &vzdServer{dispatch: nil, localHostUUID: "local-1"},
+			s:            &weftServer{dispatch: nil, localHostUUID: "local-1"},
 			hostUUID:     "remote-1",
 			wantDispatch: false,
 		},
 		{
 			name:         "unknown local uuid + remote target dispatches",
-			s:            &vzdServer{dispatch: newAgentDispatchServer(), localHostUUID: ""},
+			s:            &weftServer{dispatch: newAgentDispatchServer(), localHostUUID: ""},
 			hostUUID:     "remote-1",
 			wantDispatch: true,
 		},
@@ -441,15 +441,15 @@ func TestDispatch_ContextCanceled(t *testing.T) {
 	srv := newAgentDispatchServer()
 	sess := &agentSession{
 		hostUUID: "h-1",
-		send:     make(chan *vzdv1.ControlMessage, 1),
+		send:     make(chan *weftv1.ControlMessage, 1),
 	}
 	srv.register(sess)
 	defer srv.deregister(sess)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err := srv.Dispatch(ctx, "h-1", &vzdv1.DriverRequest{
-		Op: &vzdv1.DriverRequest_CreateVm{CreateVm: &vzdv1.CreateVMOp{}},
+	_, err := srv.Dispatch(ctx, "h-1", &weftv1.DriverRequest{
+		Op: &weftv1.DriverRequest_CreateVm{CreateVm: &weftv1.CreateVMOp{}},
 	})
 	if err == nil {
 		t.Fatal("expected context cancel error")

@@ -1,6 +1,6 @@
 // Package infra loads HCL plans for cloud-platform infrastructure
 // services (etcd, dex, zot, …) and exposes a small Deploy helper
-// that hands a plan to vzd's RegisterMicroVM + StartVM path.
+// that hands a plan to weft's RegisterMicroVM + StartVM path.
 //
 // Plans live at pkg/openweft/weft/infra/<service>/plan.hcl with the
 // shape:
@@ -10,7 +10,7 @@
 //	  resources { cpu_count = 1; memory_mib = 1024 }
 //	  volumes    = [ { mount = "...", uuid = "...", size_gib = N } ]
 //	  network    { name = "control-plane"; static_ip = ["..."] }
-//	  cmdline    = "ncl.rootfs=virtiofs:rootfs0 ..."
+//	  cmdline    = "weft.rootfs=virtiofs:rootfs0 ..."
 //	  config_file { path = "/etc/svc.conf"; template = "..." }
 //	  depends_on = ["etcd"]
 //	  health     { type = "exec"; cmd = "..."; period = "5s" }
@@ -83,7 +83,7 @@ type NetworkBlk struct {
 	StaticIP []string `hcl:"static_ip,optional"`
 }
 
-// ConfigFileBlk carries a template that vzd materialises into the
+// ConfigFileBlk carries a template that weft materialises into the
 // guest at deploy time. The path is inside the guest rootfs;
 // `template` substitutes per-replica tokens like $PRIVATE_IP /
 // $DC during deploy.
@@ -92,7 +92,7 @@ type ConfigFileBlk struct {
 	Template string `hcl:"template"`
 }
 
-// HealthBlk is the readiness probe vzd polls before declaring a
+// HealthBlk is the readiness probe weft polls before declaring a
 // service Ready. Today only the `exec` shape is implemented.
 type HealthBlk struct {
 	Type   string `hcl:"type"`
@@ -103,7 +103,7 @@ type HealthBlk struct {
 // PlacementBlk is the `placement { ... }` sub-block — declarative
 // version of weft.PlacementRule. Translated at deploy time into a
 // weft.GroupScheduleRequest by the deployer (cmd/weft/infra.go).
-// Per [[vzd-placement-rules]].
+// Per [[weft-placement-rules]].
 //
 //   count   how many replicas to deploy (default 1)
 //   az      cross-replica AZ proximity:   "same" | "different" | ""
@@ -221,7 +221,7 @@ func (p *Plan) applyDefaults() error {
 }
 
 // DefaultPlanPath returns the conventional location for a
-// service's plan under the vzd module: `<moduleRoot>/infra/<service>/plan.hcl`.
+// service's plan under the weft module: `<moduleRoot>/infra/<service>/plan.hcl`.
 func DefaultPlanPath(moduleRoot, service string) string {
 	return filepath.Join(moduleRoot, "infra", service, "plan.hcl")
 }
@@ -231,14 +231,14 @@ func DefaultPlanPath(moduleRoot, service string) string {
 func (p *Plan) CPU() uint32       { return p.Resources.CPUCount }
 func (p *Plan) MemoryMiB() uint64 { return p.Resources.MemoryMiB }
 
-// CmdlineForGuest returns the kernel cmdline to hand to vzd's
-// RegisterMicroVM. Defaults to the standard ncl rootfs share when
+// CmdlineForGuest returns the kernel cmdline to hand to weft's
+// RegisterMicroVM. Defaults to the standard weft-microvm rootfs share when
 // the plan didn't set one.
 func (p *Plan) CmdlineForGuest() string {
 	if p.Cmdline != "" {
 		return p.Cmdline
 	}
-	return "ncl.rootfs=virtiofs:rootfs0 console=hvc0"
+	return "weft.rootfs=virtiofs:rootfs0 console=hvc0"
 }
 
 // VMName returns the conventional micro-VM name for a single-
@@ -254,7 +254,7 @@ func (p *Plan) VMName() string {
 // the legacy `infra-<service>` shape so operators' muscle memory
 // holds ; multi-replica plans use `infra-<service>-dc<i>` so
 // each replica is a distinct VM with its own `vm.pid`, log file,
-// nats.creds, etc., and the operator can `vzd start / stop` them
+// nats.creds, etc., and the operator can `weft start / stop` them
 // independently.
 func (p *Plan) VMNameFor(replica int) string {
 	base := "infra-" + p.Service
@@ -264,36 +264,36 @@ func (p *Plan) VMNameFor(replica int) string {
 	return fmt.Sprintf("%s-dc%d", base, replica)
 }
 
-// OCIImageSafe returns the ncl-style sanitised image ref —
-// matches refsafe() in nano-container-linux/runner. Used to
-// derive the rootfs path under the ncl image cache.
+// OCIImageSafe returns the weft-microvm-style sanitised image ref —
+// matches refsafe() in weft-microvm/runner. Used to
+// derive the rootfs path under the weft-microvm image cache.
 func (p *Plan) OCIImageSafe() string {
 	r := strings.NewReplacer("/", "_", ":", "_")
 	return r.Replace(p.OCIImage)
 }
 
-// DefaultRootfsPath returns where `ncl pull <image>` puts the
-// extracted rootfs ($XDG_DATA_HOME/ncl/images/<refsafe>/rootfs).
+// DefaultRootfsPath returns where `weft-microvm pull <image>` puts the
+// extracted rootfs ($XDG_DATA_HOME/weft-microvm/images/<refsafe>/rootfs).
 // The deploy command checks this path exists before calling
-// RegisterMicroVM — operator must pre-pull until vzd grows its
+// RegisterMicroVM — operator must pre-pull until weft grows its
 // own OCI client.
 func (p *Plan) DefaultRootfsPath() string {
-	base := nclDataHome()
+	base := microvmDataHome()
 	return filepath.Join(base, "images", p.OCIImageSafe(), "rootfs")
 }
 
-func nclDataHome() string {
+func microvmDataHome() string {
 	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "ncl")
+		return filepath.Join(x, "weft-microvm")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "ncl")
+	return filepath.Join(home, ".local", "share", "weft-microvm")
 }
 
-// DefaultArtefact resolves the path to the standard ncl-init
-// boot artefacts (`kernel`, `initrd`) under $XDG_DATA_HOME/ncl.
+// DefaultArtefact resolves the path to the standard weft-microvm-init
+// boot artefacts (`kernel`, `initrd`) under $XDG_DATA_HOME/weft-microvm.
 func DefaultArtefact(name string) string {
-	return filepath.Join(nclDataHome(), name)
+	return filepath.Join(microvmDataHome(), name)
 }
 
 // ListServices enumerates the services that have a plan under

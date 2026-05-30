@@ -4,14 +4,14 @@ package main
 // backend (CLI flag or HCL config) into a weft.EventBus the
 // Adapter receives via SetEventBus.
 //
-// Two backends today, matching [[vzd-event-bus-nats]]:
+// Two backends today, matching [[weft-event-bus-nats]]:
 //
 //   * "local" (default) — in-process LocalEventBus. No external
 //     dep at runtime; perfect for single-host dev.
 //
 //   * "nats" — NATSEventBus pointed at the cluster URL in
 //     `event_bus { nats { url = "..." } }`. Production path.
-//     The factory opens the NATS connection at vzd-startup time
+//     The factory opens the NATS connection at weft-startup time
 //     so a misconfigured URL fails fast rather than at first
 //     event publish.
 
@@ -22,7 +22,7 @@ import (
 )
 
 // busFactory bundles the chosen bus + its tear-down hook. Close
-// is called at vzd shutdown to release any shared connection
+// is called at weft shutdown to release any shared connection
 // (NATS) the bus keeps alive.
 type busFactory struct {
 	bus   weft.EventBus
@@ -47,7 +47,7 @@ func buildEventBus(t fileConfigTargets) (*busFactory, error) {
 		}, nil
 	case "nats":
 		if t.natsURL == "" {
-			return nil, fmt.Errorf("event_bus backend = nats but no URL configured (set event_bus.nats.url in vzd.hcl)")
+			return nil, fmt.Errorf("event_bus backend = nats but no URL configured (set event_bus.nats.url in weft.hcl)")
 		}
 		bus, err := weft.NewNATSEventBus(weft.NATSConfig{
 			URL:             t.natsURL,

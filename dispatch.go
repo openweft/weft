@@ -7,16 +7,16 @@ package weft
 //
 // In single-host installs (today's only deployment shape) the
 // dispatch table has one entry: the locally-built Bundle
-// from `vzd-driver-apple-vz/builtin`, registered under the
-// self-registered host's UUID. When vzd-agent lands and remote
+// from `weft-driver-vz/builtin`, registered under the
+// self-registered host's UUID. When weft-agent lands and remote
 // hosts come online, each agent's drivers register here as
 // `*grpc.RemoteHypervisor` etc. — same dispatch table, same
 // lookup, no call-site changes.
 //
 // The interface-typed fields are what makes the same dispatch
-// path work for both local + remote drivers: vzd-driver-apple-vz's
+// path work for both local + remote drivers: weft-driver-vz's
 // *Hypervisor satisfies drivers.HypervisorDriver, and a future
-// gRPC client stub will too. Per [[vzd-driver-registry-split]],
+// gRPC client stub will too. Per [[weft-driver-registry-split]],
 // callers depend on the *interface*, not the concrete type.
 
 import (
@@ -25,10 +25,10 @@ import (
 	drivers "github.com/openweft/weft-drivers"
 )
 
-// HostHandle bundles the four driver instances vzd-control
+// HostHandle bundles the four driver instances weft-control
 // addresses one compute host through. Each field is an
 // interface — concrete implementations come from
-// `vzd-driver-apple-vz/builtin` (local), a future gRPC client
+// `weft-driver-vz/builtin` (local), a future gRPC client
 // module (remote), or hand-rolled fakes (tests).
 type HostHandle struct {
 	Hypervisor drivers.HypervisorDriver
@@ -38,7 +38,7 @@ type HostHandle struct {
 }
 
 // RegisterHostHandle adds (or replaces) the dispatch entry for
-// hostUUID. Used by vzd-agent's bootstrap to register itself,
+// hostUUID. Used by weft-agent's bootstrap to register itself,
 // and by tests that want to install fake drivers.
 //
 // Returns an error when hostUUID is empty or handle nil — the
@@ -60,7 +60,7 @@ func (a *Adapter) RegisterHostHandle(hostUUID string, handle *HostHandle) error 
 }
 
 // UnregisterHostHandle removes the dispatch entry. Used by
-// vzd-agent disconnect handling + by tests for symmetry with
+// weft-agent disconnect handling + by tests for symmetry with
 // RegisterHostHandle.
 func (a *Adapter) UnregisterHostHandle(hostUUID string) {
 	a.driverDispatchMu.Lock()
@@ -164,7 +164,7 @@ func (a *Adapter) localHypervisor() (drivers.HypervisorDriver, error) {
 //  2. vmRegistry.lookupByName(project, name) gives the VM
 //     record + its host_uuid.
 //  3. HypervisorOn(host_uuid) returns the driver — local for
-//     single-host installs, remote (over gRPC) once vzd-agent
+//     single-host installs, remote (over gRPC) once weft-agent
 //     lands.
 //
 // Falls back to the local hypervisor when:

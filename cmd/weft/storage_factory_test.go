@@ -56,18 +56,18 @@ func TestBuildStorageFactory_EtcdNeedsEndpoints(t *testing.T) {
 // for etcd: a factory closure is produced and invoking it yields
 // an EtcdStorage whose Key() respects the configured prefix.
 //
-// Gated by VZD_ETCD_TEST=1: the etcd v3 client now opens a real
+// Gated by WEFT_ETCD_TEST=1: the etcd v3 client now opens a real
 // connection at buildStorageFactory time. Without a live etcd
 // endpoint that would either block on the dial timeout or fail
 // outright, neither of which is a useful unit-test signal.
 func TestBuildStorageFactory_EtcdBuildsClosure(t *testing.T) {
-	if os.Getenv("VZD_ETCD_TEST") == "" {
-		t.Skip("set VZD_ETCD_TEST=1 with a reachable etcd to opt in")
+	if os.Getenv("WEFT_ETCD_TEST") == "" {
+		t.Skip("set WEFT_ETCD_TEST=1 with a reachable etcd to opt in")
 	}
 	sf, err := buildStorageFactory(fileConfigTargets{
 		storageBackend: "etcd",
 		etcdEndpoints:  []string{"https://etcd-dc1:2379"},
-		etcdKeyPrefix:  "/vzd/test/",
+		etcdKeyPrefix:  "/weft/test/",
 	})
 	if err != nil {
 		t.Fatalf("buildStorageFactory: %v", err)
@@ -81,8 +81,8 @@ func TestBuildStorageFactory_EtcdBuildsClosure(t *testing.T) {
 	if !ok {
 		t.Fatalf("factory returned %T, want *weft.EtcdStorage", s)
 	}
-	if es.Key() != "/vzd/test/projects" {
-		t.Errorf("Key = %q, want /vzd/test/projects", es.Key())
+	if es.Key() != "/weft/test/projects" {
+		t.Errorf("Key = %q, want /weft/test/projects", es.Key())
 	}
 }
 
@@ -115,10 +115,10 @@ func TestDisplayStorageBackend(t *testing.T) {
 // ----------------------------------------------------------------
 
 // TestFileConfig_StorageFileBackend covers the simplest valid
-// vzd.hcl with backend = "file".
+// weft.hcl with backend = "file".
 func TestFileConfig_StorageFileBackend(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "vzd.hcl")
+	path := filepath.Join(dir, "weft.hcl")
 	if err := os.WriteFile(path, []byte(`
 		storage {
 		  backend = "file"
@@ -145,7 +145,7 @@ func TestFileConfig_StorageFileBackend(t *testing.T) {
 // shape with the etcd sub-block.
 func TestFileConfig_StorageEtcdBackend(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "vzd.hcl")
+	path := filepath.Join(dir, "weft.hcl")
 	if err := os.WriteFile(path, []byte(`
 		storage {
 		  backend = "etcd"
@@ -155,9 +155,9 @@ func TestFileConfig_StorageEtcdBackend(t *testing.T) {
 		      "https://etcd-dc2.example.com:2379",
 		      "https://etcd-dc3.example.com:2379",
 		    ]
-		    username   = "vzd"
+		    username   = "weft"
 		    password   = "redacted"
-		    key_prefix = "/vzd/prod/"
+		    key_prefix = "/weft/prod/"
 		  }
 		}
 	`), 0o600); err != nil {
@@ -176,11 +176,11 @@ func TestFileConfig_StorageEtcdBackend(t *testing.T) {
 	if got := len(fc.Storage.Etcd.Endpoints); got != 3 {
 		t.Errorf("endpoints count = %d, want 3", got)
 	}
-	if fc.Storage.Etcd.KeyPrefix != "/vzd/prod/" {
-		t.Errorf("key_prefix = %q, want /vzd/prod/", fc.Storage.Etcd.KeyPrefix)
+	if fc.Storage.Etcd.KeyPrefix != "/weft/prod/" {
+		t.Errorf("key_prefix = %q, want /weft/prod/", fc.Storage.Etcd.KeyPrefix)
 	}
-	if fc.Storage.Etcd.Username != "vzd" {
-		t.Errorf("username = %q, want vzd", fc.Storage.Etcd.Username)
+	if fc.Storage.Etcd.Username != "weft" {
+		t.Errorf("username = %q, want weft", fc.Storage.Etcd.Username)
 	}
 }
 
@@ -193,7 +193,7 @@ func TestApplyFileConfigDefaults_StorageBlock(t *testing.T) {
 			Backend: backend,
 			Etcd: &etcdBlock{
 				Endpoints: []string{"https://etcd:2379"},
-				KeyPrefix: "/vzd/dev/",
+				KeyPrefix: "/weft/dev/",
 			},
 		},
 	}
@@ -205,8 +205,8 @@ func TestApplyFileConfigDefaults_StorageBlock(t *testing.T) {
 	if len(tgt.etcdEndpoints) != 1 || tgt.etcdEndpoints[0] != "https://etcd:2379" {
 		t.Errorf("etcdEndpoints = %v, want [https://etcd:2379]", tgt.etcdEndpoints)
 	}
-	if tgt.etcdKeyPrefix != "/vzd/dev/" {
-		t.Errorf("etcdKeyPrefix = %q, want /vzd/dev/", tgt.etcdKeyPrefix)
+	if tgt.etcdKeyPrefix != "/weft/dev/" {
+		t.Errorf("etcdKeyPrefix = %q, want /weft/dev/", tgt.etcdKeyPrefix)
 	}
 }
 
@@ -216,14 +216,14 @@ func TestApplyFileConfigDefaults_StorageBlock(t *testing.T) {
 func TestApplyFileConfigDefaults_NATSAuthorization(t *testing.T) {
 	fc := fileConfig{
 		NATSAuthorization: &natsAuthorizationBlock{
-			Path:        "/etc/vzd/nats-authorization.conf",
+			Path:        "/etc/weft/nats-authorization.conf",
 			AdminPubkey: "UABCD234567",
 		},
 	}
 	tgt := fileConfigTargets{}
 	applyFileConfigDefaults(fc, &tgt)
-	if tgt.natsAuthzPath != "/etc/vzd/nats-authorization.conf" {
-		t.Errorf("natsAuthzPath = %q, want /etc/vzd/nats-authorization.conf", tgt.natsAuthzPath)
+	if tgt.natsAuthzPath != "/etc/weft/nats-authorization.conf" {
+		t.Errorf("natsAuthzPath = %q, want /etc/weft/nats-authorization.conf", tgt.natsAuthzPath)
 	}
 	if tgt.natsAuthzAdminPubkey != "UABCD234567" {
 		t.Errorf("natsAuthzAdminPubkey = %q, want UABCD234567", tgt.natsAuthzAdminPubkey)
@@ -232,7 +232,7 @@ func TestApplyFileConfigDefaults_NATSAuthorization(t *testing.T) {
 
 // TestApplyFileConfigDefaults_NATSAuthorization_Disabled pins the
 // opt-out path: no block in the file means natsAuthzPath stays
-// empty (auto-render off; operator drives via `vzc admin nats-authz`).
+// empty (auto-render off; operator drives via `weft admin nats-authz`).
 func TestApplyFileConfigDefaults_NATSAuthorization_Disabled(t *testing.T) {
 	fc := fileConfig{}
 	tgt := fileConfigTargets{}

@@ -1,4 +1,4 @@
-// Package clean implements the vzc clean sub-command.
+// Package clean implements the weft clean sub-command.
 package clean
 
 import (
@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -16,14 +16,14 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:   "clean",
-		Short: "Remove cached images referenced in the HCL config (via vzd)",
+		Short: "Remove cached images referenced in the HCL config (via weft)",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.CleanImages(context.Background(), &vzdv1.CleanImagesRequest{
+			resp, err := c.CleanImages(context.Background(), &weftv1.CleanImagesRequest{
 				ConfigDir: cfgDir,
 				DryRun:    !yes,
 			})

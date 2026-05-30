@@ -173,7 +173,7 @@ func (r *securityGroupRegistry) saveLocked() error {
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{
 		Type: 0,
 		Bytes: []byte(
-			"# vzd security-group registry — UUID-keyed per [[vzd-uuid-keyed-resources]].\n" +
+			"# weft security-group registry — UUID-keyed per [[weft-uuid-keyed-resources]].\n" +
 				"# Edit `name`, `description`, and `rule {}` blocks; never change the\n" +
 				"# security_group label (UUID) or `project_uuid`.\n\n",
 		),

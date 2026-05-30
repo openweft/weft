@@ -3,7 +3,7 @@
 //
 // Each argument resolves to an agent VM name, accepting either the
 // bare image ref (`alpine:3.21` — same normalisation `run` applies)
-// or the already-prefixed VM name (`ncl-alpine_3.21`). Each VM is
+// or the already-prefixed VM name (`weft-microvm-alpine_3.21`). Each VM is
 // best-effort stopped via StopVM, then deleted via DeleteVM. A stop
 // error on an already-stopped VM is tolerated so `rm` is idempotent —
 // the only authoritative step is DeleteVM. `-f` skips the stop call
@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -59,7 +59,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 }
 
 // resolveName maps either a bare image reference (`alpine:3.21`) or an
-// already-prefixed VM name (`ncl-alpine_3.21`) into the form the agent
+// already-prefixed VM name (`weft-microvm-alpine_3.21`) into the form the agent
 // stored. The image-ref → name transform mirrors the run path so
 // `weft microvm rm alpine:3.21` cleans up exactly what
 // `weft microvm run alpine:3.21` created.
@@ -73,17 +73,17 @@ func resolveName(raw string) string {
 
 // removeOne stops + deletes a single VM. Stop is best-effort (an
 // already-stopped VM is fine); Delete is authoritative.
-func removeOne(c vzdv1.WeftAgentClient, project, vmName string, force bool) error {
+func removeOne(c weftv1.WeftAgentClient, project, vmName string, force bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if !force {
-		if _, err := c.StopVM(ctx, &vzdv1.StopVMRequest{Name: vmName, Project: project}); err != nil {
+		if _, err := c.StopVM(ctx, &weftv1.StopVMRequest{Name: vmName, Project: project}); err != nil {
 			if !isAlreadyStopped(err) {
 				return fmt.Errorf("stop: %w", err)
 			}
 		}
 	}
-	if _, err := c.DeleteVM(ctx, &vzdv1.DeleteVMRequest{Name: vmName, Project: project}); err != nil {
+	if _, err := c.DeleteVM(ctx, &weftv1.DeleteVMRequest{Name: vmName, Project: project}); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}
 	return nil

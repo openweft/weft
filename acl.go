@@ -1,7 +1,7 @@
 package weft
 
 // acl.go is the policy layer that gates RPC handlers by Caller
-// group membership. Sits on top of [[vzd-uuid-keyed-resources]]
+// group membership. Sits on top of [[weft-uuid-keyed-resources]]
 // and the OIDC layer in auth.go.
 //
 // Policy (Phase 2 of multitenancy):
@@ -14,12 +14,12 @@ package weft
 //
 //   3. Per-project group `project:<uuid>`: grants full access to
 //      one project's resources (its VMs, registries, …). UUID-
-//      keyed per [[vzd-uuid-keyed-resources]] so renaming a
+//      keyed per [[weft-uuid-keyed-resources]] so renaming a
 //      project never invalidates an ACL grant.
 //
 //   4. Per-user default project: every authenticated Caller has
 //      implicit access to a project whose name is their `sub`
-//      claim. vzd auto-creates this project on first sight.
+//      claim. weft auto-creates this project on first sight.
 //
 // The policy itself is dirt-simple by design. Sophisticated
 // schemes (role-based, attribute-based) can layer on top once the
@@ -132,7 +132,7 @@ func (a *Adapter) AuthorizeProject(ctx context.Context, nameOrUUID string) (stri
 //   1. dex `groups` claim carries `project:<uuid>` (the
 //      OIDC-only path, original Phase-2 design).
 //   2. The project's stored Members list contains the caller's
-//      vzd user UUID (the platform-managed path, added later so
+//      weft user UUID (the platform-managed path, added later so
 //      ops can grant access without round-tripping through dex
 //      every time).
 //
@@ -144,7 +144,7 @@ func (a *Adapter) callerOwnsProject(c *Caller, uuid string) bool {
 	if c.HasGroup(ProjectGroup(uuid)) {
 		return true
 	}
-	// Membership path: look up the caller's vzd user, see if
+	// Membership path: look up the caller's weft user, see if
 	// they're in the project's Members.
 	if a.userReg == nil || a.projects == nil {
 		return false
@@ -185,7 +185,7 @@ func (a *Adapter) VisibleProjects(ctx context.Context) (map[string]struct{}, boo
 	// Caller's default project (auto-create on demand — costs
 	// one Save the first time, then noop). Skipping this means a
 	// brand-new user gets an empty ls; we'd rather they see
-	// their own bucket so the next `ncl run` lands somewhere.
+	// their own bucket so the next `weft-microvm run` lands somewhere.
 	defaultP, _, err := a.projects.getOrCreate(caller.Subject)
 	if err == nil {
 		out[defaultP.UUID] = struct{}{}
@@ -196,7 +196,7 @@ func (a *Adapter) VisibleProjects(ctx context.Context) (map[string]struct{}, boo
 		}
 	}
 	// Membership-based projects: any project whose Members list
-	// contains the caller's vzd user UUID. Same union semantics as
+	// contains the caller's weft user UUID. Same union semantics as
 	// the dex groups path above.
 	if a.userReg != nil && a.projects != nil {
 		if u, ok := a.userReg.lookupBySubject(caller.Issuer, caller.Subject); ok {

@@ -8,7 +8,7 @@ import (
 	"context"
 	"fmt"
 
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft/cmd/weft/shared"
 	"github.com/spf13/cobra"
 )
@@ -40,13 +40,13 @@ func attachCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := cl.PublishShareToProject(context.Background(), &vzdv1.PublishShareToProjectRequest{
+			resp, err := cl.PublishShareToProject(context.Background(), &weftv1.PublishShareToProjectRequest{
 				ProjectUuid: project,
-				Mount: &vzdv1.ShareMount{
+				Mount: &weftv1.ShareMount{
 					Id:         id,
 					MountPoint: mountPoint,
 					Readonly:   readonly,
-					Cubefs: &vzdv1.CubeFSMount{
+					Cubefs: &weftv1.CubeFSMount{
 						Volume:    volume,
 						Masters:   masters,
 						Owner:     owner,
@@ -92,9 +92,9 @@ func detachCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := cl.PublishShareToProject(context.Background(), &vzdv1.PublishShareToProjectRequest{
+			resp, err := cl.PublishShareToProject(context.Background(), &weftv1.PublishShareToProjectRequest{
 				ProjectUuid: project,
-				Mount: &vzdv1.ShareMount{
+				Mount: &weftv1.ShareMount{
 					Id:         id,
 					Action:     "unmount",
 					MountPoint: mountPoint,

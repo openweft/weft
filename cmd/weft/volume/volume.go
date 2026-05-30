@@ -1,19 +1,19 @@
-// Package volume implements the `vzc volume` subcommand group:
-// CRUD + attach/detach over vzd's UUID-keyed volume registry.
+// Package volume implements the `weft volume` subcommand group:
+// CRUD + attach/detach over weft's UUID-keyed volume registry.
 //
-//	vzc volume ls [--project NAME-OR-UUID] [--format json]
-//	vzc volume create --project P --name N --size-gib N [--format raw|qcow2]
-//	vzc volume rename <UUID> <new-name>
-//	vzc volume resize <UUID> <new-size-gib>
-//	vzc volume attach <UUID> <vm-uuid>
-//	vzc volume detach <UUID>
-//	vzc volume rm <UUID>
+//	weft volume ls [--project NAME-OR-UUID] [--format json]
+//	weft volume create --project P --name N --size-gib N [--format raw|qcow2]
+//	weft volume rename <UUID> <new-name>
+//	weft volume resize <UUID> <new-size-gib>
+//	weft volume attach <UUID> <vm-uuid>
+//	weft volume detach <UUID>
+//	weft volume rm <UUID>
 //
 // Display-name resolution (Volume name OR UUID) on the *volume*
 // itself is a future polish; the registry indexes by
 // (project_uuid, name) so we'd need a project context to do it
-// safely. For now `vzc volume <verb> <UUID>` is the canonical
-// shape — operators can copy a UUID out of `vzc volume ls`.
+// safely. For now `weft volume <verb> <UUID>` is the canonical
+// shape — operators can copy a UUID out of `weft volume ls`.
 package volume
 
 import (
@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -59,7 +59,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListVolumes(context.Background(), &vzdv1.ListVolumesRequest{Project: project})
+			resp, err := c.ListVolumes(context.Background(), &weftv1.ListVolumesRequest{Project: project})
 			if err != nil {
 				return err
 			}
@@ -87,7 +87,7 @@ func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.CreateVolume(context.Background(), &vzdv1.CreateVolumeRequest{
+			resp, err := c.CreateVolume(context.Background(), &weftv1.CreateVolumeRequest{
 				Project: project,
 				Name:    name,
 				SizeGib: sizeGiB,
@@ -121,7 +121,7 @@ func renameCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.RenameVolume(context.Background(), &vzdv1.RenameVolumeRequest{
+			resp, err := c.RenameVolume(context.Background(), &weftv1.RenameVolumeRequest{
 				Uuid:    args[0],
 				NewName: args[1],
 			})
@@ -149,7 +149,7 @@ func resizeCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ResizeVolume(context.Background(), &vzdv1.ResizeVolumeRequest{
+			resp, err := c.ResizeVolume(context.Background(), &weftv1.ResizeVolumeRequest{
 				Uuid:       args[0],
 				NewSizeGib: size,
 			})
@@ -173,7 +173,7 @@ func attachCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.AttachVolume(context.Background(), &vzdv1.AttachVolumeRequest{
+			resp, err := c.AttachVolume(context.Background(), &weftv1.AttachVolumeRequest{
 				Uuid:   args[0],
 				VmUuid: args[1],
 			})
@@ -197,7 +197,7 @@ func detachCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			if _, err := c.DetachVolume(context.Background(), &vzdv1.DetachVolumeRequest{Uuid: args[0]}); err != nil {
+			if _, err := c.DetachVolume(context.Background(), &weftv1.DetachVolumeRequest{Uuid: args[0]}); err != nil {
 				return err
 			}
 			fmt.Printf("detached\t%s\n", args[0])
@@ -217,7 +217,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			if _, err := c.DeleteVolume(context.Background(), &vzdv1.DeleteVolumeRequest{Uuid: args[0]}); err != nil {
+			if _, err := c.DeleteVolume(context.Background(), &weftv1.DeleteVolumeRequest{Uuid: args[0]}); err != nil {
 				return err
 			}
 			fmt.Println(args[0])
@@ -226,7 +226,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	}
 }
 
-func renderTable(volumes []*vzdv1.VolumeInfo) error {
+func renderTable(volumes []*weftv1.VolumeInfo) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "UUID\tPROJECT_UUID\tNAME\tSIZE\tFORMAT\tATTACHED_TO\tCREATED")
 	for _, v := range volumes {
@@ -241,7 +241,7 @@ func renderTable(volumes []*vzdv1.VolumeInfo) error {
 	return tw.Flush()
 }
 
-func dumpJSON(volumes []*vzdv1.VolumeInfo) error {
+func dumpJSON(volumes []*weftv1.VolumeInfo) error {
 	type out struct {
 		UUID        string `json:"uuid"`
 		ProjectUUID string `json:"project_uuid"`

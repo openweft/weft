@@ -1,8 +1,8 @@
 // VM lifecycle timings — per-VM event log persisted as
 // <vmDir>/timings.jsonl.
 //
-// Goal: give operators (and integrators like nano-container-linux's
-// `ncl run`) a single place to inspect when each VM crossed every
+// Goal: give operators (and integrators like weft-microvm's
+// `weft-microvm run`) a single place to inspect when each VM crossed every
 // lifecycle boundary — registered, start RPC received, VZ
 // configured, VZ started, guest boot markers, shutdown — so they
 // can answer "how long did each stage take?" without instrumenting
@@ -13,7 +13,7 @@
 //   { "name": "<stage>", "ts_unix_ns": <int64>, "meta": {...} }
 //
 // `ts_unix_ns` is wall-clock (time.Now().UnixNano()) so events from
-// different processes (vzd server, vz-vm-run subprocess, future
+// different processes (weft server, vz-vm-run subprocess, future
 // console watcher) can be merged in absolute order. JSONL is chosen
 // over JSON-array so concurrent appenders (server + vz-vm-run +
 // console watcher) can write without locking the whole file —
@@ -41,7 +41,7 @@ import (
 type TimingEvent struct {
 	// Name is the stage label. Convention:
 	//   server-side: lowercase_snake (e.g. "registered", "start_rpc_in")
-	//   guest-side : ncl_* prefix      (e.g. "ncl_init_entered")
+	//   guest-side : weft_* prefix     (e.g. "weft_init_entered")
 	// Use server.* / vz.* / guest.* prefixes once the volume grows.
 	Name string `json:"name"`
 
@@ -58,7 +58,7 @@ type TimingEvent struct {
 }
 
 // timingsFilename is the per-VM events file. Kept private so the
-// path scheme stays a vzd implementation detail.
+// path scheme stays a weft implementation detail.
 const timingsFilename = "timings.jsonl"
 
 // RecordEvent appends one event to <vmDir>/timings.jsonl. Safe to

@@ -50,7 +50,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// NetworkType enumerates the network attachment shapes vzd
+// NetworkType enumerates the network attachment shapes weft
 // understands. Validation lives in (registry).validateType so the
 // "list of allowed values" is in one place.
 type NetworkType string
@@ -209,7 +209,7 @@ func (r *networkRegistry) saveLocked() error {
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{
 		Type: 0,
 		Bytes: []byte(
-			"# vzd network registry — UUID-keyed per [[vzd-uuid-keyed-resources]].\n" +
+			"# weft network registry — UUID-keyed per [[weft-uuid-keyed-resources]].\n" +
 				"# Edit `name` or `dns_servers` freely; never change the block label (UUID),\n" +
 				"# `project_uuid`, `cidr`, or `type`.\n\n",
 		),

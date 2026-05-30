@@ -1,13 +1,13 @@
 package weft
 
-// users.go owns the vzd-internal user registry — the mapping
-// (OIDC issuer + subject) ↔ stable vzd UUID.
+// users.go owns the weft-internal user registry — the mapping
+// (OIDC issuer + subject) ↔ stable weft UUID.
 //
 // Why this exists, given that every request already carries a
 // fully-validated *Caller (see auth.go):
 //
 //   * OIDC subjects are stable per-IdP but not across IdP
-//     migrations (LDAP→GitHub, dex→Auth0). A vzd-local UUID
+//     migrations (LDAP→GitHub, dex→Auth0). A weft-local UUID
 //     decouples persistent state (project ownership, VM
 //     ownership, audit logs) from "which IdP issued the token".
 //   * Operators may want to rename a user without rotating the
@@ -97,7 +97,7 @@ type userRegistry struct {
 
 // loadUserRegistry reads the registry blob via Storage. Returns
 // an empty registry when the Storage returns (nil, nil) — fresh
-// install or first time the operator points vzd at this backend.
+// install or first time the operator points weft at this backend.
 func loadUserRegistry(ctx context.Context, storage Storage) (*userRegistry, error) {
 	reg := &userRegistry{
 		storage:    storage,
@@ -135,14 +135,14 @@ func loadUserRegistry(ctx context.Context, storage Storage) (*userRegistry, erro
 }
 
 // saveLocked writes the registry via Storage. Caller must hold mu.
-// HCL output is sorted by UUID for stable diffs across vzd runs.
+// HCL output is sorted by UUID for stable diffs across weft runs.
 func (r *userRegistry) saveLocked() error {
 	f := hclwrite.NewEmptyFile()
 	body := f.Body()
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{
 		Type: 0,
 		Bytes: []byte(
-			"# vzd user registry — UUID-keyed, see vzd_uuid_keyed_resources.md\n" +
+			"# weft user registry — UUID-keyed, see weft_uuid_keyed_resources.md\n" +
 				"# Edit `display_name` to rename a user; never edit the block\n" +
 				"# label (UUID) or `oidc_subject` / `oidc_issuer`.\n\n",
 		),

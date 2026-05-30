@@ -2,7 +2,7 @@ package weft
 
 // vms.go owns the cluster's VM inventory: one entry per
 // long-lived virtual machine the platform manages. This is the
-// 8th Storage-backed registry in vzd-control and the keystone
+// 8th Storage-backed registry in weft-control and the keystone
 // of the multi-host story — every entry carries the `host_uuid`
 // that resolves to a driver `HostHandle` in the dispatch table.
 //
@@ -217,7 +217,7 @@ func (r *vmRegistry) saveLocked() error {
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{
 		Type: 0,
 		Bytes: []byte(
-			"# vzd VM inventory — UUID-keyed per [[vzd-uuid-keyed-resources]].\n" +
+			"# weft VM inventory — UUID-keyed per [[weft-uuid-keyed-resources]].\n" +
 				"# Each vm block carries its host_uuid (chosen by the scheduler at\n" +
 				"# Create) so multi-host dispatch can route lifecycle calls.\n\n",
 		),
@@ -424,7 +424,7 @@ func (r *vmRegistry) setState(uuid string, state VMState) error {
 // setHost migrates a VM to a different host. The VM-level move
 // is a metadata flip; the actual data migration (disk image
 // transfer, network handover, mesh-peer rotation) is the
-// caller's responsibility — typically a future `vzc vm migrate`
+// caller's responsibility — typically a future `weft vm migrate`
 // command that orchestrates the steps.
 func (r *vmRegistry) setHost(uuid, newHostUUID string) error {
 	if newHostUUID == "" {

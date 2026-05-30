@@ -1,10 +1,10 @@
-// Package project implements the `vzc project` subcommand group:
-// CRUD over vzd's project registry.
+// Package project implements the `weft project` subcommand group:
+// CRUD over weft's project registry.
 //
-//	vzc project ls                          list every project
-//	vzc project create <name>               register a new project
-//	vzc project rename <name|uuid> <new>    rename by UUID or current name
-//	vzc project rm <name|uuid>              delete (only when empty)
+//	weft project ls                          list every project
+//	weft project create <name>               register a new project
+//	weft project rename <name|uuid> <new>    rename by UUID or current name
+//	weft project rm <name|uuid>              delete (only when empty)
 //
 // The whole point of the UUID-keyed registry is that `rename` is a
 // metadata-only change — every VM attached to the project keeps
@@ -20,11 +20,11 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
-// Command returns the `vzc project` cobra command group.
+// Command returns the `weft project` cobra command group.
 func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
@@ -54,7 +54,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListProjects(context.Background(), &vzdv1.ListProjectsRequest{})
+			resp, err := c.ListProjects(context.Background(), &weftv1.ListProjectsRequest{})
 			if err != nil {
 				return err
 			}
@@ -79,7 +79,7 @@ func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.CreateProject(context.Background(), &vzdv1.CreateProjectRequest{Name: args[0]})
+			resp, err := c.CreateProject(context.Background(), &weftv1.CreateProjectRequest{Name: args[0]})
 			if err != nil {
 				return err
 			}
@@ -95,7 +95,7 @@ func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 
 // renameCmd takes either a UUID or the current display name as the
 // first argument. When a name is passed we resolve it to a UUID
-// client-side via a ListProjects call — keeps vzd's RenameProject
+// client-side via a ListProjects call — keeps weft's RenameProject
 // RPC strict (UUID-only) so renames can't silently target a
 // different project than the operator meant.
 func renameCmd(socket, sshSocket, sshKey *string) *cobra.Command {
@@ -113,7 +113,7 @@ func renameCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := c.RenameProject(context.Background(), &vzdv1.RenameProjectRequest{
+			resp, err := c.RenameProject(context.Background(), &weftv1.RenameProjectRequest{
 				Uuid:    uuid,
 				NewName: args[1],
 			})
@@ -141,7 +141,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := c.DeleteProject(context.Background(), &vzdv1.DeleteProjectRequest{Uuid: uuid}); err != nil {
+			if _, err := c.DeleteProject(context.Background(), &weftv1.DeleteProjectRequest{Uuid: uuid}); err != nil {
 				return err
 			}
 			fmt.Println(uuid)
@@ -154,11 +154,11 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 // display name. A name that doesn't match any project errors out
 // rather than silently auto-creating — `rename`/`rm` should never
 // invent a project.
-func resolveProjectArg(c vzdv1.WeftAgentClient, arg string) (string, error) {
+func resolveProjectArg(c weftv1.WeftAgentClient, arg string) (string, error) {
 	if looksLikeUUID(arg) {
 		return arg, nil
 	}
-	resp, err := c.ListProjects(context.Background(), &vzdv1.ListProjectsRequest{})
+	resp, err := c.ListProjects(context.Background(), &weftv1.ListProjectsRequest{})
 	if err != nil {
 		return "", err
 	}
@@ -167,7 +167,7 @@ func resolveProjectArg(c vzdv1.WeftAgentClient, arg string) (string, error) {
 			return p.Uuid, nil
 		}
 	}
-	return "", fmt.Errorf("no project named %q (use `vzc project ls` to inspect)", arg)
+	return "", fmt.Errorf("no project named %q (use `weft project ls` to inspect)", arg)
 }
 
 func looksLikeUUID(s string) bool {
@@ -189,7 +189,7 @@ func looksLikeUUID(s string) bool {
 	return true
 }
 
-func renderProjectsTable(projects []*vzdv1.ProjectInfo) error {
+func renderProjectsTable(projects []*weftv1.ProjectInfo) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "UUID\tNAME\tCREATED")
 	for _, p := range projects {
@@ -203,7 +203,7 @@ func renderProjectsTable(projects []*vzdv1.ProjectInfo) error {
 // platform-managed path that doesn't go through dex). The first
 // arg resolves to a project UUID via resolveProjectArg (name or
 // UUID accepted); the second arg is a literal user UUID from
-// `vzc user ls`.
+// `weft user ls`.
 func addUserCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "add-user <name|uuid> <user-uuid>",
@@ -219,7 +219,7 @@ func addUserCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := c.AddProjectMember(context.Background(), &vzdv1.AddProjectMemberRequest{
+			resp, err := c.AddProjectMember(context.Background(), &weftv1.AddProjectMemberRequest{
 				ProjectUuid: projectUUID,
 				UserUuid:    args[1],
 			})
@@ -250,7 +250,7 @@ func removeUserCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := c.RemoveProjectMember(context.Background(), &vzdv1.RemoveProjectMemberRequest{
+			resp, err := c.RemoveProjectMember(context.Background(), &weftv1.RemoveProjectMemberRequest{
 				ProjectUuid: projectUUID,
 				UserUuid:    args[1],
 			})
@@ -287,7 +287,7 @@ func membersCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := c.ListProjectMembers(context.Background(), &vzdv1.ListProjectMembersRequest{
+			resp, err := c.ListProjectMembers(context.Background(), &weftv1.ListProjectMembersRequest{
 				ProjectUuid: projectUUID,
 			})
 			if err != nil {
@@ -311,7 +311,7 @@ func membersCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			fmt.Fprintln(tw, "UUID\tDISPLAY_NAME\tEMAIL")
 			for _, u := range resp.UserUuids {
 				name, email := "-", "-"
-				if r, err := c.GetUser(context.Background(), &vzdv1.GetUserRequest{Uuid: u}); err == nil {
+				if r, err := c.GetUser(context.Background(), &weftv1.GetUserRequest{Uuid: u}); err == nil {
 					if r.User.DisplayName != "" {
 						name = r.User.DisplayName
 					}
@@ -328,7 +328,7 @@ func membersCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	return cmd
 }
 
-func dumpProjectsJSON(projects []*vzdv1.ProjectInfo) error {
+func dumpProjectsJSON(projects []*weftv1.ProjectInfo) error {
 	type out struct {
 		UUID      string `json:"uuid"`
 		Name      string `json:"name"`

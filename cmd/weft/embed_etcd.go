@@ -28,7 +28,7 @@ import (
 
 // embedEtcdHandle is the running in-process etcd + its client URLs.
 // Close() stops the server ; the data dir is preserved across
-// restarts so registries survive a vzd bounce.
+// restarts so registries survive a weft bounce.
 type embedEtcdHandle struct {
 	server    *embed.Etcd
 	endpoints []string

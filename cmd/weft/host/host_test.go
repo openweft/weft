@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -63,7 +63,7 @@ func TestRegister_RequiresHostname(t *testing.T) {
 
 // TestAllSubcommands_DialError exercises the "shared.Client err"
 // branch for every subcommand that has one. We run each as a
-// t.Parallel sub-test so the 3 s vzclient dial deadline overlaps
+// t.Parallel sub-test so the 3 s weftclient dial deadline overlaps
 // across goroutines — wall-clock stays ≈ 3 s instead of N×3 s.
 func TestAllSubcommands_DialError(t *testing.T) {
 	cases := []struct {
@@ -92,10 +92,10 @@ func TestAllSubcommands_DialError(t *testing.T) {
 
 func TestRegister_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.RegisterHostRequest
-	srv.RegisterHostFn = func(_ context.Context, in *vzdv1.RegisterHostRequest) (*vzdv1.RegisterHostResponse, error) {
+	var got *weftv1.RegisterHostRequest
+	srv.RegisterHostFn = func(_ context.Context, in *weftv1.RegisterHostRequest) (*weftv1.RegisterHostResponse, error) {
 		got = in
-		return &vzdv1.RegisterHostResponse{Host: &vzdv1.HostInfo{Uuid: "u1", Hostname: in.Hostname, Az: in.Az, Rack: in.Rack}}, nil
+		return &weftv1.RegisterHostResponse{Host: &weftv1.HostInfo{Uuid: "u1", Hostname: in.Hostname, Az: in.Az, Rack: in.Rack}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -131,7 +131,7 @@ func TestRegister_LabelsParseError(t *testing.T) {
 
 func TestRegister_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.RegisterHostFn = func(_ context.Context, _ *vzdv1.RegisterHostRequest) (*vzdv1.RegisterHostResponse, error) {
+	srv.RegisterHostFn = func(_ context.Context, _ *weftv1.RegisterHostRequest) (*weftv1.RegisterHostResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -145,9 +145,9 @@ func TestRegister_RPCError(t *testing.T) {
 
 func TestLs_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListHostsFn = func(_ context.Context, _ *vzdv1.ListHostsRequest) (*vzdv1.ListHostsResponse, error) {
-		return &vzdv1.ListHostsResponse{
-			Hosts: []*vzdv1.HostInfo{
+	srv.ListHostsFn = func(_ context.Context, _ *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {
+		return &weftv1.ListHostsResponse{
+			Hosts: []*weftv1.HostInfo{
 				{Uuid: "u1", Hostname: "h1", Az: "dc1", Rack: "r1", Hypervisor: "apple-vz", Architecture: "arm64", State: "active", LastSeenAtUnixNs: 1_700_000_000_000_000_000},
 				{Uuid: "u2", Hostname: "h2"}, // dash defaults
 			},
@@ -174,8 +174,8 @@ func TestLs_TableFormat(t *testing.T) {
 
 func TestLs_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListHostsFn = func(_ context.Context, _ *vzdv1.ListHostsRequest) (*vzdv1.ListHostsResponse, error) {
-		return &vzdv1.ListHostsResponse{Hosts: []*vzdv1.HostInfo{{Uuid: "u1", Hostname: "h1"}}}, nil
+	srv.ListHostsFn = func(_ context.Context, _ *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {
+		return &weftv1.ListHostsResponse{Hosts: []*weftv1.HostInfo{{Uuid: "u1", Hostname: "h1"}}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -191,7 +191,7 @@ func TestLs_JSONFormat(t *testing.T) {
 
 func TestLs_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListHostsFn = func(_ context.Context, _ *vzdv1.ListHostsRequest) (*vzdv1.ListHostsResponse, error) {
+	srv.ListHostsFn = func(_ context.Context, _ *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -205,11 +205,11 @@ func TestLs_RPCError(t *testing.T) {
 
 func TestShow_ByUUID(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.GetHostFn = func(_ context.Context, in *vzdv1.GetHostRequest) (*vzdv1.GetHostResponse, error) {
+	srv.GetHostFn = func(_ context.Context, in *weftv1.GetHostRequest) (*weftv1.GetHostResponse, error) {
 		if in.Uuid != "u1" || in.Hostname != "" {
 			t.Errorf("expected UUID-mode, got %+v", in)
 		}
-		return &vzdv1.GetHostResponse{Host: &vzdv1.HostInfo{Uuid: "u1", Hostname: "h"}}, nil
+		return &weftv1.GetHostResponse{Host: &weftv1.HostInfo{Uuid: "u1", Hostname: "h"}}, nil
 	}
 	out := captureStdout(t, func() {
 		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -225,11 +225,11 @@ func TestShow_ByUUID(t *testing.T) {
 
 func TestShow_ByHostname(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.GetHostFn = func(_ context.Context, in *vzdv1.GetHostRequest) (*vzdv1.GetHostResponse, error) {
+	srv.GetHostFn = func(_ context.Context, in *weftv1.GetHostRequest) (*weftv1.GetHostResponse, error) {
 		if in.Hostname != "myhost" || in.Uuid != "" {
 			t.Errorf("expected hostname mode, got %+v", in)
 		}
-		return &vzdv1.GetHostResponse{Host: &vzdv1.HostInfo{Uuid: "x", Hostname: "myhost"}}, nil
+		return &weftv1.GetHostResponse{Host: &weftv1.HostInfo{Uuid: "x", Hostname: "myhost"}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"show", "myhost", "--by-hostname"})
@@ -240,7 +240,7 @@ func TestShow_ByHostname(t *testing.T) {
 
 func TestShow_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.GetHostFn = func(_ context.Context, _ *vzdv1.GetHostRequest) (*vzdv1.GetHostResponse, error) {
+	srv.GetHostFn = func(_ context.Context, _ *weftv1.GetHostRequest) (*weftv1.GetHostResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -254,10 +254,10 @@ func TestShow_RPCError(t *testing.T) {
 
 func TestSetState_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.SetHostStateRequest
-	srv.SetHostStateFn = func(_ context.Context, in *vzdv1.SetHostStateRequest) (*vzdv1.SetHostStateResponse, error) {
+	var got *weftv1.SetHostStateRequest
+	srv.SetHostStateFn = func(_ context.Context, in *weftv1.SetHostStateRequest) (*weftv1.SetHostStateResponse, error) {
 		got = in
-		return &vzdv1.SetHostStateResponse{}, nil
+		return &weftv1.SetHostStateResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"set-state", "u1", "draining"})
@@ -271,7 +271,7 @@ func TestSetState_Success(t *testing.T) {
 
 func TestSetState_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetHostStateFn = func(_ context.Context, _ *vzdv1.SetHostStateRequest) (*vzdv1.SetHostStateResponse, error) {
+	srv.SetHostStateFn = func(_ context.Context, _ *weftv1.SetHostStateRequest) (*weftv1.SetHostStateResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -293,10 +293,10 @@ func TestSetLabels_BadParse(t *testing.T) {
 
 func TestSetLabels_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.SetHostLabelsRequest
-	srv.SetHostLabelsFn = func(_ context.Context, in *vzdv1.SetHostLabelsRequest) (*vzdv1.SetHostLabelsResponse, error) {
+	var got *weftv1.SetHostLabelsRequest
+	srv.SetHostLabelsFn = func(_ context.Context, in *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error) {
 		got = in
-		return &vzdv1.SetHostLabelsResponse{}, nil
+		return &weftv1.SetHostLabelsResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"set-labels", "u1", "k1=v1,k2=v2"})
@@ -310,10 +310,10 @@ func TestSetLabels_Success(t *testing.T) {
 
 func TestSetLabels_EmptyClears(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.SetHostLabelsRequest
-	srv.SetHostLabelsFn = func(_ context.Context, in *vzdv1.SetHostLabelsRequest) (*vzdv1.SetHostLabelsResponse, error) {
+	var got *weftv1.SetHostLabelsRequest
+	srv.SetHostLabelsFn = func(_ context.Context, in *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error) {
 		got = in
-		return &vzdv1.SetHostLabelsResponse{}, nil
+		return &weftv1.SetHostLabelsResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"set-labels", "u1", ""})
@@ -327,7 +327,7 @@ func TestSetLabels_EmptyClears(t *testing.T) {
 
 func TestSetLabels_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetHostLabelsFn = func(_ context.Context, _ *vzdv1.SetHostLabelsRequest) (*vzdv1.SetHostLabelsResponse, error) {
+	srv.SetHostLabelsFn = func(_ context.Context, _ *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
@@ -350,7 +350,7 @@ func TestRm_Success(t *testing.T) {
 
 func TestRm_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.DeleteHostFn = func(_ context.Context, _ *vzdv1.DeleteHostRequest) (*vzdv1.DeleteHostResponse, error) {
+	srv.DeleteHostFn = func(_ context.Context, _ *weftv1.DeleteHostRequest) (*weftv1.DeleteHostResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

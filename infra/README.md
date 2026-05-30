@@ -1,7 +1,7 @@
-# vzd/infra
+# weft/infra
 
 Declarative plans for the platform's own infrastructure services
-running as **micro-VMs** on vzd. Each subdirectory describes one
+running as **micro-VMs** on weft. Each subdirectory describes one
 service (etcd, zot, dex, …) ; the directory layout is intentionally
 parallel so adding a fourth service is mechanical.
 
@@ -19,23 +19,23 @@ infra/
     └── README.md
 ```
 
-`vzd infra deploy <service>` reads the HCL, validates the
-pre-pulled OCI rootfs is on disk (operator runs `ncl pull` first
-until vzd grows its own OCI client), calls `RegisterMicroVM`, then
-`StartVM`. Same management plane as user workloads — `vzd
+`weft infra deploy <service>` reads the HCL, validates the
+pre-pulled OCI rootfs is on disk (operator runs `weft-microvm pull` first
+until weft grows its own OCI client), calls `RegisterMicroVM`, then
+`StartVM`. Same management plane as user workloads — `weft
 start/stop/status` works identically.
 
-`vzd infra bootstrap` does the same thing for every plan at once :
+`weft infra bootstrap` does the same thing for every plan at once :
 discovers everything under `infra/`, topologically sorts by
 `depends_on` (lexical tiebreak for determinism), then deploys each
 in order through a shared Adapter. Use `--services foo,bar` to
 narrow the set (their `depends_on` must resolve inside the
 narrowed set too, otherwise bootstrap errors). No health checks
 yet — a service is "deployed" once `StartVM` returns ; gate
-readiness manually with `vzd infra deploy` in sequence until the
+readiness manually with `weft infra deploy` in sequence until the
 HealthBlk poller lands.
 
-`vzd infra validate [--services foo,bar]` is the dry-run lint:
+`weft infra validate [--services foo,bar]` is the dry-run lint:
 load every plan, run the same parse + dependency + cycle checks
 bootstrap would run, and print the deploy order it would use.
 No VM is registered. Use it before editing a plan lands in main
@@ -44,7 +44,7 @@ to catch shape mistakes early (unknown HCL attributes, missing
 directory-name mismatches) :
 
 ```sh
-$ vzd infra validate
+$ weft infra validate
 # 4 plan(s) validated, deploy order:
  1. etcd  (depends_on: —)
  2. dex   (depends_on: etcd)
@@ -54,12 +54,12 @@ $ vzd infra validate
 
 Exits non-zero on the first error so a CI gate can fail-fast.
 
-`vzd infra status` lists every plan and the live state of its VM
+`weft infra status` lists every plan and the live state of its VM
 in tab-separated form (`SERVICE STATE PROJECT IMAGE`). Useful
 right after `bootstrap` to verify everything came up :
 
 ```sh
-vzd infra status
+weft infra status
 # SERVICE STATE          PROJECT IMAGE
 # dex     running        infra   ghcr.io/dexidp/dex:v2.40.0
 # etcd    running        infra   quay.io/coreos/etcd:v3.6.0
@@ -76,9 +76,9 @@ A plan with a `config_file { path = ..., template = ... }` block
 gets its template rendered at deploy time and written to
 `<stateDir>/infra-config/<service>/<basename>` (mode 0600). The
 deployer then appends a virtio-fs share at tag `cfg` pointing at
-that directory. The plan's `cmdline` (e.g. `... ncl.config=virtiofs:cfg`)
-tells ncl-init where to find it ; the OCI image's entrypoint or
-ncl-init pre-exec step copies the file into the right in-guest
+that directory. The plan's `cmdline` (e.g. `... weft.config=virtiofs:cfg`)
+tells weft-microvm-init where to find it ; the OCI image's entrypoint or
+weft-microvm-init pre-exec step copies the file into the right in-guest
 path.
 
 Token substitution runs at deploy time on the in-scope subset
@@ -89,7 +89,7 @@ single-replica deployer uses : `$REPLICA = 1`, `$DC = "dc1"`,
 ""`, `$PEER_DC = ""`.
 
 Operator-side tokens (`$BASE_DOMAIN`, `$ADMIN_BCRYPT_HASH`,
-`$VZD_CLIENT_SECRET`, …) are intentionally **not** substituted —
+`$WEFT_CLIENT_SECRET`, …) are intentionally **not** substituted —
 they pass through verbatim so downstream envsubst / CI templating
 handles them.
 
@@ -100,7 +100,7 @@ list ; the rendering machinery stays the same.
 ## Placement (multi-replica HA)
 
 A plan declares its HA intent with a `placement { ... }` block.
-The deployer translates it into a `vzd.GroupScheduleRequest` and
+The deployer translates it into a `weft.GroupScheduleRequest` and
 places `count` replicas across the cluster honouring the three
 proximity dimensions independently :
 
@@ -134,10 +134,10 @@ Per-replica artefacts :
   with the template rendered through `BuildReplicaContext(p, i)`
   so `$REPLICA / $DC / $PRIVATE_IP / $PEERS / $PEER_DC` reflect
   the replica's position in the group.
-- `vzd infra status` reports each replica as its own row :
+- `weft infra status` reports each replica as its own row :
 
 ```sh
-vzd infra status
+weft infra status
 # SERVICE         STATE          PROJECT IMAGE
 # infra-nats-dc1  running        infra   docker.io/nats:2.11-alpine
 # infra-nats-dc2  running        infra   docker.io/nats:2.11-alpine
@@ -146,8 +146,8 @@ vzd infra status
 
 Scheduler integration (per-replica Host pick honouring the
 placement rule) is the next slice — today the deployer runs
-locally on the host vzd is on, so the scheduler primitive
-`vzd.ScheduleGroup` isn't yet on the critical path.
+locally on the host weft is on, so the scheduler primitive
+`weft.ScheduleGroup` isn't yet on the critical path.
 
 ## Health probes
 
@@ -216,9 +216,9 @@ Each step depends on the previous one. Step 1 is the only
 operator-side action; everything after is one CLI invocation.
 
 ```text
-1. vzd starts in FILE storage mode
+1. weft starts in FILE storage mode
      │
-     │ reads ~/.config/vzd/projects.hcl from disk
+     │ reads ~/.config/weft/projects.hcl from disk
      │ no production etcd yet
      ▼
 2. weft infra bootstrap         (everything below in topo order)
@@ -247,29 +247,29 @@ operator-side action; everything after is one CLI invocation.
          local-fs storage (dev) or S3-compat (prod)
      │
      ▼
-3. vzd self-promote --storage=etcd
+3. weft self-promote --storage=etcd
      │
      │ migrates projects/users/networks/volumes/... from local
      │ FILE storage into EtcdStorage keys under
-     │ /vzd/<env>/<registry>
+     │ /weft/<env>/<registry>
      │ FILE remains as a degraded-mode write-ahead snapshot
      ▼
-4. (optional) vzd infra federate-dex --upstream-ldap=ldap://…
+4. (optional) weft infra federate-dex --upstream-ldap=ldap://…
      │
      │ once dex is up + zot accepts its tokens, the upstream IdP
      │ federation is a config-only change
      ▼
-SELF-HOSTED: vzd now depends on infra it brought up itself.
+SELF-HOSTED: weft now depends on infra it brought up itself.
 ```
 
 ## Why plans are HCL and not YAML
 
-Per [[hcl-over-json]] : vzd's registries, configs, and infra plans
+Per [[hcl-over-json]] : weft's registries, configs, and infra plans
 default to HCL. Comments allowed, expressive enough for the
 templating + reference shapes (`volume = volume.etcd-data-dc1.uuid`),
 and human-pokable. The third-party YAML configs each service
 expects (etcd.conf.yaml, dex's config.yaml, zot-config.json) are
-emitted by `vzd infra deploy` from the plan — operators don't
+emitted by `weft infra deploy` from the plan — operators don't
 maintain a duplicate YAML.
 
 ## Why micro-VMs over containers
@@ -277,9 +277,9 @@ maintain a duplicate YAML.
 - **Hardware isolation** : KVM / HVF boundary, identical to user
   workloads. A bug in dex doesn't expose the same kernel surface
   to etcd.
-- **One management plane** : `vzd start/stop/status` works for
+- **One management plane** : `weft start/stop/status` works for
   etcd-dc1 the same way it works for `team-alpha/db-prod`. No
-  systemd-units for infra and vzd-VMs for users.
+  systemd-units for infra and weft-VMs for users.
 - **Per-VM kernel** : the etcd VM can run a kernel tuned for
   low-jitter (`CONFIG_PREEMPT_NONE=y`,
   `CONFIG_NUMA_BALANCING` off), distinct from the user-VM kernel
@@ -288,20 +288,20 @@ maintain a duplicate YAML.
   etcd:v3.6.0` is the same code path that pulls any other OCI
   artifact. No special "bare-metal install" recipe.
 
-The cost is the per-VM overhead (a tiny Linux kernel + ncl-init
+The cost is the per-VM overhead (a tiny Linux kernel + weft-microvm-init
 per service), which at 5 MiB RAM and ~250 ms cold boot is in the
 noise compared to the service's own footprint.
 
-## Wiring shape (in vzd codebase)
+## Wiring shape (in weft codebase)
 
-The HCL parser lives next to the [[vzd-uuid-keyed-resources]]
+The HCL parser lives next to the [[weft-uuid-keyed-resources]]
 registries (`pkg/openweft/weft/infra.go`, to be written). Each
 plan deserialises into a Go struct, which the deployer translates
 into a `RegisterMicroVMRequest` + `StartVMRequest` pair against
-vzd's own gRPC API. The deployer runs in a side-process (`vzd
+weft's own gRPC API. The deployer runs in a side-process (`weft
 infra deploy`) so it can be invoked during bootstrap before the
-main vzd daemon's REST endpoint is reachable.
+main weft daemon's REST endpoint is reachable.
 
-After self-promote, the deployer becomes "just another vzd
+After self-promote, the deployer becomes "just another weft
 client" — its state moves to etcd, and HA failover means any DC's
-vzd can re-deploy a misbehaving infra VM transparently.
+weft can re-deploy a misbehaving infra VM transparently.

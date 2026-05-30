@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -57,8 +57,8 @@ func TestList_BadSocketErrors(t *testing.T) {
 
 func TestList_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListImagesFn = func(_ context.Context, _ *vzdv1.ListImagesRequest) (*vzdv1.ListImagesResponse, error) {
-		return &vzdv1.ListImagesResponse{Images: []*vzdv1.ImageInfo{
+	srv.ListImagesFn = func(_ context.Context, _ *weftv1.ListImagesRequest) (*weftv1.ListImagesResponse, error) {
+		return &weftv1.ListImagesResponse{Images: []*weftv1.ImageInfo{
 			{Name: "ubuntu", Format: "qcow2", Url: "u", SizeBytes: 1024},
 		}}, nil
 	}
@@ -76,8 +76,8 @@ func TestList_TableFormat(t *testing.T) {
 
 func TestList_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListImagesFn = func(_ context.Context, _ *vzdv1.ListImagesRequest) (*vzdv1.ListImagesResponse, error) {
-		return &vzdv1.ListImagesResponse{Images: []*vzdv1.ImageInfo{
+	srv.ListImagesFn = func(_ context.Context, _ *weftv1.ListImagesRequest) (*weftv1.ListImagesResponse, error) {
+		return &weftv1.ListImagesResponse{Images: []*weftv1.ImageInfo{
 			{Name: "ubuntu", Format: "qcow2", Url: "u", SizeBytes: 1024},
 		}}, nil
 	}
@@ -95,7 +95,7 @@ func TestList_JSONFormat(t *testing.T) {
 
 func TestList_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListImagesFn = func(_ context.Context, _ *vzdv1.ListImagesRequest) (*vzdv1.ListImagesResponse, error) {
+	srv.ListImagesFn = func(_ context.Context, _ *weftv1.ListImagesRequest) (*weftv1.ListImagesResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

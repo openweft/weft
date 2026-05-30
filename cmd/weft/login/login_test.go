@@ -49,9 +49,9 @@ func captureStdout(t *testing.T, fn func()) string {
 	return <-done
 }
 
-// withTempTokenDir reroutes XDG_CONFIG_HOME so vzclient.TokenCachePath
+// withTempTokenDir reroutes XDG_CONFIG_HOME so weftclient.TokenCachePath
 // points into a per-test temp dir. Avoids polluting the developer's
-// real ~/.config/vzc.
+// real ~/.config/weft.
 func withTempTokenDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -63,7 +63,7 @@ func withTempTokenDir(t *testing.T) string {
 
 func TestLoginCommand_MissingIssuer(t *testing.T) {
 	// Make sure the env var doesn't accidentally populate --issuer.
-	t.Setenv("VZC_OIDC_ISSUER", "")
+	t.Setenv("WEFT_OIDC_ISSUER", "")
 	cmd := LoginCommand()
 	cmd.SetArgs([]string{})
 	err := cmd.Execute()
@@ -112,7 +112,7 @@ func TestLoginCommand_HappyPath(t *testing.T) {
 
 	stderr := captureStderr(t, func() {
 		cmd := LoginCommand()
-		cmd.SetArgs([]string{"--issuer", srv.URL, "--client-id", "vzc-test", "--scope", "openid", "--scope", "profile"})
+		cmd.SetArgs([]string{"--issuer", srv.URL, "--client-id", "weft-test", "--scope", "openid", "--scope", "profile"})
 		// 5 s should be plenty since we override interval=1 and
 		// the test server replies immediately.
 		if err := cmd.Execute(); err != nil {
@@ -126,7 +126,7 @@ func TestLoginCommand_HappyPath(t *testing.T) {
 		t.Errorf("missing user code in stderr: %q", stderr)
 	}
 	// Token should now be cached.
-	tok, err := vzclient.LoadCachedToken()
+	tok, err := weftclient.LoadCachedToken()
 	if err != nil || tok == nil {
 		t.Fatalf("token not cached: err=%v tok=%v", err, tok)
 	}
@@ -146,7 +146,7 @@ func TestLoginCommand_DefaultClientIDFromEnv(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	t.Setenv("VZC_OIDC_CLIENT_ID", "")
+	t.Setenv("WEFT_OIDC_CLIENT_ID", "")
 	cmd := LoginCommand()
 	cmd.SetArgs([]string{"--issuer", srv.URL})
 	_ = captureStderr(t, func() {
@@ -257,10 +257,10 @@ func TestLogoutCommand_NoCache(t *testing.T) {
 
 func TestLogoutCommand_WithCache(t *testing.T) {
 	withTempTokenDir(t)
-	tok := &vzclient.CachedToken{
+	tok := &weftclient.CachedToken{
 		Issuer: "x", ClientID: "y", AccessToken: "at", ExpiresAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := vzclient.SaveCachedToken(tok); err != nil {
+	if err := weftclient.SaveCachedToken(tok); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	cmd := LogoutCommand()
@@ -270,7 +270,7 @@ func TestLogoutCommand_WithCache(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	if _, err := os.Stat(vzclient.TokenCachePath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(weftclient.TokenCachePath()); !os.IsNotExist(err) {
 		t.Errorf("token file should be gone, stat err = %v", err)
 	}
 }
@@ -280,7 +280,7 @@ func TestLogoutCommand_DeleteError(t *testing.T) {
 	tmp := t.TempDir()
 	// Create a directory at the expected token path (Remove fails
 	// because it's a non-empty directory).
-	tokDir := tmp + "/vzc"
+	tokDir := tmp + "/weft"
 	if err := os.MkdirAll(tokDir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -318,12 +318,12 @@ func TestWhoamiCommand_Anonymous(t *testing.T) {
 
 func TestWhoamiCommand_WithToken(t *testing.T) {
 	withTempTokenDir(t)
-	tok := &vzclient.CachedToken{
-		Issuer: "https://dex", ClientID: "vzc", AccessToken: "at",
+	tok := &weftclient.CachedToken{
+		Issuer: "https://dex", ClientID: "weft", AccessToken: "at",
 		IDToken:   strings.Repeat("x", 60),
 		ExpiresAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := vzclient.SaveCachedToken(tok); err != nil {
+	if err := weftclient.SaveCachedToken(tok); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	out := captureStdout(t, func() {
@@ -341,12 +341,12 @@ func TestWhoamiCommand_WithToken(t *testing.T) {
 func TestWhoamiCommand_WithShortToken(t *testing.T) {
 	// Cover min(40, len(IDToken)) branch: token shorter than 40 chars.
 	withTempTokenDir(t)
-	tok := &vzclient.CachedToken{
+	tok := &weftclient.CachedToken{
 		Issuer: "i", ClientID: "c", AccessToken: "at",
 		IDToken:   "short",
 		ExpiresAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := vzclient.SaveCachedToken(tok); err != nil {
+	if err := weftclient.SaveCachedToken(tok); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	out := captureStdout(t, func() {
@@ -363,12 +363,12 @@ func TestWhoamiCommand_WithShortToken(t *testing.T) {
 
 func TestWhoamiCommand_NoIDToken(t *testing.T) {
 	withTempTokenDir(t)
-	tok := &vzclient.CachedToken{
+	tok := &weftclient.CachedToken{
 		Issuer: "i", ClientID: "c", AccessToken: "at",
 		// IDToken empty → conditional print is skipped.
 		ExpiresAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := vzclient.SaveCachedToken(tok); err != nil {
+	if err := weftclient.SaveCachedToken(tok); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	out := captureStdout(t, func() {
@@ -387,10 +387,10 @@ func TestWhoamiCommand_LoadError(t *testing.T) {
 	// XDG_CONFIG_HOME points to a token.hcl path that's actually a
 	// non-decodable file → LoadCachedToken returns an error.
 	tmp := t.TempDir()
-	if err := os.MkdirAll(tmp+"/vzc", 0o700); err != nil {
+	if err := os.MkdirAll(tmp+"/weft", 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(tmp+"/vzc/token.hcl", []byte("not valid hcl !!!"), 0o600); err != nil {
+	if err := os.WriteFile(tmp+"/weft/token.hcl", []byte("not valid hcl !!!"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", tmp)
@@ -406,13 +406,13 @@ func TestWhoamiCommand_LoadError(t *testing.T) {
 // ── preferredURL ────────────────────────────────────────────────────────────
 
 func TestPreferredURL_Complete(t *testing.T) {
-	if got := preferredURL(&vzclient.DeviceAuthResponse{VerificationURI: "a", VerificationURIComplete: "b"}); got != "b" {
+	if got := preferredURL(&weftclient.DeviceAuthResponse{VerificationURI: "a", VerificationURIComplete: "b"}); got != "b" {
 		t.Errorf("complete should win: %q", got)
 	}
 }
 
 func TestPreferredURL_Bare(t *testing.T) {
-	if got := preferredURL(&vzclient.DeviceAuthResponse{VerificationURI: "a"}); got != "a" {
+	if got := preferredURL(&weftclient.DeviceAuthResponse{VerificationURI: "a"}); got != "a" {
 		t.Errorf("fallback: %q", got)
 	}
 }

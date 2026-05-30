@@ -1,14 +1,14 @@
-// Package securitygroup implements the `vzc security-group`
-// subcommand group: CRUD over vzd's UUID-keyed security-group
+// Package securitygroup implements the `weft security-group`
+// subcommand group: CRUD over weft's UUID-keyed security-group
 // registry, plus an HCL-shaped --rules-file path for atomically
 // replacing the rule list.
 //
-//	vzc security-group ls [--project P] [--format json]
-//	vzc security-group create --project P --name N [--description D] [--rules-file rules.hcl]
-//	vzc security-group rename <UUID> <new-name>
-//	vzc security-group set-description <UUID> <text>
-//	vzc security-group set-rules <UUID> --rules-file rules.hcl
-//	vzc security-group rm <UUID>
+//	weft security-group ls [--project P] [--format json]
+//	weft security-group create --project P --name N [--description D] [--rules-file rules.hcl]
+//	weft security-group rename <UUID> <new-name>
+//	weft security-group set-description <UUID> <text>
+//	weft security-group set-rules <UUID> --rules-file rules.hcl
+//	weft security-group rm <UUID>
 //
 // --rules-file accepts an HCL document with one or more `rule { … }`
 // blocks. Per [[hcl-over-json]] HCL is the operator-edited format
@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/hashicorp/hcl/v2/hclsimple"
 	"github.com/spf13/cobra"
 )
@@ -46,8 +46,8 @@ type ruleBlock struct {
 }
 
 // loadRulesFile reads + decodes the HCL ruleset into the wire
-// shape vzd expects.
-func loadRulesFile(path string) ([]*vzdv1.SecurityRule, error) {
+// shape weft expects.
+func loadRulesFile(path string) ([]*weftv1.SecurityRule, error) {
 	if path == "" {
 		return nil, nil
 	}
@@ -55,9 +55,9 @@ func loadRulesFile(path string) ([]*vzdv1.SecurityRule, error) {
 	if err := hclsimple.DecodeFile(path, nil, &doc); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", path, err)
 	}
-	out := make([]*vzdv1.SecurityRule, len(doc.Rules))
+	out := make([]*weftv1.SecurityRule, len(doc.Rules))
 	for i, r := range doc.Rules {
-		out[i] = &vzdv1.SecurityRule{
+		out[i] = &weftv1.SecurityRule{
 			Direction:       r.Direction,
 			Protocol:        r.Protocol,
 			PortMin:         int32(r.PortMin),
@@ -97,7 +97,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.ListSecurityGroups(context.Background(), &vzdv1.ListSecurityGroupsRequest{Project: project})
+			resp, err := c.ListSecurityGroups(context.Background(), &weftv1.ListSecurityGroupsRequest{Project: project})
 			if err != nil {
 				return err
 			}
@@ -128,7 +128,7 @@ func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.CreateSecurityGroup(context.Background(), &vzdv1.CreateSecurityGroupRequest{
+			resp, err := c.CreateSecurityGroup(context.Background(), &weftv1.CreateSecurityGroupRequest{
 				Project:     project,
 				Name:        name,
 				Description: description,
@@ -160,7 +160,7 @@ func renameCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.RenameSecurityGroup(context.Background(), &vzdv1.RenameSecurityGroupRequest{
+			resp, err := c.RenameSecurityGroup(context.Background(), &weftv1.RenameSecurityGroupRequest{
 				Uuid: args[0], NewName: args[1],
 			})
 			if err != nil {
@@ -183,7 +183,7 @@ func setDescCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.SetSecurityGroupDescription(context.Background(), &vzdv1.SetSecurityGroupDescriptionRequest{
+			resp, err := c.SetSecurityGroupDescription(context.Background(), &weftv1.SetSecurityGroupDescriptionRequest{
 				Uuid: args[0], Description: args[1],
 			})
 			if err != nil {
@@ -211,7 +211,7 @@ func setRulesCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.SetSecurityGroupRules(context.Background(), &vzdv1.SetSecurityGroupRulesRequest{
+			resp, err := c.SetSecurityGroupRules(context.Background(), &weftv1.SetSecurityGroupRulesRequest{
 				Uuid: args[0], Rules: rules,
 			})
 			if err != nil {
@@ -237,7 +237,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			if _, err := c.DeleteSecurityGroup(context.Background(), &vzdv1.DeleteSecurityGroupRequest{Uuid: args[0]}); err != nil {
+			if _, err := c.DeleteSecurityGroup(context.Background(), &weftv1.DeleteSecurityGroupRequest{Uuid: args[0]}); err != nil {
 				return err
 			}
 			fmt.Println(args[0])
@@ -246,7 +246,7 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	}
 }
 
-func renderTable(groups []*vzdv1.SecurityGroupInfo) error {
+func renderTable(groups []*weftv1.SecurityGroupInfo) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "UUID\tPROJECT_UUID\tNAME\tRULES\tDESCRIPTION\tCREATED")
 	for _, g := range groups {
@@ -261,7 +261,7 @@ func renderTable(groups []*vzdv1.SecurityGroupInfo) error {
 	return tw.Flush()
 }
 
-func dumpJSON(groups []*vzdv1.SecurityGroupInfo) error {
+func dumpJSON(groups []*weftv1.SecurityGroupInfo) error {
 	type ruleOut struct {
 		Direction       string `json:"direction"`
 		Protocol        string `json:"protocol"`

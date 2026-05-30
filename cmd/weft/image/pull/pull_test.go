@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -28,10 +28,10 @@ func TestPull_BadSocketErrors(t *testing.T) {
 
 func TestPull_DefaultFlags(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.PullImagesRequest
-	srv.PullImagesFn = func(_ context.Context, in *vzdv1.PullImagesRequest) (*vzdv1.PullImagesResponse, error) {
+	var got *weftv1.PullImagesRequest
+	srv.PullImagesFn = func(_ context.Context, in *weftv1.PullImagesRequest) (*weftv1.PullImagesResponse, error) {
 		got = in
-		return &vzdv1.PullImagesResponse{}, nil
+		return &weftv1.PullImagesResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{})
@@ -48,10 +48,10 @@ func TestPull_DefaultFlags(t *testing.T) {
 
 func TestPull_CustomFlags(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *vzdv1.PullImagesRequest
-	srv.PullImagesFn = func(_ context.Context, in *vzdv1.PullImagesRequest) (*vzdv1.PullImagesResponse, error) {
+	var got *weftv1.PullImagesRequest
+	srv.PullImagesFn = func(_ context.Context, in *weftv1.PullImagesRequest) (*weftv1.PullImagesResponse, error) {
 		got = in
-		return &vzdv1.PullImagesResponse{}, nil
+		return &weftv1.PullImagesResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"--config-dir", "/custom", "--parallel", "10"})
@@ -65,7 +65,7 @@ func TestPull_CustomFlags(t *testing.T) {
 
 func TestPull_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.PullImagesFn = func(_ context.Context, _ *vzdv1.PullImagesRequest) (*vzdv1.PullImagesResponse, error) {
+	srv.PullImagesFn = func(_ context.Context, _ *weftv1.PullImagesRequest) (*weftv1.PullImagesResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

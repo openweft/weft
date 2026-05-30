@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 func strPtr(s string) *string { return &s }
@@ -61,9 +61,9 @@ func TestList_BadSocketErrors(t *testing.T) {
 
 func TestList_TableFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVMsFn = func(_ context.Context, _ *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
-		return &vzdv1.ListVMsResponse{Vms: []*vzdv1.VMInfo{
-			{Name: "alpha", State: vzdv1.VMState_VM_STATE_RUNNING, Os: "linux", Cpu: 2, MemMb: 1024, DiskGb: 10, Ip: "10.0.0.2"},
+	srv.ListVMsFn = func(_ context.Context, _ *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
+		return &weftv1.ListVMsResponse{Vms: []*weftv1.VMInfo{
+			{Name: "alpha", State: weftv1.VMState_VM_STATE_RUNNING, Os: "linux", Cpu: 2, MemMb: 1024, DiskGb: 10, Ip: "10.0.0.2"},
 		}}, nil
 	}
 	out := captureStdout(t, func() {
@@ -80,9 +80,9 @@ func TestList_TableFormat(t *testing.T) {
 
 func TestList_JSONFormat(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVMsFn = func(_ context.Context, _ *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
-		return &vzdv1.ListVMsResponse{Vms: []*vzdv1.VMInfo{
-			{Name: "alpha", State: vzdv1.VMState_VM_STATE_RUNNING, Ip: "10.0.0.2"},
+	srv.ListVMsFn = func(_ context.Context, _ *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
+		return &weftv1.ListVMsResponse{Vms: []*weftv1.VMInfo{
+			{Name: "alpha", State: weftv1.VMState_VM_STATE_RUNNING, Ip: "10.0.0.2"},
 		}}, nil
 	}
 	out := captureStdout(t, func() {
@@ -99,7 +99,7 @@ func TestList_JSONFormat(t *testing.T) {
 
 func TestList_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListVMsFn = func(_ context.Context, _ *vzdv1.ListVMsRequest) (*vzdv1.ListVMsResponse, error) {
+	srv.ListVMsFn = func(_ context.Context, _ *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))

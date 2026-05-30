@@ -411,7 +411,7 @@ func TestAdapter_RegisterMicroVM_UKI(t *testing.T) {
 	}, []MicroVMShare{
 		// Provide a normal share + a Clone-flagged one (which APFS
 		// clonefile may or may not support). Tag conflict reserved
-		// for vzd-nats is exercised by a separate test.
+		// for weft-nats is exercised by a separate test.
 		{Tag: "rootfs", Path: src, ReadOnly: false},
 	}); err != nil {
 		t.Fatalf("RegisterMicroVM: %v", err)

@@ -32,17 +32,17 @@ func TestNewNATSEventBus_ConnectFailure(t *testing.T) {
 }
 
 func TestNATSEventBus_SubjectsFor(t *testing.T) {
-	b := &NATSEventBus{subjectPrefix: "vzd.events"}
+	b := &NATSEventBus{subjectPrefix: "weft.events"}
 	// Empty prefix list → catch-all.
-	if got := b.subjectsFor(nil); len(got) != 1 || got[0] != "vzd.events.>" {
+	if got := b.subjectsFor(nil); len(got) != 1 || got[0] != "weft.events.>" {
 		t.Errorf("empty prefixes: got %v", got)
 	}
 	// Trailing dots tolerated; empty prefix in list → catch-all.
 	got := b.subjectsFor([]string{"vm.", "guest", ""})
 	want := map[string]bool{
-		"vzd.events.vm.>":    false,
-		"vzd.events.guest.>": false,
-		"vzd.events.>":       false,
+		"weft.events.vm.>":    false,
+		"weft.events.guest.>": false,
+		"weft.events.>":       false,
 	}
 	for _, s := range got {
 		if _, ok := want[s]; !ok {
@@ -58,9 +58,9 @@ func TestNATSEventBus_SubjectsFor(t *testing.T) {
 }
 
 func TestNATSEventBus_ProjectSubjectFor_EmptyKind(t *testing.T) {
-	b := &NATSEventBus{subjectPrefix: "vzd.events"}
+	b := &NATSEventBus{subjectPrefix: "weft.events"}
 	got := b.projectSubjectFor("p-1", "")
-	want := "vzd.events.project.p-1.events.unknown"
+	want := "weft.events.project.p-1.events.unknown"
 	if got != want {
 		t.Errorf("projectSubjectFor empty kind = %q, want %q", got, want)
 	}
@@ -71,7 +71,7 @@ func TestNATSEventBus_ClosedStateNoOps(t *testing.T) {
 	// SubscriberCount returns 0. Constructing one without a live
 	// connection is fine because all three short-circuit on the
 	// closed flag (and SubscriberCount always returns 0).
-	b := &NATSEventBus{subjectPrefix: "vzd.events"}
+	b := &NATSEventBus{subjectPrefix: "weft.events"}
 	b.closed.Store(true)
 
 	// Publish on closed bus must not panic (nc is nil).

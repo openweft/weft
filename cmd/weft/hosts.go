@@ -7,7 +7,7 @@ package main
 // wire types and the Adapter calls + applies the standard admin
 // gate.
 //
-// Per [[vzd-placement-rules]] the registry feeds the multi-host
+// Per [[weft-placement-rules]] the registry feeds the multi-host
 // scheduler. The `rack` field on Host (and on RegisterHost) is
 // the sub-AZ failure domain the scheduler uses to honour
 // `placement { rack = "different" }`.
@@ -16,14 +16,14 @@ import (
 	"context"
 
 	weft "github.com/openweft/weft"
-	vzdv1 "github.com/openweft/weft-proto"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // toHostInfo converts the registry's Host value into the wire shape.
-func toHostInfo(h weft.Host) *vzdv1.HostInfo {
-	hi := &vzdv1.HostInfo{
+func toHostInfo(h weft.Host) *weftv1.HostInfo {
+	hi := &weftv1.HostInfo{
 		Uuid:            h.UUID,
 		Hostname:        h.Hostname,
 		Az:              h.AZ,
@@ -48,7 +48,7 @@ func toHostInfo(h weft.Host) *vzdv1.HostInfo {
 	return hi
 }
 
-func (s *vzdServer) RegisterHost(ctx context.Context, req *vzdv1.RegisterHostRequest) (*vzdv1.RegisterHostResponse, error) {
+func (s *weftServer) RegisterHost(ctx context.Context, req *weftv1.RegisterHostRequest) (*weftv1.RegisterHostResponse, error) {
 	if err := weft.RequireAdmin(ctx, "register host"); err != nil {
 		return nil, err
 	}
@@ -76,10 +76,10 @@ func (s *vzdServer) RegisterHost(ctx context.Context, req *vzdv1.RegisterHostReq
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "register host: %v", err)
 	}
-	return &vzdv1.RegisterHostResponse{Host: toHostInfo(h)}, nil
+	return &weftv1.RegisterHostResponse{Host: toHostInfo(h)}, nil
 }
 
-func (s *vzdServer) ListHosts(ctx context.Context, req *vzdv1.ListHostsRequest) (*vzdv1.ListHostsResponse, error) {
+func (s *weftServer) ListHosts(ctx context.Context, req *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {
 	if err := weft.RequireAdmin(ctx, "list hosts"); err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (s *vzdServer) ListHosts(ctx context.Context, req *vzdv1.ListHostsRequest) 
 	} else {
 		hosts = s.adp.Hosts()
 	}
-	out := make([]*vzdv1.HostInfo, 0, len(hosts))
+	out := make([]*weftv1.HostInfo, 0, len(hosts))
 	for _, h := range hosts {
 		out = append(out, toHostInfo(h))
 	}
@@ -97,13 +97,13 @@ func (s *vzdServer) ListHosts(ctx context.Context, req *vzdv1.ListHostsRequest) 
 	if s.dispatch != nil {
 		connected = s.dispatch.ConnectedHostUUIDs()
 	}
-	return &vzdv1.ListHostsResponse{Hosts: out, ConnectedHostUuids: connected}, nil
+	return &weftv1.ListHostsResponse{Hosts: out, ConnectedHostUuids: connected}, nil
 }
 
 // GetHost accepts either UUID or hostname. The Adapter has
 // separate lookup helpers ; we surface the same disambiguation
 // at the RPC boundary (exactly one of the two must be set).
-func (s *vzdServer) GetHost(ctx context.Context, req *vzdv1.GetHostRequest) (*vzdv1.GetHostResponse, error) {
+func (s *weftServer) GetHost(ctx context.Context, req *weftv1.GetHostRequest) (*weftv1.GetHostResponse, error) {
 	if err := weft.RequireAdmin(ctx, "get host"); err != nil {
 		return nil, err
 	}
@@ -122,25 +122,25 @@ func (s *vzdServer) GetHost(ctx context.Context, req *vzdv1.GetHostRequest) (*vz
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "host not found")
 	}
-	return &vzdv1.GetHostResponse{Host: toHostInfo(h)}, nil
+	return &weftv1.GetHostResponse{Host: toHostInfo(h)}, nil
 }
 
 // HeartbeatHost is the per-host agent's keepalive — NOT
 // admin-gated, since it runs unattended from compute nodes.
 // Anonymous heartbeats are accepted today ; once per-host gRPC
-// auth lands (NKey credentials per [[vzd-tenant-event-access]]
+// auth lands (NKey credentials per [[weft-tenant-event-access]]
 // extended to agents) this gets tightened.
-func (s *vzdServer) HeartbeatHost(_ context.Context, req *vzdv1.HeartbeatHostRequest) (*vzdv1.HeartbeatHostResponse, error) {
+func (s *weftServer) HeartbeatHost(_ context.Context, req *weftv1.HeartbeatHostRequest) (*weftv1.HeartbeatHostResponse, error) {
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
 	if err := s.adp.HeartbeatHost(req.Uuid); err != nil {
 		return nil, status.Errorf(codes.Internal, "heartbeat: %v", err)
 	}
-	return &vzdv1.HeartbeatHostResponse{}, nil
+	return &weftv1.HeartbeatHostResponse{}, nil
 }
 
-func (s *vzdServer) SetHostState(ctx context.Context, req *vzdv1.SetHostStateRequest) (*vzdv1.SetHostStateResponse, error) {
+func (s *weftServer) SetHostState(ctx context.Context, req *weftv1.SetHostStateRequest) (*weftv1.SetHostStateResponse, error) {
 	if err := weft.RequireAdmin(ctx, "set host state"); err != nil {
 		return nil, err
 	}
@@ -157,10 +157,10 @@ func (s *vzdServer) SetHostState(ctx context.Context, req *vzdv1.SetHostStateReq
 	if err := s.adp.SetHostState(req.Uuid, st); err != nil {
 		return nil, status.Errorf(codes.Internal, "set host state: %v", err)
 	}
-	return &vzdv1.SetHostStateResponse{}, nil
+	return &weftv1.SetHostStateResponse{}, nil
 }
 
-func (s *vzdServer) SetHostLabels(ctx context.Context, req *vzdv1.SetHostLabelsRequest) (*vzdv1.SetHostLabelsResponse, error) {
+func (s *weftServer) SetHostLabels(ctx context.Context, req *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error) {
 	if err := weft.RequireAdmin(ctx, "set host labels"); err != nil {
 		return nil, err
 	}
@@ -177,10 +177,10 @@ func (s *vzdServer) SetHostLabels(ctx context.Context, req *vzdv1.SetHostLabelsR
 	if err := s.adp.SetHostLabels(req.Uuid, labels); err != nil {
 		return nil, status.Errorf(codes.Internal, "set host labels: %v", err)
 	}
-	return &vzdv1.SetHostLabelsResponse{}, nil
+	return &weftv1.SetHostLabelsResponse{}, nil
 }
 
-func (s *vzdServer) DeleteHost(ctx context.Context, req *vzdv1.DeleteHostRequest) (*vzdv1.DeleteHostResponse, error) {
+func (s *weftServer) DeleteHost(ctx context.Context, req *weftv1.DeleteHostRequest) (*weftv1.DeleteHostResponse, error) {
 	if err := weft.RequireAdmin(ctx, "delete host"); err != nil {
 		return nil, err
 	}
@@ -190,5 +190,5 @@ func (s *vzdServer) DeleteHost(ctx context.Context, req *vzdv1.DeleteHostRequest
 	if err := s.adp.DeleteHost(req.Uuid); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete host: %v", err)
 	}
-	return &vzdv1.DeleteHostResponse{}, nil
+	return &weftv1.DeleteHostResponse{}, nil
 }

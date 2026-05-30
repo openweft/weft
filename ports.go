@@ -180,7 +180,7 @@ func (r *portRegistry) saveLocked() error {
 	body.AppendUnstructuredTokens(hclwrite.Tokens{{
 		Type: 0,
 		Bytes: []byte(
-			"# vzd port registry — UUID-keyed per [[vzd-uuid-keyed-resources]].\n" +
+			"# weft port registry — UUID-keyed per [[weft-uuid-keyed-resources]].\n" +
 				"# Each `port` block links one VM NIC to one network with its MAC/IP\n" +
 				"# (and WireGuard pubkey for mesh-type networks).\n\n",
 		),
@@ -361,7 +361,7 @@ func (r *portRegistry) setSecurityGroups(uuid string, sgUUIDs []string) error {
 
 // setWireguardPubKey rotates the per-port WireGuard public key.
 // Used when an operator rotates a VM's keypair without recreating
-// the port. The private key stays inside the VM — vzd only sees
+// the port. The private key stays inside the VM — weft only sees
 // the new pubkey via the in-VM agent.
 func (r *portRegistry) setWireguardPubKey(uuid, pubkey string) error {
 	r.mu.Lock()
