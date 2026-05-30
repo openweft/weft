@@ -64,11 +64,23 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 	seed := c.Seed()
 	switch a.Kind {
 	case EnsureHost:
-		hv := ""
+		hv, az, rack := "", "", ""
 		for _, h := range c.Hosts {
-			if h.ID == a.Host && h.Hypervisor != "" {
+			if h.ID != a.Host {
+				continue
+			}
+			if h.Hypervisor != "" {
 				hv = " --hypervisor=" + h.Hypervisor
 			}
+			// Default AZ to host.DC (cluster.hcl `dc` field is the AZ in
+			// the dev-cluster model), default rack to "" (single-rack).
+			if h.DC != "" {
+				az = " --az=" + h.DC
+			}
+			if h.Rack != "" {
+				rack = " --rack=" + h.Rack
+			}
+			break
 		}
 		// Prepend the driver-plugin OCI config so the agent pulls the right
 		// weft-driver-* from the configured registry when it's not pre-installed.
@@ -77,10 +89,11 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 			env = strings.Join(e, " ") + " "
 		}
 		var args, label string
+		placement := az + rack
 		if a.Host == seed.ID {
-			args, label = "--server --tcp-listen=:"+controlPlanePort+hv, "seed control-plane"
+			args, label = "--server --tcp-listen=:"+controlPlanePort+hv+placement, "seed control-plane"
 		} else {
-			args, label = fmt.Sprintf("--client --control-plane=tcp:%s:%s%s", seed.Address, controlPlanePort, hv), "join seed"
+			args, label = fmt.Sprintf("--client --control-plane=tcp:%s:%s%s%s", seed.Address, controlPlanePort, hv, placement), "join seed"
 		}
 		// The agent is a long-lived daemon — detach it from the SSH session so
 		// the per-action CombinedOutput() returns once it's launched, otherwise

@@ -85,10 +85,11 @@ type Overlay struct {
 // id when unset. One host → single-node; three hosts → 3-DC cluster.
 type Host struct {
 	ID         string `hcl:",label"`
-	Address    string `hcl:"address"`              // underlay-reachable IP/host
-	DC         string `hcl:"dc,optional"`          // availability-zone label
-	Hypervisor string `hcl:"hypervisor,optional"`  // "" (auto) | "vz" | "qemu"
-	SSH        *SSH   `hcl:"ssh,block"`            // optional; used by the SSH-push access model
+	Address    string `hcl:"address"`             // underlay-reachable IP/host
+	DC         string `hcl:"dc,optional"`         // availability-zone label (mapped to host registry AZ)
+	Rack       string `hcl:"rack,optional"`       // sub-AZ placement domain (matched by az=different/rack=different/host=different)
+	Hypervisor string `hcl:"hypervisor,optional"` // "" (auto) | "vz" | "qemu"
+	SSH        *SSH   `hcl:"ssh,block"`           // optional; used by the SSH-push access model
 }
 
 // SSH carries optional credentials for reaching a host (access-model
