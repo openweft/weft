@@ -1,14 +1,22 @@
 package cluster
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 )
+
+// remoteInfraDir is the per-host directory weft up uploads infra/<svc>/plan.hcl
+// into. weft infra deploy on the remote reads it via the rendered --plan flag.
+// $HOME-expanded by the remote shell so the path resolves to the SSH user's
+// home (admin on dev VMs, e.g. /home/admin/.weft/infra/<svc>/plan.hcl).
+const remoteInfraDir = "$HOME/.weft/infra"
 
 // SSH is the chosen cluster access model: weft up reaches each hypervisor
 // over SSH to install/start its agent and drive the per-host deploy. The
@@ -87,7 +95,14 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 	case MeshSync:
 		return seed.ID, "# mesh: publish overlay peer set to [" + strings.Join(a.Hosts, ",") + "] (wgcoord + mesh.PublishAll)"
 	case PlaceReplica:
-		return a.Host, fmt.Sprintf("weft infra deploy %s   # replica %d (dc=%s)", a.Service, a.Replica, a.DC)
+		// --plan points at the plan.hcl Apply uploads to each host before the
+		// first PlaceReplica action lands. Without it, weft infra deploy would
+		// look up its default <moduleRoot>/infra/<svc>/plan.hcl path relative
+		// to the remote cwd, where the source tree isn't present.
+		return a.Host, fmt.Sprintf(
+			"weft infra deploy %s --plan %s/%s/plan.hcl   # replica %d (dc=%s)",
+			a.Service, remoteInfraDir, a.Service, a.Replica, a.DC,
+		)
 	case GrowQuorum:
 		return seed.ID, fmt.Sprintf("# grow %s quorum %d→%d (etcd member-add / nats route)", a.Service, a.From, a.To)
 	default:
@@ -133,7 +148,7 @@ func RenderSSH(c *Cluster, p *Plan) []HostPlan {
 // NOTE: live execution needs the hosts reachable over SSH with the configured
 // credentials; it can't be exercised without real hypervisors. Host-key
 // verification is skipped (dev) — production must pin known_hosts.
-func Apply(c *Cluster, p *Plan, logf func(string, ...any)) error {
+func Apply(c *Cluster, p *Plan, moduleRoot string, logf func(string, ...any)) error {
 	conns := map[string]*ssh.Client{}
 	defer func() {
 		for _, cl := range conns {
@@ -144,6 +159,11 @@ func Apply(c *Cluster, p *Plan, logf func(string, ...any)) error {
 	for _, h := range c.Hosts {
 		byID[h.ID] = h
 	}
+	// Tracks "<host>/<svc>" pairs whose plan.hcl has already been uploaded
+	// this run, so re-iterating PlaceReplica actions for the same service on
+	// a host doesn't re-upload. Across re-applies a fresh map starts empty
+	// and re-uploads (cheap; one Run() per file).
+	uploaded := map[string]bool{}
 
 	for _, a := range p.Actions {
 		hostID, cmd := renderAction(c, a)
@@ -159,6 +179,18 @@ func Apply(c *Cluster, p *Plan, logf func(string, ...any)) error {
 			}
 			conns[hostID] = cl
 		}
+		// Lazily upload the service's plan.hcl on the first PlaceReplica that
+		// targets this host — the remote `weft infra deploy --plan …` needs it.
+		if a.Kind == PlaceReplica {
+			key := hostID + "/" + a.Service
+			if !uploaded[key] {
+				if err := uploadPlan(cl, moduleRoot, a.Service); err != nil {
+					return fmt.Errorf("[%s] upload plan %s: %w", hostID, a.Service, err)
+				}
+				logf("[%s] uploaded infra/%s/plan.hcl", hostID, a.Service)
+				uploaded[key] = true
+			}
+		}
 		logf("[%s] $ %s", hostID, cmd)
 		out, err := run(cl, cmd)
 		if strings.TrimSpace(out) != "" {
@@ -167,6 +199,32 @@ func Apply(c *Cluster, p *Plan, logf func(string, ...any)) error {
 		if err != nil {
 			return fmt.Errorf("[%s] %q: %w", hostID, cmd, err)
 		}
+	}
+	return nil
+}
+
+// uploadPlan ships <moduleRoot>/infra/<svc>/plan.hcl into $HOME/.weft/infra/<svc>/
+// on the remote host via a single SSH session: mkdir + cat-from-stdin. The
+// k0sctl `files:` analog, narrowed to the one file `weft infra deploy --plan`
+// actually reads (config templates are inlined as HEREDOC in plan.hcl itself).
+func uploadPlan(cl *ssh.Client, moduleRoot, svc string) error {
+	src := filepath.Join(moduleRoot, "infra", svc, "plan.hcl")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", src, err)
+	}
+	sess, err := cl.NewSession()
+	if err != nil {
+		return fmt.Errorf("ssh session: %w", err)
+	}
+	defer sess.Close()
+	sess.Stdin = bytes.NewReader(data)
+	cmd := fmt.Sprintf(
+		"mkdir -p %s/%s && cat > %s/%s/plan.hcl",
+		remoteInfraDir, svc, remoteInfraDir, svc,
+	)
+	if err := sess.Run(cmd); err != nil {
+		return fmt.Errorf("write remote plan: %w", err)
 	}
 	return nil
 }
