@@ -47,14 +47,38 @@ import (
 //
 // Rules (mirroring the resolution `docker pull` performs):
 //
-//   - "name" or "name:tag"          → registry-1.docker.io/library/name[:tag]
+//   - "name" or "name:tag"             → registry-1.docker.io/library/name[:tag]
 //   - "owner/name" or "owner/name:tag" → registry-1.docker.io/owner/name[:tag]
-//   - anything containing a "."  or ":" before the first "/" (a host)
+//   - "docker.io/…"                    → registry-1.docker.io/…  (docker.io is
+//                                        the marketing site, not the registry;
+//                                        it returns HTML for /v2/* manifest
+//                                        requests, so callers passing the
+//                                        long-form must still be redirected to
+//                                        the registry endpoint). A bare
+//                                        `docker.io/name` gains the `library/`
+//                                        prefix like the shorthand path.
+//   - anything else containing a "." or ":" before the first "/" (a host)
 //     is left untouched (already FQDN, e.g. ghcr.io/foo/bar, quay.io/baz,
 //     registry.example.com:5000/svc/img).
 //
 // Returns the input verbatim when no rewrite applies.
 func expandDockerHubShorthand(image string) string {
+	// docker.io is the marketing site, not the registry endpoint —
+	// rewrite to the canonical registry-1.docker.io and add the
+	// "library/" prefix when the user passed a single-component name.
+	const dockerHubAlias = "docker.io/"
+	if rest, ok := strings.CutPrefix(image, dockerHubAlias); ok {
+		// rest may be "name", "name:tag", "owner/name", or "owner/name:tag".
+		// Single-component (no "/") implies the library/ namespace.
+		nameOnly := rest
+		if i := strings.IndexAny(nameOnly, ":@"); i >= 0 {
+			nameOnly = nameOnly[:i]
+		}
+		if !strings.Contains(nameOnly, "/") {
+			return "registry-1.docker.io/library/" + rest
+		}
+		return "registry-1.docker.io/" + rest
+	}
 	slash := strings.Index(image, "/")
 	if slash >= 0 {
 		host := image[:slash]
