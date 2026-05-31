@@ -131,6 +131,18 @@ Two distinct models, both driven by `weft <noun>`:
 - **`weft instance …`** — classic full VMs (boot disk + cloud-init, EFI boot via the Apple-VZ driver).
 - **`weft microvm …`** — Docker-style microVMs: `weft microvm pull <oci-image>` then `weft microvm run <oci-image>`; the rootfs is shared over virtio-fs and booted on a shared `weft-microvm-init` kernel (no per-VM boot.iso/cloud-init). Runtime logic lives in [`weft-microvm`](../weft-microvm).
 
+## Contributing
+
+Project-wide conventions (cobra-only CLIs, `pkgx bash` shebangs, no auto-publish on `push: main`, plugin-framework-only terraform) are documented in [`docs/contributing/coding-conventions.md`](docs/contributing/coding-conventions.md) and machine-enforced by [`scripts/lint/check-conventions.sh`](scripts/lint/check-conventions.sh).
+
+The script runs in CI via [`.github/workflows/conventions.yml`](.github/workflows/conventions.yml) on every push and PR to `main`. To run it locally on every commit, opt in once:
+
+```sh
+pkgx pre-commit install   # one-time, reads .pre-commit-config.yaml
+```
+
+After that, every `git commit` runs `gofmt`, `golangci-lint` (forbidigo + gofmt) on changed Go files, and the full convention check.
+
 ## Related
 
 - [`weft-proto`](../weft-proto) — gRPC service definition

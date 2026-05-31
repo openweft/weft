@@ -1,0 +1,46 @@
+# .pre-commit-config.yaml
+#
+# Local convention-lint for the openweft/weft repo. Opt in once with:
+#
+#     pre-commit install
+#
+# Then every `git commit` runs gofmt + a small forbidigo rule for `flag.*`
+# imports in cmd/ (cobra-only policy) and the project-wide convention
+# script (`scripts/lint/check-conventions.sh`).
+#
+# CI re-runs the same checks via .github/workflows/conventions.yml so the
+# repo cannot drift even for contributors who skip pre-commit locally.
+
+repos:
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+        name: gofmt
+        description: Run gofmt against modified Go files.
+        exclude: ^(vendor/|linux/)
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.59.1
+    hooks:
+      - id: golangci-lint
+        name: golangci-lint (forbidigo + gofmt)
+        description: |
+          Runs golangci-lint with forbidigo configured to block "flag"
+          imports under cmd/ (cobra-only policy) and gofmt formatting.
+        args:
+          - --enable=forbidigo,gofmt
+          - --disable-all
+          - --new-from-rev=HEAD~1
+
+  - repo: local
+    hooks:
+      - id: openweft-conventions
+        name: openweft conventions
+        description: |
+          Custom convention checks (see scripts/lint/check-conventions.sh
+          and docs/contributing/coding-conventions.md).
+        entry: bash scripts/lint/check-conventions.sh
+        language: system
+        pass_filenames: false
+        always_run: true
