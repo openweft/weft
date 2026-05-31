@@ -47,6 +47,10 @@ type fileConfig struct {
 	EventBus           *eventBusBlock          `hcl:"event_bus,block"`
 	NATSAuthorization  *natsAuthorizationBlock `hcl:"nats_authorization,block"`
 	Proxy              *proxyBlock             `hcl:"proxy,block"`
+	// MetricsListen drives the Prometheus /metrics endpoint. Pointer
+	// distinguishes "not set" from "explicitly disabled with empty
+	// string" — only a non-nil value overrides the flag default.
+	MetricsListen *string `hcl:"metrics_listen,optional"`
 }
 
 // proxyBlock mirrors the `proxy { ... }` HCL block — the operator-
@@ -313,6 +317,9 @@ func applyFileConfigDefaults(c fileConfig, dst *fileConfigTargets) {
 			dst.proxyStorageEndpoints = append([]string(nil), c.Proxy.Storage.Endpoints...)
 		}
 	}
+	if c.MetricsListen != nil {
+		dst.metricsListen = *c.MetricsListen
+	}
 }
 
 // fileConfigTargets bundles the destinations applyFileConfigDefaults
@@ -374,4 +381,11 @@ type fileConfigTargets struct {
 	proxyCaddyBinary      string
 	proxyKeyPrefix        string
 	proxyStorageEndpoints []string // empty → filesystem cert storage ; non-empty → shared etcd via darkweak adapter
+
+	// Prometheus /metrics endpoint. Empty disables ; ":9101" enables
+	// the listener and registers the process + Go runtime collectors
+	// + the gRPC server-side handling-time histogram on a fresh
+	// (non-default) registry. See cmd/weft/metrics.go +
+	// docs/operations/observability.md.
+	metricsListen string
 }

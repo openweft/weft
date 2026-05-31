@@ -111,3 +111,57 @@ degrades to "supervisor-only" mode : Caddy starts with an empty route
 table and never receives updates. Useful for smoke-testing the Caddy
 lifecycle, not for production. Use `--storage-backend=etcd` (or
 `embed-etcd` in single-host dev) to get the full Watcher path.
+
+## Caddy admin metrics
+
+Caddy exposes its own Prometheus metrics on the admin endpoint (no
+extra config needed — it's enabled in the default admin module). In
+weft-agent the admin endpoint is a unix socket living next to the
+Caddy state directory, at:
+
+```
+unix//<proxy.state_dir>/caddy-admin.sock
+```
+
+(default state dir: `$XDG_RUNTIME_DIR/weft-agent-proxy`)
+
+To scrape it manually from the same host, use `curl --unix-socket`:
+
+```sh
+curl --unix-socket "${XDG_RUNTIME_DIR:-/tmp}/weft-agent-proxy/caddy-admin.sock" \
+     http://localhost/metrics | head -40
+```
+
+Useful counters / histograms exposed by Caddy:
+
+- `caddy_http_requests_total{handler,server,code}` — request rate
+  per upstream + status code class.
+- `caddy_http_request_duration_seconds_bucket{…}` — latency histogram.
+- `caddy_admin_http_requests_total` — admin-API churn (each route
+  reload from `agent/proxy.Watcher` increments).
+- `caddy_reverse_proxy_upstreams_healthy` — health-check gauge per
+  backend.
+
+### Bridging the unix socket to Prometheus
+
+Prometheus scrape jobs can't dial unix sockets directly. Two
+operator-side options, both follow-ups (no config-change in
+weft-agent today) :
+
+1. **Sidecar TCP proxy.** Run a small `socat TCP-LISTEN:9102,reuseaddr,fork
+   UNIX-CONNECT:/run/weft-agent-proxy/caddy-admin.sock` next to the
+   agent and point Prometheus at `:9102/metrics`. Cleanest if you
+   want to keep the admin endpoint locked to a unix socket.
+
+2. **TCP admin listener (Caddy config change).** Add a `tcp.listen`
+   block to Caddy's admin config so it serves the admin API (and
+   `/metrics`) on a localhost TCP port directly. This requires
+   editing `agent/proxy/supervisor.go`'s bootstrap config — flagged
+   as a follow-up because it widens the proxy attack surface and
+   needs an opt-in (probably `proxy { admin_listen = "127.0.0.1:9102" }`
+   in HCL).
+
+The weft-agent's own `/metrics` endpoint (see
+[docs/operations/observability.md](observability.md)) is a separate
+listener — it observes the gRPC control plane + the agent process
+itself, not the data-plane request flow that Caddy sees.
