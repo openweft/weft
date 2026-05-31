@@ -31,6 +31,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2/hclsimple"
+
+	"github.com/openweft/weft/auditlog"
 )
 
 // fileConfig is the decoded shape of weft.hcl. Pointers (*string)
@@ -38,19 +40,39 @@ import (
 // which matters for the flag-overlay precedence rule: only
 // non-nil HCL values pre-fill flag defaults.
 type fileConfig struct {
-	Socket             *string                 `hcl:"socket,optional"`
-	SSHSocket          *string                 `hcl:"ssh_socket,optional"`
-	SSHAuthorizedKeys  *string                 `hcl:"ssh_authorized_keys,optional"`
-	ConfigDir          *string                 `hcl:"config_dir,optional"`
-	OIDC               *oidcBlock              `hcl:"oidc,block"`
-	Storage            *storageBlock           `hcl:"storage,block"`
-	EventBus           *eventBusBlock          `hcl:"event_bus,block"`
-	NATSAuthorization  *natsAuthorizationBlock `hcl:"nats_authorization,block"`
-	Proxy              *proxyBlock             `hcl:"proxy,block"`
+	Socket            *string                 `hcl:"socket,optional"`
+	SSHSocket         *string                 `hcl:"ssh_socket,optional"`
+	SSHAuthorizedKeys *string                 `hcl:"ssh_authorized_keys,optional"`
+	ConfigDir         *string                 `hcl:"config_dir,optional"`
+	OIDC              *oidcBlock              `hcl:"oidc,block"`
+	Storage           *storageBlock           `hcl:"storage,block"`
+	EventBus          *eventBusBlock          `hcl:"event_bus,block"`
+	NATSAuthorization *natsAuthorizationBlock `hcl:"nats_authorization,block"`
+	Proxy             *proxyBlock             `hcl:"proxy,block"`
+	AuditLog          *auditLogBlock          `hcl:"audit_log,block"`
 	// MetricsListen drives the Prometheus /metrics endpoint. Pointer
 	// distinguishes "not set" from "explicitly disabled with empty
 	// string" — only a non-nil value overrides the flag default.
 	MetricsListen *string `hcl:"metrics_listen,optional"`
+}
+
+// auditLogBlock mirrors the `audit_log { ... }` HCL block. Turns
+// on RBAC audit logging — every Allow/Deny decision from the
+// three ACL primitives (RequireAdmin, AuthorizeProject,
+// VisibleProjects) lands as one line of JSON in `path`. Rotation
+// is the operator's job ; see docs/operations/rbac.md for the
+// content model.
+//
+// Minimum viable opt-in (HCL) :
+//
+//	audit_log {
+//	  path = "/var/log/weft/audit.jsonl"
+//	}
+//
+// CLI shortcut : `--audit-log` (no value) defaults to the same
+// path ; `--audit-log=/path/to/file` overrides.
+type auditLogBlock struct {
+	Path *string `hcl:"path,optional"`
 }
 
 // proxyBlock mirrors the `proxy { ... }` HCL block — the operator-
@@ -118,16 +140,16 @@ type oidcBlock struct {
 // volumes, …) goes through. See pkg/openweft/weft/storage.go for
 // the interface and the three implementations.
 //
-//   backend = "file" (default)
-//     Atomic-rename on local disk under <vmsDir>/.<name>.hcl.
-//     Dev / single-host. No external dependency.
+//	backend = "file" (default)
+//	  Atomic-rename on local disk under <vmsDir>/.<name>.hcl.
+//	  Dev / single-host. No external dependency.
 //
-//   backend = "etcd"
-//     3-DC etcd cluster per [[etcd-control-plane]]. Production.
-//     Requires the `etcd { ... }` sub-block. Currently returns
-//     ErrEtcdNotWired at runtime — the etcd client integration
-//     is the next concrete step. Wire-up shape is committed so
-//     operators can prepare configs ahead of time.
+//	backend = "etcd"
+//	  3-DC etcd cluster per [[etcd-control-plane]]. Production.
+//	  Requires the `etcd { ... }` sub-block. Currently returns
+//	  ErrEtcdNotWired at runtime — the etcd client integration
+//	  is the next concrete step. Wire-up shape is committed so
+//	  operators can prepare configs ahead of time.
 type storageBlock struct {
 	Backend string     `hcl:"backend,optional"` // "file" | "etcd"
 	Etcd    *etcdBlock `hcl:"etcd,block"`
@@ -146,15 +168,15 @@ type etcdBlock struct {
 // eventBusBlock mirrors the `event_bus { ... }` HCL block. Per
 // [[weft-event-bus-nats]] the two backends are:
 //
-//   backend = "local" (default)
-//     In-process LocalEventBus. No external dep at runtime.
+//	backend = "local" (default)
+//	  In-process LocalEventBus. No external dep at runtime.
 //
-//   backend = "nats"
-//     Connect to a NATS cluster (per [[infra-in-micro-vms]] this
-//     is itself a weft-managed micro-VM in production). Requires
-//     the `nats { url = "..." }` sub-block.
+//	backend = "nats"
+//	  Connect to a NATS cluster (per [[infra-in-micro-vms]] this
+//	  is itself a weft-managed micro-VM in production). Requires
+//	  the `nats { url = "..." }` sub-block.
 type eventBusBlock struct {
-	Backend string    `hcl:"backend,optional"` // "local" | "nats"
+	Backend string     `hcl:"backend,optional"` // "local" | "nats"
 	NATS    *natsBlock `hcl:"nats,block"`
 }
 
@@ -175,10 +197,10 @@ type natsBlock struct {
 // the block for operator-driven setups — `weft admin nats-authz`
 // stays callable.
 //
-//   path         path to write (mode 0600). Tilde-expansion supported.
-//   admin_pubkey optional NATS user-NKey public key ("U…") of weft
-//                itself, granted full pub/sub on weft.>. Leave empty
-//                in dev / single-host where weft publishes anonymously.
+//	path         path to write (mode 0600). Tilde-expansion supported.
+//	admin_pubkey optional NATS user-NKey public key ("U…") of weft
+//	             itself, granted full pub/sub on weft.>. Leave empty
+//	             in dev / single-host where weft publishes anonymously.
 type natsAuthorizationBlock struct {
 	Path        string `hcl:"path"`
 	AdminPubkey string `hcl:"admin_pubkey,optional"`
@@ -188,9 +210,9 @@ type natsAuthorizationBlock struct {
 // decoded form (or zero value when none is present). Search
 // order:
 //
-//   1. explicit --config <path> (if non-empty)
-//   2. /etc/weft/weft.hcl
-//   3. $HOME/.config/weft/weft.hcl
+//  1. explicit --config <path> (if non-empty)
+//  2. /etc/weft/weft.hcl
+//  3. $HOME/.config/weft/weft.hcl
 //
 // Missing-file at the default locations is not an error: the zero
 // value just means "use flag defaults". An explicit --config that
@@ -320,6 +342,17 @@ func applyFileConfigDefaults(c fileConfig, dst *fileConfigTargets) {
 	if c.MetricsListen != nil {
 		dst.metricsListen = *c.MetricsListen
 	}
+	if c.AuditLog != nil {
+		// A bare `audit_log {}` block with no path enables the
+		// audit log at the default location, mirroring the CLI
+		// shortcut. An explicit empty string ("") disables —
+		// matches the proxy block's pointer-vs-zero rule.
+		if c.AuditLog.Path != nil {
+			dst.auditLogPath = expandHome(*c.AuditLog.Path)
+		} else {
+			dst.auditLogPath = auditlog.DefaultPath
+		}
+	}
 }
 
 // fileConfigTargets bundles the destinations applyFileConfigDefaults
@@ -388,4 +421,10 @@ type fileConfigTargets struct {
 	// (non-default) registry. See cmd/weft/metrics.go +
 	// docs/operations/observability.md.
 	metricsListen string
+
+	// RBAC audit log destination. Empty disables ; non-empty
+	// opens an append-only LDJSON file (one Allow/Deny tuple per
+	// line) per docs/operations/rbac.md "Audit log" section.
+	// Operators wire rotation externally (logrotate / journald).
+	auditLogPath string
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/openweft/weft"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/auditlog"
 	"github.com/openweft/weft/cmd/weft/admin"
 	"github.com/openweft/weft/cmd/weft/clean"
 	"github.com/openweft/weft/cmd/weft/events"
@@ -182,6 +183,7 @@ func agentCmd() *cobra.Command {
 	var proxyCaddyBinary string
 	var proxyKeyPrefix string
 	var metricsListen string
+	var auditLogPath string
 
 	home, _ := os.UserHomeDir()
 	defaultSocket := filepath.Join(home, ".weft", "weft.sock")
@@ -246,6 +248,7 @@ continuity (same sockets, same registry on-disk layout).`,
 				proxyCaddyBinary: proxyCaddyBinary,
 				proxyKeyPrefix:   proxyKeyPrefix,
 				metricsListen:    metricsListen,
+				auditLogPath:     auditLogPath,
 			}
 			before := tgt
 			applyFileConfigDefaults(fc, &tgt)
@@ -287,6 +290,9 @@ continuity (same sockets, same registry on-disk layout).`,
 			}
 			if c.Flags().Changed("metrics-listen") {
 				tgt.metricsListen = before.metricsListen
+			}
+			if c.Flags().Changed("audit-log") {
+				tgt.auditLogPath = before.auditLogPath
 			}
 			// proxyStorageEndpoints has no CLI flag yet — the HCL
 			// block is the only source. Add a comma-separated
@@ -360,6 +366,15 @@ continuity (same sockets, same registry on-disk layout).`,
 	// shape as --tcp-listen for muscle-memory consistency.
 	cmd.Flags().StringVar(&metricsListen, "metrics-listen", "", "host:port for the Prometheus /metrics endpoint (process + Go runtime + gRPC server histograms). Empty disables.")
 
+	// RBAC audit log — every Allow/Deny decision through the three
+	// ACL primitives in pkg/openweft/weft/acl.go ships one LDJSON
+	// line here when set. The flag without a value enables the
+	// audit log at the default path (/var/log/weft/audit.jsonl) ;
+	// pass `--audit-log=/some/path` to override. Rotation is the
+	// operator's job — see docs/operations/rbac.md.
+	cmd.Flags().StringVar(&auditLogPath, "audit-log", "", "Path to the RBAC audit log (LDJSON). Empty disables ; pass --audit-log on its own to enable at "+auditlog.DefaultPath+".")
+	cmd.Flags().Lookup("audit-log").NoOptDefVal = auditlog.DefaultPath
+
 	return cmd
 }
 
@@ -403,6 +418,22 @@ func run(t fileConfigTargets) error {
 	if t.natsAuthzPath != "" {
 		a.SetNATSAuthorizationFile(t.natsAuthzPath, t.natsAuthzAdminPubkey)
 		logger.Printf("nats authorization auto-render enabled: path=%s", t.natsAuthzPath)
+	}
+
+	// RBAC audit log : per docs/operations/rbac.md, Allow/Deny
+	// decisions from the three ACL primitives ship one LDJSON line
+	// to t.auditLogPath. Empty disables ; Open expands the parent
+	// dir with 0700 and opens the file with 0600 (audit lines can
+	// leak attack surfaces, treat them as sensitive). Rotation is
+	// external (logrotate / journald) — see auditlog/auditlog.go.
+	if t.auditLogPath != "" {
+		al, err := auditlog.Open(t.auditLogPath)
+		if err != nil {
+			return fmt.Errorf("open audit log: %w", err)
+		}
+		weft.SetAuditLogger(al)
+		defer func() { _ = al.Close() }()
+		logger.Printf("rbac audit log enabled: path=%s", t.auditLogPath)
 	}
 
 	logger.Printf("weft starting — config-dir=%s socket=%s storage=%s event_bus=%s",

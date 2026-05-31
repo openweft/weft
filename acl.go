@@ -29,10 +29,57 @@ package weft
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/openweft/weft/auditlog"
 )
+
+// auditSink holds the process-wide audit logger. Stored as an
+// atomic.Pointer so SetAuditLogger can swap the sink at runtime
+// (e.g. when the operator SIGHUPs the agent) without a lock and
+// without surprising in-flight RPCs. A nil pointer means the
+// audit log is disabled — auditlog.Logger.Record is itself
+// nil-safe so the ACL primitives never need to guard the call.
+var auditSink atomic.Pointer[auditlog.Logger]
+
+// SetAuditLogger replaces the process-wide audit sink. Pass nil
+// to disable. Called by cmd/weft/main.go after parsing the
+// --audit-log flag / `audit_log {}` HCL block ; tests use it to
+// inject an in-memory Logger and assert on the recorded
+// decisions. Safe to call concurrently with active RPCs.
+func SetAuditLogger(l *auditlog.Logger) {
+	auditSink.Store(l)
+}
+
+// auditLogger returns the active audit logger (or nil when
+// disabled). Centralised here so the ACL primitives don't reach
+// into atomic.Pointer directly.
+func auditLogger() *auditlog.Logger {
+	return auditSink.Load()
+}
+
+// auditRecord is the common builder for an auditlog.Record from
+// a *Caller + the four ACL fields. Caller may be nil (when the
+// request hit the interceptor seam without one) ; we still log
+// the deny so the operator sees "an unauthenticated request
+// reached the ACL gate" rather than nothing.
+func auditRecord(c *Caller, verb, object, scope string, decision auditlog.Decision, reason string) auditlog.Record {
+	r := auditlog.Record{
+		Verb:     verb,
+		Object:   object,
+		Scope:    scope,
+		Decision: decision,
+		Reason:   reason,
+	}
+	if c != nil {
+		r.Subject = c.Subject
+		r.Issuer = c.Issuer
+	}
+	return r
+}
 
 // PlatformAdminGroup is the well-known group whose members get
 // unconditional access to every project. Equivalent of root.
@@ -66,21 +113,39 @@ func ProjectGroup(uuid string) string {
 // already exist.
 func (a *Adapter) AuthorizeProject(ctx context.Context, nameOrUUID string) (string, error) {
 	caller, _ := CallerFrom(ctx)
+	// Audit-log helper, captured so each return path can fire
+	// exactly one Record without the bookkeeping noise. The
+	// resolved scope is "" until we know the project UUID — for
+	// deny paths that fail before resolution that's fine
+	// (the operator already sees the input via Reason).
+	sink := auditLogger()
+	logDecision := func(scope string, decision auditlog.Decision, reason string) {
+		if sink == nil {
+			return
+		}
+		_ = sink.Record(ctx, auditRecord(caller, "AuthorizeProject", "project", scope, decision, reason))
+	}
 	// No caller in ctx ⇒ either tests bypassed the interceptor,
 	// or there's a misconfiguration. Refuse, with an explicit
 	// hint so the operator knows what to wire.
 	if caller == nil {
-		return "", status.Error(codes.Unauthenticated, "no caller in context (interceptor not wired?)")
+		err := status.Error(codes.Unauthenticated, "no caller in context (interceptor not wired?)")
+		logDecision("", auditlog.Deny, err.Error())
+		return "", err
 	}
 	// Dev mode: every project is allowed; auto-create like the
 	// existing free-form path.
 	if caller.Dev {
-		return a.ResolveProjectUUID(nameOrUUID), nil
+		uuid := a.ResolveProjectUUID(nameOrUUID)
+		logDecision(uuid, auditlog.Allow, "dev mode")
+		return uuid, nil
 	}
 	// Platform admins skip every check, but we still resolve to
 	// a UUID so downstream code has one.
 	if caller.HasGroup(PlatformAdminGroup) {
-		return a.ResolveProjectUUID(nameOrUUID), nil
+		uuid := a.ResolveProjectUUID(nameOrUUID)
+		logDecision(uuid, auditlog.Allow, "platform-admin")
+		return uuid, nil
 	}
 	// Resolve the project without auto-creating arbitrary names.
 	// Strategy:
@@ -97,44 +162,58 @@ func (a *Adapter) AuthorizeProject(ctx context.Context, nameOrUUID string) (stri
 		// is fine because it's the caller's own bucket.
 		p, _, err := a.projects.getOrCreate(caller.Subject)
 		if err != nil {
-			return "", status.Errorf(codes.Internal, "default project: %v", err)
+			rerr := status.Errorf(codes.Internal, "default project: %v", err)
+			logDecision("", auditlog.Deny, rerr.Error())
+			return "", rerr
 		}
+		logDecision(p.UUID, auditlog.Allow, "default project")
 		return p.UUID, nil
 	}
 	if isUUID(nameOrUUID) {
 		_, ok := a.ProjectByUUID(nameOrUUID)
 		if !ok || !a.callerOwnsProject(caller, nameOrUUID) {
-			return "", status.Errorf(codes.PermissionDenied, "no access to project %s", nameOrUUID)
+			err := status.Errorf(codes.PermissionDenied, "no access to project %s", nameOrUUID)
+			logDecision(nameOrUUID, auditlog.Deny, err.Error())
+			return "", err
 		}
+		logDecision(nameOrUUID, auditlog.Allow, "owns project")
 		return nameOrUUID, nil
 	}
 	// Display name path.
 	if nameOrUUID == caller.Subject {
 		p, _, err := a.projects.getOrCreate(caller.Subject)
 		if err != nil {
-			return "", status.Errorf(codes.Internal, "default project: %v", err)
+			rerr := status.Errorf(codes.Internal, "default project: %v", err)
+			logDecision("", auditlog.Deny, rerr.Error())
+			return "", rerr
 		}
+		logDecision(p.UUID, auditlog.Allow, "default project (by name)")
 		return p.UUID, nil
 	}
 	p, ok := a.ProjectByName(nameOrUUID)
 	if !ok {
-		return "", status.Errorf(codes.PermissionDenied, "no access to project %q", nameOrUUID)
+		err := status.Errorf(codes.PermissionDenied, "no access to project %q", nameOrUUID)
+		logDecision("", auditlog.Deny, err.Error())
+		return "", err
 	}
 	if !a.callerOwnsProject(caller, p.UUID) {
-		return "", status.Errorf(codes.PermissionDenied, "no access to project %q", nameOrUUID)
+		err := status.Errorf(codes.PermissionDenied, "no access to project %q", nameOrUUID)
+		logDecision(p.UUID, auditlog.Deny, err.Error())
+		return "", err
 	}
+	logDecision(p.UUID, auditlog.Allow, "owns project (by name)")
 	return p.UUID, nil
 }
 
 // callerOwnsProject is true when the caller has access to the
 // project via either of the two granting mechanisms:
 //
-//   1. dex `groups` claim carries `project:<uuid>` (the
-//      OIDC-only path, original Phase-2 design).
-//   2. The project's stored Members list contains the caller's
-//      weft user UUID (the platform-managed path, added later so
-//      ops can grant access without round-tripping through dex
-//      every time).
+//  1. dex `groups` claim carries `project:<uuid>` (the
+//     OIDC-only path, original Phase-2 design).
+//  2. The project's stored Members list contains the caller's
+//     weft user UUID (the platform-managed path, added later so
+//     ops can grant access without round-tripping through dex
+//     every time).
 //
 // Either is sufficient; both are commonly used in tandem.
 func (a *Adapter) callerOwnsProject(c *Caller, uuid string) bool {
@@ -172,13 +251,23 @@ func (a *Adapter) callerOwnsProject(c *Caller, uuid string) bool {
 // `project:<uuid>` group they belong to}.
 func (a *Adapter) VisibleProjects(ctx context.Context) (map[string]struct{}, bool, error) {
 	caller, _ := CallerFrom(ctx)
+	sink := auditLogger()
+	logDecision := func(decision auditlog.Decision, reason string) {
+		if sink == nil {
+			return
+		}
+		_ = sink.Record(ctx, auditRecord(caller, "VisibleProjects", "project", "", decision, reason))
+	}
 	if caller == nil {
-		return nil, false, status.Error(codes.Unauthenticated, "no caller in context")
+		err := status.Error(codes.Unauthenticated, "no caller in context")
+		logDecision(auditlog.Deny, err.Error())
+		return nil, false, err
 	}
 	// Unlimited-scope shortcut: dev mode + platform-admin both
 	// pass the empty-set + "see all" signal so callers can skip
 	// the per-UUID filter entirely.
 	if caller.Dev || caller.HasGroup(PlatformAdminGroup) {
+		logDecision(auditlog.Allow, "unlimited scope")
 		return nil, true, nil
 	}
 	out := make(map[string]struct{})
@@ -210,6 +299,7 @@ func (a *Adapter) VisibleProjects(ctx context.Context) (map[string]struct{}, boo
 			}
 		}
 	}
+	logDecision(auditlog.Allow, fmt.Sprintf("scoped to %d project(s)", len(out)))
 	return out, false, nil
 }
 
@@ -219,11 +309,24 @@ func (a *Adapter) VisibleProjects(ctx context.Context) (map[string]struct{}, boo
 // names, deleting projects belonging to others, …).
 func RequireAdmin(ctx context.Context, op string) error {
 	caller, _ := CallerFrom(ctx)
+	sink := auditLogger()
+	verb := "RequireAdmin:" + op
+	logDecision := func(decision auditlog.Decision, reason string) {
+		if sink == nil {
+			return
+		}
+		_ = sink.Record(ctx, auditRecord(caller, verb, "cluster", "cluster", decision, reason))
+	}
 	if caller == nil {
-		return status.Error(codes.Unauthenticated, "no caller in context")
+		err := status.Error(codes.Unauthenticated, "no caller in context")
+		logDecision(auditlog.Deny, err.Error())
+		return err
 	}
 	if caller.Dev || caller.HasGroup(PlatformAdminGroup) {
+		logDecision(auditlog.Allow, "platform-admin or dev")
 		return nil
 	}
-	return status.Error(codes.PermissionDenied, fmt.Sprintf("%s requires platform-admin", op))
+	err := status.Error(codes.PermissionDenied, fmt.Sprintf("%s requires platform-admin", op))
+	logDecision(auditlog.Deny, err.Error())
+	return err
 }
