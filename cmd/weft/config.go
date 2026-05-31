@@ -286,4 +286,18 @@ type fileConfigTargets struct {
 	serverMode      bool
 	clientMode      bool
 	controlPlaneURL string
+
+	// Reverse-proxy plane (Caddy supervised subprocess + etcd
+	// Watcher). Opt-in via --proxy ; off by default so the agent
+	// stays a single-process daemon for operators that don't need
+	// L7 ingress. See proxy.go (bootProxy) and agent/proxy/.
+	//
+	// Only honoured by the all-in-one boot path (run()) ; the
+	// --client per-host runtime reaches etcd via the control-plane
+	// gRPC bridge, which is a separate concern (an etcd-over-gRPC
+	// shim is the cleanest fix and lands in a follow-up).
+	proxyEnabled     bool
+	proxyStateDir    string
+	proxyCaddyBinary string
+	proxyKeyPrefix   string
 }

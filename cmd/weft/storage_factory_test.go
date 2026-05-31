@@ -34,6 +34,12 @@ func TestBuildStorageFactory_FileExplicit(t *testing.T) {
 	if sf == nil || sf.new != nil {
 		t.Errorf("backend=file should produce non-nil *storageFactory with nil .new; got sf=%v", sf)
 	}
+	// The file backend has no shared etcd handle — bootProxy
+	// treats nil as "supervisor-only" (Caddy starts with empty
+	// routes), which is the intended degradation.
+	if sf != nil && sf.etcdClient != nil {
+		t.Errorf("backend=file should leave etcdClient nil; got %T", sf.etcdClient)
+	}
 }
 
 // TestBuildStorageFactory_EtcdNeedsEndpoints checks the validation

@@ -176,6 +176,10 @@ func agentCmd() *cobra.Command {
 	var tcpListen string
 	var az string
 	var rack string
+	var proxyEnabled bool
+	var proxyStateDir string
+	var proxyCaddyBinary string
+	var proxyKeyPrefix string
 
 	home, _ := os.UserHomeDir()
 	defaultSocket := filepath.Join(home, ".weft", "weft.sock")
@@ -270,7 +274,20 @@ continuity (same sockets, same registry on-disk layout).`,
 			tgt.serverMode = serverMode
 			tgt.clientMode = clientMode
 			tgt.controlPlaneURL = controlPlaneURL
+			tgt.proxyEnabled = proxyEnabled
+			tgt.proxyStateDir = proxyStateDir
+			tgt.proxyCaddyBinary = proxyCaddyBinary
+			tgt.proxyKeyPrefix = proxyKeyPrefix
 			if clientMode && controlPlaneURL != "" {
+				if proxyEnabled {
+					// The proxy plane needs a local etcd handle ;
+					// in client mode etcd is reached only through
+					// the control-plane gRPC bridge. Flagging here
+					// rather than silently degrading — an operator
+					// who asked for --proxy expects ingress, and
+					// not getting it should be loud.
+					logger.Printf("weft agent: --proxy ignored in --client mode (no local etcd handle; follow-up: etcd-over-gRPC bridge)")
+				}
 				return runClient(tgt)
 			}
 			if clientMode && controlPlaneURL == "" {
@@ -296,6 +313,16 @@ continuity (same sockets, same registry on-disk layout).`,
 	cmd.Flags().BoolVar(&serverMode, "server", false, "Run as control-plane server (no per-host driver dispatch). Default mode includes both.")
 	cmd.Flags().BoolVar(&clientMode, "client", false, "Run as per-host driver runtime only. Requires --control-plane to point at the server.")
 	cmd.Flags().StringVar(&controlPlaneURL, "control-plane", "", "URL of the Weft control-plane server (only consulted when --client is set).")
+
+	// Reverse-proxy plane (see proxy.go + agent/proxy/). Off by
+	// default — operators opt in with --proxy. The Caddy binary
+	// can point at any caddy on PATH ; production deploys should
+	// use the weft-proxy artefact (xcaddy-built with the etcd
+	// storage module) published by openweft/weft-proxy.
+	cmd.Flags().BoolVar(&proxyEnabled, "proxy", false, "Enable the reverse-proxy plane (Caddy supervised subprocess + etcd Watcher). All-in-one mode only ; ignored under --client.")
+	cmd.Flags().StringVar(&proxyStateDir, "proxy-state-dir", "", "Directory for the Caddy admin socket + cert storage. Empty → $XDG_RUNTIME_DIR/weft-agent-proxy.")
+	cmd.Flags().StringVar(&proxyCaddyBinary, "proxy-caddy-binary", "caddy", "Caddy executable. For production, point at the weft-proxy binary from openweft/weft-proxy (xcaddy + etcd-storage module).")
+	cmd.Flags().StringVar(&proxyKeyPrefix, "proxy-key-prefix", "", "etcd key prefix the Watcher streams from. Empty → /weft/proxy/routes (proxy.Watcher default).")
 
 	return cmd
 }
@@ -433,6 +460,34 @@ func run(t fileConfigTargets) error {
 	})
 	weftv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 
+	// Top-level lifecycle ctx — cancelled on SIGINT/SIGTERM. The
+	// proxy plane (when --proxy is set) hangs off it so the
+	// watcher cancels before the etcd client is torn down by the
+	// storage factory's deferred close.
+	ctx, stop := signalContext()
+	defer stop()
+
+	// Reverse-proxy plane (Caddy supervised subprocess + etcd
+	// Watcher). Opt-in via --proxy ; sf.etcdClient is nil in the
+	// file backend and bootProxy degrades to "supervisor-only"
+	// (Caddy starts with empty routes). The closer runs before
+	// sf.close() because defers unwind LIFO — exactly the order
+	// we need (watcher off → etcd client closed).
+	if t.proxyEnabled {
+		hostUUID := localHostUUID(a)
+		proxyCloser, perr := bootProxyFn(ctx, hostUUID, sf.etcdClient, proxyOpts{
+			StateDir:    t.proxyStateDir,
+			CaddyBinary: t.proxyCaddyBinary,
+			KeyPrefix:   t.proxyKeyPrefix,
+		})
+		if perr != nil {
+			return fmt.Errorf("boot proxy: %w", perr)
+		}
+		defer func() { _ = proxyCloser() }()
+		logger.Printf("proxy plane enabled — host_uuid=%s caddy=%s state_dir=%s key_prefix=%s",
+			hostUUID, displayOrDefault(t.proxyCaddyBinary, "caddy"), displayOrDefault(t.proxyStateDir, "<runtime-default>"), displayOrDefault(t.proxyKeyPrefix, "<watcher-default>"))
+	}
+
 	go func() {
 		if err := srv.Serve(lis); err != nil {
 			logger.Printf("grpc server stopped: %v", err)
@@ -479,7 +534,15 @@ func run(t fileConfigTargets) error {
 		logger.Printf("SSH gRPC listening on %s", t.sshSocket)
 	}
 
-	select {}
+	// Block until a termination signal lands. The deferred
+	// proxyCloser + sf.close() then run LIFO : watcher cancelled
+	// → Caddy stopped → etcd client closed. Pre-proxy code path
+	// kept `select {}` (no signals) ; the new wait preserves that
+	// behaviour when --proxy is not set because nothing else
+	// cancels ctx.
+	<-ctx.Done()
+	logger.Printf("weft agent: shutdown signal received")
+	return nil
 }
 
 // ---- gRPC server -----------------------------------------------------------
