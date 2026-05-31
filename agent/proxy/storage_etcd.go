@@ -34,24 +34,21 @@ func EtcdStorageEndpoints() []string {
 
 // storageEtcdConfig builds the Caddy JSON `storage` block for etcd. It is
 // only consumed when the Caddy binary the supervisor launches has the
-// `caddy-storage-etcd` module compiled in. Operators get such a binary via
-//
-//	xcaddy build --with github.com/gsmlg-dev/caddy-storage-etcd
-//
-// and point `Options.CaddyBinary` at it. Without the module, Caddy rejects
+// darkweak/storages etcd adapter compiled in. The canonical build is
+// `github.com/openweft/weft-proxy` (published binary + OCI image), which
+// embeds the adapter alongside the standard Caddy modules. Operators
+// point `Options.CaddyBinary` at it. Without the module, Caddy rejects
 // the /load POST with a structured error which surfaces verbatim through
 // Supervisor.Apply — the operator sees exactly what's missing.
 //
-// Schema reference: github.com/gsmlg-dev/caddy-storage-etcd README. KeyPrefix
-// stays under `/weft/proxy/caddy` so the certificate keys don't collide with
-// the route-table keys at `/weft/proxy/routes` (same etcd cluster, separate
-// namespaces).
+// Schema: the darkweak adapter registers as the "etcd" Caddy storage
+// module. KeyPrefix stays under `/weft/proxy/caddy` so the certificate
+// keys don't collide with the route-table keys at `/weft/proxy/routes`
+// (same etcd cluster, separate namespaces).
 func storageEtcdConfig(endpoints []string) map[string]any {
 	return map[string]any{
-		"module":      "etcd3",
-		"endpoints":   endpoints,
-		"key_prefix":  "/weft/proxy/caddy",
-		"lock":        "/weft/proxy/caddy/locks",
-		"timeout":     "10s",
+		"module":     "etcd",
+		"endpoints":  endpoints,
+		"key_prefix": "/weft/proxy/caddy",
 	}
 }
