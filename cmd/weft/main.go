@@ -20,6 +20,7 @@ import (
 	"time"
 
 	grubpkg "github.com/go-grub/grub"
+	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	sshtransport "github.com/grpc-transports/ssh"
 	cloudinit "github.com/openweft/cloud-init"
 	imock "github.com/openweft/hclconfig"
@@ -180,6 +181,7 @@ func agentCmd() *cobra.Command {
 	var proxyStateDir string
 	var proxyCaddyBinary string
 	var proxyKeyPrefix string
+	var metricsListen string
 
 	home, _ := os.UserHomeDir()
 	defaultSocket := filepath.Join(home, ".weft", "weft.sock")
@@ -243,6 +245,7 @@ continuity (same sockets, same registry on-disk layout).`,
 				proxyStateDir:    proxyStateDir,
 				proxyCaddyBinary: proxyCaddyBinary,
 				proxyKeyPrefix:   proxyKeyPrefix,
+				metricsListen:    metricsListen,
 			}
 			before := tgt
 			applyFileConfigDefaults(fc, &tgt)
@@ -281,6 +284,9 @@ continuity (same sockets, same registry on-disk layout).`,
 			}
 			if c.Flags().Changed("proxy-key-prefix") {
 				tgt.proxyKeyPrefix = before.proxyKeyPrefix
+			}
+			if c.Flags().Changed("metrics-listen") {
+				tgt.metricsListen = before.metricsListen
 			}
 			// proxyStorageEndpoints has no CLI flag yet — the HCL
 			// block is the only source. Add a comma-separated
@@ -346,6 +352,13 @@ continuity (same sockets, same registry on-disk layout).`,
 	cmd.Flags().StringVar(&proxyStateDir, "proxy-state-dir", "", "Directory for the Caddy admin socket + cert storage. Empty → $XDG_RUNTIME_DIR/weft-agent-proxy.")
 	cmd.Flags().StringVar(&proxyCaddyBinary, "proxy-caddy-binary", "caddy", "Caddy executable. For production, point at the weft-proxy binary from openweft/weft-proxy (xcaddy + etcd-storage module).")
 	cmd.Flags().StringVar(&proxyKeyPrefix, "proxy-key-prefix", "", "etcd key prefix the Watcher streams from. Empty → /weft/proxy/routes (proxy.Watcher default).")
+
+	// Prometheus observability (per docs/operations/observability.md).
+	// Off by default — a Mac laptop doesn't need a metrics endpoint.
+	// Operators that scrape `weft agent` set --metrics-listen=":9101"
+	// (or `metrics_listen = ":9101"` in weft.hcl) ; same `host:port`
+	// shape as --tcp-listen for muscle-memory consistency.
+	cmd.Flags().StringVar(&metricsListen, "metrics-listen", "", "host:port for the Prometheus /metrics endpoint (process + Go runtime + gRPC server histograms). Empty disables.")
 
 	return cmd
 }
@@ -424,9 +437,46 @@ func run(t fileConfigTargets) error {
 		return fmt.Errorf("listen on %s: %w", t.socket, err)
 	}
 
+	// Prometheus observability — opt-in via --metrics-listen. When
+	// enabled we mint a dedicated *prometheus.Registry (NOT the
+	// default global) so the gRPC server-side metrics live alongside
+	// the process + Go runtime collectors and unrelated client_golang
+	// users elsewhere in the binary don't leak into our scrape output.
+	// The interceptor below is added to the chain regardless — when
+	// srvMetrics is nil it's a no-op grpc.{Unary,Stream}ServerInterceptor.
+	var srvMetrics *grpcprom.ServerMetrics
+	var metricsCloser func() error
+	if t.metricsListen != "" {
+		reg, closer, mErr := startMetricsServer(t.metricsListen, logger)
+		if mErr != nil {
+			return fmt.Errorf("start metrics server: %w", mErr)
+		}
+		metricsCloser = closer
+		srvMetrics = grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
+		if err := reg.Register(srvMetrics); err != nil {
+			return fmt.Errorf("register grpc server metrics: %w", err)
+		}
+		defer func() { _ = metricsCloser() }()
+	}
+
+	unaryInterceptors := []grpc.UnaryServerInterceptor{
+		weft.UnaryAuthInterceptor(validator, userPersister(a)),
+	}
+	streamInterceptors := []grpc.StreamServerInterceptor{
+		weft.StreamAuthInterceptor(validator, userPersister(a)),
+	}
+	if srvMetrics != nil {
+		// Order matters : the Prom interceptor wraps the inner call so
+		// it observes the handler's elapsed time + status code. We
+		// append after the auth interceptor so authn failures are
+		// also counted (rejected RPCs still show up in
+		// grpc_server_handled_total{code="Unauthenticated"}).
+		unaryInterceptors = append(unaryInterceptors, srvMetrics.UnaryServerInterceptor())
+		streamInterceptors = append(streamInterceptors, srvMetrics.StreamServerInterceptor())
+	}
 	srv := grpc.NewServer(
-		grpc.UnaryInterceptor(weft.UnaryAuthInterceptor(validator, userPersister(a))),
-		grpc.StreamInterceptor(weft.StreamAuthInterceptor(validator, userPersister(a))),
+		grpc.ChainUnaryInterceptor(unaryInterceptors...),
+		grpc.ChainStreamInterceptor(streamInterceptors...),
 	)
 	// Share one agentDispatchServer between the WeftAgent
 	// handlers (so RegisterMicroVM-and-friends can dispatch to

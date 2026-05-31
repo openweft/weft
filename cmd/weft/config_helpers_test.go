@@ -263,3 +263,25 @@ func TestApplyFileConfigDefaults_Empty(t *testing.T) {
 		t.Errorf("empty config should not overwrite preset, got %q", dst.socket)
 	}
 }
+
+// TestApplyFileConfigDefaults_MetricsListen pins the precedence rule
+// for the Prometheus /metrics endpoint : a non-nil HCL attribute wins
+// over the zero-value default, and a nil one leaves the destination
+// alone (so a CLI flag pre-fill survives).
+func TestApplyFileConfigDefaults_MetricsListen(t *testing.T) {
+	s := func(v string) *string { return &v }
+
+	// HCL sets it → destination picks up the value.
+	dst := fileConfigTargets{}
+	applyFileConfigDefaults(fileConfig{MetricsListen: s(":9101")}, &dst)
+	if dst.metricsListen != ":9101" {
+		t.Errorf("metricsListen: got %q, want :9101", dst.metricsListen)
+	}
+
+	// HCL omits it → CLI-preseeded value survives.
+	dst2 := fileConfigTargets{metricsListen: ":4242"}
+	applyFileConfigDefaults(fileConfig{}, &dst2)
+	if dst2.metricsListen != ":4242" {
+		t.Errorf("metricsListen should survive nil HCL, got %q", dst2.metricsListen)
+	}
+}
