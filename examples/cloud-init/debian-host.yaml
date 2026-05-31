@@ -1,0 +1,220 @@
+#cloud-config
+#
+# Reference cloud-init template for a weft hypervisor host.
+#
+# Target: greenfield Debian 12 (arm64 or amd64) or Ubuntu 22.04+ instance.
+# Outcome: a host that `weft up --apply` can pilot — weft binary on PATH,
+# weft-agent.service running under systemd, the shared microVM kernel
+# pre-pulled, weft-proxy staged in /usr/local/bin.
+#
+# Hand this file to your cloud provider's "user-data" field (AWS, Hetzner,
+# OpenStack, Equinix Metal, ...) or feed it to cloud-localds for bare metal.
+#
+# Search this file for "TODO" before applying — a handful of placeholders
+# (cluster name, etcd endpoints, az/rack labels, weft binary URL) must be
+# filled by the operator.
+#
+# See examples/cloud-init/README.md for the operator runbook and
+# docs/operations/cloud-init.md for where this fits in the bring-up flow.
+
+hostname: weft-host-01
+manage_etc_hosts: true
+
+# A single unprivileged service account owns the agent process. The
+# weft-agent.service unit runs as this user; sudo is granted so the operator
+# can SSH in for break-glass debugging without needing root.
+users:
+  - name: weft
+    uid: 1000
+    groups: [sudo, kvm]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    # TODO: drop your operator SSH public keys here so `weft up` can reach
+    # this host. The cluster.hcl `ssh { user = "weft", key = "..." }` block
+    # on the operator side must point at the matching private key.
+    ssh_authorized_keys: []
+
+# Package set: curl + ca-certificates for HTTPS fetches, oras for OCI pulls,
+# wireguard-tools for the overlay mesh (kernel module is built-in on
+# modern Debian/Ubuntu), iproute2 for ip/tc, qemu-system + qemu-utils for
+# the linux/qemu driver path (weft-driver-qemu), jq for shell glue.
+package_update: true
+package_upgrade: false
+packages:
+  - curl
+  - ca-certificates
+  - wireguard-tools
+  - iproute2
+  - qemu-system-arm
+  - qemu-system-x86
+  - qemu-utils
+  - jq
+
+write_files:
+  # Skeleton weft.hcl. The operator MUST edit the TODO placeholders before
+  # the first `weft up --apply`. Discovery order (see cmd/weft/config.go):
+  # /etc/weft/weft.hcl wins over $HOME/.config/weft/weft.hcl.
+  - path: /etc/weft/weft.hcl
+    owner: root:root
+    permissions: '0644'
+    content: |
+      # weft host configuration — see docs/operations/proxy.md and
+      # docs/operations/etcd-backup.md for the full schema.
+
+      # TODO: replace with your cluster identity.
+      # cluster_name = "prod"
+
+      storage {
+        backend = "etcd"
+        etcd {
+          # TODO: the etcd endpoints of your 3-DC control plane.
+          # For a single-host dev cluster use backend = "file" and
+          # drop the etcd block.
+          endpoints = [
+            "http://10.0.0.11:2379",
+            "http://10.0.0.12:2379",
+            "http://10.0.0.13:2379",
+          ]
+        }
+      }
+
+      proxy {
+        enabled      = true
+        caddy_binary = "/usr/local/bin/weft-proxy"
+        state_dir    = "/var/lib/weft-agent/proxy"
+
+        storage {
+          # Shared cert storage across hosts (etcd-backed). Same endpoints
+          # as storage.etcd above by default; override here for multi-cluster.
+          endpoints = [
+            "http://10.0.0.11:2379",
+            "http://10.0.0.12:2379",
+            "http://10.0.0.13:2379",
+          ]
+        }
+      }
+
+  # systemd unit. Kept in lockstep with examples/cloud-init/systemd/weft-agent.service
+  # so operators can adopt it independently of cloud-init.
+  - path: /etc/systemd/system/weft-agent.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=weft agent
+      Documentation=https://github.com/openweft/weft
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=weft
+      Group=weft
+      ExecStart=/usr/local/bin/weft agent
+      Restart=on-failure
+      RestartSec=2s
+      # CAP_NET_ADMIN: required by the kernel WireGuard backend the agent
+      # programs for the overlay mesh (wg-quick / netlink rtnl).
+      AmbientCapabilities=CAP_NET_ADMIN
+      CapabilityBoundingSet=CAP_NET_ADMIN
+      NoNewPrivileges=true
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # 1. Install oras (pure-Go CLI, single binary, no apt package on Debian 12).
+  #    Pinned to a known-good release; bump as needed.
+  - |
+    set -eux
+    ORAS_VERSION="1.2.0"
+    ARCH="$(dpkg --print-architecture)"
+    case "$ARCH" in
+      arm64) ORAS_ARCH=arm64 ;;
+      amd64) ORAS_ARCH=amd64 ;;
+      *) echo "unsupported arch $ARCH" >&2; exit 1 ;;
+    esac
+    curl -fsSL -o /tmp/oras.tgz \
+      "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_${ORAS_ARCH}.tar.gz"
+    tar -C /usr/local/bin -xzf /tmp/oras.tgz oras
+    chmod 0755 /usr/local/bin/oras
+    rm -f /tmp/oras.tgz
+
+  # 2. Drop the weft binary into /usr/local/bin.
+  #    TODO: this requires a release artefact workflow that the weft repo
+  #    does not yet publish. Until then, the operator must scp the binary
+  #    onto the host manually, or replace this URL with their internal mirror.
+  #    Once openweft/weft ships a release pipeline, swap to:
+  #      curl -fsSL -o /usr/local/bin/weft \
+  #        "https://github.com/openweft/weft/releases/download/v0.1.0/weft-linux-${ARCH}"
+  #      chmod 0755 /usr/local/bin/weft
+  - |
+    set -eux
+    if [ ! -x /usr/local/bin/weft ]; then
+      echo "TODO: /usr/local/bin/weft is missing — scp it onto the host before starting weft-agent.service" >&2
+      # Don't fail cloud-init: the unit will fail-loop until the binary lands,
+      # giving the operator a clear journalctl signal.
+    fi
+
+  # 3. Pull weft-proxy (Caddy + etcd storage) via oras. The proxy artifact
+  #    exposes a single layer containing the binary; oras pull extracts it
+  #    flat into the cwd.
+  - |
+    set -eux
+    install -d -m 0755 /opt/weft-proxy-pull
+    cd /opt/weft-proxy-pull
+    oras pull ghcr.io/openweft/weft-proxy:v0.1.0
+    # The layer ships the binary under the name "weft-proxy". Be defensive:
+    # find the first executable file in the pulled tree.
+    PROXY_BIN="$(find /opt/weft-proxy-pull -type f -name 'weft-proxy' | head -n1)"
+    if [ -z "$PROXY_BIN" ]; then
+      echo "weft-proxy binary not found in OCI artifact" >&2
+      exit 1
+    fi
+    install -m 0755 "$PROXY_BIN" /usr/local/bin/weft-proxy
+    rm -rf /opt/weft-proxy-pull
+
+  # 4. State dirs (owned by the weft user). The proxy state_dir holds
+  #    Caddy's admin socket + on-disk cert cache (fallback when etcd
+  #    storage is unreachable).
+  - install -d -m 0755 -o weft -g weft /var/lib/weft-agent
+  - install -d -m 0755 -o weft -g weft /var/lib/weft-agent/proxy
+  - install -d -m 0755 -o weft -g weft /var/lib/weft
+
+  # 5. Pre-pull the shared microVM kernel artifact. The agent expects it
+  #    under $XDG_DATA_HOME/weft-microvm/kernel; run as the weft user so
+  #    XDG resolves to /home/weft/.local/share. Tolerate failure here: a
+  #    missing kernel surfaces clearly on the first `weft up`, and we want
+  #    cloud-init to converge even if the registry is briefly unreachable.
+  - |
+    set -eu
+    if [ -x /usr/local/bin/weft ]; then
+      sudo -u weft -H /usr/local/bin/weft microvm pull-kernel \
+        ghcr.io/openweft/weft-microvm-kernel:v0.1.0 || \
+        echo "weft microvm pull-kernel failed; retry manually after first boot" >&2
+    fi
+
+  # 6. Enable + start the agent unit. systemd will fail-loop the service
+  #    until /usr/local/bin/weft is in place (see TODO above) — that's the
+  #    intended signal for the operator.
+  - systemctl daemon-reload
+  - systemctl enable weft-agent.service
+  - systemctl start weft-agent.service || true
+
+final_message: |
+  weft host bring-up complete.
+
+  Next steps on the operator workstation:
+    1. Edit /etc/weft/weft.hcl on this host: cluster_name, etcd endpoints,
+       proxy storage, AZ/rack labels.
+    2. Make sure /usr/local/bin/weft is present (release artefact TODO).
+    3. From the operator box: `weft up --apply -f cluster.hcl`
+       — `weft up` will SSH in as the `weft` user and converge this host
+         into the cluster.
+
+  Debug:
+    journalctl -u weft-agent -f
+    systemctl status weft-agent
