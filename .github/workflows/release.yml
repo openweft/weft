@@ -67,6 +67,9 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,11 +93,33 @@ jobs:
           done
           ( cd stage && sha256sum *.tar.gz > SHA256SUMS )
 
+      - uses: sigstore/cosign-installer@v3
+
+      - name: sign release artifacts (keyless)
+        # Sigstore keyless: OIDC identity = GitHub Actions runner. Drops
+        # a .sig + .cert next to each tarball so consumers can verify
+        # with `cosign verify-blob --certificate <name>.cert --signature
+        # <name>.sig --certificate-identity-regexp '...' --certificate-
+        # oidc-issuer https://token.actions.githubusercontent.com`.
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          cd stage
+          for f in *.tar.gz; do
+            cosign sign-blob --yes \
+              --output-signature "${f}.sig" \
+              --output-certificate "${f}.cert" \
+              "$f"
+          done
+
       - name: create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             stage/*.tar.gz
+            stage/*.tar.gz.sig
+            stage/*.tar.gz.cert
             stage/SHA256SUMS
           draft: true
           generate_release_notes: true
@@ -102,6 +127,10 @@ jobs:
   image:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -136,6 +165,7 @@ jobs:
           EOF
 
       - name: build + push per-arch image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: image
@@ -145,9 +175,25 @@ jobs:
             ${{ env.IMAGE }}:${{ github.ref_name }}-${{ matrix.arch }}
             ${{ env.IMAGE }}:latest-${{ matrix.arch }}
 
+      - uses: sigstore/cosign-installer@v3
+
+      - name: sign per-arch image (keyless)
+        # Sign the per-arch manifest by its content-addressed digest so
+        # the signature stays bound even if a tag is later moved.
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
   manifest:
     needs: image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       - uses: docker/login-action@v3
         with:
@@ -156,6 +202,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: assemble multi-arch manifest
+        id: manifest
         run: |
           set -euo pipefail
           for tag in "${{ github.ref_name }}" latest; do
@@ -164,3 +211,19 @@ jobs:
               "${{ env.IMAGE }}:${tag}-amd64" \
               "${{ env.IMAGE }}:${tag}-arm64"
           done
+          # Resolve the multi-arch index digest for the primary tag so we
+          # can pin the cosign signature to the content, not the tag.
+          digest=$(docker buildx imagetools inspect \
+            "${{ env.IMAGE }}:${{ github.ref_name }}" \
+            --format '{{.Manifest.Digest}}')
+          echo "digest=${digest}" >>"$GITHUB_OUTPUT"
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: sign multi-arch manifest (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE}@${DIGEST}"
