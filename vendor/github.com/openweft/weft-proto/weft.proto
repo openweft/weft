@@ -541,6 +541,47 @@ message DetachVolumeResponse { VolumeInfo volume = 1; }
 message DeleteVolumeRequest  { string uuid = 1; }
 message DeleteVolumeResponse {}
 
+// --- Volume snapshots ---
+
+// VolumeSnapshotInfo describes one snapshot. UUID is the snapshot's
+// own identity ; volume_uuid pins the parent. created_at lets clients
+// sort + age-out without re-querying.
+message VolumeSnapshotInfo {
+  string uuid               = 1;
+  string volume_uuid        = 2;
+  string name               = 3;  // operator-chosen, unique per parent volume
+  int64  size_gib           = 4;  // same as parent at snapshot time
+  string project            = 5;
+  int64  created_at_unix_ns = 6;
+}
+
+message CreateVolumeSnapshotRequest  {
+  string volume_uuid = 1;
+  string name        = 2;
+  string project     = 3;
+}
+message CreateVolumeSnapshotResponse { VolumeSnapshotInfo snapshot = 1; }
+
+message ListVolumeSnapshotsRequest  {
+  string volume_uuid = 1;  // empty → list all snapshots in the project
+  string project     = 2;
+}
+message ListVolumeSnapshotsResponse { repeated VolumeSnapshotInfo snapshots = 1; }
+
+// RestoreVolumeSnapshot clones the snapshot into a NEW volume (CoW,
+// reflink-backed). The parent volume is untouched ; operators wanting
+// in-place rollback delete the existing volume + rename the restored
+// one. Returns the newly minted volume.
+message RestoreVolumeSnapshotRequest  {
+  string snapshot_uuid    = 1;
+  string new_volume_name  = 2;
+  string project          = 3;
+}
+message RestoreVolumeSnapshotResponse { VolumeInfo volume = 1; }
+
+message DeleteVolumeSnapshotRequest  { string uuid = 1; }
+message DeleteVolumeSnapshotResponse {}
+
 // --- WatchEvents (server-streaming event bus) ---
 
 // PlatformEvent is one event published on weft's bus. Schema is
@@ -779,6 +820,18 @@ service WeftAgent {
   rpc AttachVolume  (AttachVolumeRequest)  returns (AttachVolumeResponse);
   rpc DetachVolume  (DetachVolumeRequest)  returns (DetachVolumeResponse);
   rpc DeleteVolume  (DeleteVolumeRequest)  returns (DeleteVolumeResponse);
+
+  // Volume snapshot RPCs. A snapshot is a point-in-time CoW copy of a
+  // volume's contents — same backing primitive as the VM CoW clone
+  // (FICLONE / reflink). Listed under the parent volume's UUID,
+  // referenceable by their own UUID for restore. The restore path
+  // re-clones the snapshot into a fresh volume (does NOT mutate the
+  // parent in place — that would invalidate every other snapshot
+  // taken since).
+  rpc CreateVolumeSnapshot  (CreateVolumeSnapshotRequest)  returns (CreateVolumeSnapshotResponse);
+  rpc ListVolumeSnapshots   (ListVolumeSnapshotsRequest)   returns (ListVolumeSnapshotsResponse);
+  rpc RestoreVolumeSnapshot (RestoreVolumeSnapshotRequest) returns (RestoreVolumeSnapshotResponse);
+  rpc DeleteVolumeSnapshot  (DeleteVolumeSnapshotRequest)  returns (DeleteVolumeSnapshotResponse);
 
   // WatchEvents opens a server-stream of platform events. Lets
   // clients react to VM lifecycle / project mutation / guest-side

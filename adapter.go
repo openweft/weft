@@ -120,6 +120,16 @@ type VZAdapter interface {
 	AttachVolume(uuid, vmUUID string) error
 	DetachVolume(uuid string) error
 	DeleteVolume(uuid string) error
+	// VolumeSnapshot registry surface — per-volume CoW snapshots
+	// backed by reflink-cloned blobs. See volumesnapshots.go +
+	// snapshotstore.go.
+	VolumeSnapshots() []VolumeSnapshot
+	VolumeSnapshotByUUID(uuid string) (VolumeSnapshot, bool)
+	ListVolumeSnapshotsForVolume(volumeUUID string) []VolumeSnapshot
+	ListVolumeSnapshotsForProject(projectUUID string) []VolumeSnapshot
+	RegisterVolumeSnapshot(ctx context.Context, parentVolumeUUID, name, projectUUID string) (VolumeSnapshot, error)
+	RestoreVolumeSnapshot(ctx context.Context, snapshotUUID, newVolumeName string) (Volume, error)
+	DeleteVolumeSnapshotByUUID(ctx context.Context, uuid string) error
 	// Security-group registry surface — per-project firewall
 	// containers. Each group carries a slice of ingress / egress
 	// rules edited atomically via SetSecurityGroupRules. See
@@ -230,6 +240,16 @@ type Adapter struct {
 	networkReg *networkRegistry
 	// volumeReg holds the per-project block volumes. See volumes.go.
 	volumeReg *volumeRegistry
+	// snapshotReg + snapshotStore back the VolumeSnapshot RPCs : a
+	// row-per-snapshot HCL registry alongside the reflink-cloned
+	// blob directory. See volumesnapshots.go + snapshotstore.go.
+	snapshotReg   *volumeSnapshotRegistry
+	snapshotStore SnapshotStore
+	// volumesDir, when non-empty, overrides <stateDir>/volumes as
+	// the root holding volume image blobs the SnapshotStore reads
+	// from. Tests stub this to a t.TempDir() containing a synthetic
+	// parent image. Empty = default layout.
+	volumesDir string
 	// sgReg holds the per-project security groups. See
 	// security_groups.go.
 	sgReg *securityGroupRegistry
@@ -466,6 +486,7 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 	a.initUsers()
 	a.initNetworks()
 	a.initVolumes()
+	a.initVolumeSnapshots()
 	a.initSecurityGroups()
 	a.initPorts()
 	a.initHosts()
