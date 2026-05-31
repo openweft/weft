@@ -113,10 +113,10 @@ github.com/grpc-ecosystem/grpc-gateway/v2/internal/httprule
 github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2/options
 github.com/grpc-ecosystem/grpc-gateway/v2/runtime
 github.com/grpc-ecosystem/grpc-gateway/v2/utilities
-# github.com/grpc-transports/ssh v0.0.0 => ../../grpc-transports/ssh
+# github.com/grpc-transports/ssh v0.2.0 => ../../grpc-transports/ssh
 ## explicit; go 1.25.0
 github.com/grpc-transports/ssh
-# github.com/grpc-transports/wireguard v0.0.0-00010101000000-000000000000 => ../../grpc-transports/wireguard
+# github.com/grpc-transports/wireguard v0.2.0 => ../../grpc-transports/wireguard
 ## explicit; go 1.25.0
 github.com/grpc-transports/wireguard
 # github.com/hashicorp/go-hclog v0.14.1
@@ -147,6 +147,9 @@ github.com/inconshreveable/mousetrap
 # github.com/jonboulle/clockwork v0.5.0
 ## explicit; go 1.21
 github.com/jonboulle/clockwork
+# github.com/josharian/native v1.1.0
+## explicit; go 1.13
+github.com/josharian/native
 # github.com/klauspost/compress v1.18.6
 ## explicit; go 1.24
 github.com/klauspost/compress
@@ -169,6 +172,16 @@ github.com/mattn/go-isatty
 # github.com/mattn/go-runewidth v0.0.19
 ## explicit; go 1.20
 github.com/mattn/go-runewidth
+# github.com/mdlayher/genetlink v1.3.2
+## explicit; go 1.18
+github.com/mdlayher/genetlink
+# github.com/mdlayher/netlink v1.7.2
+## explicit; go 1.18
+github.com/mdlayher/netlink
+github.com/mdlayher/netlink/nlenc
+# github.com/mdlayher/socket v0.5.1
+## explicit; go 1.20
+github.com/mdlayher/socket
 # github.com/minio/highwayhash v1.0.4
 ## explicit; go 1.15
 github.com/minio/highwayhash
@@ -262,11 +275,10 @@ github.com/openweft/weft-drivers
 github.com/openweft/weft-microvm
 github.com/openweft/weft-microvm/cpio
 github.com/openweft/weft-microvm/initbuild
-github.com/openweft/weft-microvm/oci
 # github.com/openweft/weft-microvm-init v0.0.0 => ../weft-microvm-init
 ## explicit; go 1.25.0
 github.com/openweft/weft-microvm-init/pkg/pod
-# github.com/openweft/weft-proto v0.0.0 => ../weft-proto
+# github.com/openweft/weft-proto v0.2.0 => ../weft-proto
 ## explicit; go 1.25.0
 github.com/openweft/weft-proto
 github.com/openweft/weft-proto/introspectv1
@@ -304,6 +316,13 @@ github.com/spf13/pflag
 # github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802
 ## explicit
 github.com/tmc/grpc-websocket-proxy/wsproxy
+# github.com/vishvananda/netlink v1.3.1
+## explicit; go 1.12
+github.com/vishvananda/netlink
+github.com/vishvananda/netlink/nl
+# github.com/vishvananda/netns v0.0.5
+## explicit; go 1.17
+github.com/vishvananda/netns
 # github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2
 ## explicit
 github.com/xiang90/probing
@@ -606,6 +625,20 @@ golang.zx2c4.com/wireguard/rwcancel
 golang.zx2c4.com/wireguard/tai64n
 golang.zx2c4.com/wireguard/tun
 golang.zx2c4.com/wireguard/tun/netstack
+# golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
+## explicit; go 1.20
+golang.zx2c4.com/wireguard/wgctrl
+golang.zx2c4.com/wireguard/wgctrl/internal/wgfreebsd
+golang.zx2c4.com/wireguard/wgctrl/internal/wgfreebsd/internal/nv
+golang.zx2c4.com/wireguard/wgctrl/internal/wgfreebsd/internal/wgh
+golang.zx2c4.com/wireguard/wgctrl/internal/wginternal
+golang.zx2c4.com/wireguard/wgctrl/internal/wglinux
+golang.zx2c4.com/wireguard/wgctrl/internal/wgopenbsd
+golang.zx2c4.com/wireguard/wgctrl/internal/wgopenbsd/internal/wgh
+golang.zx2c4.com/wireguard/wgctrl/internal/wguser
+golang.zx2c4.com/wireguard/wgctrl/internal/wgwindows
+golang.zx2c4.com/wireguard/wgctrl/internal/wgwindows/internal/ioctl
+golang.zx2c4.com/wireguard/wgctrl/wgtypes
 # google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171
 ## explicit; go 1.25.0
 google.golang.org/genproto/googleapis/api
