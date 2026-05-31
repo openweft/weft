@@ -1,0 +1,23 @@
+[Unit]
+Description=weft agent
+Documentation=https://github.com/openweft/weft
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=weft
+Group=weft
+ExecStart=/usr/local/bin/weft agent
+Restart=on-failure
+RestartSec=2s
+# CAP_NET_ADMIN: required by the kernel WireGuard backend the agent
+# programs for the overlay mesh (wg-quick / netlink rtnl).
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
