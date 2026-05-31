@@ -182,3 +182,49 @@ func TestUnregisterHostHandle_ClearsBothTables(t *testing.T) {
 		t.Error("driverDispatchSet entry should be cleared too")
 	}
 }
+
+// TestVMArchRoutesToCorrectDriver — bridges VM.Architecture →
+// HostHandleOnArch end-to-end. Two VMs on the same Apple Silicon
+// host, one arm64 + one amd64 ; verifies dispatch resolves each
+// to the right driver kind.
+//
+// Uses HostHandleOnArch directly (not hypervisorForVM) because the
+// latter walks findVMByName which scans the on-disk vmDir layout —
+// out of scope for this unit test. The chain after VM lookup is
+// identical : pull arch off the record, ask HostHandleOnArch.
+func TestVMArchRoutesToCorrectDriver(t *testing.T) {
+	a := adapterForDispatchTests(t)
+	const hostUUID = "mac-1"
+	a.hostReg.byUUID[hostUUID] = Host{
+		UUID: hostUUID, State: HostStateActive,
+		Drivers: []HostDriver{
+			{Kind: "vz", Arches: []string{"arm64"}},
+			{Kind: "qemu", Arches: []string{"amd64"}},
+		},
+	}
+	if err := a.RegisterHostHandleSet(hostUUID, map[string]*HostHandle{
+		"vz":   newFakeHandle("vz"),
+		"qemu": newFakeHandle("qemu"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	vms := []VM{
+		{UUID: "v1", Name: "arm-app", HostUUID: hostUUID, Architecture: "arm64"},
+		{UUID: "v2", Name: "amd-app", HostUUID: hostUUID, Architecture: "amd64"},
+	}
+	want := map[string]string{"v1": "vz", "v2": "qemu"}
+	for _, v := range vms {
+		t.Run(v.Name, func(t *testing.T) {
+			h, err := a.HostHandleOnArch(v.HostUUID, v.Architecture)
+			if err != nil {
+				t.Fatalf("HostHandleOnArch : %v", err)
+			}
+			hf, _ := h.Hypervisor.(fakeHypAdapter)
+			if hf.id != want[v.UUID] {
+				t.Errorf("VM %s (arch=%s) → driver %q ; want %q",
+					v.UUID, v.Architecture, hf.id, want[v.UUID])
+			}
+		})
+	}
+}
