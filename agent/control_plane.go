@@ -30,7 +30,10 @@ package agent
 // implement this interface and the agent's call sites won't
 // change.
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // ControlPlane is the weft-control surface area the agent
 // touches. Implementations must be safe for concurrent use —
@@ -43,12 +46,27 @@ type ControlPlane interface {
 	// reg.UUID — the CP only differs on first-time registration
 	// where reg.UUID was empty.
 	RegisterHost(ctx context.Context, reg HostRegistration) (assignedUUID string, err error)
-	// AttachDrivers installs the agent's driver handles in the
+	// AttachDrivers installs the agent's single driver handle in the
 	// CP's dispatch table under hostUUID. Replaces any previous
-	// entry for that UUID (matches the agent-reconnect flow).
+	// entry for that UUID (matches the agent-reconnect flow). Used
+	// by single-plugin agents (legacy build-tag default path).
 	AttachDrivers(ctx context.Context, hostUUID string, handles DriverHandles) error
+	// AttachDriverSet installs a per-kind dispatch set for hostUUID.
+	// Used by multi-plugin agents (Options.Drivers non-empty). The
+	// CP routes RPCs to the right kind via the host registry's
+	// Drivers capability list to map arch → kind. Implementations
+	// that don't support multi-plugin may return ErrAttachSetUnsupported ;
+	// the agent then falls back to the legacy AttachDrivers path
+	// with the primary kind.
+	AttachDriverSet(ctx context.Context, hostUUID string, set map[string]DriverHandles) error
 	// Heartbeat bumps the host's last-seen timestamp. The CP
 	// MAY also flip the host state from Down → Active when the
 	// heartbeat arrives.
 	Heartbeat(ctx context.Context, hostUUID string) error
 }
+
+// ErrAttachSetUnsupported is returned by ControlPlane.AttachDriverSet
+// when the implementation only supports the legacy single-handle
+// AttachDrivers path. Multi-plugin agents fall back to AttachDrivers
+// when they see this.
+var ErrAttachSetUnsupported = errors.New("control plane does not support AttachDriverSet (multi-plugin)")

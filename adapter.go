@@ -275,7 +275,15 @@ type Adapter struct {
 	// RegisterHostHandle when weft-agent comes online. See
 	// dispatch.go and [[weft-driver-registry-split]].
 	driverDispatch   map[string]*HostHandle
-	driverDispatchMu sync.RWMutex
+	// driverDispatchSet maps host UUID → driver kind → HostHandle for
+	// hosts running multi-plugin mode (Apple Silicon VZ + QEMU on the
+	// same machine for cross-arch builds). Single-plugin hosts only
+	// populate driverDispatch above ; multi-plugin hosts populate
+	// BOTH (driverDispatch carries the primary kind so call sites that
+	// don't know the VM's arch keep working). HostHandleOnArch is the
+	// arch-aware lookup that consults this map first.
+	driverDispatchSet map[string]map[string]*HostHandle
+	driverDispatchMu  sync.RWMutex
 	// driverPlugins holds the go-plugin client closers for locally-launched
 	// driver plugins (one per local hypervisor backend). ClosePlugins kills
 	// them; they are also Managed, so weftplugin.Cleanup() reaps any leak at

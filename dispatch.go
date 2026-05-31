@@ -59,18 +59,74 @@ func (a *Adapter) RegisterHostHandle(hostUUID string, handle *HostHandle) error 
 	return nil
 }
 
+// RegisterHostHandleSet installs the multi-driver dispatch for a
+// host. Used by weft-agents in multi-plugin mode (Apple Silicon
+// running both weft-driver-vz + weft-driver-qemu side-by-side) —
+// each kind ("vz" / "qemu") points at its own HostHandle.
+//
+// Single-driver hosts keep using RegisterHostHandle ; the per-kind
+// table is consulted FIRST on lookups, and falls back to the
+// single-entry table when no set is registered. The "primary" kind
+// (vz before qemu in deterministic order) is also written into the
+// single-entry table so call sites that don't know the VM's arch
+// keep working transitionally.
+func (a *Adapter) RegisterHostHandleSet(hostUUID string, set map[string]*HostHandle) error {
+	if hostUUID == "" {
+		return fmt.Errorf("RegisterHostHandleSet: empty hostUUID")
+	}
+	if len(set) == 0 {
+		return fmt.Errorf("RegisterHostHandleSet: empty set")
+	}
+	for kind, h := range set {
+		if h == nil {
+			return fmt.Errorf("RegisterHostHandleSet: nil handle for kind %q", kind)
+		}
+	}
+	a.driverDispatchMu.Lock()
+	defer a.driverDispatchMu.Unlock()
+	if a.driverDispatchSet == nil {
+		a.driverDispatchSet = make(map[string]map[string]*HostHandle)
+	}
+	// Defensive copy — caller may mutate their slice / map after the call.
+	stored := make(map[string]*HostHandle, len(set))
+	for k, v := range set {
+		stored[k] = v
+	}
+	a.driverDispatchSet[hostUUID] = stored
+	// Mirror the PRIMARY (vz > qemu) into the single-entry table so
+	// HostHandleOn (which doesn't know about arch) keeps returning a
+	// usable handle until every call site has migrated to
+	// HostHandleOnArch.
+	if a.driverDispatch == nil {
+		a.driverDispatch = make(map[string]*HostHandle)
+	}
+	for _, kind := range []string{"vz", "qemu"} {
+		if h, ok := stored[kind]; ok {
+			a.driverDispatch[hostUUID] = h
+			break
+		}
+	}
+	return nil
+}
+
 // UnregisterHostHandle removes the dispatch entry. Used by
 // weft-agent disconnect handling + by tests for symmetry with
-// RegisterHostHandle.
+// RegisterHostHandle. Clears BOTH the single-entry table and the
+// per-kind set (the host is offline whichever mode it ran in).
 func (a *Adapter) UnregisterHostHandle(hostUUID string) {
 	a.driverDispatchMu.Lock()
 	defer a.driverDispatchMu.Unlock()
 	delete(a.driverDispatch, hostUUID)
+	delete(a.driverDispatchSet, hostUUID)
 }
 
 // HostHandleOn returns the dispatch entry for hostUUID. Error
 // when the host has no registered handle (either it was never
 // registered, or the remote agent disconnected).
+//
+// In multi-plugin mode this returns the PRIMARY entry (the kind
+// chosen by deterministic ordering on RegisterHostHandleSet, today
+// vz before qemu). For an arch-aware lookup use HostHandleOnArch.
 func (a *Adapter) HostHandleOn(hostUUID string) (*HostHandle, error) {
 	a.driverDispatchMu.RLock()
 	defer a.driverDispatchMu.RUnlock()
@@ -79,6 +135,52 @@ func (a *Adapter) HostHandleOn(hostUUID string) (*HostHandle, error) {
 		return nil, fmt.Errorf("host %q has no driver handle registered", hostUUID)
 	}
 	return h, nil
+}
+
+// HostHandleOnArch returns the dispatch entry for hostUUID with the
+// driver kind that covers the given guest arch. Used by VM-lifecycle
+// paths that route a workload to the right driver on a multi-plugin
+// host (Apple Silicon : arm64 → vz, amd64 → qemu).
+//
+// Resolution order :
+//  1. If the host has a multi-plugin set registered, consult the
+//     host registry's Drivers capability list to find which kind
+//     covers `arch`. Return that kind's entry.
+//  2. If no multi-plugin set, fall back to HostHandleOn (which
+//     returns the host's single driver). Single-plugin hosts that
+//     happen to support `arch` work transitionally.
+//  3. Missing arch coverage on a multi-plugin host returns an error
+//     ("host has no driver covering arch X") — the scheduler should
+//     have caught this before dispatch, so reaching it here is a bug.
+//
+// Empty `arch` falls back to HostHandleOn — the caller doesn't have
+// an arch constraint, return whatever the primary is.
+func (a *Adapter) HostHandleOnArch(hostUUID, arch string) (*HostHandle, error) {
+	a.driverDispatchMu.RLock()
+	set, hasSet := a.driverDispatchSet[hostUUID]
+	a.driverDispatchMu.RUnlock()
+	if !hasSet || arch == "" {
+		return a.HostHandleOn(hostUUID)
+	}
+	if a.hostReg == nil {
+		// Without a host registry we can't map arch → kind ; fall
+		// back to the primary single-driver entry rather than failing.
+		return a.HostHandleOn(hostUUID)
+	}
+	host, ok := a.hostReg.lookupByUUID(hostUUID)
+	if !ok {
+		return a.HostHandleOn(hostUUID)
+	}
+	for _, d := range host.Drivers {
+		for _, a := range d.Arches {
+			if a == arch {
+				if h, ok := set[d.Kind]; ok {
+					return h, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("host %q has no driver covering arch %q", hostUUID, arch)
 }
 
 // HypervisorOn returns the HypervisorDriver for hostUUID. Most
