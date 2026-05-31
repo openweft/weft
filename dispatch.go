@@ -283,7 +283,16 @@ func (a *Adapter) hypervisorForVM(name string) (drivers.HypervisorDriver, error)
 	if a.vmReg != nil {
 		if project, _, ok := a.findVMByName(name); ok {
 			if vm, ok := a.vmReg.lookupByName(project, name); ok && vm.HostUUID != "" {
-				return a.HypervisorOn(vm.HostUUID)
+				// VM.Architecture, when set, drives the per-kind
+				// dispatch on multi-plugin hosts (Apple Silicon dual
+				// VZ + QEMU). When empty, HostHandleOnArch falls
+				// back to the primary handle — same behaviour as
+				// before this commit for legacy single-driver VMs.
+				handle, err := a.HostHandleOnArch(vm.HostUUID, vm.Architecture)
+				if err != nil {
+					return nil, err
+				}
+				return handle.Hypervisor, nil
 			}
 		}
 	}

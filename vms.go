@@ -85,6 +85,12 @@ type VM struct {
 	Image       string    `json:"image,omitempty"`
 	CPUCount    int       `json:"cpu_count,omitempty"`
 	MemoryMiB   int       `json:"memory_mib,omitempty"`
+	// Architecture is the guest's required CPU arch. Drives dispatch
+	// on multi-driver hosts (Apple Silicon running VZ + QEMU
+	// side-by-side : arm64 → vz, amd64 → qemu) via
+	// Adapter.HostHandleOnArch. Empty = legacy behaviour, picks the
+	// host's primary driver (matches single-driver clusters).
+	Architecture string    `json:"architecture,omitempty"`
 	State       VMState   `json:"state"`
 	CreatedAt   time.Time `json:"created_at"`
 	LastStartAt time.Time `json:"last_start_at,omitempty"`
@@ -96,16 +102,17 @@ type vmsDoc struct {
 }
 
 type vmBlock struct {
-	UUID        string `hcl:",label"`
-	ProjectUUID string `hcl:"project_uuid"`
-	Name        string `hcl:"name"`
-	HostUUID    string `hcl:"host_uuid"`
-	Image       string `hcl:"image,optional"`
-	CPUCount    int    `hcl:"cpu_count,optional"`
-	MemoryMiB   int    `hcl:"memory_mib,optional"`
-	State       string `hcl:"state,optional"`
-	CreatedAt   string `hcl:"created_at"`
-	LastStartAt string `hcl:"last_start_at,optional"`
+	UUID         string `hcl:",label"`
+	ProjectUUID  string `hcl:"project_uuid"`
+	Name         string `hcl:"name"`
+	HostUUID     string `hcl:"host_uuid"`
+	Image        string `hcl:"image,optional"`
+	CPUCount     int    `hcl:"cpu_count,optional"`
+	MemoryMiB    int    `hcl:"memory_mib,optional"`
+	Architecture string `hcl:"architecture,optional"`
+	State        string `hcl:"state,optional"`
+	CreatedAt    string `hcl:"created_at"`
+	LastStartAt  string `hcl:"last_start_at,optional"`
 }
 
 // vmRegistry mirrors the multi-tenant registries (networks,
@@ -155,16 +162,17 @@ func loadVMRegistry(ctx context.Context, storage Storage) (*vmRegistry, error) {
 			state = VMStateCreated
 		}
 		v := VM{
-			UUID:        b.UUID,
-			ProjectUUID: b.ProjectUUID,
-			Name:        b.Name,
-			HostUUID:    b.HostUUID,
-			Image:       b.Image,
-			CPUCount:    b.CPUCount,
-			MemoryMiB:   b.MemoryMiB,
-			State:       state,
-			CreatedAt:   created,
-			LastStartAt: lastStart,
+			UUID:         b.UUID,
+			ProjectUUID:  b.ProjectUUID,
+			Name:         b.Name,
+			HostUUID:     b.HostUUID,
+			Image:        b.Image,
+			CPUCount:     b.CPUCount,
+			MemoryMiB:    b.MemoryMiB,
+			Architecture: b.Architecture,
+			State:        state,
+			CreatedAt:    created,
+			LastStartAt:  lastStart,
 		}
 		reg.indexLocked(v)
 	}
@@ -242,6 +250,9 @@ func (r *vmRegistry) saveLocked() error {
 		}
 		if v.MemoryMiB > 0 {
 			bb.SetAttributeValue("memory_mib", cty.NumberIntVal(int64(v.MemoryMiB)))
+		}
+		if v.Architecture != "" {
+			bb.SetAttributeValue("architecture", cty.StringVal(v.Architecture))
 		}
 		if v.State != "" {
 			bb.SetAttributeValue("state", cty.StringVal(string(v.State)))
@@ -353,6 +364,12 @@ type CreateVMSpec struct {
 	Image       string
 	CPUCount    int
 	MemoryMiB   int
+	// Architecture is the guest CPU arch ("arm64" | "amd64" |
+	// "riscv64" | "loongarch64"). Empty = inherit the host's
+	// native arch (back-compat with single-driver clusters where
+	// every VM ran the host's arch). Drives dispatch via
+	// Adapter.HostHandleOnArch on multi-driver hosts.
+	Architecture string
 }
 
 // create registers a new VM. Refuses name collisions within the
@@ -375,15 +392,16 @@ func (r *vmRegistry) create(spec CreateVMSpec) (VM, error) {
 		return VM{}, fmt.Errorf("vm name %q already in use in project %s", spec.Name, spec.ProjectUUID)
 	}
 	v := VM{
-		UUID:        newUUID(),
-		ProjectUUID: spec.ProjectUUID,
-		Name:        spec.Name,
-		HostUUID:    spec.HostUUID,
-		Image:       spec.Image,
-		CPUCount:    spec.CPUCount,
-		MemoryMiB:   spec.MemoryMiB,
-		State:       VMStateCreated,
-		CreatedAt:   time.Now().UTC(),
+		UUID:         newUUID(),
+		ProjectUUID:  spec.ProjectUUID,
+		Name:         spec.Name,
+		HostUUID:     spec.HostUUID,
+		Image:        spec.Image,
+		CPUCount:     spec.CPUCount,
+		MemoryMiB:    spec.MemoryMiB,
+		Architecture: spec.Architecture,
+		State:        VMStateCreated,
+		CreatedAt:    time.Now().UTC(),
 	}
 	r.indexLocked(v)
 	if err := r.saveLocked(); err != nil {
