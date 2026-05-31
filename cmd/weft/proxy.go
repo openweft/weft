@@ -3,18 +3,22 @@
 // streams Route updates from etcd (via agent/proxy.Watcher), and applies
 // them to Caddy through its admin API.
 //
-// Not yet called from the all-in-one boot path. Operators who want the
-// proxy plane today wire it explicitly:
+// Wired into the all-in-one boot path (cmd/weft/main.go `run()`) behind
+// the `--proxy` flag — off by default so operators that don't need L7
+// ingress keep the single-process daemon. Tunables flow through three
+// companion flags : `--proxy-state-dir`, `--proxy-caddy-binary`,
+// `--proxy-key-prefix`. See docs/operations/proxy.md for the full
+// operator-facing rundown.
 //
-//	cli, _ := clientv3.New(...)
-//	closer, err := bootProxy(ctx, hostUUID, cli, proxyOpts{StateDir: "/var/lib/weft-agent/proxy"})
-//	if err != nil { ... }
-//	defer closer()
+// Quick usage :
 //
-// The intended wire point is after agent.Start in cmd/weft/run.go (all-
-// in-one mode) and cmd/weft/run_client.go (client mode where the etcd
-// client comes via the control-plane RPC, not a local connection — that
-// path will need an etcd-over-gRPC bridge, deferred to a follow-up).
+//	weft agent --proxy --proxy-caddy-binary=/usr/local/bin/weft-proxy
+//
+// Client mode (`weft agent --client --control-plane=URL`) does NOT wire
+// the proxy : the per-host runtime reaches etcd through the control-
+// plane gRPC bridge, not a local *clientv3.Client. An etcd-over-gRPC
+// shim is the cleanest fix and lands in a follow-up ; the flag is
+// logged-and-ignored under --client today.
 //
 // Keeping this in cmd/weft/ rather than agent/ on purpose: the agent
 // package stays etcd-agnostic (only ControlPlane is the seam), and the
@@ -27,10 +31,36 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os/signal"
+	"syscall"
 
 	"github.com/openweft/weft/agent/proxy"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
+
+// bootProxyFn is the indirection seam the agent boot path goes
+// through to start the proxy plane. Tests substitute it to assert
+// the flag/option translation without actually launching Caddy.
+// Default = the real bootProxy below.
+var bootProxyFn = bootProxy
+
+// signalContext returns a context cancelled on SIGINT / SIGTERM.
+// Kept here (rather than in main.go) because the proxy lifecycle
+// is the first caller that genuinely needs a cancellable top-level
+// ctx — pre-proxy run() did `select {}`.
+func signalContext() (context.Context, func()) {
+	return signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+}
+
+// displayOrDefault renders an operator-supplied string, falling
+// back to a placeholder for the empty case so the startup log line
+// stays readable.
+func displayOrDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
 
 // proxyOpts bundles the operator-tunable knobs that flow into the
 // proxy subsystem. Each field has a sane default so an empty proxyOpts

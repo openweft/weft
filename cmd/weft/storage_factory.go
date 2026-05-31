@@ -40,9 +40,19 @@ import (
 // storageFactory bundles the per-registry constructor + a tear-down
 // hook. Close() is called at weft shutdown to release any shared
 // connection (etcd) the factory keeps alive.
+//
+// etcdClient, when non-nil, is the shared *clientv3.Client backing
+// the etcd / embed-etcd backend. It is exposed (read-only — never
+// closed by the caller) so other subsystems that need to talk to
+// the same etcd as the registries can piggyback on the connection
+// without re-dialling. The proxy plane (bootProxy in proxy.go) is
+// the first consumer ; future ones (e.g. dynamic-config watchers
+// living outside the storage stack) can do the same. nil for the
+// "file" backend — bootProxy treats that as "supervisor-only".
 type storageFactory struct {
-	new   func(name string) weft.Storage
-	close func() error
+	new        func(name string) weft.Storage
+	close      func() error
+	etcdClient *clientv3.Client
 }
 
 // buildStorageFactory builds the closure based on the resolved
@@ -113,6 +123,7 @@ func newEtcdStorageFactory(endpoints []string, username, password, prefix string
 			}
 			return err
 		},
+		etcdClient: cli,
 	}, nil
 }
 
