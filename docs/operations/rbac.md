@@ -136,11 +136,6 @@ which is project-scoped via the future `weft_route` resource.
   other VMs in the same project"). Not on the roadmap — too fine-grained
   for the operator audience we serve.
 
-- **Audit log** of RBAC decisions. Today every check is silent ; failed
-  checks emit a `permission denied` error but nothing logs the
-  caller/verb/object/decision tuple for post-hoc review. Audit log =
-  follow-up, blocks SOC 2 etc.
-
 - **Tenant-scoped roles**. The `weft_tenant` resource exists ; group
   naming `weft:tenant:<uuid>` is reserved ; but handler-side enforcement
   isn't wired. Lands together with the `:viewer` extension above.
@@ -167,6 +162,51 @@ which is project-scoped via the future `weft_route` resource.
 4. Add a test that asserts the check trips for a caller missing the
    group. Pattern in `acl_test.go` — set up two callers, run the
    handler with each, expect `codes.PermissionDenied` from the second.
+
+## Audit log
+
+Every Allow/Deny decision through `RequireAdmin`, `AuthorizeProject`,
+and `VisibleProjects` ships a record to a configurable LDJSON sink when
+the operator enables one. One line of JSON per decision, append-only ;
+rotation is the operator's job (logrotate / journald / fluentbit).
+
+Enable on the agent :
+
+```hcl
+# /etc/weft/weft.hcl
+audit_log {
+  path = "/var/log/weft/audit.jsonl"
+}
+```
+
+Or via CLI : `weft agent --audit-log` (default path) or
+`weft agent --audit-log=/some/other/path`.
+
+Precedence is the usual CLI > env > HCL chain (matches the `proxy`
+block — only HCL attributes that are explicitly set overlay the flag
+defaults). Empty path disables.
+
+Record shape (one JSON object per line) :
+
+| Field | Example | Notes |
+|---|---|---|
+| `timestamp` | `2026-05-31T18:42:11.034Z` | UTC, auto-filled when omitted. |
+| `subject`   | `ldap:alice`              | OIDC sub claim ; empty for unauthenticated. |
+| `issuer`    | `https://dex.example`     | OIDC issuer ; empty in dev mode. |
+| `verb`      | `AuthorizeProject`        | Or `RequireAdmin:<op>`, `VisibleProjects`. |
+| `object`    | `project`                 | `project` / `cluster`. |
+| `scope`     | `<project-uuid>`          | Resolved scope ; `"cluster"` for admin ops, empty for pre-resolution failures. |
+| `decision`  | `allow` / `deny`          | Outcome. |
+| `reason`    | `platform-admin`          | Free-form ; carries the gRPC error message on deny. |
+
+The sink is nil-safe : a dropped audit line is logged at the writer
+but does NOT cause the RPC to fail. An operator that fills the disk
+with audit lines degrades into "no audit" rather than "no service".
+
+Implementation : [`auditlog/auditlog.go`](../../auditlog/auditlog.go).
+Wiring : the three primitives in [`acl.go`](../../acl.go) consult a
+process-wide `auditSink` (set by `weft.SetAuditLogger` from
+`cmd/weft/main.go`).
 
 ## Smoke test
 
