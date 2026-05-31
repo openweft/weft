@@ -79,6 +79,14 @@ func (s *weftServer) CreateVolume(ctx context.Context, req *weftv1.CreateVolumeR
 	if err != nil {
 		return nil, err
 	}
+	// Per-project volume_gib cap. Zero cap = unlimited (the
+	// quota helper short-circuits). ResourceExhausted on breach
+	// — clients translate to "quota exceeded" without needing
+	// handler-specific awareness. See
+	// docs/operations/tenant-quotas.md.
+	if err := s.adp.EnforceTenantQuotaForVolume(projUUID, int(req.SizeGib)); err != nil {
+		return nil, err
+	}
 	format := weft.VolumeFormat(req.Format)
 	if format == "" {
 		format = weft.VolumeFormatRaw
