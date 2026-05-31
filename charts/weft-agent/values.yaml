@@ -1,0 +1,121 @@
+# Default values for weft-agent.
+#
+# weft-agent supervises the hypervisor on each host. The chart targets
+# two deployment models:
+#
+#   1. Host-network DaemonSet/Deployment on bare-metal hyperviser hosts
+#      (hostNetwork: true, the default). The pod shares the host's
+#      network namespace so WireGuard / NETLINK_ROUTE programming reach
+#      the host kernel — same model as the systemd unit in
+#      examples/cloud-init/debian-host.yaml.
+#
+#   2. Control-plane-only mode (hostNetwork: false). The agent runs as
+#      a regular pod that exposes only its gRPC + metrics endpoints;
+#      hypervisor supervision is delegated to per-host agents. See
+#      README.md for the trade-offs.
+
+image:
+  repository: ghcr.io/openweft/weft
+  # tag defaults to .Chart.appVersion when empty, so `helm upgrade` to a
+  # newer chart automatically rolls the image. Override per environment.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+# OIDC issuer for the agent's gRPC auth layer (cmd/weft/auth.go).
+# Empty issuer leaves the agent in dev mode (no token validation).
+oidc:
+  issuer: ""
+  clientID: "weft"
+
+# Backing store for cluster state (projects, users, networks, volumes,
+# scheduling rules). Per project_openweft_etcd_embedded, weft-agent
+# embeds etcd in dev mode but speaks to an external cluster in HA.
+etcd:
+  endpoints: []
+  # Example:
+  # endpoints:
+  #   - http://etcd-0.etcd:2379
+  #   - http://etcd-1.etcd:2379
+  #   - http://etcd-2.etcd:2379
+
+# Reverse proxy plane (Caddy embedded, per project_reverse_proxy_caddy).
+# Disabled by default since the in-cluster ingress is the more common
+# choice when running weft-agent on Kubernetes itself.
+proxy:
+  enabled: false
+
+# /metrics endpoint and optional Prometheus Operator integration.
+metrics:
+  # Bind address inside the pod. Empty disables the listener entirely.
+  listen: ":9101"
+  serviceMonitor:
+    enabled: false
+    # Scrape interval / labels are left to the cluster Prometheus
+    # config; override here only if your operator setup requires it.
+    interval: 30s
+    labels: {}
+
+# Persistent state volume (mounted at /var/lib/weft/). Holds the
+# embedded etcd data dir (dev mode), the proxy state dir, and the
+# imagestore cache.
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+
+# Empty by default — operator labels hypervisor hosts and adds a
+# selector here so the agent lands on the right nodes.
+nodeSelector: {}
+
+# Tolerations let the agent run on hypervisor-tainted nodes (the
+# typical pattern: `openweft.io/hyperviser=true:NoSchedule`).
+tolerations: []
+
+affinity: {}
+
+# hostNetwork: true is the default — weft-agent programs WireGuard
+# tunnels and bridges on the host kernel directly. Flip to false only
+# for control-plane-only deployments (see README.md).
+hostNetwork: true
+
+# DNS policy follows hostNetwork: when sharing the host netns, the
+# kube-dns ClusterFirstWithHostNet policy keeps in-cluster DNS working.
+dnsPolicy: ClusterFirstWithHostNet
+
+# Ports exposed by the agent. The gRPC port matches the default
+# embedded socket fallback; metrics mirror metrics.listen above.
+service:
+  type: ClusterIP
+  grpcPort: 7080
+  metricsPort: 9101
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+# Extra env vars injected into the container. Useful for WEFT_AZ /
+# WEFT_RACK labels (cmd/weft/run_client.go).
+extraEnv: []
+# extraEnv:
+#   - name: WEFT_AZ
+#     value: eu-west-1a
+#   - name: WEFT_RACK
+#     value: rack-07

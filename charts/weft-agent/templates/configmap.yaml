@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "weft-agent.fullname" . }}-config
+  labels:
+    {{- include "weft-agent.labels" . | nindent 4 }}
+data:
+  weft.hcl: |
+    # Rendered by the weft-agent Helm chart — same shape as the
+    # /etc/weft/weft.hcl that examples/cloud-init/debian-host.yaml
+    # writes on bare-metal hyperviser hosts.
+
+    {{- if .Values.oidc.issuer }}
+    oidc {
+      issuer    = {{ .Values.oidc.issuer | quote }}
+      client_id = {{ .Values.oidc.clientID | quote }}
+    }
+    {{- end }}
+
+    {{- if .Values.etcd.endpoints }}
+    storage {
+      backend = "etcd"
+      etcd {
+        endpoints = [
+          {{- range $i, $ep := .Values.etcd.endpoints }}
+          {{ $ep | quote }},
+          {{- end }}
+        ]
+      }
+    }
+    {{- else }}
+    storage {
+      backend = "file"
+    }
+    {{- end }}
+
+    {{- if .Values.proxy.enabled }}
+    proxy {
+      enabled      = true
+      caddy_binary = "/usr/local/bin/weft-proxy"
+      state_dir    = "/var/lib/weft/proxy"
+      {{- if .Values.etcd.endpoints }}
+
+      storage {
+        endpoints = [
+          {{- range $i, $ep := .Values.etcd.endpoints }}
+          {{ $ep | quote }},
+          {{- end }}
+        ]
+      }
+      {{- end }}
+    }
+    {{- end }}
+
+    {{- if .Values.metrics.listen }}
+    metrics_listen = {{ .Values.metrics.listen | quote }}
+    {{- end }}

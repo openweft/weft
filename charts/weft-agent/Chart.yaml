@@ -1,0 +1,20 @@
+apiVersion: v2
+name: weft-agent
+description: |
+  weft-agent — the hypervisor-host control daemon for openweft clusters.
+  Deploys the multi-arch OCI image published by the release workflow
+  (ghcr.io/openweft/weft:<tag>, signed via cosign keyless).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/openweft/weft
+sources:
+  - https://github.com/openweft/weft
+maintainers:
+  - name: openweft
+    url: https://github.com/openweft
+keywords:
+  - weft
+  - microvm
+  - hypervisor
+  - openweft
