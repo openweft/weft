@@ -425,11 +425,61 @@ func TestAdapter_RegisterMicroVM_ErrorPaths(t *testing.T) {
 	_ = installFakeLocalHypervisor(t, a)
 	p, _, _ := a.CreateProject("p")
 
-	// Existing VM dir → reject.
+	// Existing VM dir → idempotent skip (post commit e7b9b4c9e).
+	// The second call must return nil and must NOT clobber the
+	// pre-existing directory layout (no duplicate row in ListLocal).
 	dir := a.vmDirIn(p.UUID, "exists")
-	_ = os.MkdirAll(dir, 0o700)
-	if err := a.RegisterMicroVM(p.UUID, "exists", MicroVMBoot{BootISO: "/x"}, nil); err == nil {
-		t.Errorf("existing dir should error")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("seed existing dir: %v", err)
+	}
+	// Plant a sentinel inside the existing dir so we can prove it
+	// was left untouched.
+	sentinel := filepath.Join(dir, "do-not-clobber")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("seed sentinel: %v", err)
+	}
+	if err := a.RegisterMicroVM(p.UUID, "exists", MicroVMBoot{BootISO: "/x"}, nil); err != nil {
+		t.Errorf("existing dir should be idempotent (got %v)", err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("idempotent skip clobbered the existing dir: %v", err)
+	}
+	// And no duplicate row in ListLocal — the registry is keyed by
+	// (project, name) on disk, so a second registration with the
+	// same key must not create a second entry.
+	locals, err := a.ListLocal()
+	if err != nil {
+		t.Fatalf("ListLocal: %v", err)
+	}
+	// ListLocal keys are "<projectUUID>/<name>". One row, not two —
+	// re-registration is a no-op on the registry.
+	key := p.UUID + "/exists"
+	if _, ok := locals[key]; !ok {
+		t.Errorf("ListLocal lost the seeded VM (key %q): %v", key, locals)
+	}
+	count := 0
+	for n := range locals {
+		if strings.HasSuffix(n, "/exists") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("duplicate row in ListLocal: %d entries ending in /exists", count)
+	}
+
+	// NEW negative case: replaces the old "existing dir → error" slot
+	// so coverage doesn't regress. Share with a non-empty Tag but
+	// missing Path — covers the *other* half of the (Tag||Path)==""
+	// guard that the existing `{Tag: ""}` case doesn't hit.
+	srcOk := t.TempDir()
+	isoOk := filepath.Join(srcOk, "boot-ok.iso")
+	if err := os.WriteFile(isoOk, []byte("iso"), 0o600); err != nil {
+		t.Fatalf("seed iso: %v", err)
+	}
+	if err := a.RegisterMicroVM(p.UUID, "bad-share-path", MicroVMBoot{BootISO: isoOk}, []MicroVMShare{
+		{Tag: "data"}, // Path empty
+	}); err == nil {
+		t.Errorf("share with empty Path should error")
 	}
 
 	// Neither BootISO nor Kernel → reject.
