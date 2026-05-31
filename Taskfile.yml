@@ -48,3 +48,10 @@ tasks:
     desc: "Stress weft's etcd writes and report req/s + P99 latency"
     cmds:
       - ./scripts/perf/etcd-write-rate.sh
+
+  integration:3host:
+    desc: "Run the 3-host integration harness against the local Tart cluster. Override the IP prefix via WEFT_INTEGRATION_HOSTS_PREFIX (default 192.168.64). See tests/integration/3host/README.md."
+    env:
+      WEFT_INTEGRATION_HOSTS_PREFIX: '{{.WEFT_INTEGRATION_HOSTS_PREFIX | default "192.168.64"}}'
+    cmds:
+      - go test -tags integration -timeout 30m ./tests/integration/3host/...
