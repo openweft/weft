@@ -1,0 +1,166 @@
+name: release
+
+# Builds the weft CLI for the OS×arch matrix weft-agent ships on,
+# publishes the binaries as a GitHub Release, and pushes a multi-arch
+# OCI image to ghcr.io so `weft up` can pull it alongside drivers and
+# the kernel.
+#
+# Trigger policy: workflow_dispatch + tag `v*` only, never push:main
+# (per feedback_no_autopublish_dev). Memory project_driver_plugins
+# pins CGO_ENABLED=0 across the matrix — the macOS hyperviser is in
+# weft-driver-vz, not weft itself.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Override tag (default: refs/tags/<current>)"
+        required: false
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/weft
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          out="dist/${{ matrix.goos }}-${{ matrix.goarch }}/weft"
+          mkdir -p "$(dirname "$out")"
+          go build -trimpath -ldflags "-s -w -X main.version=${{ github.ref_name }}" -o "$out" ./cmd/weft
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weft-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/${{ matrix.goos }}-${{ matrix.goarch }}/weft
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: false
+
+      - name: stage release assets
+        # GitHub Release expects flat files. Repackage each per-OS/arch
+        # binary as a tar.gz alongside a SHA256SUMS file.
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          tag="${{ github.ref_name }}"
+          for d in dist/weft-*; do
+            name=$(basename "$d")
+            tar -C "$d" -czf "stage/${name}_${tag}.tar.gz" weft
+          done
+          ( cd stage && sha256sum *.tar.gz > SHA256SUMS )
+
+      - name: create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            stage/*.tar.gz
+            stage/SHA256SUMS
+          draft: true
+          generate_release_notes: true
+
+  image:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: weft-linux-${{ matrix.arch }}
+          path: image/
+
+      - name: chmod
+        run: chmod +x image/weft
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: write Dockerfile
+        run: |
+          cat > image/Dockerfile <<'EOF'
+          FROM gcr.io/distroless/static-debian12:nonroot
+          COPY weft /usr/local/bin/weft
+          ENTRYPOINT ["/usr/local/bin/weft"]
+          CMD ["agent"]
+          EOF
+
+      - name: build + push per-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: image
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.ref_name }}-${{ matrix.arch }}
+            ${{ env.IMAGE }}:latest-${{ matrix.arch }}
+
+  manifest:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: assemble multi-arch manifest
+        run: |
+          set -euo pipefail
+          for tag in "${{ github.ref_name }}" latest; do
+            docker buildx imagetools create \
+              --tag "${{ env.IMAGE }}:${tag}" \
+              "${{ env.IMAGE }}:${tag}-amd64" \
+              "${{ env.IMAGE }}:${tag}-arm64"
+          done
