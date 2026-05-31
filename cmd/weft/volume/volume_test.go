@@ -37,7 +37,7 @@ func TestCommand_Structure(t *testing.T) {
 	if cmd.Use != "volume" {
 		t.Errorf("Use = %q", cmd.Use)
 	}
-	want := []string{"ls", "create", "rename", "resize", "attach", "detach", "rm"}
+	want := []string{"ls", "create", "rename", "resize", "attach", "detach", "rm", "snapshot"}
 	got := map[string]bool{}
 	for _, c := range cmd.Commands() {
 		got[strings.SplitN(c.Use, " ", 2)[0]] = true
