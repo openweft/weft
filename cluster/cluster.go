@@ -26,6 +26,11 @@ type Cluster struct {
 	Infra   *Infra   `hcl:"infra,block"`
 	Drivers *Drivers `hcl:"drivers,block"`
 	Microvm *Microvm `hcl:"microvm,block"`
+	// AgentConfig is the cluster-wide weft.hcl content `weft up` pushes
+	// to each host's /etc/weft/weft.hcl. Per-host `agent_config { }`
+	// blocks (Host.AgentConfig) overlay this default on a per-field
+	// basis ; see AgentConfigFor.
+	AgentConfig *AgentConfigBlock `hcl:"agent_config,block"`
 }
 
 // Microvm groups cluster-wide microVM-runtime config — today just the OCI
@@ -110,6 +115,10 @@ type Host struct {
 	Hypervisor string       `hcl:"hypervisor,optional"` // legacy single-driver shortcut — "" | "vz" | "qemu" ; mutually exclusive with `driver` blocks
 	Drivers    []HostDriver `hcl:"driver,block"`        // multi-driver capability list — empty means "use hypervisor legacy field or OS default"
 	SSH        *SSH         `hcl:"ssh,block"`           // optional; used by the SSH-push access model
+	// AgentConfig is the per-host override of the cluster-level
+	// agent_config { } block. Each non-nil field replaces the cluster
+	// default ; absent fields fall through. See AgentConfigFor.
+	AgentConfig *AgentConfigBlock `hcl:"agent_config,block"`
 }
 
 // HostDriver declares one hypervisor-driver instance running on a host, with

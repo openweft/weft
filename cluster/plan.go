@@ -38,6 +38,11 @@ func (s State) replicaCount(service string) int {
 type ActionKind string
 
 const (
+	// PushAgentConfig: write /etc/weft/weft.hcl on a host with the rendered
+	// agent_config block from cluster.hcl (merged with any per-host
+	// override). Emitted BEFORE EnsureHost so the file is in place when
+	// weft-agent starts.
+	PushAgentConfig ActionKind = "push-agent-config"
 	// EnsureHost: bring a hypervisor host into the cluster (start/verify its
 	// weft agent, join it to the overlay).
 	EnsureHost ActionKind = "ensure-host"
@@ -64,17 +69,22 @@ const (
 // Action is one ordered convergence step.
 type Action struct {
 	Kind     ActionKind
-	Host     string // EnsureHost, PlaceReplica, EnsureImage
+	Host     string // EnsureHost, PlaceReplica, EnsureImage, PushAgentConfig
 	DC       string
 	Service  string // PlaceReplica, GrowQuorum
 	Replica  int    // PlaceReplica (1-indexed)
 	From, To int    // GrowQuorum
 	Hosts    []string // MeshSync (the full desired member set)
 	Image    string // EnsureImage (OCI ref, e.g. quay.io/coreos/etcd:v3.6.0)
+	// Config is the rendered weft.hcl content for PushAgentConfig — carried
+	// here so renderAction is pure (no second pass over Cluster needed).
+	Config string
 }
 
 func (a Action) String() string {
 	switch a.Kind {
+	case PushAgentConfig:
+		return fmt.Sprintf("push-cfg      %s (/etc/weft/weft.hcl, %d bytes)", a.Host, len(a.Config))
 	case EnsureHost:
 		return fmt.Sprintf("ensure-host   %s (dc=%s)", a.Host, a.DC)
 	case MeshSync:
@@ -162,13 +172,28 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 	}
 	p := &Plan{Cluster: c.Name, Topology: topology}
 
-	// 1. Bring up any host not yet in the cluster.
+	// 1. Bring up any host not yet in the cluster. For each, push the
+	//    rendered weft.hcl FIRST (so it's on disk when the agent reads
+	//    its config on startup), then EnsureHost. Hosts with no
+	//    agent_config at any level skip the push and keep whatever
+	//    skeleton cloud-init wrote.
 	var newHosts bool
-	for _, h := range c.Hosts {
-		if !cur.hostUp(h.ID) {
-			p.Actions = append(p.Actions, Action{Kind: EnsureHost, Host: h.ID, DC: h.DC})
-			newHosts = true
+	for i := range c.Hosts {
+		h := &c.Hosts[i]
+		if cur.hostUp(h.ID) {
+			continue
 		}
+		cfg := c.AgentConfigFor(h)
+		if !cfg.IsEmpty() {
+			p.Actions = append(p.Actions, Action{
+				Kind:   PushAgentConfig,
+				Host:   h.ID,
+				DC:     h.DC,
+				Config: cfg.RenderHCL(),
+			})
+		}
+		p.Actions = append(p.Actions, Action{Kind: EnsureHost, Host: h.ID, DC: h.DC})
+		newHosts = true
 	}
 
 	// 2. Re-sync the overlay whenever membership grew.

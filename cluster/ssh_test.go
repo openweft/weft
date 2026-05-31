@@ -192,6 +192,40 @@ func TestRenderAction_CrossHostTCPTransport(t *testing.T) {
 	}
 }
 
+// TestRenderAction_PushAgentConfigHeredoc: PushAgentConfig must produce a
+// `sudo install -d /etc/weft && sudo tee ... <<'__WEFT_HCL_EOF__'` heredoc
+// carrying the rendered HCL, with the marker terminating the body on its
+// own line. The marker shape is the contract — its uniqueness is what
+// guarantees the heredoc can't be closed by a stray line in the HCL.
+func TestRenderAction_PushAgentConfigHeredoc(t *testing.T) {
+	c := threeHostCluster()
+	payload := "socket = \"/var/run/weft/weft.sock\"\n"
+	host, cmd := renderAction(c, Action{
+		Kind:   PushAgentConfig,
+		Host:   c.Hosts[1].ID,
+		Config: payload,
+	})
+	if host != c.Hosts[1].ID {
+		t.Errorf("PushAgentConfig host = %q, want %q", host, c.Hosts[1].ID)
+	}
+	for _, frag := range []string{
+		"sudo install -d /etc/weft",
+		"sudo tee /etc/weft/weft.hcl",
+		"<<'__WEFT_HCL_EOF__'",
+		payload,
+	} {
+		if !strings.Contains(cmd, frag) {
+			t.Errorf("PushAgentConfig cmd missing %q:\n%s", frag, cmd)
+		}
+	}
+	// Marker must close the heredoc at the start of a line at the end —
+	// otherwise the shell never sees EOF and the rest of the action stream
+	// gets eaten as input.
+	if !strings.HasSuffix(cmd, "\n__WEFT_HCL_EOF__") {
+		t.Errorf("PushAgentConfig cmd doesn't end with newline+marker:\n%s", cmd)
+	}
+}
+
 func TestRenderAction_CrossHostAnchoredOnSeed(t *testing.T) {
 	c := threeHostCluster()
 	// mesh-sync and grow-quorum run on the seed and are notes (not exec'd).
