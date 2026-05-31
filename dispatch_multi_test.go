@@ -228,3 +228,74 @@ func TestVMArchRoutesToCorrectDriver(t *testing.T) {
 		})
 	}
 }
+
+// TestLookupKind_MultiPlugin pins the observability seam : on a host
+// with vz + qemu registered, an arm64 lookup returns "vz" and an amd64
+// lookup returns "qemu". Drives the `weft_rpc_total{driver_kind=…}`
+// label in cmd/weft so operators can alert per-kind.
+func TestLookupKind_MultiPlugin(t *testing.T) {
+	a := adapterForDispatchTests(t)
+	const hostUUID = "mac-1"
+	a.hostReg.byUUID[hostUUID] = Host{
+		UUID: hostUUID, State: HostStateActive,
+		Drivers: []HostDriver{
+			{Kind: "vz", Arches: []string{"arm64"}},
+			{Kind: "qemu", Arches: []string{"amd64"}},
+		},
+	}
+	if err := a.RegisterHostHandleSet(hostUUID, map[string]*HostHandle{
+		"vz":   newFakeHandle("vz"),
+		"qemu": newFakeHandle("qemu"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		arch string
+		want string
+	}{
+		{"arm64", "vz"},
+		{"amd64", "qemu"},
+		// Empty arch falls back to the primary (vz before qemu).
+		{"", "vz"},
+		// Unsupported arch on a multi-plugin host is empty (not an
+		// error — LookupKind is for labelling, no error surface).
+		{"loongarch64", ""},
+	}
+	for _, c := range cases {
+		t.Run("arch="+c.arch, func(t *testing.T) {
+			if got := a.LookupKind(hostUUID, c.arch); got != c.want {
+				t.Errorf("LookupKind(%q, %q) = %q ; want %q",
+					hostUUID, c.arch, got, c.want)
+			}
+		})
+	}
+}
+
+// TestLookupKind_SinglePlugin asserts single-plugin hosts surface the
+// host's legacy Hypervisor label ("apple-vz" / "qemu") so single-host
+// dev clusters still get a populated `driver_kind` series.
+func TestLookupKind_SinglePlugin(t *testing.T) {
+	a := adapterForDispatchTests(t)
+	a.hostReg.byUUID["linux-1"] = Host{
+		UUID: "linux-1", State: HostStateActive, Hypervisor: "qemu",
+	}
+	if err := a.RegisterHostHandle("linux-1", newFakeHandle("only")); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.LookupKind("linux-1", "amd64"); got != "qemu" {
+		t.Errorf("single-plugin LookupKind = %q ; want %q (Host.Hypervisor)", got, "qemu")
+	}
+}
+
+// TestLookupKind_UnknownHost — RPCs that don't route through any
+// registered host return "" so the metric records empty for non-
+// dispatched traffic (host registry / scheduling rules / projects).
+func TestLookupKind_UnknownHost(t *testing.T) {
+	a := adapterForDispatchTests(t)
+	if got := a.LookupKind("does-not-exist", "arm64"); got != "" {
+		t.Errorf("LookupKind on unknown host = %q ; want \"\"", got)
+	}
+	if got := a.LookupKind("", ""); got != "" {
+		t.Errorf("LookupKind on empty hostUUID = %q ; want \"\"", got)
+	}
+}

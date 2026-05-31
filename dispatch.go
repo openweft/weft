@@ -257,6 +257,101 @@ func (a *Adapter) localHypervisor() (drivers.HypervisorDriver, error) {
 	return a.HypervisorOn(uuid)
 }
 
+// LookupKind reports which driver kind the dispatch tables would pick
+// for (hostUUID, arch). Mirrors the resolution order of HostHandleOnArch
+// without performing the handle lookup — useful for observability seams
+// (e.g. tagging a Prometheus counter with `driver_kind="vz"` so per-driver
+// error rates can be alerted on independently).
+//
+// Return values :
+//
+//   - On a multi-plugin host (driverDispatchSet populated) — the kind
+//     covering `arch` per the host registry's Drivers capability list
+//     ("vz" / "qemu" / future siblings), or "" if no driver covers arch.
+//   - On a single-plugin host — the host's legacy Hypervisor label
+//     ("apple-vz" / "qemu" / etc.) when registered, otherwise "".
+//   - On an unknown host (or empty hostUUID) — "".
+//
+// The interceptor / metric layer treats "" as "this RPC did not route
+// through a driver" (host-registry / scheduling-rule / etc.) so a single
+// `driver_kind=""` time-series captures the non-routed traffic without
+// pretending it's part of any kind's rate.
+func (a *Adapter) LookupKind(hostUUID, arch string) string {
+	if hostUUID == "" {
+		return ""
+	}
+	a.driverDispatchMu.RLock()
+	set, hasSet := a.driverDispatchSet[hostUUID]
+	_, hasSingle := a.driverDispatch[hostUUID]
+	a.driverDispatchMu.RUnlock()
+	if hasSet {
+		// Multi-plugin host. When arch is empty fall back to the
+		// PRIMARY (vz before qemu in stable order) — same rule
+		// HostHandleOnArch uses, so the label matches the handle.
+		if arch == "" {
+			for _, k := range []string{"vz", "qemu"} {
+				if _, ok := set[k]; ok {
+					return k
+				}
+			}
+			// Defensive : non-canonical kinds (future siblings) — return any.
+			for k := range set {
+				return k
+			}
+			return ""
+		}
+		if a.hostReg != nil {
+			if host, ok := a.hostReg.lookupByUUID(hostUUID); ok {
+				for _, d := range host.Drivers {
+					for _, ha := range d.Arches {
+						if ha == arch {
+							if _, ok := set[d.Kind]; ok {
+								return d.Kind
+							}
+						}
+					}
+				}
+			}
+		}
+		return ""
+	}
+	if !hasSingle {
+		return ""
+	}
+	// Single-plugin host. Surface the host registry's `Hypervisor`
+	// label so operators see "apple-vz" / "qemu" — matches the legacy
+	// hypervisor-label semantics on the Host registration.
+	if a.hostReg != nil {
+		if host, ok := a.hostReg.lookupByUUID(hostUUID); ok {
+			return host.Hypervisor
+		}
+	}
+	// Host registry not wired (early-boot or test fixture) — non-empty
+	// label "single" so the metric tracks that the RPC routed through
+	// a driver, without inventing a name.
+	return ""
+}
+
+// LookupKindForVM is the convenience wrapper that resolves a VM by
+// display name + its arch off the inventory record, then asks
+// LookupKind. Empty when the VM isn't in the inventory (legacy on-disk
+// VM provisioned before vmRegistry landed) — caller treats that the
+// same as a non-driver-routed RPC.
+func (a *Adapter) LookupKindForVM(name string) string {
+	if a.vmReg == nil || name == "" {
+		return ""
+	}
+	project, _, ok := a.findVMByName(name)
+	if !ok {
+		return ""
+	}
+	vm, ok := a.vmReg.lookupByName(project, name)
+	if !ok || vm.HostUUID == "" {
+		return ""
+	}
+	return a.LookupKind(vm.HostUUID, vm.Architecture)
+}
+
 // hypervisorForVM resolves the HypervisorDriver responsible for
 // the named VM by walking through the VM inventory:
 //
