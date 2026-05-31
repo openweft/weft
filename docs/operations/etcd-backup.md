@@ -13,10 +13,8 @@ brings the control plane back to the snapshotted moment.
 
 **Not in etcd** — per-VM disk volumes (raw qcow2 / reflink clones under
 the agent state dir). Those need a separate backup story (rsync /
-zfs send / btrfs send), and crash-consistency between an etcd snapshot
-and the underlying volumes is the operator's responsibility. Flag this
-when planning DR: an etcd-only restore brings back the catalogue but the
-clones it references must still exist on disk.
+zfs send / btrfs send); an etcd-only restore brings back the catalogue
+but the clones it references must still exist on disk.
 
 ## Prerequisites
 
@@ -38,19 +36,10 @@ weft runs etcd in two shapes (per `storage-backend` flag):
 
 The embedded mode picks free 127.0.0.1:0 ports at startup so two
 operators on the same box don't collide (see `cmd/weft/embed_etcd.go`).
-This means **the client URL changes every restart** and is not exposed
-on a fixed port. Two ways to discover it:
-
-```sh
-# 1. From the weft startup log line (preferred — printed by the storage factory):
-journalctl -u weft -o cat | grep -m1 'embed-etcd endpoints'
-# → embed-etcd endpoints=[http://127.0.0.1:54321]
-
-# 2. From the listening sockets of the weft process:
-sudo lsof -nP -iTCP -sTCP:LISTEN -a -p "$(pgrep -x weft)" | grep 127.0.0.1
-# The client URL is the lower-numbered of the two loopback ports;
-# the higher one is the peer URL (unused from outside).
-```
+**The client URL changes every restart.** Discover it from the weft
+startup log, or from `lsof -nP -iTCP -sTCP:LISTEN -p $(pgrep -x weft)`
+— the lower-numbered loopback port is the client URL, the higher one
+is the (unused-from-outside) peer URL.
 
 The embedded backend has **no client auth** (loopback only, same-process
 trust model). Skip `--user` / `--cacert` when dialling it.
@@ -158,38 +147,26 @@ systemd timer (preferred on Linux hosts):
 
 ```ini
 # /etc/systemd/system/weft-etcd-backup.service
-[Unit]
-Description=weft etcd snapshot
-
 [Service]
 Type=oneshot
 User=weft
 ExecStart=/usr/local/bin/weft-etcd-backup.sh
-```
 
-```ini
 # /etc/systemd/system/weft-etcd-backup.timer
-[Unit]
-Description=hourly weft etcd snapshot
-
 [Timer]
 OnCalendar=hourly
 Persistent=true
-
 [Install]
 WantedBy=timers.target
 ```
 
 The `weft-etcd-backup.sh` wrapper: discover the endpoint (embedded) or
 read from `/etc/weft/etcd-endpoints` (HA), run `snapshot save` to a
-date-stamped path under `/var/backups/weft/`, then prune anything older
-than 14 days with `find /var/backups/weft -mtime +14 -delete`.
+date-stamped path under `/var/backups/weft/`, then prune older than
+14 days with `find /var/backups/weft -mtime +14 -delete`.
 
-Plain cron equivalent if systemd isn't available:
-
-```
-0 * * * * /usr/local/bin/weft-etcd-backup.sh >> /var/log/weft-backup.log 2>&1
-```
+Plain cron equivalent: `0 * * * * /usr/local/bin/weft-etcd-backup.sh
+>> /var/log/weft-backup.log 2>&1`.
 
 ## Restore drill
 
@@ -208,19 +185,14 @@ If step 3 returns empty catalogues, the snapshot is bad — check
 
 ## Troubleshooting
 
-**`etcdctl: command not found`** — `pkgx etcdctl` or install from the
-upstream etcd release tarball; the API v3 binary is the one we want.
-
-**Embedded endpoint changed between backup and restore** — that's
-expected (kernel-picked ports). The .db file is portable; only the
-`--initial-advertise-peer-urls` flag during restore matters, and the
-agent rewrites it on first boot.
-
-**`snapshot status` shows TOTAL KEYS = 0** — the snapshot caught etcd
-before the agent finished writing the bootstrap revision. Re-take after
-a fresh agent restart has settled (`weft host list` returns the
-expected rows).
-
-**Restore complete but agent won't start** — check the restored data
-dir ownership matches the `weft` user; `embed.Etcd` opens the bbolt
-file for write and silently refuses on EACCES.
+- **`etcdctl: command not found`** — `pkgx etcdctl` or install from the
+  upstream etcd release tarball; the API v3 binary is the one we want.
+- **Embedded endpoint changed between backup and restore** — expected
+  (kernel-picked ports). The .db file is portable; the agent rewrites
+  peer URLs on first boot.
+- **`snapshot status` shows TOTAL KEYS = 0** — the snapshot caught etcd
+  before the bootstrap revision settled. Re-take after `weft host list`
+  returns the expected rows.
+- **Restore complete but agent won't start** — check the restored data
+  dir ownership matches the `weft` user; `embed.Etcd` opens the bbolt
+  file for write and silently refuses on EACCES.
