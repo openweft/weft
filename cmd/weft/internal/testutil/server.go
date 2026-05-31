@@ -82,6 +82,10 @@ type Server struct {
 	AttachVolumeFn                    func(context.Context, *weftv1.AttachVolumeRequest) (*weftv1.AttachVolumeResponse, error)
 	DetachVolumeFn                    func(context.Context, *weftv1.DetachVolumeRequest) (*weftv1.DetachVolumeResponse, error)
 	DeleteVolumeFn                    func(context.Context, *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error)
+	CreateVolumeSnapshotFn            func(context.Context, *weftv1.CreateVolumeSnapshotRequest) (*weftv1.CreateVolumeSnapshotResponse, error)
+	ListVolumeSnapshotsFn             func(context.Context, *weftv1.ListVolumeSnapshotsRequest) (*weftv1.ListVolumeSnapshotsResponse, error)
+	RestoreVolumeSnapshotFn           func(context.Context, *weftv1.RestoreVolumeSnapshotRequest) (*weftv1.RestoreVolumeSnapshotResponse, error)
+	DeleteVolumeSnapshotFn            func(context.Context, *weftv1.DeleteVolumeSnapshotRequest) (*weftv1.DeleteVolumeSnapshotResponse, error)
 	WatchEventsFn                     func(*weftv1.WatchEventsRequest, grpc.ServerStreamingServer[weftv1.PlatformEvent]) error
 	RenderNATSAuthorizationFn         func(context.Context, *weftv1.RenderNATSAuthorizationRequest) (*weftv1.RenderNATSAuthorizationResponse, error)
 	RegisterHostFn                    func(context.Context, *weftv1.RegisterHostRequest) (*weftv1.RegisterHostResponse, error)
@@ -483,6 +487,34 @@ func (s *Server) DeleteVolume(ctx context.Context, in *weftv1.DeleteVolumeReques
 		return s.DeleteVolumeFn(ctx, in)
 	}
 	return &weftv1.DeleteVolumeResponse{}, nil
+}
+
+func (s *Server) CreateVolumeSnapshot(ctx context.Context, in *weftv1.CreateVolumeSnapshotRequest) (*weftv1.CreateVolumeSnapshotResponse, error) {
+	if s.CreateVolumeSnapshotFn != nil {
+		return s.CreateVolumeSnapshotFn(ctx, in)
+	}
+	return &weftv1.CreateVolumeSnapshotResponse{Snapshot: &weftv1.VolumeSnapshotInfo{VolumeUuid: in.VolumeUuid, Name: in.Name, Project: in.Project}}, nil
+}
+
+func (s *Server) ListVolumeSnapshots(ctx context.Context, in *weftv1.ListVolumeSnapshotsRequest) (*weftv1.ListVolumeSnapshotsResponse, error) {
+	if s.ListVolumeSnapshotsFn != nil {
+		return s.ListVolumeSnapshotsFn(ctx, in)
+	}
+	return &weftv1.ListVolumeSnapshotsResponse{}, nil
+}
+
+func (s *Server) RestoreVolumeSnapshot(ctx context.Context, in *weftv1.RestoreVolumeSnapshotRequest) (*weftv1.RestoreVolumeSnapshotResponse, error) {
+	if s.RestoreVolumeSnapshotFn != nil {
+		return s.RestoreVolumeSnapshotFn(ctx, in)
+	}
+	return &weftv1.RestoreVolumeSnapshotResponse{Volume: &weftv1.VolumeInfo{Name: in.NewVolumeName, ProjectUuid: in.Project}}, nil
+}
+
+func (s *Server) DeleteVolumeSnapshot(ctx context.Context, in *weftv1.DeleteVolumeSnapshotRequest) (*weftv1.DeleteVolumeSnapshotResponse, error) {
+	if s.DeleteVolumeSnapshotFn != nil {
+		return s.DeleteVolumeSnapshotFn(ctx, in)
+	}
+	return &weftv1.DeleteVolumeSnapshotResponse{}, nil
 }
 
 func (s *Server) WatchEvents(in *weftv1.WatchEventsRequest, stream grpc.ServerStreamingServer[weftv1.PlatformEvent]) error {
