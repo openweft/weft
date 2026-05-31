@@ -234,6 +234,15 @@ continuity (same sockets, same registry on-disk layout).`,
 				oidcClientID:      oidcClientID,
 				storageBackend:    storageBackend,
 				eventBusBackend:   eventBusBackend,
+				// Proxy fields seeded with CLI-flag defaults so that
+				// `applyFileConfigDefaults` only overrides them when
+				// the HCL block sets a value. The Changed()-restore
+				// loop below flips CLI back on top for any flag the
+				// operator passed explicitly.
+				proxyEnabled:     proxyEnabled,
+				proxyStateDir:    proxyStateDir,
+				proxyCaddyBinary: proxyCaddyBinary,
+				proxyKeyPrefix:   proxyKeyPrefix,
 			}
 			before := tgt
 			applyFileConfigDefaults(fc, &tgt)
@@ -261,6 +270,24 @@ continuity (same sockets, same registry on-disk layout).`,
 			if c.Flags().Changed("event-bus") {
 				tgt.eventBusBackend = before.eventBusBackend
 			}
+			if c.Flags().Changed("proxy") {
+				tgt.proxyEnabled = before.proxyEnabled
+			}
+			if c.Flags().Changed("proxy-state-dir") {
+				tgt.proxyStateDir = before.proxyStateDir
+			}
+			if c.Flags().Changed("proxy-caddy-binary") {
+				tgt.proxyCaddyBinary = before.proxyCaddyBinary
+			}
+			if c.Flags().Changed("proxy-key-prefix") {
+				tgt.proxyKeyPrefix = before.proxyKeyPrefix
+			}
+			// proxyStorageEndpoints has no CLI flag yet — the HCL
+			// block is the only source. Add a comma-separated
+			// `--proxy-storage-endpoints` later if operator demand
+			// shows up ; until then, env var fallback inside
+			// agent/proxy.Supervisor.resolveStorageEndpoints handles
+			// container injection.
 			if fcPath != "" {
 				logger.Printf("loaded config %s", fcPath)
 			}
@@ -274,10 +301,6 @@ continuity (same sockets, same registry on-disk layout).`,
 			tgt.serverMode = serverMode
 			tgt.clientMode = clientMode
 			tgt.controlPlaneURL = controlPlaneURL
-			tgt.proxyEnabled = proxyEnabled
-			tgt.proxyStateDir = proxyStateDir
-			tgt.proxyCaddyBinary = proxyCaddyBinary
-			tgt.proxyKeyPrefix = proxyKeyPrefix
 			if clientMode && controlPlaneURL != "" {
 				if proxyEnabled {
 					// The proxy plane needs a local etcd handle ;
@@ -476,9 +499,10 @@ func run(t fileConfigTargets) error {
 	if t.proxyEnabled {
 		hostUUID := localHostUUID(a)
 		proxyCloser, perr := bootProxyFn(ctx, hostUUID, sf.etcdClient, proxyOpts{
-			StateDir:    t.proxyStateDir,
-			CaddyBinary: t.proxyCaddyBinary,
-			KeyPrefix:   t.proxyKeyPrefix,
+			StateDir:         t.proxyStateDir,
+			CaddyBinary:      t.proxyCaddyBinary,
+			KeyPrefix:        t.proxyKeyPrefix,
+			StorageEndpoints: t.proxyStorageEndpoints,
 		})
 		if perr != nil {
 			return fmt.Errorf("boot proxy: %w", perr)

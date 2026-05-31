@@ -46,6 +46,58 @@ type fileConfig struct {
 	Storage            *storageBlock           `hcl:"storage,block"`
 	EventBus           *eventBusBlock          `hcl:"event_bus,block"`
 	NATSAuthorization  *natsAuthorizationBlock `hcl:"nats_authorization,block"`
+	Proxy              *proxyBlock             `hcl:"proxy,block"`
+}
+
+// proxyBlock mirrors the `proxy { ... }` HCL block — the operator-
+// preferred way to enable the reverse-proxy plane (Caddy supervisor
+// + etcd watcher). Mirror of cmd/weft/proxy.go's proxyOpts + the
+// --proxy-* CLI flags; precedence is CLI > env > HCL > default
+// (same rule as every other fileConfig field).
+//
+// Minimum viable opt-in:
+//
+//	proxy {
+//	  enabled      = true
+//	  caddy_binary = "/usr/local/bin/weft-proxy"
+//	}
+//
+// Shared cert storage across hosts (recommended for 3-DC clusters
+// — avoids each host hammering Let's Encrypt rate-limit on its own
+// first reload):
+//
+//	proxy {
+//	  enabled      = true
+//	  caddy_binary = "/usr/local/bin/weft-proxy"
+//	  state_dir    = "/var/lib/weft-agent/proxy"
+//
+//	  storage {
+//	    endpoints = [
+//	      "http://10.0.0.11:2379",
+//	      "http://10.0.0.12:2379",
+//	      "http://10.0.0.13:2379",
+//	    ]
+//	  }
+//	}
+type proxyBlock struct {
+	Enabled     *bool              `hcl:"enabled,optional"`
+	CaddyBinary *string            `hcl:"caddy_binary,optional"`
+	StateDir    *string            `hcl:"state_dir,optional"`
+	KeyPrefix   *string            `hcl:"key_prefix,optional"`
+	Storage     *proxyStorageBlock `hcl:"storage,block"`
+}
+
+// proxyStorageBlock mirrors the proxy { storage { } } sub-block.
+// Today only the etcd backend has knobs worth surfacing; the field
+// shape leaves room for future backends (redis, S3) without breaking
+// existing configs.
+//
+// When `endpoints` is set, weft-agent emits a Caddy storage block
+// selecting the darkweak etcd adapter (compiled into weft-proxy).
+// When empty, Caddy uses filesystem storage rooted under
+// proxy.state_dir — fine for single-host dev, suboptimal in HA.
+type proxyStorageBlock struct {
+	Endpoints []string `hcl:"endpoints,optional"`
 }
 
 // oidcBlock mirrors the oidc { } HCL block. Empty issuer means
@@ -240,6 +292,27 @@ func applyFileConfigDefaults(c fileConfig, dst *fileConfigTargets) {
 		dst.natsAuthzPath = expandHome(c.NATSAuthorization.Path)
 		dst.natsAuthzAdminPubkey = c.NATSAuthorization.AdminPubkey
 	}
+	if c.Proxy != nil {
+		// Each field is overlaid only when the HCL attribute was
+		// set — pointers distinguish "not present" from "present
+		// and zero" so an explicit `enabled = false` still flips
+		// an env-driven default off, but a missing line doesn't.
+		if c.Proxy.Enabled != nil {
+			dst.proxyEnabled = *c.Proxy.Enabled
+		}
+		if c.Proxy.StateDir != nil {
+			dst.proxyStateDir = expandHome(*c.Proxy.StateDir)
+		}
+		if c.Proxy.CaddyBinary != nil {
+			dst.proxyCaddyBinary = expandHome(*c.Proxy.CaddyBinary)
+		}
+		if c.Proxy.KeyPrefix != nil {
+			dst.proxyKeyPrefix = *c.Proxy.KeyPrefix
+		}
+		if c.Proxy.Storage != nil && len(c.Proxy.Storage.Endpoints) > 0 {
+			dst.proxyStorageEndpoints = append([]string(nil), c.Proxy.Storage.Endpoints...)
+		}
+	}
 }
 
 // fileConfigTargets bundles the destinations applyFileConfigDefaults
@@ -296,8 +369,9 @@ type fileConfigTargets struct {
 	// --client per-host runtime reaches etcd via the control-plane
 	// gRPC bridge, which is a separate concern (an etcd-over-gRPC
 	// shim is the cleanest fix and lands in a follow-up).
-	proxyEnabled     bool
-	proxyStateDir    string
-	proxyCaddyBinary string
-	proxyKeyPrefix   string
+	proxyEnabled          bool
+	proxyStateDir         string
+	proxyCaddyBinary      string
+	proxyKeyPrefix        string
+	proxyStorageEndpoints []string // empty → filesystem cert storage ; non-empty → shared etcd via darkweak adapter
 }
