@@ -53,6 +53,18 @@ type Options struct {
 	// override.
 	CaddyBinary string
 
+	// StorageEndpoints, when non-empty, selects the etcd-backed
+	// certificate store (so 3 hosts share Let's Encrypt-issued certs
+	// instead of each minting separately and hammering the LE rate
+	// limit). Caddy must be built with the etcd storage adapter for
+	// this to take effect — the canonical build is openweft/weft-proxy.
+	//
+	// Precedence: this field wins outright when set. When empty, the
+	// supervisor falls back to the WEFT_PROXY_STORAGE_ETCD_ENDPOINTS
+	// env var (useful for container-runtime injection). When both
+	// are empty, Caddy uses filesystem storage rooted under StateDir.
+	StorageEndpoints []string
+
 	// LogWriter is where caddy's stdout/stderr go. Defaults to
 	// os.Stderr so an operator running `weft agent` sees Caddy logs
 	// interleaved with the agent's own.
@@ -96,7 +108,7 @@ func (s *Supervisor) startOnce_(ctx context.Context) error {
 	// caddy-storage-etcd via xcaddy). Unset → filesystem default under
 	// StateDir/data.
 	var storage map[string]any
-	if eps := EtcdStorageEndpoints(); len(eps) > 0 {
+	if eps := s.resolveStorageEndpoints(); len(eps) > 0 {
 		storage = storageEtcdConfig(eps)
 		log.Printf("weft-agent proxy: shared cert storage = etcd (%d endpoint(s))", len(eps))
 	}
@@ -185,7 +197,7 @@ func (s *Supervisor) Apply(ctx context.Context, routes Routes) error {
 	// Storage block must survive every reload — POST /load replaces the
 	// whole config, so dropping it here would silently revert cert sharing.
 	var storage map[string]any
-	if eps := EtcdStorageEndpoints(); len(eps) > 0 {
+	if eps := s.resolveStorageEndpoints(); len(eps) > 0 {
 		storage = storageEtcdConfig(eps)
 	}
 	body, err := routes.renderCaddyConfigWith("unix//"+s.adminSocket, storage)
@@ -243,6 +255,18 @@ func (s *Supervisor) Close() error {
 	}
 	_ = os.Remove(s.adminSocket)
 	return nil
+}
+
+// resolveStorageEndpoints applies the documented precedence:
+// Options.StorageEndpoints wins, falling back to the
+// WEFT_PROXY_STORAGE_ETCD_ENDPOINTS env var so container-runtime
+// injection keeps working when the operator hasn't (yet) written
+// an HCL config block.
+func (s *Supervisor) resolveStorageEndpoints() []string {
+	if len(s.opts.StorageEndpoints) > 0 {
+		return s.opts.StorageEndpoints
+	}
+	return EtcdStorageEndpoints()
 }
 
 // defaultRuntimeDir returns $XDG_RUNTIME_DIR, falling back to /tmp when

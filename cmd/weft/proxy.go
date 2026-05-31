@@ -79,6 +79,13 @@ type proxyOpts struct {
 	// default; left here so operators with multi-cluster shared etcd
 	// can namespace differently).
 	KeyPrefix string
+	// StorageEndpoints, when non-empty, flows through to
+	// proxy.Options.StorageEndpoints so the launched Caddy uses the
+	// shared etcd cert store (darkweak adapter; canonical build is
+	// openweft/weft-proxy). Empty here defers to the
+	// WEFT_PROXY_STORAGE_ETCD_ENDPOINTS env var as second-tier
+	// fallback, then to filesystem storage under StateDir.
+	StorageEndpoints []string
 }
 
 // bootProxy starts the proxy.Supervisor + proxy.Watcher and returns a
@@ -99,8 +106,9 @@ func bootProxy(ctx context.Context, hostUUID string, etcdCli *clientv3.Client, o
 	}
 
 	sup := proxy.New(proxy.Options{
-		StateDir:    opts.StateDir,
-		CaddyBinary: opts.CaddyBinary,
+		StateDir:         opts.StateDir,
+		CaddyBinary:      opts.CaddyBinary,
+		StorageEndpoints: opts.StorageEndpoints,
 	})
 	if err := sup.Start(ctx); err != nil {
 		return nil, fmt.Errorf("proxy: start caddy: %w", err)

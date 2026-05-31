@@ -12,9 +12,55 @@ binary). The lifecycle helper is `bootProxy` in `cmd/weft/proxy.go`.
 
 ## Enabling on a host
 
+Two ways, pick one — they compose (HCL provides the baseline,
+flags override). The HCL block is the preferred path for production
+deploys because it lives next to the rest of the weft config under
+`/etc/weft/weft.hcl` and survives daemon restarts.
+
+### HCL config (recommended)
+
+```hcl
+# /etc/weft/weft.hcl (or ~/.config/weft/weft.hcl)
+proxy {
+  enabled      = true
+  caddy_binary = "/usr/local/bin/weft-proxy"
+  state_dir    = "/var/lib/weft-agent/proxy"
+
+  storage {
+    endpoints = [
+      "http://10.0.0.11:2379",
+      "http://10.0.0.12:2379",
+      "http://10.0.0.13:2379",
+    ]
+  }
+}
+```
+
+Then just run `weft agent` — no flags needed for the proxy plane.
+
+### CLI flags
+
 ```
 weft agent --proxy --proxy-caddy-binary=/usr/local/bin/weft-proxy
 ```
+
+Useful for one-off dev experiments and emergency overrides.
+
+### Precedence
+
+Same rule as every other weft setting:
+
+```
+CLI flag  >  env var (WEFT_PROXY_STORAGE_ETCD_ENDPOINTS)  >  HCL block  >  built-in default
+```
+
+- An explicit `--proxy=false` on the command line wins over
+  `proxy { enabled = true }` in the file — operator's emergency knob.
+- An explicit `proxy { enabled = false }` in HCL flips off any
+  prior default-on (none today, but the rule will hold if defaults
+  change).
+- The env var only covers `proxy.storage.endpoints` because that's
+  the field most likely to come from a container-runtime injection.
 
 Flags:
 
