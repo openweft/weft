@@ -29,3 +29,22 @@ tasks:
     desc: "Vet the package"
     cmds:
       - go vet -mod=vendor -tags darwin ./...
+
+  perf:bringup:
+    desc: "Bring up N microVMs and record per-phase timings (CSV). Vars: N=10|100|1000"
+    cmds:
+      - ./scripts/perf/bring-up-N.sh {{.N}}
+    requires:
+      vars: [N]
+
+  perf:mesh:
+    desc: "Measure mesh fanout from a fresh microVM to N peers (P50/P95/P99)"
+    cmds:
+      - ./scripts/perf/mesh-fanout.sh {{.N}}
+    requires:
+      vars: [N]
+
+  perf:etcd-write:
+    desc: "Stress weft's etcd writes and report req/s + P99 latency"
+    cmds:
+      - ./scripts/perf/etcd-write-rate.sh
