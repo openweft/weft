@@ -67,6 +67,26 @@ type Options struct {
 	// driver — the in-process control plane — to avoid launching a second
 	// plugin, and in tests to stay subprocess-free.
 	LocalHandles *DriverHandles
+	// Drivers enables multi-plugin mode. Each entry names a driver kind
+	// ("vz" | "qemu") + the guest architectures that driver handles on
+	// this host. The agent launches one weft-driver-<kind> subprocess per
+	// entry ; the scheduler matches a microVM's arch against the union to
+	// pick the right driver (cluster.HostDriver carries the same shape in
+	// the HCL ; this Options field is the runtime mirror).
+	//
+	// Empty → single-driver legacy mode : the agent launches the
+	// build-tag-default driver (weft-driver-vz on darwin, weft-driver-qemu
+	// on linux) and registers it as the host's only capability. Existing
+	// deployments don't have to opt in.
+	Drivers []DriverSpec
+}
+
+// DriverSpec describes one driver to launch on this host : its kind
+// ("vz" or "qemu") and the set of guest architectures it can run.
+// Empty Arches defaults to runtime.GOARCH at registration time.
+type DriverSpec struct {
+	Kind   string
+	Arches []string
 }
 
 // Agent is the per-host worker.
@@ -74,8 +94,18 @@ type Agent struct {
 	opts       Options
 	hostUUID   string
 	hostname   string
+	// handles + hypervisor describe the PRIMARY driver. In single-plugin
+	// mode they're the only handles ; in multi-plugin mode they mirror
+	// driverSet[primaryKind] so legacy dispatch keeps working until the
+	// per-kind table lands.
 	handles      DriverHandles
 	hypervisor   string
+	// driverSet is non-nil only in multi-plugin mode (Options.Drivers
+	// non-empty). Keys are driver kinds ("vz" / "qemu") ; values are
+	// per-driver handles. Reserved for the per-arch dispatch table
+	// — the per-RPC routing logic that picks one entry per microVM
+	// based on its required architecture.
+	driverSet    map[string]DriverHandles
 	pluginCloser io.Closer // kills the local driver plugin on Stop
 	cancel       context.CancelFunc
 	doneCh       chan struct{}
@@ -131,17 +161,57 @@ func (a *Agent) start(ctx context.Context) error {
 	}
 	a.hostname = hn
 
-	// Acquire this host's driver handles: injected (embedded reuse / tests) or
-	// by launching the host's driver plugin (weft-driver-vz on darwin,
-	// weft-driver-qemu on linux). See agent_plugin.go.
-	if a.opts.LocalHandles != nil {
+	// Acquire this host's driver handles. Three paths :
+	//
+	//   1. LocalHandles set : injected externally (embedded reuse / tests).
+	//      No plugin launch.
+	//   2. Drivers slice set : multi-plugin mode. One weft-driver-<kind>
+	//      subprocess per entry ; the primary (first by deterministic
+	//      ordering — vz before qemu) populates the legacy singletons.
+	//      a.driverSet holds the full map for the per-kind dispatch
+	//      table once that lands.
+	//   3. Otherwise : single-driver legacy via build-tag default.
+	var driverCaps []HostDriverCapability
+	switch {
+	case a.opts.LocalHandles != nil:
 		a.handles, a.hypervisor = *a.opts.LocalHandles, localHypervisorLabel
-	} else {
+		driverCaps = []HostDriverCapability{{Kind: a.hypervisor, Arches: []string{runtime.GOARCH}}}
+	case len(a.opts.Drivers) > 0:
+		set, primary, closer, err := buildLocalHandlesMulti(a.opts, uuid, hn)
+		if err != nil {
+			return fmt.Errorf("weft-agent: launch driver plugins : %w", err)
+		}
+		// Primary = first by stable order. Until the per-kind dispatch
+		// table lands, the singleton handles point at it.
+		primaryKind := ""
+		for _, k := range []string{"vz", "qemu"} {
+			if _, ok := set[k]; ok {
+				primaryKind = k
+				break
+			}
+		}
+		a.handles = set[primaryKind]
+		a.driverSet = set
+		a.hypervisor = primary
+		a.pluginCloser = closer
+		// Build the capability list from Options.Drivers so the
+		// scheduler sees the same arch coverage the operator declared
+		// in cluster.hcl.
+		driverCaps = make([]HostDriverCapability, 0, len(a.opts.Drivers))
+		for _, d := range a.opts.Drivers {
+			arches := append([]string(nil), d.Arches...)
+			if len(arches) == 0 {
+				arches = []string{runtime.GOARCH}
+			}
+			driverCaps = append(driverCaps, HostDriverCapability{Kind: d.Kind, Arches: arches})
+		}
+	default:
 		handles, hv, closer, err := buildLocalHandles(a.opts, uuid, hn)
 		if err != nil {
 			return fmt.Errorf("weft-agent: launch driver plugin: %w", err)
 		}
 		a.handles, a.hypervisor, a.pluginCloser = handles, hv, closer
+		driverCaps = []HostDriverCapability{{Kind: a.hypervisor, Arches: []string{runtime.GOARCH}}}
 	}
 
 	reg := HostRegistration{
@@ -152,18 +222,13 @@ func (a *Agent) start(ctx context.Context) error {
 		Endpoint:       a.opts.Endpoint,
 		Hypervisor:     a.hypervisor,
 		Architecture:   runtime.GOARCH,
-		// Mirror the legacy Hypervisor / Architecture singletons into
-		// the Drivers capability list. Today the agent launches ONE
-		// driver plugin (see buildLocalHandles below) so this list
-		// always has exactly one entry — but downstream consumers
-		// (scheduler, dashboard) read Drivers first and fall back to
-		// the singletons, which keeps them ready for the day the
-		// agent learns to launch multiple driver plugins side-by-side
-		// (canonical case : Apple Silicon host running both VZ and
-		// QEMU for cross-arch builds).
-		Drivers: []HostDriverCapability{
-			{Kind: a.hypervisor, Arches: []string{runtime.GOARCH}},
-		},
+		// Drivers carries the full capability list — one entry per
+		// driver plugin this agent has launched, with the set of
+		// guest archs each can run. Single-plugin agents publish a
+		// 1-entry list mirroring the legacy singletons ; multi-plugin
+		// agents (Apple Silicon dual VZ + QEMU) publish one entry per
+		// kind so the scheduler can match arch → driver.
+		Drivers:        driverCaps,
 		NetworkTypes:   []string{"nat", "bridged", "isolated", "mesh"},
 		VolumeBackends: []string{"file"},
 		Labels:         a.opts.Labels,
