@@ -84,7 +84,7 @@ func translateAgentDrivers(src []agent.HostDriverCapability) []HostDriver {
 }
 
 // AttachDrivers translates DriverHandles into HostHandle and
-// installs it in the Adapter's dispatch table.
+// installs it in the Adapter's dispatch table. Single-plugin path.
 func (cp adapterControlPlane) AttachDrivers(ctx context.Context, hostUUID string, h agent.DriverHandles) error {
 	return cp.a.RegisterHostHandle(hostUUID, &HostHandle{
 		Hypervisor: h.Hypervisor,
@@ -92,6 +92,30 @@ func (cp adapterControlPlane) AttachDrivers(ctx context.Context, hostUUID string
 		Volume:     h.Volume,
 		Image:      h.Image,
 	})
+}
+
+// AttachDriverSet translates the per-kind map the agent built in
+// multi-plugin mode into a *HostHandle set and installs it under
+// hostUUID. Used by Apple Silicon agents running VZ + QEMU.
+//
+// The primary entry (vz before qemu in stable order) is also
+// mirrored into the single-entry dispatch table by
+// RegisterHostHandleSet so transitional dispatch paths that don't
+// yet know about arch keep working.
+func (cp adapterControlPlane) AttachDriverSet(ctx context.Context, hostUUID string, set map[string]agent.DriverHandles) error {
+	if len(set) == 0 {
+		return agent.ErrAttachSetUnsupported
+	}
+	stored := make(map[string]*HostHandle, len(set))
+	for kind, h := range set {
+		stored[kind] = &HostHandle{
+			Hypervisor: h.Hypervisor,
+			Network:    h.Network,
+			Volume:     h.Volume,
+			Image:      h.Image,
+		}
+	}
+	return cp.a.RegisterHostHandleSet(hostUUID, stored)
 }
 
 // Heartbeat forwards to the Adapter's existing HeartbeatHost.

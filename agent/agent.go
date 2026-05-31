@@ -22,6 +22,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -236,9 +237,25 @@ func (a *Agent) start(ctx context.Context) error {
 	if _, err := a.opts.ControlPlane.RegisterHost(ctx, reg); err != nil {
 		return fmt.Errorf("weft-agent: RegisterHost: %w", err)
 	}
+	// Multi-plugin agents push their per-kind set ; CP routes RPCs
+	// to the right driver via HostHandleOnArch. On legacy CP impls
+	// (ErrAttachSetUnsupported) we fall back to AttachDrivers with
+	// the primary entry — the host still works in single-plugin
+	// dispatch mode until the CP catches up.
+	if a.driverSet != nil {
+		if err := a.opts.ControlPlane.AttachDriverSet(ctx, uuid, a.driverSet); err != nil {
+			if !errors.Is(err, ErrAttachSetUnsupported) {
+				return fmt.Errorf("weft-agent: AttachDriverSet: %w", err)
+			}
+			// Fall through to the legacy attach below.
+		} else {
+			goto heartbeat
+		}
+	}
 	if err := a.opts.ControlPlane.AttachDrivers(ctx, uuid, a.handles); err != nil {
 		return fmt.Errorf("weft-agent: AttachDrivers: %w", err)
 	}
+heartbeat:
 
 	// Spin up the heartbeat goroutine.
 	hbCtx, cancel := context.WithCancel(context.Background())

@@ -23,13 +23,28 @@ type recordingCP struct {
 	registered     []HostRegistration
 	attachedFor    []string
 	attachedHandle map[string]DriverHandles
+	// attachedSetFor + attachedSet mirror the singular fields above
+	// for the multi-plugin path. Populated by AttachDriverSet.
+	attachedSetFor []string
+	attachedSet    map[string]map[string]DriverHandles
 	heartbeats     int
 	registerErr    error
 	attachErr      error
+	// attachSetErr controls AttachDriverSet's return value :
+	// - nil (default unset) → return ErrAttachSetUnsupported so the
+	//   agent falls back to AttachDrivers (current single-plugin tests
+	//   keep working without modification).
+	// - any other value → returned as-is. Set to nil explicitly via
+	//   `cp.attachSetErr = nil` if the test wants AttachDriverSet to
+	//   succeed AND verifying via a non-default sentinel.
+	attachSetErr error
 }
 
 func newRecordingCP() *recordingCP {
-	return &recordingCP{attachedHandle: make(map[string]DriverHandles)}
+	return &recordingCP{
+		attachedHandle: make(map[string]DriverHandles),
+		attachedSet:    make(map[string]map[string]DriverHandles),
+	}
 }
 
 func (cp *recordingCP) RegisterHost(ctx context.Context, reg HostRegistration) (string, error) {
@@ -48,6 +63,22 @@ func (cp *recordingCP) AttachDrivers(ctx context.Context, hostUUID string, h Dri
 	cp.attachedFor = append(cp.attachedFor, hostUUID)
 	cp.attachedHandle[hostUUID] = h
 	return cp.attachErr
+}
+
+// AttachDriverSet returns ErrAttachSetUnsupported by default so the
+// agent falls back to AttachDrivers with the primary entry — keeps
+// the existing single-plugin tests passing without changes. Tests
+// that exercise the multi-plugin path can flip this via attachSetErr
+// (nil = record the call as accepted).
+func (cp *recordingCP) AttachDriverSet(ctx context.Context, hostUUID string, set map[string]DriverHandles) error {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.attachedSetFor = append(cp.attachedSetFor, hostUUID)
+	cp.attachedSet[hostUUID] = set
+	if cp.attachSetErr != nil {
+		return cp.attachSetErr
+	}
+	return ErrAttachSetUnsupported
 }
 
 func (cp *recordingCP) Heartbeat(ctx context.Context, hostUUID string) error {

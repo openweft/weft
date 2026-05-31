@@ -101,6 +101,18 @@ func (g *grpcControlPlane) AttachDrivers(_ context.Context, hostUUID string, _ D
 	return nil
 }
 
+// AttachDriverSet returns ErrAttachSetUnsupported : the gRPC wire
+// can't transport the per-kind handle set yet (same blocker as
+// AttachDrivers — needs the bidirectional dispatch stream). The
+// agent falls back to AttachDrivers with the primary entry, so the
+// host still registers in single-plugin-dispatch mode.
+func (g *grpcControlPlane) AttachDriverSet(_ context.Context, hostUUID string, _ map[string]DriverHandles) error {
+	if g.logger != nil {
+		g.logger.Printf("grpc control-plane: AttachDriverSet(%s) is not yet wired ; falling back to single-handle AttachDrivers", hostUUID)
+	}
+	return ErrAttachSetUnsupported
+}
+
 // Heartbeat calls the server-side `HeartbeatHost` RPC. Errors
 // bubble up so the agent's heartbeat goroutine can decide
 // whether to back off + retry.
