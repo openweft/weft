@@ -207,10 +207,28 @@ type VZAdapter interface {
 	// (codes.PermissionDenied / NotFound) on failure. Defined in
 	// acl.go.
 	AuthorizeProject(ctx context.Context, nameOrUUID string) (string, error)
+	// Tenant-quota surface — per-project hard caps the CreateVM /
+	// RegisterMicroVM / CreateVolume handlers consult at entry.
+	// Zero on a dimension = unlimited. ResourceExhausted on cap
+	// breach. See tenant_quotas.go +
+	// docs/operations/tenant-quotas.md.
+	TenantQuota(projectUUID string) TenantQuota
+	SetTenantQuota(projectUUID string, q TenantQuota) error
+	EnforceTenantQuotaForVM(projectUUID string, cpu, memoryMiB int) error
+	EnforceTenantQuotaForVolume(projectUUID string, sizeGiB int) error
 	DiskPath(name string) string
 	CachedImagePath(imageURL string) (string, error)
 	ListCachedImages() ([]CachedImage, error)
 	WriteCloudInitISO(name string, data []byte) (string, error)
+	// LookupKind reports which driver kind (vz / qemu / legacy single-
+	// plugin label) would field an RPC routed to (hostUUID, arch). The
+	// observability seam — cmd/weft's RPC interceptor labels
+	// `weft_rpc_total{driver_kind=…}` with it. See dispatch.go.
+	LookupKind(hostUUID, arch string) string
+	// LookupKindForVM is the convenience that resolves a VM by display
+	// name + its arch off the inventory, then asks LookupKind. Empty
+	// when the VM isn't in the inventory (legacy on-disk VM).
+	LookupKindForVM(name string) string
 }
 
 // Adapter is the Apple Virtualization.framework-backed VM adapter.
@@ -264,6 +282,11 @@ type Adapter struct {
 	// each carrying its host_uuid for multi-host dispatch. See
 	// vms.go.
 	vmReg *vmRegistry
+	// tenantQuotas holds the per-project hard caps the create
+	// handlers enforce (CreateVM, RegisterMicroVM, CreateVolume).
+	// Empty cap = unlimited on that dimension. See
+	// tenant_quotas.go + docs/operations/tenant-quotas.md.
+	tenantQuotas *tenantQuotaRegistry
 	// scheduler picks which Host runs a new VM. Defaults to
 	// FirstFitScheduler; swappable via SetScheduler. See
 	// scheduler.go for the interface + the default policy's
@@ -274,7 +297,7 @@ type Adapter struct {
 	// host by initLocalDrivers; remote hosts add themselves via
 	// RegisterHostHandle when weft-agent comes online. See
 	// dispatch.go and [[weft-driver-registry-split]].
-	driverDispatch   map[string]*HostHandle
+	driverDispatch map[string]*HostHandle
 	// driverDispatchSet maps host UUID → driver kind → HostHandle for
 	// hosts running multi-plugin mode (Apple Silicon VZ + QEMU on the
 	// same machine for cross-arch builds). Single-plugin hosts only
@@ -499,6 +522,7 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 	a.initPorts()
 	a.initHosts()
 	a.initVMs()
+	a.initTenantQuotas()
 	a.scheduler = FirstFitScheduler{} // operator-overridable via SetScheduler
 	if err := a.selfRegisterHost(); err != nil {
 		// Non-fatal: weft still serves requests, but the registry
@@ -892,8 +916,8 @@ func (a *Adapter) ListVMsForHost(hostUUID string) []VM {
 // RegisterVM adds a new VM to the inventory. Cross-registry
 // validation:
 //
-//   * project_uuid must exist in projectRegistry.
-//   * host_uuid must exist in hostRegistry AND have a registered
+//   - project_uuid must exist in projectRegistry.
+//   - host_uuid must exist in hostRegistry AND have a registered
 //     driver handle.
 //
 // The actual VM-state provisioning (vmDir, nvram, machine-id, …)
@@ -2460,11 +2484,11 @@ func (a *Adapter) CloneVM(image, project, name string, extraDisks []ExtraDisk, w
 //
 // Split:
 //
-//   * The Apple-VZ machine state (nvram, machine-id, mac.txt) is
+//   - The Apple-VZ machine state (nvram, machine-id, mac.txt) is
 //     delegated to the local Hypervisor driver's CreateVM. That
 //     code lives in pkg/openweft/weft-driver-vz and is what
 //     a future weft-agent on another host would reuse.
-//   * The data-disk creation + config.json layout stay here
+//   - The data-disk creation + config.json layout stay here
 //     because they're still weft-control concerns: a future
 //     commit moves data disks behind the VolumeDriver +
 //     AttachDisk path, and config.json behind a vmspec.hcl in
@@ -2552,8 +2576,8 @@ type MicroVMBoot struct {
 // RegisterMicroVM creates a VM directory wired for a microVM-style
 // boot. Two boot modes are supported, controlled by `boot`:
 //
-//   * UKI mode    — set boot.BootISO only
-//   * direct-Linux — set boot.Kernel (and optionally boot.Initrd)
+//   - UKI mode    — set boot.BootISO only
+//   - direct-Linux — set boot.Kernel (and optionally boot.Initrd)
 //
 // `boot.Cmdline` overrides the default kernel cmdline; needed for
 // weft-microvm-style microVMs which want `weft.rootfs=virtiofs:rootfs0`.
@@ -2800,14 +2824,14 @@ func copyFileAtomic(src, dst string) error {
 // Routed through the local driver Bundle's HypervisorDriver (see
 // [[weft-driver-registry-split]]):
 //
-//   * RecordEvent for `server.start_attempted` / `_failed` /
+//   - RecordEvent for `server.start_attempted` / `_failed` /
 //     `_forked` happens at the Adapter — the events live in weft's
 //     event taxonomy, not the driver's.
-//   * The actual fork + vm.pid write + wait-goroutine lives in
+//   - The actual fork + vm.pid write + wait-goroutine lives in
 //     the driver, which uses Options.SpawnVMCommand (wired in
 //     initLocalDrivers below) to know what to fork without
 //     baking `vz-vm-run` into the driver's code.
-//   * Options.OnVMExit (also wired in initLocalDrivers) reports
+//   - Options.OnVMExit (also wired in initLocalDrivers) reports
 //     `server.vz_vm_run_exited` back into weft's RecordEvent
 //     stream when the subprocess terminates.
 func (a *Adapter) StartVM(name, cloudInitISO string) error {

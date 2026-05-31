@@ -476,6 +476,7 @@ func run(t fileConfigTargets) error {
 	// The interceptor below is added to the chain regardless — when
 	// srvMetrics is nil it's a no-op grpc.{Unary,Stream}ServerInterceptor.
 	var srvMetrics *grpcprom.ServerMetrics
+	var rpcByKind *rpcMetrics
 	var metricsCloser func() error
 	if t.metricsListen != "" {
 		reg, closer, mErr := startMetricsServer(t.metricsListen, logger)
@@ -487,6 +488,15 @@ func run(t fileConfigTargets) error {
 		if err := reg.Register(srvMetrics); err != nil {
 			return fmt.Errorf("register grpc server metrics: %w", err)
 		}
+		// weft-specific per-driver-kind counter. Sits alongside the
+		// stock grpc histogram so a single scrape exposes both ; the
+		// `driver_kind` label is what makes per-driver alerting on
+		// multi-plugin hosts work (see rpc_metrics.go).
+		rm, mErr := newRPCMetrics(reg)
+		if mErr != nil {
+			return fmt.Errorf("register weft_rpc_total: %w", mErr)
+		}
+		rpcByKind = rm
 		defer func() { _ = metricsCloser() }()
 	}
 
@@ -504,6 +514,13 @@ func run(t fileConfigTargets) error {
 		// grpc_server_handled_total{code="Unauthenticated"}).
 		unaryInterceptors = append(unaryInterceptors, srvMetrics.UnaryServerInterceptor())
 		streamInterceptors = append(streamInterceptors, srvMetrics.StreamServerInterceptor())
+	}
+	if rpcByKind != nil {
+		// rpcByKind wraps INSIDE the grpc histogram so the kind slot
+		// it installs is visible to the handler ; the histogram only
+		// reads code/elapsed and doesn't peek at ctx values.
+		unaryInterceptors = append(unaryInterceptors, rpcByKind.UnaryInterceptor())
+		streamInterceptors = append(streamInterceptors, rpcByKind.StreamInterceptor())
 	}
 	srv := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(unaryInterceptors...),
@@ -822,6 +839,11 @@ func (s *weftServer) StartVM(ctx context.Context, req *weftv1.StartVMRequest) (*
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
+	// Stamp the driver kind that will field this RPC onto the metric
+	// slot the interceptor installed. Empty when the VM isn't in the
+	// inventory (legacy on-disk VM) — the empty `driver_kind=""` series
+	// captures it without conflating with any driver.
+	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchStartVM(ctx, req)
 	}
@@ -837,6 +859,7 @@ func (s *weftServer) StopVM(ctx context.Context, req *weftv1.StopVMRequest) (*we
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
+	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchStopVM(ctx, req)
 	}
@@ -849,7 +872,16 @@ func (s *weftServer) StopVM(ctx context.Context, req *weftv1.StopVMRequest) (*we
 
 func (s *weftServer) CreateVM(ctx context.Context, req *weftv1.CreateVMRequest) (*weftv1.CreateVMResponse, error) {
 	logger.Printf("CreateVM name=%s image=%s project=%s", req.Name, req.Image, req.Project)
-	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
+	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	// Hard-cap enforcement at handler entry per
+	// docs/operations/tenant-quotas.md. ResourceExhausted is the
+	// canonical gRPC code for "request denied by a quota" — clients
+	// (CLI + webui) translate it to the operator-visible "quota
+	// exceeded" toast without needing handler-specific knowledge.
+	if err := s.adp.EnforceTenantQuotaForVM(projUUID, int(req.Cpu), int(req.MemMb)); err != nil {
 		return nil, err
 	}
 	if err := s.adp.CloneVM(req.Image, req.Project, req.Name, nil, io.Discard); err != nil {
@@ -876,6 +908,11 @@ func (s *weftServer) DeleteVM(ctx context.Context, req *weftv1.DeleteVMRequest) 
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
+	// Resolve the kind BEFORE DeleteVM drops the inventory row — once
+	// the row is gone LookupKindForVM returns "" and the metric label
+	// would be empty on the success path. Resolving up-front means a
+	// successful DELETE is still counted against the right driver kind.
+	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchDeleteVM(ctx, req)
 	}
@@ -1137,7 +1174,18 @@ func (s *weftServer) CleanImages(_ context.Context, req *weftv1.CleanImagesReque
 func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMicroVMRequest) (*weftv1.RegisterMicroVMResponse, error) {
 	logger.Printf("RegisterMicroVM name=%s project=%s boot_iso=%s kernel=%s initrd=%s cmdline=%q shares=%d",
 		req.Name, req.Project, req.BootIso, req.Kernel, req.Initrd, req.Cmdline, len(req.Shares))
-	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
+	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	// RegisterMicroVM doesn't carry cpu/memory in its request (the
+	// boot artefacts dictate the runtime shape) ; we still consult
+	// the quota so a project that has already exhausted its
+	// cpu/memory cap can't keep spawning microVMs. Passing (0, 0)
+	// just re-checks the already-allocated total against the cap —
+	// a no-op for projects still within budget. Per
+	// docs/operations/tenant-quotas.md.
+	if err := s.adp.EnforceTenantQuotaForVM(projUUID, 0, 0); err != nil {
 		return nil, err
 	}
 	shares := make([]weft.MicroVMShare, len(req.Shares))
@@ -1161,6 +1209,17 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 	// over the AgentDispatch stream instead of running it
 	// locally. Empty / matching-local stays on the in-process
 	// path — the Mac-laptop / single-host default.
+	//
+	// Stamp the driver kind for the metric BEFORE we route — the
+	// request carries the target host, so we can resolve the kind
+	// without needing the VM record (which RegisterMicroVM is about
+	// to create). Arch isn't on the wire yet ; passing "" picks the
+	// primary kind, same rule HostHandleOnArch uses.
+	hostUUID := req.HostUuid
+	if hostUUID == "" {
+		hostUUID = s.localHostUUID
+	}
+	RecordRPCKind(ctx, s.adp.LookupKind(hostUUID, ""))
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchRegisterMicroVM(ctx, req, boot, shares)
 	}
