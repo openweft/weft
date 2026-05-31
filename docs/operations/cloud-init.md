@@ -43,3 +43,21 @@ overlay mesh, replica placement) is `weft up --apply`'s job and is
 documented in `cluster/README.md`. The two are designed to compose:
 cloud-init lands the prerequisites `weft up`'s SSH command stream
 assumes (per `cluster/ssh.go`'s `renderAction`).
+
+### `weft.hcl` ownership: skeleton vs cluster-driven content
+
+Cloud-init drops a *skeleton* `/etc/weft/weft.hcl` with the placeholders
+an operator would otherwise hand-fill: cluster name, etcd endpoints,
+SSH keys, weft binary URL. That gets the host bootable on its own, so
+a single-node dev box works even without ever running `weft up`.
+
+For a real cluster, the skeleton is intentionally short-lived. Put an
+`agent_config { ... }` block in `cluster.hcl` (cluster-level for the
+shared defaults, optional per-host `agent_config { ... }` inside a
+`host { }` block for overrides), and `weft up` emits a
+`PushAgentConfig` action ahead of each host's `EnsureHost`: it renders
+the merged block back to HCL and `tee`s it into `/etc/weft/weft.hcl`
+over SSH (heredoc-bounded, terminator `__WEFT_HCL_EOF__`). The agent
+then starts against the cluster-driven file. Re-running `weft up` re-pushes
+the file, so editing `cluster.hcl` is the single source of truth — no
+more chasing per-host edits.

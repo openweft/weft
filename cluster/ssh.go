@@ -60,9 +60,24 @@ func (c *Cluster) Target(h Host) SSHTarget {
 // actions (mesh, quorum growth) are anchored on it. The exact `weft` flags
 // reflect the intended bootstrap — see README for the assumptions and the
 // per-replica infra-deploy flag the executor still needs.
+// heredocMarker is the bash heredoc terminator used for PushAgentConfig.
+// Picked to be long + unique enough that no plausible HCL value could
+// collide with it on a line of its own — hclwrite quotes string values so
+// they live inside double quotes, never as a bare line.
+const heredocMarker = "__WEFT_HCL_EOF__"
+
 func renderAction(c *Cluster, a Action) (hostID, command string) {
 	seed := c.Seed()
 	switch a.Kind {
+	case PushAgentConfig:
+		// install -d is idempotent (no error if /etc/weft exists). The
+		// heredoc terminator must be at the start of a line ; the rendered
+		// HCL ends with a trailing newline (hclwrite invariant), so we
+		// don't add an extra one.
+		return a.Host, fmt.Sprintf(
+			"sudo install -d /etc/weft && sudo tee /etc/weft/weft.hcl >/dev/null <<'%s'\n%s%s",
+			heredocMarker, a.Config, heredocMarker,
+		)
 	case EnsureHost:
 		hv, az, rack := "", "", ""
 		for _, h := range c.Hosts {

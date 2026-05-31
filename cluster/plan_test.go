@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/openweft/weft/infra"
@@ -150,6 +151,96 @@ func TestBuild_ExtendSingleToCluster(t *testing.T) {
 	}
 	if len(actionsOf(p, MeshSync)) != 1 {
 		t.Error("expected a mesh-sync after membership grew")
+	}
+}
+
+// TestBuild_EmitsPushAgentConfigBeforeEnsureHost: when cluster.hcl carries
+// an `agent_config { }` block, Build emits one PushAgentConfig per new host
+// IMMEDIATELY before that host's EnsureHost, so weft-agent finds
+// /etc/weft/weft.hcl populated on startup.
+func TestBuild_EmitsPushAgentConfigBeforeEnsureHost(t *testing.T) {
+	c := threeHostCluster()
+	c.AgentConfig = &AgentConfigBlock{
+		Socket: ptr("/var/run/weft/weft.sock"),
+		Storage: &AgentStorageBlock{
+			Backend: "etcd",
+			Etcd: &AgentEtcdBlock{
+				Endpoints: []string{"http://10.0.0.11:2379", "http://10.0.0.12:2379", "http://10.0.0.13:2379"},
+			},
+		},
+	}
+	p, err := Build(c, []*infra.Plan{etcdPlan()}, State{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	// One PushAgentConfig per host, three EnsureHost — each push must
+	// appear at index N-1 of its EnsureHost (i.e. immediately before).
+	pushes := actionsOf(p, PushAgentConfig)
+	if len(pushes) != 3 {
+		t.Fatalf("push-agent-config count = %d, want 3", len(pushes))
+	}
+	// Build the index map and check pairing.
+	idxOf := func(kind ActionKind, host string) int {
+		for i, a := range p.Actions {
+			if a.Kind == kind && a.Host == host {
+				return i
+			}
+		}
+		return -1
+	}
+	for _, h := range c.Hosts {
+		pi, ei := idxOf(PushAgentConfig, h.ID), idxOf(EnsureHost, h.ID)
+		if pi < 0 || ei < 0 || pi+1 != ei {
+			t.Errorf("host %s: push idx=%d ensure idx=%d, want push immediately before ensure", h.ID, pi, ei)
+		}
+	}
+	// Rendered content is non-empty and parseable shape — sanity check.
+	for _, a := range pushes {
+		if a.Config == "" {
+			t.Errorf("host %s: empty Config payload", a.Host)
+		}
+		if !strings.Contains(a.Config, "/var/run/weft/weft.sock") {
+			t.Errorf("host %s: rendered config missing socket: %s", a.Host, a.Config)
+		}
+	}
+}
+
+// TestBuild_NoAgentConfig_NoPushAction: with no agent_config block in
+// cluster.hcl, Build emits zero PushAgentConfig actions — we don't want to
+// overwrite a host's existing /etc/weft/weft.hcl with an empty file.
+func TestBuild_NoAgentConfig_NoPushAction(t *testing.T) {
+	c := threeHostCluster()
+	p, err := Build(c, []*infra.Plan{etcdPlan()}, State{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if pushes := actionsOf(p, PushAgentConfig); len(pushes) != 0 {
+		t.Errorf("no agent_config declared → want 0 push actions, got %d", len(pushes))
+	}
+}
+
+// TestBuild_PushAgentConfig_HostOverrideRendered: a per-host override flows
+// into the rendered content for that host only.
+func TestBuild_PushAgentConfig_HostOverrideRendered(t *testing.T) {
+	c := threeHostCluster()
+	c.AgentConfig = &AgentConfigBlock{Socket: ptr("/cluster/sock")}
+	c.Hosts[1].AgentConfig = &AgentConfigBlock{Socket: ptr("/h2/sock")}
+	p, err := Build(c, []*infra.Plan{etcdPlan()}, State{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	byHost := map[string]string{}
+	for _, a := range actionsOf(p, PushAgentConfig) {
+		byHost[a.Host] = a.Config
+	}
+	if !strings.Contains(byHost["h1"], "/cluster/sock") {
+		t.Errorf("h1 config = %q, want cluster default /cluster/sock", byHost["h1"])
+	}
+	if !strings.Contains(byHost["h2"], "/h2/sock") {
+		t.Errorf("h2 config = %q, want host override /h2/sock", byHost["h2"])
+	}
+	if strings.Contains(byHost["h2"], "/cluster/sock") {
+		t.Errorf("h2 config leaked cluster default: %q", byHost["h2"])
 	}
 }
 
