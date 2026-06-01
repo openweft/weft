@@ -43,9 +43,11 @@ import (
 // cap on this dimension" — operators set what they want to
 // constrain and leave the rest unbounded.
 type TenantQuota struct {
-	CPUCount  int `json:"cpu_count,omitempty"`
-	MemoryGiB int `json:"memory_gib,omitempty"`
-	VolumeGiB int `json:"volume_gib,omitempty"`
+	CPUCount     int `json:"cpu_count,omitempty"`
+	MemoryGiB    int `json:"memory_gib,omitempty"`
+	VolumeGiB    int `json:"volume_gib,omitempty"`
+	GPUCount     int `json:"gpu_count,omitempty"`
+	GPUMemoryGiB int `json:"gpu_memory_gib,omitempty"`
 }
 
 // tenantQuotaDoc is the HCL on-disk shape. One `tenant_quota
@@ -56,10 +58,12 @@ type tenantQuotaDoc struct {
 }
 
 type tenantQuotaBlock struct {
-	ProjectUUID string `hcl:",label"`
-	CPUCount    int    `hcl:"cpu_count,optional"`
-	MemoryGiB   int    `hcl:"memory_gib,optional"`
-	VolumeGiB   int    `hcl:"volume_gib,optional"`
+	ProjectUUID  string `hcl:",label"`
+	CPUCount     int    `hcl:"cpu_count,optional"`
+	MemoryGiB    int    `hcl:"memory_gib,optional"`
+	VolumeGiB    int    `hcl:"volume_gib,optional"`
+	GPUCount     int    `hcl:"gpu_count,optional"`
+	GPUMemoryGiB int    `hcl:"gpu_memory_gib,optional"`
 }
 
 // tenantQuotaRegistry is the in-memory cache of the on-disk
@@ -89,9 +93,11 @@ func loadTenantQuotaRegistry(ctx context.Context, storage Storage) (*tenantQuota
 	}
 	for _, b := range doc.Quotas {
 		reg.byUUID[b.ProjectUUID] = TenantQuota{
-			CPUCount:  b.CPUCount,
-			MemoryGiB: b.MemoryGiB,
-			VolumeGiB: b.VolumeGiB,
+			CPUCount:     b.CPUCount,
+			MemoryGiB:    b.MemoryGiB,
+			VolumeGiB:    b.VolumeGiB,
+			GPUCount:     b.GPUCount,
+			GPUMemoryGiB: b.GPUMemoryGiB,
 		}
 	}
 	return reg, nil
@@ -120,6 +126,12 @@ func (r *tenantQuotaRegistry) saveLocked() error {
 		if q.VolumeGiB > 0 {
 			bb.SetAttributeValue("volume_gib", cty.NumberIntVal(int64(q.VolumeGiB)))
 		}
+		if q.GPUCount > 0 {
+			bb.SetAttributeValue("gpu_count", cty.NumberIntVal(int64(q.GPUCount)))
+		}
+		if q.GPUMemoryGiB > 0 {
+			bb.SetAttributeValue("gpu_memory_gib", cty.NumberIntVal(int64(q.GPUMemoryGiB)))
+		}
 		body.AppendNewline()
 	}
 	return r.storage.Save(context.Background(), f.Bytes())
@@ -138,7 +150,7 @@ func (r *tenantQuotaRegistry) set(projectUUID string, q TenantQuota) error {
 	// Zero-only quota = clear. Treats `--cpu=0 --mem=0 --volume=0`
 	// as "remove the entry" so operators can wipe a cap without
 	// thinking about whether to call a separate Delete.
-	if q.CPUCount == 0 && q.MemoryGiB == 0 && q.VolumeGiB == 0 {
+	if q.CPUCount == 0 && q.MemoryGiB == 0 && q.VolumeGiB == 0 && q.GPUCount == 0 && q.GPUMemoryGiB == 0 {
 		delete(r.byUUID, projectUUID)
 	} else {
 		r.byUUID[projectUUID] = q
@@ -267,6 +279,33 @@ func (a *Adapter) EnforceTenantQuotaForVolume(projectUUID string, sizeGiB int) e
 		return status.Errorf(codes.ResourceExhausted,
 			"tenant quota exhausted: volume_gib (allocated %d + requested %d > cap %d)",
 			alloc.VolumeGiB, sizeGiB, cap.VolumeGiB)
+	}
+	return nil
+}
+
+// EnforceTenantQuotaForGPU returns ResourceExhausted when admitting
+// a VM requesting `count` GPUs of `memoryGiB` (summed across the
+// requested set) would exceed the project's caps. Zero caps mean
+// "no limit on this dimension".
+//
+// Today this is **per-request** enforcement only — `projectAllocation`
+// doesn't yet sum across in-flight GPU VMs (RequestedGPUs isn't
+// recorded on VMInfo). The check therefore catches "single VM
+// asking for 8 GPUs against a 4 GPU cap" but not "fourth 1-GPU VM
+// pushing the project from 3 to 4 against a 3 GPU cap". Aggregate
+// enforcement lands when the VM registry tracks RequestedGPUs ;
+// see docs/operations/gpu-scheduling.md.
+func (a *Adapter) EnforceTenantQuotaForGPU(projectUUID string, count, memoryGiB int) error {
+	cap := a.TenantQuota(projectUUID)
+	if cap.GPUCount > 0 && count > cap.GPUCount {
+		return status.Errorf(codes.ResourceExhausted,
+			"tenant quota exhausted: gpu_count (requested %d > cap %d)",
+			count, cap.GPUCount)
+	}
+	if cap.GPUMemoryGiB > 0 && memoryGiB > cap.GPUMemoryGiB {
+		return status.Errorf(codes.ResourceExhausted,
+			"tenant quota exhausted: gpu_memory_gib (requested %d > cap %d)",
+			memoryGiB, cap.GPUMemoryGiB)
 	}
 	return nil
 }
