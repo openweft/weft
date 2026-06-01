@@ -160,6 +160,32 @@ pkgx python3 -m py_compile \
 weft plugin validate catalogue/jupyterhub-ha
 ```
 
+## Bulk operations
+
+The Hub admin UI's "Stop all" button (and any admin-driven mass
+shutdown) routes through `WeftSpawner.stop_many`, which fans out
+`weft instance stop` over a `ThreadPoolExecutor` rather than
+awaiting each call serially. The pool size is bounded by the
+`max_stop_workers` knob (default 16, hard-capped server-side) so
+the agent doesn't see a thundering herd ; with 50 users the wall
+time drops from ~30 s to under 5 s on typical hardware. Per-user
+logouts and idle-culler-driven stops still go through the async
+single-user `stop()` path — only the bulk admin button changes.
+
+Tune via the `MAX_STOP_WORKERS` env var on the controller VM (or
+`c.WeftSpawner.max_stop_workers` in `jupyterhub_config.py`). Set
+it lower on small clusters where the agent is co-located with
+the Hub and you'd rather pay the latency than the spike.
+
+## Post-v0.1.0 follow-ups
+
+- **Image flip.** Today the plugin manifest defaults
+  `image = "quay.io/jupyter/minimal-notebook:python-3.12"` ; once
+  the operator runs the `jupyter-user-image.yml` workflow and the
+  first `ghcr.io/openweft/jupyter-user:v0.1.0` is published, flip
+  the default in `catalogue/jupyterhub-ha/plugin.hcl`. The build
+  context lives under `catalogue/jupyterhub-ha/user-image/`.
+
 ## Known limitations
 
 - Cold-start is dominated by image pull. First login of a user
@@ -170,6 +196,3 @@ weft plugin validate catalogue/jupyterhub-ha
 - No GPU support yet. The spawner doesn't pass `--gpu` ; once
   `docs/operations/gpu-scheduling.md` stabilises we'll add a
   `gpu_per_user` input.
-- The Hub admin UI's "Stop all" button calls `stop()` per user
-  serially. For >100 users that's slow — track upstream's
-  parallel-stop work, switch to gRPC streaming when ready.

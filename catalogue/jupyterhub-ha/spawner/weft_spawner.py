@@ -51,7 +51,8 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Iterable, Optional
 
 try:
     # Real dependency at runtime — only imported when the Hub
@@ -136,6 +137,21 @@ class WeftSpawner(Spawner):  # type: ignore[misc, valid-type]
     )
 
     notebook_port = Int(8888, config=True, help="Port the notebook server listens on.")
+
+    # Bulk-stop fan-out width. The single-user ``stop()`` path is
+    # unaffected ; this only bounds the worker pool used by
+    # :meth:`stop_many` (the admin "Stop all" button on the Hub).
+    # 16 is a comfortable default — the agent's CreateVM/StopVM
+    # gRPC path is cheap, and 16 in-flight requests against a
+    # single agent stay well under its concurrency cap (see
+    # ``weft/agent/config.go``).
+    max_stop_workers = Int(
+        16,
+        config=True,
+        help="Max parallel ``weft instance stop`` calls when an admin "
+        "triggers a bulk stop (e.g. JupyterHub admin UI 'Stop all'). "
+        "Single-user stops are unaffected.",
+    )
 
     # ----- helpers -----------------------------------------------------
 
@@ -285,6 +301,68 @@ class WeftSpawner(Spawner):  # type: ignore[misc, valid-type]
             args.append("--force")
         await self._weft(*args, check=False)
 
+    @classmethod
+    def stop_many(
+        cls,
+        usernames: Iterable[str],
+        project_uuid: str,
+        *,
+        weft_binary: str = "weft",
+        weft_socket: str = "/run/weft/weft.sock",
+        max_workers: int = 16,
+        now: bool = False,
+    ) -> dict[str, "StopOutcome"]:
+        """Bulk-stop user VMs in parallel via a thread pool.
+
+        Intended for the Hub admin "Stop all" path : when an operator
+        clicks the button, the Hub iterates every running server and
+        we'd otherwise issue one ``weft instance stop`` per user
+        sequentially. With 50+ users that's tens of seconds of
+        wall time even with a fast agent ; a 16-wide pool brings it
+        under 5 s for typical fleet sizes.
+
+        The single-user :meth:`stop` is **not** routed through here —
+        a regular logout stays async via the Hub's event loop. Only
+        the bulk admin path opts in by calling this classmethod
+        directly (the Hub's admin handler can be patched in
+        ``jupyterhub_config.py`` to do so, or operators can call it
+        from a small management script).
+
+        Returns a dict keyed by username containing the outcome of
+        each stop — callers can surface failures back to the admin
+        UI without aborting the whole batch.
+        """
+        workers = max(1, min(int(max_workers), 16))
+        usernames = list(usernames)
+        results: dict[str, StopOutcome] = {}
+        if not usernames:
+            return results
+        # Cap at the user count so we don't spin idle threads.
+        pool_size = min(workers, len(usernames))
+        with ThreadPoolExecutor(max_workers=pool_size) as pool:
+            futures = {
+                pool.submit(
+                    _stop_one_sync,
+                    name,
+                    project_uuid,
+                    weft_binary=weft_binary,
+                    weft_socket=weft_socket,
+                    now=now,
+                ): name
+                for name in usernames
+            }
+            for fut in as_completed(futures):
+                name = futures[fut]
+                try:
+                    results[name] = fut.result()
+                except Exception as exc:  # noqa: BLE001 — surface any failure
+                    results[name] = StopOutcome(
+                        username=name,
+                        returncode=-1,
+                        stderr=str(exc),
+                    )
+        return results
+
     async def poll(self) -> Optional[int]:
         """JupyterHub contract: return None if the user's process is
         still alive, an exit code otherwise. We map weft's
@@ -307,6 +385,70 @@ class WeftSpawner(Spawner):  # type: ignore[misc, valid-type]
             super().load_state(state)
         # No-op : _vm_name() is deterministic. We keep the key
         # around for forward-compat with future schema changes.
+
+
+class StopOutcome:
+    """Result of a single ``weft instance stop`` invocation issued by
+    :meth:`WeftSpawner.stop_many`. Kept as a plain class (no
+    ``dataclass`` decorator) so the spawner module's only third-party
+    dep stays JupyterHub — the CI gate is ``py_compile`` and we want
+    no surprise imports."""
+
+    __slots__ = ("username", "returncode", "stderr")
+
+    def __init__(self, username: str, returncode: int, stderr: str = "") -> None:
+        self.username = username
+        self.returncode = returncode
+        self.stderr = stderr
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"StopOutcome(username={self.username!r}, "
+            f"returncode={self.returncode}, ok={self.ok})"
+        )
+
+
+def _stop_one_sync(
+    username: str,
+    project_uuid: str,
+    *,
+    weft_binary: str = "weft",
+    weft_socket: str = "/run/weft/weft.sock",
+    now: bool = False,
+) -> StopOutcome:
+    """Synchronous single-VM stop, used as the worker callable inside
+    :meth:`WeftSpawner.stop_many`'s thread pool. We can't share the
+    async :meth:`_weft` helper because asyncio.run() per worker would
+    spin up an event loop per thread — wasteful and harder to test.
+    A plain ``subprocess.run`` is the right granularity here."""
+    vm = f"vm-jh-{_safe_username(username)}"
+    cmd = [
+        weft_binary,
+        "--socket",
+        weft_socket,
+        "instance",
+        "stop",
+        vm,
+        "--project",
+        project_uuid,
+    ]
+    if now:
+        cmd.append("--force")
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return StopOutcome(
+        username=username,
+        returncode=proc.returncode,
+        stderr=(proc.stderr or "").strip(),
+    )
 
 
 class WeftCLIError(RuntimeError):

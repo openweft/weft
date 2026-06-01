@@ -57,6 +57,13 @@ c.WeftSpawner.home_volume_gib = int(os.environ.get("HOME_VOLUME_GIB", "50"))
 c.WeftSpawner.network_name = os.environ.get("USER_VM_NETWORK", "jupyterhub-control")
 c.WeftSpawner.security_group = os.environ.get("USER_VM_SG", "user-notebook")
 
+# Bulk-stop fan-out width. Only used by ``WeftSpawner.stop_many``
+# (the admin "Stop all" path) ; individual user logouts are
+# unaffected. 16 is the sweet spot between latency and agent
+# pressure ; lower it on small clusters, never raise above 16
+# (the spawner clamps it server-side anyway).
+c.WeftSpawner.max_stop_workers = int(os.environ.get("MAX_STOP_WORKERS", "16"))
+
 # Spawn timeout: cold-pull of the user image can easily run a
 # minute on first launch. After the image is cached locally on
 # every host, ~10 s is realistic.
