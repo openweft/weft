@@ -50,12 +50,19 @@ the catalogue root ; `--state-dir` overrides the instance-state path.
 
 ## Available plugins
 
-| Name                  | Kind         | Layout  | Description                                        |
-|-----------------------|--------------|---------|----------------------------------------------------|
-| `gitlab-runners-ha`   | runner-farm  | ha-3dc  | Three GitLab CI runners pinned one-per-AZ          |
-| `github-runners-ha`   | runner-farm  | ha-3dc  | Three self-hosted GitHub Actions runners           |
-| `forgejo-runners-ha`  | runner-farm  | ha-3dc  | Three Forgejo `act_runner` replicas                |
-| `jupyterhub-ha`       | portal       | ha-3dc  | Per-user notebook portal *(written by sibling agent — see [jupyterhub-ha.md](jupyterhub-ha.md))* |
+Grouped by `kind`:
+
+| Name                  | Kind            | Layout  | Description                                          |
+|-----------------------|-----------------|---------|------------------------------------------------------|
+| `gitlab-runners-ha`   | runner-farm     | ha-3dc  | Three GitLab CI runners pinned one-per-AZ            |
+| `github-runners-ha`   | runner-farm     | ha-3dc  | Three self-hosted GitHub Actions runners             |
+| `forgejo-runners-ha`  | runner-farm     | ha-3dc  | Three Forgejo `act_runner` replicas                  |
+| `jupyterhub-ha`       | portal          | ha-3dc  | Per-user notebook portal (see [jupyterhub-ha.md](jupyterhub-ha.md)) |
+| `postgres-ha`         | database        | ha-3dc  | Three Patroni-managed Postgres members with failover |
+| `redis-ha`            | cache           | ha-3dc  | Three Redis + Sentinel replicas, one per DC          |
+| `minio-ha`            | object-storage  | ha-3dc  | Four-node erasure-coded MinIO (EC:8+8, survives a DC)|
+| `vault-ha`            | secrets         | ha-3dc  | Three Vault members, Raft HA, KMS auto-unseal        |
+| `caddy-edge`          | edge-proxy      | ha-3dc  | Three Caddy replicas at network edge, ACME TLS       |
 
 The three runner plugins all share the same shape :
 
@@ -96,17 +103,12 @@ weft plugin status gitlab-runners-ha
 
 ## Authoring a new plugin
 
-1. Create `catalogue/<name>/plugin.hcl`.
-2. Wrap everything in a `plugin "<name>" { ... }` block.
-3. Set `version = "v1"`, `kind = "<runner-farm|portal|...>"`,
-   `layout = "ha-3dc"`.
-4. Declare `input`, `network`, `security_group`, `vm` blocks as
-   shown in any of the runner manifests.
-5. Add a one-page `docs/catalogue/<name>.md` describing the inputs and
-   the operator-side prerequisites.
-6. The catalogue index test (`pluginstore/manifest_test.go ::
-   TestParseCatalogue_AllShippedPluginsParse`) auto-verifies your
-   manifest as long as it sits under `catalogue/<name>/plugin.hcl`.
+1. Create `catalogue/<name>/plugin.hcl` wrapped in `plugin "<name>" {}`.
+2. Set `version = "v1"`, `kind = "..."`, `layout = "ha-3dc"`, then
+   declare `input` / `network` / `security_group` / `vm` blocks.
+3. Add a one-page `docs/catalogue/<name>.md`. The catalogue index
+   test (`pluginstore/manifest_test.go`) auto-parses your file as
+   long as it sits under `catalogue/<name>/plugin.hcl`.
 
 ## Pull/reconcile contract
 
