@@ -160,13 +160,86 @@ could redirect you to a *differently-signed-but-still-valid* artifact;
 skipping the cosign check means a SHA you copy-pasted off a phishing
 page silently becomes ground truth.
 
+## SBOM verification
+
+Every tarball and per-arch image ships an SPDX 2.3 JSON SBOM (Syft)
+plus an in-toto attestation binding the SBOM to the artifact's digest.
+Predicate type is `spdxjson` ; signing identity matches the tarball /
+image identities above.
+
+Tarball SBOM (sidecar `.spdx.json` + `.spdx.intoto.jsonl` on the Release):
+
+```sh
+cosign verify-blob-attestation \
+  --type spdxjson \
+  --bundle weft-linux-amd64_v0.1.0.tar.gz.spdx.intoto.jsonl \
+  --certificate-identity-regexp '^https://github\.com/openweft/weft/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+  --certificate-oidc-issuer     'https://token.actions.githubusercontent.com' \
+  weft-linux-amd64_v0.1.0.tar.gz
+```
+
+For an OCI image SBOM (attestation is co-located with the manifest in
+ghcr.io — nothing to download by hand):
+
+```sh
+# 1. verify the attestation provenance
+cosign verify-attestation --type spdxjson \
+  --certificate-identity-regexp '^https://github\.com/openweft/weft/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+  --certificate-oidc-issuer     'https://token.actions.githubusercontent.com' \
+  ghcr.io/openweft/weft:v0.1.0
+# 2. extract the SPDX payload for grep / dependency-tool ingest
+syft attest --output spdx-json ghcr.io/openweft/weft:v0.1.0 > weft.spdx.json
+```
+
+Incident response — flag a CVE-laden dependency in the verified SBOM:
+
+```sh
+# CVE-2024-XXXXX is in golang.org/x/net pre-v0.27.0
+jq -r '.packages[] | select(.name=="golang.org/x/net") | .versionInfo' weft.spdx.json
+```
+
+If the printed version is below the fixed tag, pin a patched release.
+
+## SLSA provenance
+
+Every release also publishes a SLSA L3 provenance attestation built by
+the official `slsa-framework/slsa-github-generator` reusable workflow.
+"L3" means, concretely:
+
+- **Hermetic, ephemeral build** — the generator runs on an isolated
+  GitHub-managed builder ; our workflow never touches the signing key.
+- **Non-falsifiable identity** — the builder's OIDC subject points at
+  `slsa-framework/slsa-github-generator`, not our `release.yml`.
+  Forging it requires compromising the SLSA repo, not ours.
+- **Source-pinned** — the provenance binds the artifact to the exact
+  git commit + tag the workflow built from.
+
+Verify a tarball with the [`slsa-verifier`](https://github.com/slsa-framework/slsa-verifier):
+
+```sh
+slsa-verifier verify-artifact \
+  --provenance-path  weft-linux-amd64_v0.1.0.tar.gz.intoto.jsonl \
+  --source-uri       github.com/openweft/weft \
+  --source-tag       v0.1.0 \
+  weft-linux-amd64_v0.1.0.tar.gz
+```
+
+Verify an OCI image (the provenance is attached to the manifest):
+
+```sh
+slsa-verifier verify-image \
+  --source-uri github.com/openweft/weft \
+  --source-tag v0.1.0 \
+  ghcr.io/openweft/weft:v0.1.0@sha256:<digest>
+```
+
+Exit 0 only if the provenance chains to the SLSA generator's builder
+identity, the source URI matches, and the artifact digest matches the
+provenance subject. Strict consumers should require provenance + cosign
+signature + SHA256 pin together — they catch different failure modes.
+
 ## What this doesn't cover (yet)
 
-- **SBOM** — weft does not yet publish a CycloneDX or SPDX SBOM
-  alongside releases. Follow-up: extend `release.yml` to run
-  `syft packages` against the build output and attach (and sign) the
-  result. Until then, `go version -m` on the verified binary is the
-  closest stand-in.
 - **Reproducible builds** — `release.yml` builds with
   `go build -trimpath -ldflags "-s -w -X main.version=…"` (most of the
   way there), but we make no public reproducibility claim — no
