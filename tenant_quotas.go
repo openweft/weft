@@ -192,17 +192,88 @@ func (a *Adapter) TenantQuota(projectUUID string) TenantQuota {
 	return a.tenantQuotas.get(projectUUID)
 }
 
+// gpuModelMemoryGiB maps a canonical GPU model to its per-card
+// memory in GiB. Used by projectAllocation to sum a project's
+// gpu_memory_gib footprint across every VM's RequestedGPUs entry.
+//
+// Per [[openweft_gpu_fleet]] the supported fleet is **H200 +
+// RTX 6000 Ada only** — other SKUs (L40S / H100 / A100) are
+// intentionally absent. Unknown models contribute 0 to the
+// memory sum : the operator can still cap by gpu_count, and a
+// future host-inventory-driven lookup will replace this static
+// map when the scheduler can source memory from the agent's
+// detected GPUs instead of a hardcoded table.
+//
+// weft-internal, replace with a host-inventory-driven lookup
+// when the scheduler sources memory from host info instead of
+// hardcoded.
+var gpuModelMemoryGiB = map[string]int{
+	"H200":         141, // HBM3e
+	"RTX-6000-Ada": 48,  // GDDR6
+}
+
+// gpuRequestMemoryGiB returns the memory contribution of one
+// GPURequest entry : Count × per-card memory for known models,
+// 0 for unknown SKUs (count cap still enforces the request).
+// Case-insensitive match on Model so operators staging "h200"
+// vs "H200" both land in the lookup.
+func gpuRequestMemoryGiB(r GPURequest) int {
+	count := r.Count
+	if count <= 0 {
+		count = 1
+	}
+	for model, mem := range gpuModelMemoryGiB {
+		if equalFoldASCII(r.Model, model) {
+			return count * mem
+		}
+	}
+	return 0
+}
+
+// equalFoldASCII is a tiny ASCII-only case-fold compare. Kept
+// local so this file doesn't grow a `strings` import for one
+// callsite ; the canonical GPU model set is ASCII anyway.
+func equalFoldASCII(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ca, cb := a[i], b[i]
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
+}
+
 // projectAllocation sums the currently-allocated cpu/memory/volume
-// across all VMs and volumes belonging to `projectUUID`. Used by
-// the enforcement helpers to compare proposed (cap, allocated+new)
-// pairs. Returned values are in units that match TenantQuota
-// (CPUs as count, memory in GiB rounded up, volumes in GiB).
+// /gpu_count/gpu_memory_gib across all VMs and volumes belonging to
+// `projectUUID`. Used by the enforcement helpers to compare proposed
+// (cap, allocated+new) pairs. Returned values are in units that
+// match TenantQuota (CPUs as count, memory in GiB rounded up, volumes
+// in GiB, gpu_count as the per-VM sum of `len(RequestedGPUs)`-style
+// requests with Count defaulted to 1, gpu_memory_gib via the
+// gpuModelMemoryGiB table).
 func (a *Adapter) projectAllocation(projectUUID string) TenantQuota {
 	out := TenantQuota{}
 	for _, v := range a.vmReg.listForProject(projectUUID) {
 		out.CPUCount += v.CPUCount
 		if v.MemoryMiB > 0 {
 			out.MemoryGiB += ceilDivInt(v.MemoryMiB, 1024)
+		}
+		for _, g := range v.RequestedGPUs {
+			c := g.Count
+			if c <= 0 {
+				c = 1
+			}
+			out.GPUCount += c
+			out.GPUMemoryGiB += gpuRequestMemoryGiB(g)
 		}
 	}
 	for _, vol := range a.volumeReg.listForProject(projectUUID) {
@@ -284,28 +355,44 @@ func (a *Adapter) EnforceTenantQuotaForVolume(projectUUID string, sizeGiB int) e
 }
 
 // EnforceTenantQuotaForGPU returns ResourceExhausted when admitting
-// a VM requesting `count` GPUs of `memoryGiB` (summed across the
-// requested set) would exceed the project's caps. Zero caps mean
-// "no limit on this dimension".
+// a VM whose `requestedGPUs` slice would push the project's
+// gpu_count / gpu_memory_gib allocation past its caps. Zero caps
+// mean "no limit on this dimension". A nil/empty slice is a
+// no-op (re-checks the existing allocation against the cap, the
+// RegisterMicroVM no-cpu/mem pattern).
 //
-// Today this is **per-request** enforcement only — `projectAllocation`
-// doesn't yet sum across in-flight GPU VMs (RequestedGPUs isn't
-// recorded on VMInfo). The check therefore catches "single VM
-// asking for 8 GPUs against a 4 GPU cap" but not "fourth 1-GPU VM
-// pushing the project from 3 to 4 against a 3 GPU cap". Aggregate
-// enforcement lands when the VM registry tracks RequestedGPUs ;
-// see docs/operations/gpu-scheduling.md.
-func (a *Adapter) EnforceTenantQuotaForGPU(projectUUID string, count, memoryGiB int) error {
+// Aggregate enforcement : sums the to-be-added (Count, memory)
+// from the slice + the already-allocated total from
+// projectAllocation, mirroring how EnforceTenantQuotaForVM and
+// EnforceTenantQuotaForVolume frame their delta vs cap
+// comparison. This catches both the "single VM asking for 8
+// GPUs against a 4 GPU cap" (per-request) and the "fourth 1-GPU
+// VM pushing the project from 3 to 4 against a 3 GPU cap"
+// (aggregate) cases the per-request-only predecessor missed.
+func (a *Adapter) EnforceTenantQuotaForGPU(projectUUID string, requestedGPUs []GPURequest) error {
 	cap := a.TenantQuota(projectUUID)
-	if cap.GPUCount > 0 && count > cap.GPUCount {
-		return status.Errorf(codes.ResourceExhausted,
-			"tenant quota exhausted: gpu_count (requested %d > cap %d)",
-			count, cap.GPUCount)
+	if cap.GPUCount <= 0 && cap.GPUMemoryGiB <= 0 {
+		return nil
 	}
-	if cap.GPUMemoryGiB > 0 && memoryGiB > cap.GPUMemoryGiB {
+	var deltaCount, deltaMem int
+	for _, g := range requestedGPUs {
+		c := g.Count
+		if c <= 0 {
+			c = 1
+		}
+		deltaCount += c
+		deltaMem += gpuRequestMemoryGiB(g)
+	}
+	alloc := a.projectAllocation(projectUUID)
+	if cap.GPUCount > 0 && alloc.GPUCount+deltaCount > cap.GPUCount {
 		return status.Errorf(codes.ResourceExhausted,
-			"tenant quota exhausted: gpu_memory_gib (requested %d > cap %d)",
-			memoryGiB, cap.GPUMemoryGiB)
+			"tenant quota exhausted: gpu_count (allocated %d + requested %d > cap %d)",
+			alloc.GPUCount, deltaCount, cap.GPUCount)
+	}
+	if cap.GPUMemoryGiB > 0 && alloc.GPUMemoryGiB+deltaMem > cap.GPUMemoryGiB {
+		return status.Errorf(codes.ResourceExhausted,
+			"tenant quota exhausted: gpu_memory_gib (allocated %d + requested %d > cap %d)",
+			alloc.GPUMemoryGiB, deltaMem, cap.GPUMemoryGiB)
 	}
 	return nil
 }

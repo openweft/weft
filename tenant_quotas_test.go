@@ -227,3 +227,204 @@ func TestEnforceVM_ContextlessIsPureFunction(t *testing.T) {
 		t.Errorf("no caller, no cap, should allow: %v", err)
 	}
 }
+
+// seedGPUVM is the quota-test helper that drops one VM with the
+// given RequestedGPUs into the registry under f.projUUID, bypassing
+// the driver-handle plumbing that RegisterVM exercises (the
+// projectAllocation aggregate only reads vmRegistry, so a direct
+// create is fine for the arithmetic the tests pin). Returns nothing
+// — failures fatal the test on the spot.
+func seedGPUVM(t *testing.T, f quotaFixture, hostUUID, name string, gpus []GPURequest) {
+	t.Helper()
+	if _, err := f.a.vmReg.create(CreateVMSpec{
+		ProjectUUID:   f.projUUID,
+		Name:          name,
+		HostUUID:      hostUUID,
+		RequestedGPUs: gpus,
+	}); err != nil {
+		t.Fatalf("seed vm %q: %v", name, err)
+	}
+}
+
+// TestEnforceGPU_AggregateCountTrips pins the aggregate-enforcement
+// gap commit 3f18e2a2d left open : three 1-GPU VMs already in the
+// project + a fourth 1-GPU VM admission against a gpu_count=3 cap
+// must trip. The pre-aggregate per-request-only check missed this
+// because every individual request (1 ≤ 3) cleared the cap on its
+// own. See the new projectAllocation GPU sum.
+func TestEnforceGPU_AggregateCountTrips(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{GPUCount: 3}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	host, err := f.a.RegisterHost(RegisterHostSpec{Hostname: "h-gpu", Endpoint: "tcp://h-gpu:1"})
+	if err != nil {
+		t.Fatalf("RegisterHost: %v", err)
+	}
+	// Three 1-GPU VMs already in the project — total = 3, exactly
+	// at cap.
+	one := []GPURequest{{Vendor: GPUVendorNVIDIA, Model: "H200", Count: 1}}
+	seedGPUVM(t, f, host.UUID, "vm1", one)
+	seedGPUVM(t, f, host.UUID, "vm2", one)
+	seedGPUVM(t, f, host.UUID, "vm3", one)
+	// Re-checking with nil delta stays clean (3 ≤ 3).
+	if err := f.a.EnforceTenantQuotaForGPU(f.projUUID, nil); err != nil {
+		t.Errorf("at-cap re-check should fit: %v", err)
+	}
+	// Fourth 1-GPU admission must trip : 3 + 1 > 3.
+	err = f.a.EnforceTenantQuotaForGPU(f.projUUID, one)
+	if err == nil {
+		t.Fatal("expected ResourceExhausted on aggregate gpu_count, got nil")
+	}
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("got code %s, want ResourceExhausted", status.Code(err))
+	}
+	if !contains(err.Error(), "gpu_count") {
+		t.Errorf("error %q should mention gpu_count", err.Error())
+	}
+}
+
+// TestEnforceGPU_PerRequestStillTrips pins the per-request path
+// stays in force after the refactor : a single VM asking for 8
+// GPUs against a gpu_count=4 cap on an empty project must still
+// fail (the pre-aggregate behaviour we don't want to regress).
+func TestEnforceGPU_PerRequestStillTrips(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{GPUCount: 4}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	// No VMs registered → alloc=0 ; the request alone (8) breaches.
+	err := f.a.EnforceTenantQuotaForGPU(f.projUUID, []GPURequest{
+		{Vendor: GPUVendorNVIDIA, Model: "H200", Count: 8},
+	})
+	if err == nil {
+		t.Fatal("expected ResourceExhausted on per-request gpu_count, got nil")
+	}
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("got code %s, want ResourceExhausted", status.Code(err))
+	}
+}
+
+// TestEnforceGPU_AggregateMemoryTrips pins the gpu_memory_gib
+// dimension : three H200 VMs (3 × 141 = 423 GiB already
+// allocated) + a fourth H200 admission against a 400 GiB cap
+// must trip. Exercises the static gpuModelMemoryGiB lookup
+// + projectAllocation memory sum.
+func TestEnforceGPU_AggregateMemoryTrips(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{GPUMemoryGiB: 400}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	host, err := f.a.RegisterHost(RegisterHostSpec{Hostname: "h-gpu", Endpoint: "tcp://h-gpu:1"})
+	if err != nil {
+		t.Fatalf("RegisterHost: %v", err)
+	}
+	h200 := []GPURequest{{Vendor: GPUVendorNVIDIA, Model: "H200", Count: 1}}
+	// Three H200 already in the project — 3 × 141 = 423 GiB > 400 GiB
+	// cap on its own, but the seed bypasses enforcement to set up
+	// the "already-overcommitted-on-aggregate-mem" state. Even at
+	// 282 GiB (2 × 141) the cap holds for a 3rd 141-GiB admission ;
+	// we use the more decisive 3-VM seed to also pin the math.
+	seedGPUVM(t, f, host.UUID, "vm1", h200)
+	seedGPUVM(t, f, host.UUID, "vm2", h200)
+	seedGPUVM(t, f, host.UUID, "vm3", h200)
+	// Fourth H200 : alloc=423 + delta=141 > cap=400.
+	err = f.a.EnforceTenantQuotaForGPU(f.projUUID, h200)
+	if err == nil {
+		t.Fatal("expected ResourceExhausted on aggregate gpu_memory_gib, got nil")
+	}
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("got code %s, want ResourceExhausted", status.Code(err))
+	}
+	if !contains(err.Error(), "gpu_memory_gib") {
+		t.Errorf("error %q should mention gpu_memory_gib", err.Error())
+	}
+}
+
+// TestEnforceGPU_UnknownModelFallsBackToZeroMemory pins the
+// fallback : a request for an unknown SKU (e.g. "L40S", absent
+// from the gpuModelMemoryGiB table per [[openweft_gpu_fleet]])
+// contributes 0 to the memory sum, so the gpu_memory_gib cap
+// can't catch the request — but the operator can still cap by
+// gpu_count. The two halves of this test pin both behaviours so
+// the fallback doesn't regress into "unknown SKUs silently
+// bypass every GPU cap".
+func TestEnforceGPU_UnknownModelFallsBackToZeroMemory(t *testing.T) {
+	f := newQuotaFixture(t)
+	// A tiny memory cap that 1 known H200 would breach but an
+	// unknown SKU should sail past (memory contribution is 0).
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{GPUMemoryGiB: 10}); err != nil {
+		t.Fatalf("set memory cap: %v", err)
+	}
+	if err := f.a.EnforceTenantQuotaForGPU(f.projUUID, []GPURequest{
+		{Vendor: GPUVendorNVIDIA, Model: "L40S", Count: 4},
+	}); err != nil {
+		t.Errorf("unknown SKU should contribute 0 GiB, got %v", err)
+	}
+	// Same unknown SKU against a gpu_count cap : the count
+	// dimension still applies (4 > 2).
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{GPUCount: 2}); err != nil {
+		t.Fatalf("set count cap: %v", err)
+	}
+	err := f.a.EnforceTenantQuotaForGPU(f.projUUID, []GPURequest{
+		{Vendor: GPUVendorNVIDIA, Model: "L40S", Count: 4},
+	})
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("unknown SKU still capped by gpu_count, got %v", err)
+	}
+}
+
+// TestEnforceGPU_UnlimitedAllows pins the "zero cap = unlimited"
+// short-circuit : a fresh project with no quota set must allow
+// any GPU request (no allocation lookup, no error path).
+func TestEnforceGPU_UnlimitedAllows(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.EnforceTenantQuotaForGPU(f.projUUID, []GPURequest{
+		{Vendor: GPUVendorNVIDIA, Model: "H200", Count: 999},
+	}); err != nil {
+		t.Fatalf("unlimited should allow: %v", err)
+	}
+}
+
+// TestVMRegistry_RequestedGPUsRoundTrip pins the HCL persistence
+// of the new VM.RequestedGPUs field : seed a VM with two GPU
+// requests, reload the registry from the same storage, and
+// confirm the slice round-trips verbatim. Back-compat with old
+// blocks (where the field is absent) is implicit — the load path
+// treats no `requested_gpu` block as nil RequestedGPUs.
+func TestVMRegistry_RequestedGPUsRoundTrip(t *testing.T) {
+	storage := NewMemStorage()
+	reg, err := loadVMRegistry(context.Background(), storage)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := []GPURequest{
+		{Vendor: GPUVendorNVIDIA, Model: "H200", Count: 2, MIGSlice: "1g.10gb"},
+		{Vendor: GPUVendorNVIDIA, Model: "RTX-6000-Ada", Count: 1},
+	}
+	v, err := reg.create(CreateVMSpec{
+		ProjectUUID:   "p-1",
+		Name:          "gpu-vm",
+		HostUUID:      "h-1",
+		RequestedGPUs: want,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	reg2, err := loadVMRegistry(context.Background(), storage)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	got, ok := reg2.lookupByUUID(v.UUID)
+	if !ok {
+		t.Fatal("vm missing after reload")
+	}
+	if len(got.RequestedGPUs) != len(want) {
+		t.Fatalf("RequestedGPUs len = %d, want %d", len(got.RequestedGPUs), len(want))
+	}
+	for i := range want {
+		if got.RequestedGPUs[i] != want[i] {
+			t.Errorf("RequestedGPUs[%d] = %+v, want %+v", i, got.RequestedGPUs[i], want[i])
+		}
+	}
+}
