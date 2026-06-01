@@ -1,0 +1,107 @@
+name: verify-release
+
+# Manually-triggered reproducible-build verifier. Given a tag, builds
+# weft twice in fresh sandboxes and asserts the produced tarballs are
+# bit-for-bit identical (same sha256).
+#
+# Workflow_dispatch-only per feedback_no_autopublish_dev — this never
+# fires on push.
+#
+# See docs/operations/reproducible-builds.md for the guarantee, the
+# semantics of SOURCE_DATE_EPOCH, and the list of artifacts that are
+# NOT reproducible by design (SBOM JSON timestamps, sigstore signature
+# transparency-log entries, etc.).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to verify (e.g. v0.1.0).'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: build twice + diff sha256
+        # Each pass runs inside its own ephemeral golang:1.26-bookworm
+        # container. Working dirs (/r1, /r2) are distinct sibling
+        # checkouts so $PWD, file metadata, and Go module cache lookups
+        # cannot leak across the two builds. A reproducible build
+        # produces identical sha256s ; anything else is a regression
+        # in either the workflow flags or an upstream toolchain bump.
+        env:
+          TAG: ${{ inputs.tag }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          build_once() {
+            local workdir="$1"
+            docker run --rm \
+              -v "${workdir}:/src" \
+              -w /src \
+              -e GOOS -e GOARCH -e TAG \
+              -e CGO_ENABLED=0 \
+              golang:1.26-bookworm bash -ec '
+                git config --global --add safe.directory /src
+                git clone --depth 1 --branch "${TAG}" "https://github.com/'"${REPO}"'.git" /work
+                cd /work
+                SOURCE_DATE_EPOCH="$(git log -1 --format=%ct HEAD)"
+                export SOURCE_DATE_EPOCH
+                mkdir -p out
+                go build \
+                  -trimpath \
+                  -buildvcs=false \
+                  -ldflags "-s -w -buildid= -X main.version=${TAG}" \
+                  -o out/weft ./cmd/weft
+                tar \
+                  --sort=name \
+                  --mtime="@${SOURCE_DATE_EPOCH}" \
+                  --owner=0 --group=0 --numeric-owner \
+                  -C out -cf - weft \
+                  | gzip -n -9 > /src/weft.tar.gz
+                sha256sum /src/weft.tar.gz
+              '
+          }
+
+          mkdir -p r1 r2
+          build_once "$PWD/r1"
+          build_once "$PWD/r2"
+
+          h1="$(sha256sum r1/weft.tar.gz | awk '{print $1}')"
+          h2="$(sha256sum r2/weft.tar.gz | awk '{print $1}')"
+
+          {
+            echo "## reproducible-build verify (${TAG}, ${GOOS}/${GOARCH})"
+            echo
+            echo "| pass | sha256 |"
+            echo "|------|--------|"
+            echo "| 1 | \`${h1}\` |"
+            echo "| 2 | \`${h2}\` |"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          if [ "${h1}" != "${h2}" ]; then
+            echo "::error::tarball sha256 differs between two builds of ${TAG} on ${GOOS}/${GOARCH}"
+            echo "diff (skip if binary):"
+            diff <(xxd r1/weft.tar.gz | head -64) <(xxd r2/weft.tar.gz | head -64) || true
+            exit 1
+          fi
+          echo "::notice::reproducible-build verified for ${TAG} on ${GOOS}/${GOARCH}"
