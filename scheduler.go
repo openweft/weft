@@ -67,6 +67,25 @@ type ScheduleRequest struct {
 	// the host. Implements hard label matching only — set
 	// arithmetic / "in / not-in" come later if needed.
 	LabelSelectors map[string]string
+	// GPU is the single-axis SchedulingRule filter. Recognised
+	// forms : "" (no constraint), "none" (host must have no GPUs),
+	// "any-nvidia" (any NVIDIA card), or a SKU string ("h200" /
+	// "rtx-6000-ada", case-insensitive). See gpu.go's
+	// gpuAxisMatches for the semantics.
+	//
+	// Per [[openweft_nominal_binding]] this is one matching
+	// dimension among AZ / Rack / Host / labels ; an explicit
+	// nominal binding still wins for SchedulingRule counting.
+	GPU string
+	// RequestedGPUs is the fine-grained per-VM request : the
+	// host's inventory must satisfy EVERY entry (vendor + model +
+	// count + optional MIG slice). Empty slice = no GPU request.
+	//
+	// Surfaces a gRPC ResourceExhausted error from Schedule()
+	// when no candidate host can satisfy the request — same code
+	// the tenant-quotas layer uses for "cluster full" so clients
+	// can render a coherent "no GPU capacity" message.
+	RequestedGPUs []GPURequest
 }
 
 // Proximity is the cross-replica affinity setting in a
@@ -150,22 +169,55 @@ type FirstFitScheduler struct{}
 
 // Schedule returns the first matching active host, or an error
 // listing the constraints that couldn't be satisfied.
+//
+// GPU-shaped failure modes return a gRPC ResourceExhausted error
+// (see gpu.go errGPUUnsatisfied) so the dispatch layer can surface
+// "no GPU capacity" distinctly from generic scheduling failures.
+// Every other failure stays on the plain fmt.Errorf path the
+// existing callers already handle.
 func (FirstFitScheduler) Schedule(ctx context.Context, req ScheduleRequest, candidates []Host) (Host, error) {
 	if len(candidates) == 0 {
 		return Host{}, fmt.Errorf("schedule: no hosts in the cluster")
 	}
 	var anyActive bool
+	// Track the non-GPU host-pool size so we can distinguish
+	// "GPU axis pruned every host" from "no host ever matched
+	// the non-GPU axes". Without the split, asking for h200 on a
+	// cluster of zero H200 hosts would report a generic miss ;
+	// callers (webui) want the explicit ResourceExhausted hint.
+	var hadGPUCapableMiss bool
 	for _, h := range candidates {
 		if h.State == HostStateActive {
 			anyActive = true
 		}
 		if !hostMatches(req, h) {
+			// If GPU axes are the *only* failing dimension on this
+			// otherwise-matching host, flag the GPU-specific path.
+			if (req.GPU != "" || len(req.RequestedGPUs) > 0) && hostMatchesIgnoringGPU(req, h) {
+				hadGPUCapableMiss = true
+			}
 			continue
 		}
 		return h, nil
 	}
 	if !anyActive {
 		return Host{}, fmt.Errorf("schedule: no active hosts in the cluster (all draining / down)")
+	}
+	if hadGPUCapableMiss {
+		return Host{}, errGPUUnsatisfied(fmt.Sprintf(
+			"no host satisfies GPU constraint (axis=%q requested=%d)",
+			req.GPU, len(req.RequestedGPUs),
+		))
+	}
+	// GPU was set but NO host matched the non-GPU dimensions either :
+	// still surface ResourceExhausted because, from the caller's
+	// point of view, "I asked for a GPU and can't have it" is
+	// indistinguishable from the narrower miss.
+	if req.GPU != "" || len(req.RequestedGPUs) > 0 {
+		return Host{}, errGPUUnsatisfied(fmt.Sprintf(
+			"no host satisfies GPU constraint (axis=%q requested=%d) ; non-GPU axes also unmet",
+			req.GPU, len(req.RequestedGPUs),
+		))
 	}
 	return Host{}, fmt.Errorf("schedule: no active host matches request (project=%s vm=%s arch=%q hyp=%q az=%q net=%v vol=%v labels=%v)",
 		req.ProjectUUID, req.VMName, req.Architecture, req.Hypervisor, req.AZ,
@@ -177,6 +229,30 @@ func (FirstFitScheduler) Schedule(ctx context.Context, req ScheduleRequest, cand
 // Draining hosts don't accept new placements; Down hosts can't
 // serve them.
 func hostMatches(req ScheduleRequest, h Host) bool {
+	if !hostMatchesIgnoringGPU(req, h) {
+		return false
+	}
+	// GPU axis (SchedulingRule's single-axis form).
+	if !gpuAxisMatches(req.GPU, h.GPUs) {
+		return false
+	}
+	// Fine-grained per-VM GPU requests : the host must satisfy
+	// EVERY entry. Each entry independently asks for vendor +
+	// (model | "any") + count + optional MIG slice.
+	for _, gr := range req.RequestedGPUs {
+		if !gpuRequestSatisfied(gr, h.GPUs) {
+			return false
+		}
+	}
+	return true
+}
+
+// hostMatchesIgnoringGPU is the non-GPU half of hostMatches —
+// architecture, hypervisor, AZ, capabilities, labels. Lifted out
+// so Schedule() can tell "host failed the GPU axis only" from
+// "host failed everything", which drives the ResourceExhausted vs
+// generic-error split.
+func hostMatchesIgnoringGPU(req ScheduleRequest, h Host) bool {
 	if h.State != HostStateActive {
 		return false
 	}
