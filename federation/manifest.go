@@ -125,6 +125,19 @@ func (DenyAllVerifier) Verify(_ *FederationManifest, _ []byte) error {
 	return errors.New("federation: no verifier configured (deny-all)")
 }
 
+// Ed25519Verifier adapts a fixed ed25519 public key to the Verifier
+// interface, so call sites that take a Verifier can plug in the
+// ed25519 path without depending on the *FederationManifest.Verify
+// method receiver shape.
+type Ed25519Verifier struct {
+	Pub ed25519.PublicKey
+}
+
+// Verify implements Verifier.
+func (e Ed25519Verifier) Verify(m *FederationManifest, sig []byte) error {
+	return m.Verify(e.Pub, sig)
+}
+
 // VerifyManifest validates the manifest's structure then asks v to
 // verify the signature. Returns the first error encountered.
 func VerifyManifest(v Verifier, m *FederationManifest, sig []byte) error {
@@ -137,15 +150,14 @@ func VerifyManifest(v Verifier, m *FederationManifest, sig []byte) error {
 	return v.Verify(m, sig)
 }
 
-// Sign returns an ed25519 signature over the manifest's canonical JSON
-// encoding (the same bytes Marshal yields). Pinned to ed25519 instead
-// of JOSE / cosign to keep the v0.2 lite path dependency-free and
-// the verifier surface tiny — federation-lite ships a fixed scheme,
-// federation-full can layer cosign / JWS on top later if the operator
-// asks for it. Returns the canonical signature (64 bytes).
+// Sign produces an ed25519 signature over the manifest's canonical
+// JSON bytes (Marshal output). Caller supplies the private key ;
+// the wire-side counterpart is Verify(pub, sig). Pinning the scheme
+// to ed25519 keeps the JOSE attack surface out of the federation
+// data plane.
 func (m *FederationManifest) Sign(priv ed25519.PrivateKey) ([]byte, error) {
 	if len(priv) != ed25519.PrivateKeySize {
-		return nil, fmt.Errorf("federation: ed25519 private key must be %d bytes, got %d", ed25519.PrivateKeySize, len(priv))
+		return nil, fmt.Errorf("federation: ed25519 private key must be %d bytes (got %d)", ed25519.PrivateKeySize, len(priv))
 	}
 	b, err := m.Marshal()
 	if err != nil {
@@ -154,37 +166,23 @@ func (m *FederationManifest) Sign(priv ed25519.PrivateKey) ([]byte, error) {
 	return ed25519.Sign(priv, b), nil
 }
 
-// Verify checks sig against the manifest's canonical JSON encoding
-// using pub. Returns nil on success, an error if the signature is
-// wrong, the key is the wrong size, or the manifest is structurally
-// invalid (we validate first so a corrupt manifest can't sneak past
-// signature check on a recomputed byte stream).
+// Verify checks the ed25519 signature against the manifest's
+// canonical JSON bytes (Marshal output). Returns nil on a valid
+// signature, an error otherwise (mismatch, wrong size, or manifest
+// validation failure).
 func (m *FederationManifest) Verify(pub ed25519.PublicKey, sig []byte) error {
 	if len(pub) != ed25519.PublicKeySize {
-		return fmt.Errorf("federation: ed25519 public key must be %d bytes, got %d", ed25519.PublicKeySize, len(pub))
+		return fmt.Errorf("federation: ed25519 public key must be %d bytes (got %d)", ed25519.PublicKeySize, len(pub))
 	}
 	if len(sig) != ed25519.SignatureSize {
-		return fmt.Errorf("federation: ed25519 signature must be %d bytes, got %d", ed25519.SignatureSize, len(sig))
+		return fmt.Errorf("federation: ed25519 signature must be %d bytes (got %d)", ed25519.SignatureSize, len(sig))
 	}
 	b, err := m.Marshal()
 	if err != nil {
 		return err
 	}
 	if !ed25519.Verify(pub, b, sig) {
-		return errors.New("federation: ed25519 signature mismatch")
+		return errors.New("federation: signature mismatch")
 	}
 	return nil
-}
-
-// Ed25519Verifier adapts an ed25519 public key to the Verifier
-// interface. Pairs with FederationManifest.Sign on the producer side
-// — the peer-poll goroutine in federation/poller.go uses it to
-// verify each /cluster-info response.
-type Ed25519Verifier struct {
-	Pub ed25519.PublicKey
-}
-
-// Verify implements Verifier.
-func (e Ed25519Verifier) Verify(m *FederationManifest, sig []byte) error {
-	return m.Verify(e.Pub, sig)
 }
