@@ -217,6 +217,13 @@ type VZAdapter interface {
 	SetTenantQuota(projectUUID string, q TenantQuota) error
 	EnforceTenantQuotaForVM(projectUUID string, cpu, memoryMiB int) error
 	EnforceTenantQuotaForVolume(projectUUID string, sizeGiB int) error
+	// EnforceTenantQuotaForGPU returns ResourceExhausted when
+	// admitting a VM with the given RequestedGPUs would push the
+	// project's gpu_count / gpu_memory_gib allocation past its
+	// caps. Aggregate across the project's already-running VMs —
+	// catches both the per-request and the n×small-VMs paths.
+	// See tenant_quotas.go.
+	EnforceTenantQuotaForGPU(projectUUID string, requestedGPUs []GPURequest) error
 	DiskPath(name string) string
 	CachedImagePath(imageURL string) (string, error)
 	ListCachedImages() ([]CachedImage, error)

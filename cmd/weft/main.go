@@ -31,7 +31,6 @@ import (
 	"github.com/openweft/weft/cmd/weft/admin"
 	"github.com/openweft/weft/cmd/weft/clean"
 	"github.com/openweft/weft/cmd/weft/events"
-	wftfederation "github.com/openweft/weft/cmd/weft/federation"
 	"github.com/openweft/weft/cmd/weft/flavor"
 	"github.com/openweft/weft/cmd/weft/host"
 	"github.com/openweft/weft/cmd/weft/image"
@@ -146,10 +145,6 @@ running agent.`,
 		login.WhoamiCommand(),
 		overlaycmd.Command(),
 		plugin.Command(&socketPath, &sshSocket, &sshKey),
-		// Federation-lite (HTTP-pull, see docs/design/federation.md).
-		// Local-only verbs that read/write the federation block of
-		// weft.hcl — no agent RPC, so no socket/ssh-socket flags.
-		wftfederation.Command(),
 	)
 	return root
 }
