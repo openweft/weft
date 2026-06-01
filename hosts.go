@@ -68,26 +68,26 @@ const (
 //
 // Placement hierarchy (per [[weft-placement-rules]]):
 //
-//   AZ (availability zone / datacenter)
-//     └── Rack (top-of-rack switch / power domain)
-//           └── Host (this entry, one hypervisor instance)
+//	AZ (availability zone / datacenter)
+//	  └── Rack (top-of-rack switch / power domain)
+//	        └── Host (this entry, one hypervisor instance)
 //
 // Anti-affinity at the Rack level protects against single-rack
 // failure modes (ToR switch, PDU) that don't take out the whole
 // AZ. Optional — single-rack dev clusters leave it empty.
 type Host struct {
-	UUID           string            `json:"uuid"`
-	Hostname       string            `json:"hostname"`
-	AZ             string            `json:"az"`
-	Rack           string            `json:"rack,omitempty"`
-	Endpoint       string            `json:"endpoint"` // host:port of the agent's gRPC listener
+	UUID     string `json:"uuid"`
+	Hostname string `json:"hostname"`
+	AZ       string `json:"az"`
+	Rack     string `json:"rack,omitempty"`
+	Endpoint string `json:"endpoint"` // host:port of the agent's gRPC listener
 	// Hypervisor / Architecture are the legacy single-driver fields ;
 	// today every registration writes them as a singleton "primary"
 	// driver (the first entry of Drivers when Drivers is non-empty).
 	// Kept on the wire for backward-compat with schedulers / clients
 	// that don't know about Drivers yet.
-	Hypervisor     string            `json:"hypervisor"`
-	Architecture   string            `json:"architecture"`
+	Hypervisor   string `json:"hypervisor"`
+	Architecture string `json:"architecture"`
 	// Drivers is the full capability list — one entry per
 	// weft-driver-<kind> subprocess this host's weft-agent has
 	// launched, with the set of guest archs it can run. The scheduler
@@ -96,13 +96,21 @@ type Host struct {
 	// legacy fields, multi-driver hosts (an Apple Silicon machine
 	// running both VZ + QEMU for cross-arch builds) get one entry per
 	// driver.
-	Drivers        []HostDriver      `json:"drivers,omitempty"`
-	NetworkTypes   []string          `json:"network_types"`
-	VolumeBackends []string          `json:"volume_backends"`
-	Labels         map[string]string `json:"labels,omitempty"`
-	State          HostState         `json:"state"`
-	LastSeenAt     time.Time         `json:"last_seen_at"`
-	CreatedAt      time.Time         `json:"created_at"`
+	Drivers        []HostDriver `json:"drivers,omitempty"`
+	NetworkTypes   []string     `json:"network_types"`
+	VolumeBackends []string     `json:"volume_backends"`
+	// GPUs is the physical accelerator inventory the host carries.
+	// Populated by the agent at registration time via detectGPUs()
+	// (currently a static stub — see gpu.go). The scheduler reads
+	// this when matching ScheduleRequest.GPU (single-axis) and
+	// ScheduleRequest.RequestedGPUs (fine-grained per-VM). Empty
+	// = host has no GPUs ; scheduler treats the host as
+	// `gpu="none"` for SchedulingRule matching.
+	GPUs       []GPU             `json:"gpus,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
+	State      HostState         `json:"state"`
+	LastSeenAt time.Time         `json:"last_seen_at"`
+	CreatedAt  time.Time         `json:"created_at"`
 }
 
 // HostDriver is one weft-driver-<kind> subprocess running on a host, with
@@ -141,20 +149,21 @@ type hostsDoc struct {
 }
 
 type hostBlock struct {
-	UUID           string                 `hcl:",label"`
-	Hostname       string                 `hcl:"hostname"`
-	AZ             string                 `hcl:"az,optional"`
-	Rack           string                 `hcl:"rack,optional"`
-	Endpoint       string                 `hcl:"endpoint,optional"`
-	Hypervisor     string                 `hcl:"hypervisor,optional"`
-	Architecture   string                 `hcl:"architecture,optional"`
-	Drivers        []hostDriverBlock      `hcl:"driver,block"`
-	NetworkTypes   []string               `hcl:"network_types,optional"`
-	VolumeBackends []string               `hcl:"volume_backends,optional"`
-	Labels         map[string]string      `hcl:"labels,optional"`
-	State          string                 `hcl:"state,optional"`
-	LastSeenAt     string                 `hcl:"last_seen_at,optional"`
-	CreatedAt      string                 `hcl:"created_at"`
+	UUID           string            `hcl:",label"`
+	Hostname       string            `hcl:"hostname"`
+	AZ             string            `hcl:"az,optional"`
+	Rack           string            `hcl:"rack,optional"`
+	Endpoint       string            `hcl:"endpoint,optional"`
+	Hypervisor     string            `hcl:"hypervisor,optional"`
+	Architecture   string            `hcl:"architecture,optional"`
+	Drivers        []hostDriverBlock `hcl:"driver,block"`
+	NetworkTypes   []string          `hcl:"network_types,optional"`
+	VolumeBackends []string          `hcl:"volume_backends,optional"`
+	GPUs           []gpuBlock        `hcl:"gpu,block"`
+	Labels         map[string]string `hcl:"labels,optional"`
+	State          string            `hcl:"state,optional"`
+	LastSeenAt     string            `hcl:"last_seen_at,optional"`
+	CreatedAt      string            `hcl:"created_at"`
 }
 
 type hostDriverBlock struct {
@@ -162,13 +171,24 @@ type hostDriverBlock struct {
 	Arches []string `hcl:"arches,optional"`
 }
 
+// gpuBlock mirrors the GPU struct on the HCL side. The block label
+// is the canonical SKU string ("H200" / "RTX-6000-Ada") — humans
+// edit the file by SKU first. Vendor + per-card details follow
+// inside the block.
+type gpuBlock struct {
+	Model      string `hcl:",label"`
+	Vendor     string `hcl:"vendor"`
+	MemoryGiB  int    `hcl:"memory_gib,optional"`
+	MIGCapable bool   `hcl:"mig_capable,optional"`
+}
+
 // hostRegistry mirrors projectRegistry / userRegistry — global
 // scope (no projectIdx).
 type hostRegistry struct {
-	mu       sync.Mutex
-	storage  Storage
-	byUUID   map[string]Host
-	nameIdx  map[string]string // hostname → UUID (hostnames must be unique cluster-wide)
+	mu      sync.Mutex
+	storage Storage
+	byUUID  map[string]Host
+	nameIdx map[string]string // hostname → UUID (hostnames must be unique cluster-wide)
 }
 
 func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, error) {
@@ -212,6 +232,18 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 				})
 			}
 		}
+		var gpus []GPU
+		if len(b.GPUs) > 0 {
+			gpus = make([]GPU, 0, len(b.GPUs))
+			for _, g := range b.GPUs {
+				gpus = append(gpus, GPU{
+					Vendor:     g.Vendor,
+					Model:      g.Model,
+					MemoryGiB:  g.MemoryGiB,
+					MIGCapable: g.MIGCapable,
+				})
+			}
+		}
 		h := Host{
 			UUID:           b.UUID,
 			Hostname:       b.Hostname,
@@ -223,6 +255,7 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			Drivers:        drivers,
 			NetworkTypes:   append([]string(nil), b.NetworkTypes...),
 			VolumeBackends: append([]string(nil), b.VolumeBackends...),
+			GPUs:           gpus,
 			Labels:         labels,
 			State:          state,
 			LastSeenAt:     lastSeen,
@@ -300,6 +333,19 @@ func (r *hostRegistry) saveLocked() error {
 				vals[i] = cty.StringVal(s)
 			}
 			bb.SetAttributeValue("volume_backends", cty.ListVal(vals))
+		}
+		// GPUs : one nested `gpu "<model>" { vendor = ..., memory_gib = ..., mig_capable = ... }`
+		// block per accelerator. Empty inventory writes nothing — the
+		// host's GPU axis defaults to "none" for SchedulingRule matching.
+		for _, g := range h.GPUs {
+			gb := bb.AppendNewBlock("gpu", []string{g.Model}).Body()
+			gb.SetAttributeValue("vendor", cty.StringVal(g.Vendor))
+			if g.MemoryGiB > 0 {
+				gb.SetAttributeValue("memory_gib", cty.NumberIntVal(int64(g.MemoryGiB)))
+			}
+			if g.MIGCapable {
+				gb.SetAttributeValue("mig_capable", cty.BoolVal(true))
+			}
 		}
 		if len(h.Labels) > 0 {
 			ctyMap := make(map[string]cty.Value, len(h.Labels))
@@ -393,13 +439,13 @@ func (r *hostRegistry) listByAZ(az string) []Host {
 // restarts: the agent loads its UUID from a host-local file
 // (typically <stateDir>/host-uuid) and passes it here.
 type RegisterHostSpec struct {
-	UUID           string // empty → generate; set → idempotent re-register
-	Hostname       string
-	AZ             string
-	Rack           string // optional sub-AZ placement tag; see [[weft-placement-rules]]
-	Endpoint       string
-	Hypervisor     string
-	Architecture   string
+	UUID         string // empty → generate; set → idempotent re-register
+	Hostname     string
+	AZ           string
+	Rack         string // optional sub-AZ placement tag; see [[weft-placement-rules]]
+	Endpoint     string
+	Hypervisor   string
+	Architecture string
 	// Drivers is the full capability list — one entry per
 	// weft-driver-<kind> subprocess the registering agent has
 	// launched. Optional ; empty falls back to a single-driver
@@ -408,7 +454,14 @@ type RegisterHostSpec struct {
 	Drivers        []HostDriver
 	NetworkTypes   []string
 	VolumeBackends []string
-	Labels         map[string]string
+	// GPUs is the host's physical accelerator inventory. Populated
+	// by the agent at registration time via detectGPUs() (currently
+	// a static stub — real detection is a follow-up documented in
+	// docs/operations/gpu-scheduling.md). Operators staging GPU
+	// hosts today can also seed this field statically via the
+	// cluster.hcl `gpu { … }` blocks → registry path.
+	GPUs   []GPU
+	Labels map[string]string
 }
 
 // register adds a new host or, when spec.UUID matches an
@@ -417,11 +470,11 @@ type RegisterHostSpec struct {
 //
 // Behaviour:
 //
-//   * spec.UUID == "" : mint a fresh UUID; reject if the
+//   - spec.UUID == "" : mint a fresh UUID; reject if the
 //     hostname is already taken by a different host.
-//   * spec.UUID set, no existing host with that UUID : create
+//   - spec.UUID set, no existing host with that UUID : create
 //     with the provided UUID; same hostname-uniqueness check.
-//   * spec.UUID set, host already exists : refresh AZ, Endpoint,
+//   - spec.UUID set, host already exists : refresh AZ, Endpoint,
 //     Hypervisor, Architecture, NetworkTypes, VolumeBackends,
 //     Labels; bump LastSeenAt; revive State if Down (operator
 //     Draining is preserved). Hostname must match the existing
@@ -448,6 +501,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 			existing.Drivers = cloneHostDrivers(spec.Drivers)
 			existing.NetworkTypes = append([]string(nil), spec.NetworkTypes...)
 			existing.VolumeBackends = append([]string(nil), spec.VolumeBackends...)
+			existing.GPUs = cloneGPUs(spec.GPUs)
 			if len(spec.Labels) > 0 {
 				existing.Labels = make(map[string]string, len(spec.Labels))
 				for k, v := range spec.Labels {
@@ -494,6 +548,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		Drivers:        cloneHostDrivers(spec.Drivers),
 		NetworkTypes:   append([]string(nil), spec.NetworkTypes...),
 		VolumeBackends: append([]string(nil), spec.VolumeBackends...),
+		GPUs:           cloneGPUs(spec.GPUs),
 		Labels:         labels,
 		State:          HostStateActive,
 		LastSeenAt:     now,
