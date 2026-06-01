@@ -90,10 +90,26 @@ type VM struct {
 	// side-by-side : arm64 → vz, amd64 → qemu) via
 	// Adapter.HostHandleOnArch. Empty = legacy behaviour, picks the
 	// host's primary driver (matches single-driver clusters).
-	Architecture string    `json:"architecture,omitempty"`
-	State       VMState   `json:"state"`
-	CreatedAt   time.Time `json:"created_at"`
-	LastStartAt time.Time `json:"last_start_at,omitempty"`
+	Architecture string `json:"architecture,omitempty"`
+	// RequestedGPUs is the fine-grained GPU shape this VM asked for
+	// at creation time (vendor + model + count + optional MIG
+	// slice). The scheduler consumes this for placement (see
+	// scheduler.go's ScheduleRequest.RequestedGPUs) ; the
+	// tenant-quotas layer reads it to sum the project-wide GPU
+	// footprint when admitting a new VM — without this field the
+	// aggregate cap can only catch a single oversized request, not
+	// the (3 × 1-GPU VMs already running, 4th 1-GPU VM admitted
+	// past a cap=3) drift.
+	//
+	// Persists through the HCL round-trip as one nested
+	// `requested_gpu "<vendor>:<model>" { count = … mig_slice = … }`
+	// block per entry. A nil/empty slice (the back-compat shape for
+	// every VMInfo block written before this field landed) means
+	// "this VM didn't request a GPU" — the aggregate skips it.
+	RequestedGPUs []GPURequest `json:"requested_gpus,omitempty"`
+	State         VMState      `json:"state"`
+	CreatedAt     time.Time    `json:"created_at"`
+	LastStartAt   time.Time    `json:"last_start_at,omitempty"`
 }
 
 // vmsDoc / vmBlock mirror the HCL schema.
@@ -102,17 +118,32 @@ type vmsDoc struct {
 }
 
 type vmBlock struct {
-	UUID         string `hcl:",label"`
-	ProjectUUID  string `hcl:"project_uuid"`
-	Name         string `hcl:"name"`
-	HostUUID     string `hcl:"host_uuid"`
-	Image        string `hcl:"image,optional"`
-	CPUCount     int    `hcl:"cpu_count,optional"`
-	MemoryMiB    int    `hcl:"memory_mib,optional"`
-	Architecture string `hcl:"architecture,optional"`
-	State        string `hcl:"state,optional"`
-	CreatedAt    string `hcl:"created_at"`
-	LastStartAt  string `hcl:"last_start_at,optional"`
+	UUID         string                  `hcl:",label"`
+	ProjectUUID  string                  `hcl:"project_uuid"`
+	Name         string                  `hcl:"name"`
+	HostUUID     string                  `hcl:"host_uuid"`
+	Image        string                  `hcl:"image,optional"`
+	CPUCount     int                     `hcl:"cpu_count,optional"`
+	MemoryMiB    int                     `hcl:"memory_mib,optional"`
+	Architecture string                  `hcl:"architecture,optional"`
+	RequestedGPU []requestedGPUBlock     `hcl:"requested_gpu,block"`
+	State        string                  `hcl:"state,optional"`
+	CreatedAt    string                  `hcl:"created_at"`
+	LastStartAt  string                  `hcl:"last_start_at,optional"`
+}
+
+// requestedGPUBlock is the HCL on-disk shape for one GPURequest
+// entry attached to a VM. The label combines vendor + model so
+// the operator can read the file by the requested SKU first ;
+// count + MIG slice live inside the block. Mirrors hosts.go's
+// gpuBlock pattern (host-side INVENTORY) — same encoding shape,
+// different semantic axis (VM-side REQUEST).
+type requestedGPUBlock struct {
+	Label    string `hcl:",label"` // "vendor:model" — display key only
+	Vendor   string `hcl:"vendor"`
+	Model    string `hcl:"model,optional"`
+	Count    int    `hcl:"count,optional"`
+	MIGSlice string `hcl:"mig_slice,optional"`
 }
 
 // vmRegistry mirrors the multi-tenant registries (networks,
@@ -161,18 +192,31 @@ func loadVMRegistry(ctx context.Context, storage Storage) (*vmRegistry, error) {
 		if state == "" {
 			state = VMStateCreated
 		}
+		var reqGPUs []GPURequest
+		if len(b.RequestedGPU) > 0 {
+			reqGPUs = make([]GPURequest, 0, len(b.RequestedGPU))
+			for _, rg := range b.RequestedGPU {
+				reqGPUs = append(reqGPUs, GPURequest{
+					Vendor:   rg.Vendor,
+					Model:    rg.Model,
+					Count:    rg.Count,
+					MIGSlice: rg.MIGSlice,
+				})
+			}
+		}
 		v := VM{
-			UUID:         b.UUID,
-			ProjectUUID:  b.ProjectUUID,
-			Name:         b.Name,
-			HostUUID:     b.HostUUID,
-			Image:        b.Image,
-			CPUCount:     b.CPUCount,
-			MemoryMiB:    b.MemoryMiB,
-			Architecture: b.Architecture,
-			State:        state,
-			CreatedAt:    created,
-			LastStartAt:  lastStart,
+			UUID:          b.UUID,
+			ProjectUUID:   b.ProjectUUID,
+			Name:          b.Name,
+			HostUUID:      b.HostUUID,
+			Image:         b.Image,
+			CPUCount:      b.CPUCount,
+			MemoryMiB:     b.MemoryMiB,
+			Architecture:  b.Architecture,
+			RequestedGPUs: reqGPUs,
+			State:         state,
+			CreatedAt:     created,
+			LastStartAt:   lastStart,
 		}
 		reg.indexLocked(v)
 	}
@@ -253,6 +297,26 @@ func (r *vmRegistry) saveLocked() error {
 		}
 		if v.Architecture != "" {
 			bb.SetAttributeValue("architecture", cty.StringVal(v.Architecture))
+		}
+		// RequestedGPUs : one nested `requested_gpu "<vendor>:<model>" { … }`
+		// block per entry. Mirrors hosts.go's host-inventory `gpu` block
+		// shape — same encoding, opposite axis (request vs inventory).
+		// Nil/empty slice writes nothing : back-compat with VM blocks
+		// persisted before this field landed (load treats missing as
+		// "no GPU request").
+		for _, g := range v.RequestedGPUs {
+			label := g.Vendor + ":" + g.Model
+			gb := bb.AppendNewBlock("requested_gpu", []string{label}).Body()
+			gb.SetAttributeValue("vendor", cty.StringVal(g.Vendor))
+			if g.Model != "" {
+				gb.SetAttributeValue("model", cty.StringVal(g.Model))
+			}
+			if g.Count > 0 {
+				gb.SetAttributeValue("count", cty.NumberIntVal(int64(g.Count)))
+			}
+			if g.MIGSlice != "" {
+				gb.SetAttributeValue("mig_slice", cty.StringVal(g.MIGSlice))
+			}
 		}
 		if v.State != "" {
 			bb.SetAttributeValue("state", cty.StringVal(string(v.State)))
@@ -370,6 +434,12 @@ type CreateVMSpec struct {
 	// every VM ran the host's arch). Drives dispatch via
 	// Adapter.HostHandleOnArch on multi-driver hosts.
 	Architecture string
+	// RequestedGPUs is the fine-grained GPU request the VM asked
+	// for. Recorded on the VM at registration time so the
+	// tenant-quotas layer can sum the project-wide footprint
+	// across all VMs (closes the per-request-only gap left by
+	// commit 3f18e2a2d). Nil/empty = no GPU request.
+	RequestedGPUs []GPURequest
 }
 
 // create registers a new VM. Refuses name collisions within the
@@ -391,17 +461,27 @@ func (r *vmRegistry) create(spec CreateVMSpec) (VM, error) {
 	if _, taken := r.nameIdx[vmNameKey(spec.ProjectUUID, spec.Name)]; taken {
 		return VM{}, fmt.Errorf("vm name %q already in use in project %s", spec.Name, spec.ProjectUUID)
 	}
+	// Deep-copy RequestedGPUs so the registry can't be mutated
+	// through the caller's spec slice. Same pattern as cloneGPUs
+	// in gpu.go : nil/empty in → nil out (HCL omit-when-empty +
+	// JSON omitempty contracts stay clean).
+	var reqGPUs []GPURequest
+	if len(spec.RequestedGPUs) > 0 {
+		reqGPUs = make([]GPURequest, len(spec.RequestedGPUs))
+		copy(reqGPUs, spec.RequestedGPUs)
+	}
 	v := VM{
-		UUID:         newUUID(),
-		ProjectUUID:  spec.ProjectUUID,
-		Name:         spec.Name,
-		HostUUID:     spec.HostUUID,
-		Image:        spec.Image,
-		CPUCount:     spec.CPUCount,
-		MemoryMiB:    spec.MemoryMiB,
-		Architecture: spec.Architecture,
-		State:        VMStateCreated,
-		CreatedAt:    time.Now().UTC(),
+		UUID:          newUUID(),
+		ProjectUUID:   spec.ProjectUUID,
+		Name:          spec.Name,
+		HostUUID:      spec.HostUUID,
+		Image:         spec.Image,
+		CPUCount:      spec.CPUCount,
+		MemoryMiB:     spec.MemoryMiB,
+		Architecture:  spec.Architecture,
+		RequestedGPUs: reqGPUs,
+		State:         VMStateCreated,
+		CreatedAt:     time.Now().UTC(),
 	}
 	r.indexLocked(v)
 	if err := r.saveLocked(); err != nil {
