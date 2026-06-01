@@ -49,11 +49,23 @@ import (
 // memory (HBM3e for H200, GDDR6 for RTX 6000 Ada). MIG_Capable
 // reports whether the GPU supports NVIDIA Multi-Instance GPU
 // slicing — true for H200, false for RTX 6000 Ada.
+//
+// PCIBDF is the host-side PCI bus:device.function the card sits
+// on (e.g. "0000:65:00.0"). Populated by `gpu_detect_linux.go`
+// from the sysfs walk ; consumed by the QEMU driver to emit
+// `-device vfio-pci,host=<BDF>` at StartVM time. The VZ driver
+// has no GPU-passthrough path and refuses any non-empty request.
+// Empty when the inventory was seeded statically from cluster.hcl
+// (no BDF context at HCL-write time) — the driver surfaces a
+// clear "PCI_BDF unset" error in that case so the operator
+// learns the seed-vs-detected mismatch instead of silently
+// booting without the GPU.
 type GPU struct {
 	Vendor     string `json:"vendor"`                // "nvidia"
 	Model      string `json:"model"`                 // "H200" / "RTX-6000-Ada"
 	MemoryGiB  int    `json:"memory_gib,omitempty"`  // per-card memory
 	MIGCapable bool   `json:"mig_capable,omitempty"` // H200 yes, RTX 6000 Ada no
+	PCIBDF     string `json:"pci_bdf,omitempty"`     // "0000:65:00.0" — set by detectGPUs at runtime
 }
 
 // GPURequest is what one VM asks for. Vendor is required (the only
@@ -85,24 +97,63 @@ const GPUModelAny = "any"
 // for the opposite intent.
 const GPUAxisNone = "none"
 
-// detectGPUs is the agent-side populator for Host.GPUs.
+// detectGPUs is the agent-side populator for Host.GPUs. It is a
+// thin platform-dispatched delegator : the Linux body lives in
+// gpu_detect_linux.go (sysfs walk + nvidia-smi shell-out), every
+// other OS routes to gpu_detect_other.go's stub. Build-tagged so
+// the binary stays CGo-free + cross-compilable.
 //
-// **Today this is a static stub returning an empty slice.** Real
-// detection (sysfs walk of /sys/class/drm/card*/device/vendor +
-// nvidia-smi --query-gpu=name,memory.total,mig.mode.current
-// --format=csv,noheader,nounits) is a follow-up tracked in
-// docs/operations/gpu-scheduling.md. Operators staging GPU hosts
-// today set the inventory via the static RegisterHostSpec.GPUs
-// path (cluster.hcl `gpu { … }` blocks → seeded into the registry
-// at first boot).
-//
-// The function signature is stable across the future swap — when
-// detection lands, this same function gets a body and every
-// call site (currently one, `selfRegisterHost`) keeps working.
+// Returns an empty slice (not an error) when detection finds
+// nothing or the platform has no path — registration must not
+// fail just because a host has no GPUs. Detector errors degrade
+// to "log + continue with empty inventory" inside the platform
+// implementation : the operator sees the diagnostic on stderr
+// and the host registers as if it had no GPUs.
 func detectGPUs() []GPU {
-	// Static stub. See docs/operations/gpu-scheduling.md for the
-	// follow-up that wires real detection.
-	return nil
+	return detectGPUsImpl()
+}
+
+// nvidiaModelMap is the case-insensitive substring → canonical
+// Model lookup used to normalise nvidia-smi's `name` output to
+// the SchedulingRule `gpu` axis form the rest of the codebase
+// uses.
+//
+// Per [[openweft_gpu_fleet]] the supported fleet is **H200 +
+// RTX 6000 Ada only** ; everything else is intentionally absent
+// (no L40S / H100 / A100 in examples). Unknown SKUs are NOT
+// rejected — they pass through verbatim so newer hardware isn't
+// blocked on a code change. Callers that want to gate on
+// recognised SKUs use `canonicalGPUModel` directly and check
+// the second return value.
+//
+// Substring keys are intentional : real nvidia-smi `name` strings
+// carry trailing variant qualifiers ("NVIDIA H200 80GB HBM3",
+// "NVIDIA RTX 6000 Ada Generation") that must all map onto the
+// short canonical form.
+var nvidiaModelMap = []struct {
+	substring string
+	canonical string
+	migCap    bool
+	memGiB    int
+}{
+	{"H200", "H200", true, 141},
+	{"RTX 6000 Ada", "RTX-6000-Ada", false, 48},
+}
+
+// canonicalGPUModel maps a vendor-reported model string to the
+// canonical SchedulingRule form. The second return value is true
+// when the input matched a known SKU, false otherwise — callers
+// can warn-and-skip unknown SKUs by checking it. When the model
+// is unknown the raw input is returned verbatim (case preserved)
+// so operators staging exotic hardware aren't blocked.
+func canonicalGPUModel(raw string) (model string, migCapable bool, defaultMemGiB int, known bool) {
+	r := strings.ToLower(raw)
+	for _, e := range nvidiaModelMap {
+		if strings.Contains(r, strings.ToLower(e.substring)) {
+			return e.canonical, e.migCap, e.memGiB, true
+		}
+	}
+	return raw, false, 0, false
 }
 
 // cloneGPUs deep-copies a GPU slice so the registry can't be

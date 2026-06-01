@@ -278,3 +278,32 @@ func TestGPURequestSatisfied_EmptyVendorRejected(t *testing.T) {
 		t.Error("empty Vendor should not silently wildcard")
 	}
 }
+
+// TestCanonicalGPUModel pins the model-string normaliser. nvidia-smi
+// returns variant-qualified names ("NVIDIA H200 80GB HBM3", etc.)
+// that must collapse onto the canonical SchedulingRule form. Unknown
+// SKUs pass through verbatim with `known=false` so the agent can
+// warn-and-skip the strict path while still recording inventory.
+func TestCanonicalGPUModel(t *testing.T) {
+	cases := []struct {
+		in        string
+		wantModel string
+		wantMIG   bool
+		wantMem   int
+		wantKnown bool
+	}{
+		{"NVIDIA H200 80GB HBM3", "H200", true, 141, true},
+		{"NVIDIA H200", "H200", true, 141, true},
+		{"NVIDIA RTX 6000 Ada Generation", "RTX-6000-Ada", false, 48, true},
+		{"NVIDIA L40S", "NVIDIA L40S", false, 0, false}, // unknown — verbatim + known=false
+		{"", "", false, 0, false},
+	}
+	for _, tc := range cases {
+		gotModel, gotMIG, gotMem, gotKnown := canonicalGPUModel(tc.in)
+		if gotModel != tc.wantModel || gotMIG != tc.wantMIG || gotMem != tc.wantMem || gotKnown != tc.wantKnown {
+			t.Errorf("canonicalGPUModel(%q) = (%q, %v, %d, %v), want (%q, %v, %d, %v)",
+				tc.in, gotModel, gotMIG, gotMem, gotKnown,
+				tc.wantModel, tc.wantMIG, tc.wantMem, tc.wantKnown)
+		}
+	}
+}
