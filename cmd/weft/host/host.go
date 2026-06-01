@@ -46,9 +46,84 @@ also register them explicitly with "weft host register".`,
 		showCmd(socket, sshSocket, sshKey),
 		setStateCmd(socket, sshSocket, sshKey),
 		setLabelsCmd(socket, sshSocket, sshKey),
+		cordonCmd(socket, sshSocket, sshKey),
+		uncordonCmd(socket, sshSocket, sshKey),
 		rmCmd(socket, sshSocket, sshKey),
 	)
 	return cmd
+}
+
+// cordonCmd flips a host's `cordoned` flag on — the scheduler stops
+// considering it for new placements, existing VMs keep running.
+// Idempotent : calling on an already-cordoned host succeeds without
+// emitting a duplicate event. Implements the upgrade-runbook
+// primitive previously documented as proposed.
+func cordonCmd(socket, sshSocket, sshKey *string) *cobra.Command {
+	var byHostname bool
+	cmd := &cobra.Command{
+		Use:   "cordon <uuid|hostname>",
+		Short: "Stop scheduling new VMs onto a host (existing VMs keep running)",
+		Long: `Set the host's "cordoned" flag — the scheduler immediately drops
+it from candidate sets for new placements. Existing VMs stay put,
+the host stays Active + reachable. Pair with "weft host uncordon"
+to reverse.
+
+Typical use is the rolling-upgrade workflow (see
+docs/operations/upgrade.md) : cordon the host, drain workloads,
+restart the agent, uncordon.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runCordon(*socket, *sshSocket, *sshKey, args[0], byHostname, true)
+		},
+	}
+	cmd.Flags().BoolVar(&byHostname, "by-hostname", false, "Treat the positional arg as a hostname (default: UUID)")
+	return cmd
+}
+
+// uncordonCmd reverses cordonCmd. Idempotent on already-uncordoned
+// hosts.
+func uncordonCmd(socket, sshSocket, sshKey *string) *cobra.Command {
+	var byHostname bool
+	cmd := &cobra.Command{
+		Use:   "uncordon <uuid|hostname>",
+		Short: "Re-enable scheduling onto a previously cordoned host",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runCordon(*socket, *sshSocket, *sshKey, args[0], byHostname, false)
+		},
+	}
+	cmd.Flags().BoolVar(&byHostname, "by-hostname", false, "Treat the positional arg as a hostname (default: UUID)")
+	return cmd
+}
+
+// runCordon resolves <uuid|hostname> → UUID and issues SetHostCordoned.
+// Lifted into a helper so cordon + uncordon share the resolve path
+// (the registry side keys on UUID, but operators write hostnames
+// far more often).
+func runCordon(socket, sshSocket, sshKey, ident string, byHostname, cordoned bool) error {
+	c, conn, err := shared.Client(socket, sshSocket, sshKey)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	uuid := ident
+	if byHostname {
+		resp, err := c.GetHost(context.Background(), &weftv1.GetHostRequest{Hostname: ident})
+		if err != nil {
+			return fmt.Errorf("GetHost: %w", err)
+		}
+		uuid = resp.Host.Uuid
+	}
+	_, err = c.SetHostCordoned(context.Background(), &weftv1.SetHostCordonedRequest{Uuid: uuid, Cordoned: cordoned})
+	if err != nil {
+		return fmt.Errorf("SetHostCordoned: %w", err)
+	}
+	verb := "uncordoned"
+	if cordoned {
+		verb = "cordoned"
+	}
+	fmt.Printf("host %s %s\n", ident, verb)
+	return nil
 }
 
 func registerCmd(socket, sshSocket, sshKey *string) *cobra.Command {

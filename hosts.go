@@ -106,11 +106,26 @@ type Host struct {
 	// ScheduleRequest.RequestedGPUs (fine-grained per-VM). Empty
 	// = host has no GPUs ; scheduler treats the host as
 	// `gpu="none"` for SchedulingRule matching.
-	GPUs       []GPU             `json:"gpus,omitempty"`
+	GPUs []GPU `json:"gpus,omitempty"`
+	// PCIDevices is the physical PCI inventory the host carries, beyond
+	// the GPU axis (NICs, NVMe, sound cards, FPGAs, …). Populated by the
+	// agent at registration time via detectPCI() — today a Linux-only
+	// stub (see pci.go) ; operators can still seed the inventory via the
+	// static RegisterHostSpec.PCIDevices path until detection lands.
+	// The scheduler reads this when matching ScheduleRequest.RequestedPCI
+	// (see pci.go's pciRequestSatisfied).
+	PCIDevices []PCIDevice       `json:"pci_devices,omitempty"`
 	Labels     map[string]string `json:"labels,omitempty"`
 	State      HostState         `json:"state"`
-	LastSeenAt time.Time         `json:"last_seen_at"`
-	CreatedAt  time.Time         `json:"created_at"`
+	// Cordoned, when true, takes this host out of the scheduler's
+	// candidate set for **new** placements ; already-running VMs stay
+	// put. Independent of State — a cordoned host stays Active +
+	// reachable, it just refuses new work. Set / cleared with
+	// `weft host cordon` / `weft host uncordon`. Implements the
+	// upgrade-runbook primitive previously documented as proposed.
+	Cordoned   bool      `json:"cordoned,omitempty"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // HostDriver is one weft-driver-<kind> subprocess running on a host, with
@@ -160,8 +175,10 @@ type hostBlock struct {
 	NetworkTypes   []string          `hcl:"network_types,optional"`
 	VolumeBackends []string          `hcl:"volume_backends,optional"`
 	GPUs           []gpuBlock        `hcl:"gpu,block"`
+	PCIDevices     []pciBlock        `hcl:"pci,block"`
 	Labels         map[string]string `hcl:"labels,optional"`
 	State          string            `hcl:"state,optional"`
+	Cordoned       bool              `hcl:"cordoned,optional"`
 	LastSeenAt     string            `hcl:"last_seen_at,optional"`
 	CreatedAt      string            `hcl:"created_at"`
 }
@@ -244,6 +261,18 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 				})
 			}
 		}
+		var pciDevs []PCIDevice
+		if len(b.PCIDevices) > 0 {
+			pciDevs = make([]PCIDevice, 0, len(b.PCIDevices))
+			for _, p := range b.PCIDevices {
+				pciDevs = append(pciDevs, PCIDevice{
+					BDF:      p.BDF,
+					VendorID: p.VendorID,
+					DeviceID: p.DeviceID,
+					Driver:   p.Driver,
+				})
+			}
+		}
 		h := Host{
 			UUID:           b.UUID,
 			Hostname:       b.Hostname,
@@ -256,8 +285,10 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			NetworkTypes:   append([]string(nil), b.NetworkTypes...),
 			VolumeBackends: append([]string(nil), b.VolumeBackends...),
 			GPUs:           gpus,
+			PCIDevices:     pciDevs,
 			Labels:         labels,
 			State:          state,
+			Cordoned:       b.Cordoned,
 			LastSeenAt:     lastSeen,
 			CreatedAt:      created,
 		}
@@ -347,6 +378,23 @@ func (r *hostRegistry) saveLocked() error {
 				gb.SetAttributeValue("mig_capable", cty.BoolVal(true))
 			}
 		}
+		// PCIDevices : one nested `pci "<bdf>" { vendor_id, device_id, driver }`
+		// per device. The BDF (bus:device.function) is the block label
+		// because BDFs are the only unique key inside one host. Vendor /
+		// device IDs are the 4-hex-digit PCI Code IDs the operator wires
+		// into SchedulingRule's RequestedPCI.
+		for _, p := range h.PCIDevices {
+			pb := bb.AppendNewBlock("pci", []string{p.BDF}).Body()
+			if p.VendorID != "" {
+				pb.SetAttributeValue("vendor_id", cty.StringVal(p.VendorID))
+			}
+			if p.DeviceID != "" {
+				pb.SetAttributeValue("device_id", cty.StringVal(p.DeviceID))
+			}
+			if p.Driver != "" {
+				pb.SetAttributeValue("driver", cty.StringVal(p.Driver))
+			}
+		}
 		if len(h.Labels) > 0 {
 			ctyMap := make(map[string]cty.Value, len(h.Labels))
 			for k, v := range h.Labels {
@@ -356,6 +404,9 @@ func (r *hostRegistry) saveLocked() error {
 		}
 		if h.State != "" {
 			bb.SetAttributeValue("state", cty.StringVal(string(h.State)))
+		}
+		if h.Cordoned {
+			bb.SetAttributeValue("cordoned", cty.BoolVal(true))
 		}
 		if !h.LastSeenAt.IsZero() {
 			bb.SetAttributeValue("last_seen_at", cty.StringVal(h.LastSeenAt.Format(time.RFC3339Nano)))
@@ -460,8 +511,14 @@ type RegisterHostSpec struct {
 	// docs/operations/gpu-scheduling.md). Operators staging GPU
 	// hosts today can also seed this field statically via the
 	// cluster.hcl `gpu { … }` blocks → registry path.
-	GPUs   []GPU
-	Labels map[string]string
+	GPUs []GPU
+	// PCIDevices is the host's PCI passthrough inventory. Populated
+	// by the agent via detectPCI() (today a Linux-only stub —
+	// docs/operations/pci-passthrough.md walks the sysfs path) ;
+	// operators can also seed it statically through cluster.hcl's
+	// `pci { … }` blocks during the stub era.
+	PCIDevices []PCIDevice
+	Labels     map[string]string
 }
 
 // register adds a new host or, when spec.UUID matches an
@@ -502,6 +559,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 			existing.NetworkTypes = append([]string(nil), spec.NetworkTypes...)
 			existing.VolumeBackends = append([]string(nil), spec.VolumeBackends...)
 			existing.GPUs = cloneGPUs(spec.GPUs)
+			existing.PCIDevices = clonePCIDevices(spec.PCIDevices)
 			if len(spec.Labels) > 0 {
 				existing.Labels = make(map[string]string, len(spec.Labels))
 				for k, v := range spec.Labels {
@@ -549,6 +607,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		NetworkTypes:   append([]string(nil), spec.NetworkTypes...),
 		VolumeBackends: append([]string(nil), spec.VolumeBackends...),
 		GPUs:           cloneGPUs(spec.GPUs),
+		PCIDevices:     clonePCIDevices(spec.PCIDevices),
 		Labels:         labels,
 		State:          HostStateActive,
 		LastSeenAt:     now,
@@ -619,6 +678,28 @@ func (r *hostRegistry) setState(uuid string, state HostState) error {
 		return nil
 	}
 	h.State = state
+	r.byUUID[uuid] = h
+	return r.saveLocked()
+}
+
+// setCordoned flips the Cordoned flag. Idempotent — no-op + nil
+// when the host is already in the requested state (so the CLI
+// can be safely called from re-entrant operator scripts).
+//
+// Independent of State : a Draining host that operators then
+// uncordon stays Draining ; a Down host stays Down. Cordoned is
+// purely a scheduler-visibility flag, not a lifecycle stage.
+func (r *hostRegistry) setCordoned(uuid string, cordoned bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	h, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("host %q not found", uuid)
+	}
+	if h.Cordoned == cordoned {
+		return nil
+	}
+	h.Cordoned = cordoned
 	r.byUUID[uuid] = h
 	return r.saveLocked()
 }

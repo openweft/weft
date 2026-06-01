@@ -150,6 +150,12 @@ func (a *Adapter) selfRegisterHost() error {
 		// docs/operations/gpu-scheduling.md. Operators staging GPU
 		// hosts today seed inventory statically via cluster.hcl.
 		GPUs: detectGPUs(),
+		// PCIDevices : non-GPU passthrough inventory (NICs, NVMe,
+		// FPGAs, …). detectPCI() walks /sys/bus/pci/devices on
+		// Linux ; returns nil on every other GOOS. See
+		// docs/operations/pci-passthrough.md for the operator
+		// workflow + the "no exclusivity today" gotcha.
+		PCIDevices: detectPCI(),
 	})
 	return err
 }

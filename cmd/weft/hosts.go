@@ -34,6 +34,7 @@ func toHostInfo(h weft.Host) *weftv1.HostInfo {
 		NetworkTypes:    append([]string(nil), h.NetworkTypes...),
 		VolumeBackends:  append([]string(nil), h.VolumeBackends...),
 		State:           string(h.State),
+		Cordoned:        h.Cordoned,
 		CreatedAtUnixNs: h.CreatedAt.UnixNano(),
 	}
 	if !h.LastSeenAt.IsZero() {
@@ -178,6 +179,23 @@ func (s *weftServer) SetHostLabels(ctx context.Context, req *weftv1.SetHostLabel
 		return nil, status.Errorf(codes.Internal, "set host labels: %v", err)
 	}
 	return &weftv1.SetHostLabelsResponse{}, nil
+}
+
+// SetHostCordoned toggles the per-host cordon flag. Idempotent —
+// calling with the current value returns OK without publishing an
+// event. Admin-gated like every other cluster-scoped host verb ;
+// the agent-driven heartbeat path stays untouched.
+func (s *weftServer) SetHostCordoned(ctx context.Context, req *weftv1.SetHostCordonedRequest) (*weftv1.SetHostCordonedResponse, error) {
+	if err := weft.RequireAdmin(ctx, "set host cordoned"); err != nil {
+		return nil, err
+	}
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := s.adp.SetHostCordoned(req.Uuid, req.Cordoned); err != nil {
+		return nil, status.Errorf(codes.Internal, "set host cordoned: %v", err)
+	}
+	return &weftv1.SetHostCordonedResponse{}, nil
 }
 
 func (s *weftServer) DeleteHost(ctx context.Context, req *weftv1.DeleteHostRequest) (*weftv1.DeleteHostResponse, error) {

@@ -149,10 +149,10 @@ The procedure above says "drain host-1". The **intended** API surface is
 a per-host `host.cordoned` flag that the scheduler honours — when set,
 the host receives no new VM placement, while existing VMs keep running.
 
-> **NOT YET IMPLEMENTED in v0.1.0.** `host.cordoned` is a proposed
-> field; the scheduler does not yet read it. (TODO: wire the flag
-> through `weft hosts cordon <host>` + the placement loop. Tracked for
-> v0.2.0.)
+> **Available since v0.2.0.** The `host.cordoned` flag is now wired
+> through `weft host cordon <host>` / `weft host uncordon <host>` and
+> the scheduler drops cordoned hosts from candidate sets for new
+> placements. Existing VMs keep running.
 
 **Workaround for v0.1.0 today** — two options:
 

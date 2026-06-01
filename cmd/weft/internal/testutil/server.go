@@ -94,6 +94,7 @@ type Server struct {
 	HeartbeatHostFn                   func(context.Context, *weftv1.HeartbeatHostRequest) (*weftv1.HeartbeatHostResponse, error)
 	SetHostStateFn                    func(context.Context, *weftv1.SetHostStateRequest) (*weftv1.SetHostStateResponse, error)
 	SetHostLabelsFn                   func(context.Context, *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error)
+	SetHostCordonedFn                 func(context.Context, *weftv1.SetHostCordonedRequest) (*weftv1.SetHostCordonedResponse, error)
 	DeleteHostFn                      func(context.Context, *weftv1.DeleteHostRequest) (*weftv1.DeleteHostResponse, error)
 	ListFlavorsFn                     func(context.Context, *weftv1.ListFlavorsRequest) (*weftv1.ListFlavorsResponse, error)
 	GetFlavorFn                       func(context.Context, *weftv1.GetFlavorRequest) (*weftv1.GetFlavorResponse, error)
@@ -571,6 +572,13 @@ func (s *Server) SetHostLabels(ctx context.Context, in *weftv1.SetHostLabelsRequ
 		return s.SetHostLabelsFn(ctx, in)
 	}
 	return &weftv1.SetHostLabelsResponse{}, nil
+}
+
+func (s *Server) SetHostCordoned(ctx context.Context, in *weftv1.SetHostCordonedRequest) (*weftv1.SetHostCordonedResponse, error) {
+	if s.SetHostCordonedFn != nil {
+		return s.SetHostCordonedFn(ctx, in)
+	}
+	return &weftv1.SetHostCordonedResponse{}, nil
 }
 
 func (s *Server) DeleteHost(ctx context.Context, in *weftv1.DeleteHostRequest) (*weftv1.DeleteHostResponse, error) {
