@@ -39,6 +39,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/microvm"
 	"github.com/openweft/weft/cmd/weft/network"
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
+	"github.com/openweft/weft/cmd/weft/plugin"
 	"github.com/openweft/weft/cmd/weft/project"
 	"github.com/openweft/weft/cmd/weft/script"
 	"github.com/openweft/weft/cmd/weft/securitygroup"
@@ -143,6 +144,7 @@ running agent.`,
 		login.LogoutCommand(),
 		login.WhoamiCommand(),
 		overlaycmd.Command(),
+		plugin.Command(&socketPath, &sshSocket, &sshKey),
 	)
 	return root
 }

@@ -144,6 +144,12 @@ func (a *Adapter) selfRegisterHost() error {
 		Architecture:   runtime.GOARCH,
 		NetworkTypes:   []string{"nat", "bridged", "isolated", "mesh"},
 		VolumeBackends: []string{"file"},
+		// GPUs are populated by the agent-side detector. Today
+		// detectGPUs() returns nil — real detection (nvidia-smi
+		// + /sys/class/drm walk) is a follow-up documented in
+		// docs/operations/gpu-scheduling.md. Operators staging GPU
+		// hosts today seed inventory statically via cluster.hcl.
+		GPUs: detectGPUs(),
 	})
 	return err
 }
