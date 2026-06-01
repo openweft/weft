@@ -6,6 +6,7 @@
 package federation
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -134,4 +135,56 @@ func VerifyManifest(v Verifier, m *FederationManifest, sig []byte) error {
 		return err
 	}
 	return v.Verify(m, sig)
+}
+
+// Sign returns an ed25519 signature over the manifest's canonical JSON
+// encoding (the same bytes Marshal yields). Pinned to ed25519 instead
+// of JOSE / cosign to keep the v0.2 lite path dependency-free and
+// the verifier surface tiny — federation-lite ships a fixed scheme,
+// federation-full can layer cosign / JWS on top later if the operator
+// asks for it. Returns the canonical signature (64 bytes).
+func (m *FederationManifest) Sign(priv ed25519.PrivateKey) ([]byte, error) {
+	if len(priv) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("federation: ed25519 private key must be %d bytes, got %d", ed25519.PrivateKeySize, len(priv))
+	}
+	b, err := m.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	return ed25519.Sign(priv, b), nil
+}
+
+// Verify checks sig against the manifest's canonical JSON encoding
+// using pub. Returns nil on success, an error if the signature is
+// wrong, the key is the wrong size, or the manifest is structurally
+// invalid (we validate first so a corrupt manifest can't sneak past
+// signature check on a recomputed byte stream).
+func (m *FederationManifest) Verify(pub ed25519.PublicKey, sig []byte) error {
+	if len(pub) != ed25519.PublicKeySize {
+		return fmt.Errorf("federation: ed25519 public key must be %d bytes, got %d", ed25519.PublicKeySize, len(pub))
+	}
+	if len(sig) != ed25519.SignatureSize {
+		return fmt.Errorf("federation: ed25519 signature must be %d bytes, got %d", ed25519.SignatureSize, len(sig))
+	}
+	b, err := m.Marshal()
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(pub, b, sig) {
+		return errors.New("federation: ed25519 signature mismatch")
+	}
+	return nil
+}
+
+// Ed25519Verifier adapts an ed25519 public key to the Verifier
+// interface. Pairs with FederationManifest.Sign on the producer side
+// — the peer-poll goroutine in federation/poller.go uses it to
+// verify each /cluster-info response.
+type Ed25519Verifier struct {
+	Pub ed25519.PublicKey
+}
+
+// Verify implements Verifier.
+func (e Ed25519Verifier) Verify(m *FederationManifest, sig []byte) error {
+	return m.Verify(e.Pub, sig)
 }

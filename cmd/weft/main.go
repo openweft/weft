@@ -31,6 +31,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/admin"
 	"github.com/openweft/weft/cmd/weft/clean"
 	"github.com/openweft/weft/cmd/weft/events"
+	wftfederation "github.com/openweft/weft/cmd/weft/federation"
 	"github.com/openweft/weft/cmd/weft/flavor"
 	"github.com/openweft/weft/cmd/weft/host"
 	"github.com/openweft/weft/cmd/weft/image"
@@ -145,6 +146,10 @@ running agent.`,
 		login.WhoamiCommand(),
 		overlaycmd.Command(),
 		plugin.Command(&socketPath, &sshSocket, &sshKey),
+		// Federation-lite (HTTP-pull, see docs/design/federation.md).
+		// Local-only verbs that read/write the federation block of
+		// weft.hcl — no agent RPC, so no socket/ssh-socket flags.
+		wftfederation.Command(),
 	)
 	return root
 }
@@ -886,6 +891,18 @@ func (s *weftServer) CreateVM(ctx context.Context, req *weftv1.CreateVMRequest) 
 	if err := s.adp.EnforceTenantQuotaForVM(projUUID, int(req.Cpu), int(req.MemMb)); err != nil {
 		return nil, err
 	}
+	// GPU aggregate cap. The proto's CreateVMRequest doesn't yet
+	// carry RequestedGpus (classic VMs don't request GPUs through
+	// this RPC today — see weftv1.CreateVMRequest) ; passing nil
+	// re-checks the already-allocated total against the cap, a
+	// no-op for projects still within budget. Threading
+	// RequestedGpus through the proto is a follow-up for when
+	// CreateVMRequest grows a GPU surface ; the aggregate
+	// arithmetic itself is in place via projectAllocation +
+	// EnforceTenantQuotaForGPU.
+	if err := s.adp.EnforceTenantQuotaForGPU(projUUID, nil); err != nil {
+		return nil, err
+	}
 	if err := s.adp.CloneVM(req.Image, req.Project, req.Name, nil, io.Discard); err != nil {
 		logger.Printf("CreateVM %s: error: %v", req.Name, err)
 		return nil, status.Errorf(codes.Internal, "create vm: %v", err)
@@ -1188,6 +1205,16 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 	// a no-op for projects still within budget. Per
 	// docs/operations/tenant-quotas.md.
 	if err := s.adp.EnforceTenantQuotaForVM(projUUID, 0, 0); err != nil {
+		return nil, err
+	}
+	// GPU aggregate cap, same shape as the CreateVM site. The
+	// proto's RegisterMicroVMRequest doesn't carry RequestedGpus
+	// either (microVM boots so far don't request GPUs through
+	// this RPC) ; passing nil re-checks the already-allocated
+	// total against the cap. Threading RequestedGpus through the
+	// proto is a follow-up for when the microVM surface grows a
+	// GPU shape.
+	if err := s.adp.EnforceTenantQuotaForGPU(projUUID, nil); err != nil {
 		return nil, err
 	}
 	shares := make([]weft.MicroVMShare, len(req.Shares))
