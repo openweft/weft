@@ -60,9 +60,19 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           set -euo pipefail
+          # SOURCE_DATE_EPOCH = commit timestamp of the build ref.
+          # Canonical reproducible-builds.org convention ; combined with
+          # -trimpath + -buildvcs=false + -buildid= below it pins every
+          # source of non-determinism Go itself emits.
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct "${GITHUB_SHA}")"
+          export SOURCE_DATE_EPOCH
           out="dist/${{ matrix.goos }}-${{ matrix.goarch }}/weft"
           mkdir -p "$(dirname "$out")"
-          go build -trimpath -ldflags "-s -w -X main.version=${{ github.ref_name }}" -o "$out" ./cmd/weft
+          go build \
+            -trimpath \
+            -buildvcs=false \
+            -ldflags "-s -w -buildid= -X main.version=${{ github.ref_name }}" \
+            -o "$out" ./cmd/weft
 
       - uses: actions/upload-artifact@v4
         with:
@@ -92,13 +102,26 @@ jobs:
       - name: stage release assets
         # GitHub Release expects flat files. Repackage each per-OS/arch
         # binary as a tar.gz alongside a SHA256SUMS file.
+        #
+        # Reproducibility: --mtime pins entry mtimes to SOURCE_DATE_EPOCH,
+        # --owner/--group/--numeric-owner pin metadata, and `gzip -n`
+        # strips the gzip header timestamp+filename. Without those flags
+        # `tar | gzip` embeds the current wall-clock and the resulting
+        # archive sha256 changes on every run.
         run: |
           set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct "${GITHUB_SHA}")"
+          export SOURCE_DATE_EPOCH
           mkdir -p stage
           tag="${{ github.ref_name }}"
           for d in dist/weft-*; do
             name=$(basename "$d")
-            tar -C "$d" -czf "stage/${name}_${tag}.tar.gz" weft
+            tar \
+              --sort=name \
+              --mtime="@${SOURCE_DATE_EPOCH}" \
+              --owner=0 --group=0 --numeric-owner \
+              -C "$d" -cf - weft \
+              | gzip -n -9 > "stage/${name}_${tag}.tar.gz"
           done
           ( cd stage && sha256sum *.tar.gz > SHA256SUMS )
 
@@ -238,18 +261,36 @@ jobs:
         run: |
           cat > image/Dockerfile <<'EOF'
           FROM gcr.io/distroless/static-debian12:nonroot
+          ARG SOURCE_DATE_EPOCH
           COPY weft /usr/local/bin/weft
           ENTRYPOINT ["/usr/local/bin/weft"]
           CMD ["agent"]
           EOF
 
+      - name: compute SOURCE_DATE_EPOCH
+        id: sde
+        run: |
+          set -euo pipefail
+          echo "epoch=$(git log -1 --format=%ct "${GITHUB_SHA}")" >>"$GITHUB_OUTPUT"
+
       - name: build + push per-arch image
         id: build
         uses: docker/build-push-action@v6
+        env:
+          # buildkit honours SOURCE_DATE_EPOCH natively (>= 0.11) by
+          # rewriting layer timestamps + the image config `created`
+          # field to the epoch. Combined with the deterministic
+          # tarball above this gives byte-identical per-arch manifests
+          # across runs (within the same buildkit version).
+          SOURCE_DATE_EPOCH: ${{ steps.sde.outputs.epoch }}
         with:
           context: image
           platforms: linux/${{ matrix.arch }}
           push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            SOURCE_DATE_EPOCH=${{ steps.sde.outputs.epoch }}
           tags: |
             ${{ env.IMAGE }}:${{ github.ref_name }}-${{ matrix.arch }}
             ${{ env.IMAGE }}:latest-${{ matrix.arch }}
