@@ -86,6 +86,15 @@ type ScheduleRequest struct {
 	// the tenant-quotas layer uses for "cluster full" so clients
 	// can render a coherent "no GPU capacity" message.
 	RequestedGPUs []GPURequest
+	// RequestedPCI is the generic-PCI passthrough request — sibling
+	// of RequestedGPUs for non-GPU endpoints (NICs, NVMe, sound,
+	// FPGAs). Each entry asks for `Count` devices matching a
+	// (VendorID, DeviceID) tuple ; the host's PCIDevices inventory
+	// must satisfy EVERY entry. Empty slice = no PCI request. See
+	// pci.go's pciRequestSatisfied for the matcher semantics and
+	// docs/operations/pci-passthrough.md for the "no exclusivity
+	// today" gotcha.
+	RequestedPCI []PCIRequest
 }
 
 // Proximity is the cross-replica affinity setting in a
@@ -186,7 +195,18 @@ func (FirstFitScheduler) Schedule(ctx context.Context, req ScheduleRequest, cand
 	// cluster of zero H200 hosts would report a generic miss ;
 	// callers (webui) want the explicit ResourceExhausted hint.
 	var hadGPUCapableMiss bool
+	// Cordoned hosts are removed from the candidate pool **before**
+	// any other matching dimension (quota, GPU, labels). The skip
+	// reasons go into `skipped` so the failure path can render a
+	// one-line per-host diagnostic — what a `--dry-run schedule`
+	// would surface to operators chasing "why didn't host h2 take
+	// my VM ?".
+	var skipped []string
 	for _, h := range candidates {
+		if h.Cordoned {
+			skipped = append(skipped, fmt.Sprintf("%s skipped: cordoned", h.Hostname))
+			continue
+		}
 		if h.State == HostStateActive {
 			anyActive = true
 		}
@@ -201,6 +221,12 @@ func (FirstFitScheduler) Schedule(ctx context.Context, req ScheduleRequest, cand
 		return h, nil
 	}
 	if !anyActive {
+		// If every otherwise-active host was cordoned out, surface
+		// that distinctly so the operator sees the cordon, not
+		// "all draining / down".
+		if len(skipped) > 0 && !anyDrainingOrDown(candidates) {
+			return Host{}, fmt.Errorf("schedule: no active hosts available — %s", joinReasons(skipped))
+		}
 		return Host{}, fmt.Errorf("schedule: no active hosts in the cluster (all draining / down)")
 	}
 	if hadGPUCapableMiss {
@@ -219,9 +245,40 @@ func (FirstFitScheduler) Schedule(ctx context.Context, req ScheduleRequest, cand
 			req.GPU, len(req.RequestedGPUs),
 		))
 	}
-	return Host{}, fmt.Errorf("schedule: no active host matches request (project=%s vm=%s arch=%q hyp=%q az=%q net=%v vol=%v labels=%v)",
+	base := fmt.Sprintf("schedule: no active host matches request (project=%s vm=%s arch=%q hyp=%q az=%q net=%v vol=%v labels=%v)",
 		req.ProjectUUID, req.VMName, req.Architecture, req.Hypervisor, req.AZ,
 		req.NetworkTypes, req.VolumeBackends, req.LabelSelectors)
+	if len(skipped) > 0 {
+		base += " ; " + joinReasons(skipped)
+	}
+	return Host{}, fmt.Errorf("%s", base)
+}
+
+// anyDrainingOrDown reports whether the candidate set carried any
+// host in a non-Active lifecycle state. Used to disambiguate the
+// "all cordoned" error from the "all draining / down" error in
+// Schedule()'s failure path.
+func anyDrainingOrDown(candidates []Host) bool {
+	for _, h := range candidates {
+		if h.State == HostStateDraining || h.State == HostStateDown {
+			return true
+		}
+	}
+	return false
+}
+
+// joinReasons is a tiny helper that comma-joins per-host skip
+// reasons without pulling in strings.Join repeatedly. Kept in
+// scheduler.go so the diagnostic stays self-contained.
+func joinReasons(reasons []string) string {
+	out := ""
+	for i, r := range reasons {
+		if i > 0 {
+			out += ", "
+		}
+		out += r
+	}
+	return out
 }
 
 // hostMatches reports whether a single host satisfies every hard
@@ -241,6 +298,15 @@ func hostMatches(req ScheduleRequest, h Host) bool {
 	// (model | "any") + count + optional MIG slice.
 	for _, gr := range req.RequestedGPUs {
 		if !gpuRequestSatisfied(gr, h.GPUs) {
+			return false
+		}
+	}
+	// Fine-grained per-VM generic-PCI requests : same all-of
+	// semantics as RequestedGPUs but against the non-GPU inventory.
+	// Sibling check kept here so the scheduler stays a single-pass
+	// filter — pci.go owns the per-entry matcher.
+	for _, pr := range req.RequestedPCI {
+		if !pciRequestSatisfied(pr, h.PCIDevices) {
 			return false
 		}
 	}
@@ -376,6 +442,13 @@ func (FirstFitScheduler) ScheduleGroup(ctx context.Context, req GroupScheduleReq
 // (zero, false) when nothing matches.
 func pickNextReplica(req GroupScheduleRequest, candidates []Host, picked []Host) (Host, bool) {
 	for _, h := range candidates {
+		// Cordoned hosts are out of the candidate pool — same
+		// semantics as in Schedule(). Per-replica failure paths
+		// stay generic ; the operator can run a single-VM
+		// `Schedule()` call to get the per-host diagnostic.
+		if h.Cordoned {
+			continue
+		}
 		if !hostMatches(req.ScheduleRequest, h) {
 			continue
 		}

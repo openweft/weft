@@ -166,6 +166,7 @@ type VZAdapter interface {
 	HeartbeatHost(uuid string) error
 	SetHostState(uuid string, state HostState) error
 	SetHostLabels(uuid string, labels map[string]string) error
+	SetHostCordoned(uuid string, cordoned bool) error
 	DeleteHost(uuid string) error
 	// ScheduleVMGroup picks `req.Replicas` hosts honouring the
 	// cross-replica PlacementRule. Used by the infra orchestrator
@@ -1162,6 +1163,42 @@ func (a *Adapter) SetHostLabels(uuid string, labels map[string]string) error {
 		Kind:    "host.labels_updated",
 		Subject: uuid,
 		Meta:    map[string]string{"label_count": strconv.Itoa(len(labels))},
+	})
+	return nil
+}
+
+// SetHostCordoned toggles the per-host cordon flag. Cordoned
+// hosts stay Active (existing VMs keep running) but the scheduler
+// drops them from candidate sets for new placements. Implements
+// the upgrade-runbook primitive previously documented as proposed
+// (see docs/operations/upgrade.md).
+//
+// Idempotent — calling with the current value is a no-op + nil.
+// Emits a `host.cordoned` / `host.uncordoned` PlatformEvent on
+// actual transitions so dashboards + the audit log can pick up the
+// change.
+func (a *Adapter) SetHostCordoned(uuid string, cordoned bool) error {
+	if a.hostReg == nil {
+		return fmt.Errorf("host registry not initialised")
+	}
+	prev, _ := a.hostReg.lookupByUUID(uuid)
+	if err := a.hostReg.setCordoned(uuid, cordoned); err != nil {
+		return err
+	}
+	if prev.Cordoned == cordoned {
+		// No-op transition (already in requested state) — skip the
+		// event so dashboards don't see redundant flapping when an
+		// operator re-runs `weft host cordon` on the same host.
+		return nil
+	}
+	kind := "host.uncordoned"
+	if cordoned {
+		kind = "host.cordoned"
+	}
+	a.bus.Publish(PlatformEvent{
+		Kind:    kind,
+		Subject: uuid,
+		Meta:    map[string]string{"hostname": prev.Hostname},
 	})
 	return nil
 }
