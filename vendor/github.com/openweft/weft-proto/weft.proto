@@ -640,6 +640,57 @@ message RestoreVolumeSnapshotResponse { VolumeInfo volume = 1; }
 message DeleteVolumeSnapshotRequest  { string uuid = 1; }
 message DeleteVolumeSnapshotResponse {}
 
+// RevertVolumeSnapshot rolls a block-backed volume back to an earlier
+// snapshot, IN PLACE. Different from RestoreVolumeSnapshot which clones
+// into a NEW volume. File-backed volumes don't support revert (operators
+// clone-then-rename via Restore). The volume must be detached first.
+message RevertVolumeSnapshotRequest  { string uuid = 1; }
+message RevertVolumeSnapshotResponse {}
+
+// Volume backup : ship a snapshot's contents to a remote backupstore.
+// Targets supported : "s3://bucket@region/prefix" (versitygw / native S3),
+// "sftp://user@host:port/path" (sftpgo). Backups are addressed by URL ;
+// listing scopes by target + optional volume_uuid filter.
+
+message VolumeBackupInfo {
+  string url                = 1;  // target-specific URL the backup lives at
+  string volume_uuid        = 2;  // origin volume (informational ; survives delete)
+  string snapshot_uuid      = 3;  // the snapshot the backup was taken from
+  string project            = 4;
+  int64  size_bytes         = 5;
+  int64  created_at_unix_ns = 6;
+  string state              = 7;  // "in-progress" | "complete" | "error"
+  string error              = 8;  // populated when state == "error"
+}
+
+message CreateVolumeBackupRequest  {
+  string volume_uuid   = 1;
+  string snapshot_uuid = 2;  // must already exist (taken via CreateVolumeSnapshot)
+  string target        = 3;  // s3:// or sftp:// URL
+  string project       = 4;
+}
+message CreateVolumeBackupResponse { VolumeBackupInfo backup = 1; }
+
+message ListVolumeBackupsRequest  {
+  string target      = 1;  // required (backupstore is target-keyed)
+  string volume_uuid = 2;  // empty → all volumes at the target
+  string project     = 3;
+}
+message ListVolumeBackupsResponse { repeated VolumeBackupInfo backups = 1; }
+
+message DeleteVolumeBackupRequest  { string url = 1; }
+message DeleteVolumeBackupResponse {}
+
+// RestoreVolumeBackup creates a NEW volume populated from the backup at
+// `url`. Same shape as RestoreVolumeSnapshot — backup → fresh volume,
+// never mutating the source.
+message RestoreVolumeBackupRequest  {
+  string url             = 1;
+  string new_volume_name = 2;
+  string project         = 3;
+}
+message RestoreVolumeBackupResponse { VolumeInfo volume = 1; }
+
 // --- WatchEvents (server-streaming event bus) ---
 
 // PlatformEvent is one event published on weft's bus. Schema is
@@ -811,6 +862,76 @@ message PublishShareToProjectResponse {
   uint32 vm_count = 1; // number of VMs the mount was fanned out to
 }
 
+// --- Federation (peer-poll snapshot) -----------------------------
+//
+// Surfaces the cached state held by the in-process federation.Poller :
+// each peer the operator declared in cluster.hcl, the manifest-derived
+// region/weight, the last successful poll, and the classified status
+// ("live" | "stale" | "unreachable"). Per [[openweft_pull_model]] the
+// agent already maintains this state ; the RPC is a read of the local
+// snapshot — no remote pull happens on the hot path.
+
+message FederationPeerInfo {
+  string name              = 1;  // peer label (manifest name once seen, else operator-supplied)
+  string region            = 2;  // free-form locality from the peer's manifest entry
+  int64  last_seen_unix_ns = 3;  // ns since epoch of the last successful poll, 0 before first
+  string status            = 4;  // "live" | "stale" | "unreachable"
+  int32  weight            = 5;  // placement bias from the peer's manifest entry ; 0 = default
+  string url               = 6;  // /cluster-info URL the poller targets
+  string last_error        = 7;  // most recent poll error, empty when healthy
+}
+
+message ListFederationPeersRequest  {}
+message ListFederationPeersResponse { repeated FederationPeerInfo peers = 1; }
+
+// --- Plugin catalogue / install ----------------------------------
+//
+// Reads the pluginstore.Manager surface : the on-disk catalogue
+// (parsed plugin.hcl manifests under catalogue/) and the installed
+// instance registry (etcd-backed in HA, file-backed in dev). Install
+// drives the existing pluginstore.Manager.Install pipeline ; the
+// returned `instance_uuid` is the deterministic hash of (name,
+// project, inputs) so a re-install with the same inputs short-circuits.
+
+message PluginInput {
+  string name     = 1;  // input identifier (matches manifest's Input.Name)
+  string type     = 2;  // "string" | "int" | "bool" | "secret"
+  string default  = 3;  // string-encoded default ; empty when no default
+  bool   required = 4;
+  bool   secret   = 5;  // hide value from list ; UI renders <input type=password>
+  string help     = 6;  // optional one-line help text
+}
+
+message PluginCatalogueEntry {
+  string name        = 1;
+  string version     = 2;
+  string kind        = 3;
+  string description = 4;
+  repeated PluginInput inputs = 5;
+}
+
+message PluginInstance {
+  string name           = 1;  // catalogue plugin name
+  string instance_uuid  = 2;
+  repeated string vm_uuids = 3;  // VMs the instance currently manages
+  int64  installed_at_unix_ns = 4;
+  string status         = 5;  // "running" | "provisioning" | "degraded" | "failed"
+  string project        = 6;
+}
+
+message ListPluginCatalogueRequest  {}
+message ListPluginCatalogueResponse { repeated PluginCatalogueEntry entries = 1; }
+
+message ListInstalledPluginsRequest  {}
+message ListInstalledPluginsResponse { repeated PluginInstance instances = 1; }
+
+message InstallPluginRequest {
+  string name              = 1;  // catalogue entry name
+  string project           = 2;  // target project (name or UUID)
+  map<string,string> inputs = 3;
+}
+message InstallPluginResponse { string instance_uuid = 1; }
+
 // WeftService is the gRPC API exposed by weft.
 service WeftAgent {
   rpc ListVMs       (ListVMsRequest)       returns (ListVMsResponse);
@@ -910,7 +1031,17 @@ service WeftAgent {
   rpc CreateVolumeSnapshot  (CreateVolumeSnapshotRequest)  returns (CreateVolumeSnapshotResponse);
   rpc ListVolumeSnapshots   (ListVolumeSnapshotsRequest)   returns (ListVolumeSnapshotsResponse);
   rpc RestoreVolumeSnapshot (RestoreVolumeSnapshotRequest) returns (RestoreVolumeSnapshotResponse);
+  rpc RevertVolumeSnapshot  (RevertVolumeSnapshotRequest)  returns (RevertVolumeSnapshotResponse);
   rpc DeleteVolumeSnapshot  (DeleteVolumeSnapshotRequest)  returns (DeleteVolumeSnapshotResponse);
+
+  // Volume backup RPCs. A backup ships a snapshot's contents to a remote
+  // backupstore (S3 / SFTP) and yields a URL that's stable across volume
+  // lifecycles — survives the source volume's deletion and can be restored
+  // into any project the caller has access to.
+  rpc CreateVolumeBackup  (CreateVolumeBackupRequest)  returns (CreateVolumeBackupResponse);
+  rpc ListVolumeBackups   (ListVolumeBackupsRequest)   returns (ListVolumeBackupsResponse);
+  rpc DeleteVolumeBackup  (DeleteVolumeBackupRequest)  returns (DeleteVolumeBackupResponse);
+  rpc RestoreVolumeBackup (RestoreVolumeBackupRequest) returns (RestoreVolumeBackupResponse);
 
   // WatchEvents opens a server-stream of platform events. Lets
   // clients react to VM lifecycle / project mutation / guest-side
@@ -996,6 +1127,17 @@ service WeftAgent {
   rpc ListVMSSHKeys   (ListVMSSHKeysRequest)   returns (ListVMSSHKeysResponse);
   rpc AddVMSSHKey     (AddVMSSHKeyRequest)     returns (AddVMSSHKeyResponse);    // idempotent on fingerprint
   rpc RemoveVMSSHKey  (RemoveVMSSHKeyRequest)  returns (RemoveVMSSHKeyResponse);
+
+  // --- Federation (peer-poll snapshot, read-only) ---
+  // Reads the in-memory federation.Poller cache. Per
+  // [[openweft_pull_model]], the agent already holds the snapshot ;
+  // the RPC does NOT trigger a remote pull on the hot path.
+  rpc ListFederationPeers (ListFederationPeersRequest) returns (ListFederationPeersResponse);
+
+  // --- Plugin catalogue + installed-instance registry ---
+  rpc ListPluginCatalogue  (ListPluginCatalogueRequest)  returns (ListPluginCatalogueResponse);
+  rpc ListInstalledPlugins (ListInstalledPluginsRequest) returns (ListInstalledPluginsResponse);
+  rpc InstallPlugin        (InstallPluginRequest)        returns (InstallPluginResponse);
 }
 
 // --- Hosts -------------------------------------------------------

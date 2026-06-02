@@ -48,6 +48,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/user"
 	"github.com/openweft/weft/cmd/weft/volume"
 	"github.com/openweft/weft/cmd/weft/wait"
+	"github.com/openweft/weft/federation"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -713,6 +714,14 @@ type weftServer struct {
 	// the in-guest pkg/sshkeys subscriber (writes authorized_keys +
 	// feeds the embedded sshd AuthStore).
 	vmKeys *weft.VMSSHKeyRegistry
+	// federationPoller is the in-process peer-poll cache (see the
+	// federation package). nil = federation not configured ;
+	// ListFederationPeers returns an empty peer slice.
+	federationPoller *federation.Poller
+	// plugins is the catalogue + installed-instance + install
+	// surface backing the Plugin RPCs. nil = plugin manager not
+	// wired ; List* returns empty, Install returns Unavailable.
+	plugins pluginManager
 }
 
 func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
