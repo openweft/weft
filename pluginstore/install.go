@@ -165,46 +165,70 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 			schedRule = m.deriveSchedulingRule(manifest, vm, uuid)
 		}
 		netUUID := netUUIDByName[vm.Network]
-		for i := 0; i < vm.Replicas; i++ {
-			vmName := replicaName(manifest.Name, uuid, vm.Name, i)
-			// Allocate per-replica volumes before CreateVM
-			// so the agent can attach at boot. The attach
-			// step is left to the agent — we just declare
-			// the volumes ; weft-network reconciles the
-			// binding via its existing watch loop.
-			for _, vol := range vm.Volumes {
-				volName := fmt.Sprintf("%s-%s", vmName, vol.Name)
-				fmtStr := vol.Format
-				if fmtStr == "" {
-					fmtStr = "raw"
-				}
-				resp, err := m.client.CreateVolume(ctx, &weftv1.CreateVolumeRequest{
-					Project: project,
-					Name:    volName,
-					SizeGib: int64(vol.SizeGiB),
-					Format:  fmtStr,
-				})
-				if err != nil {
-					return inst, m.rollback(ctx, inst, fmt.Errorf("create volume %q: %w", volName, err))
-				}
-				if resp.Volume != nil {
-					inst.Volumes = append(inst.Volumes, resp.Volume.Uuid)
-				}
+		// Resolve the optional vm count attribute. count=1 (the
+		// default) keeps the original naming — no "-0" suffix —
+		// so existing manifests are byte-for-byte compatible.
+		vmCount, err := resolveCount(vm.Count, resolved)
+		if err != nil {
+			return inst, m.rollback(ctx, inst, fmt.Errorf("vm %q: %w", vm.Name, err))
+		}
+		for c := 0; c < vmCount; c++ {
+			baseName := vm.Name
+			if vmCount > 1 {
+				baseName = fmt.Sprintf("%s-%d", vm.Name, c)
 			}
-			req := &weftv1.CreateVMRequest{
-				Project:        project,
-				Name:           vmName,
-				Image:          vm.Image,
-				Cpu:            uint32(vm.CPU),
-				MemMb:          uint64(vm.MemMB),
-				DiskGb:         uint64(vm.DiskGB),
-				SchedulingRule: schedRule,
-				Network:        netUUID,
+			for i := 0; i < vm.Replicas; i++ {
+				vmName := replicaName(manifest.Name, uuid, baseName, i)
+				// Allocate per-replica volumes before
+				// CreateVM so the agent can attach at boot.
+				// The attach step is left to the agent —
+				// we just declare the volumes ; weft-network
+				// reconciles the binding via its existing
+				// watch loop.
+				for _, vol := range vm.Volumes {
+					volCount, err := resolveCount(vol.Count, resolved)
+					if err != nil {
+						return inst, m.rollback(ctx, inst, fmt.Errorf("vm %q volume %q: %w", vm.Name, vol.Name, err))
+					}
+					for vc := 0; vc < volCount; vc++ {
+						volBase := vol.Name
+						if volCount > 1 {
+							volBase = fmt.Sprintf("%s-%d", vol.Name, vc)
+						}
+						volName := fmt.Sprintf("%s-%s", vmName, volBase)
+						fmtStr := vol.Format
+						if fmtStr == "" {
+							fmtStr = "raw"
+						}
+						resp, err := m.client.CreateVolume(ctx, &weftv1.CreateVolumeRequest{
+							Project: project,
+							Name:    volName,
+							SizeGib: int64(vol.SizeGiB),
+							Format:  fmtStr,
+						})
+						if err != nil {
+							return inst, m.rollback(ctx, inst, fmt.Errorf("create volume %q: %w", volName, err))
+						}
+						if resp.Volume != nil {
+							inst.Volumes = append(inst.Volumes, resp.Volume.Uuid)
+						}
+					}
+				}
+				req := &weftv1.CreateVMRequest{
+					Project:        project,
+					Name:           vmName,
+					Image:          vm.Image,
+					Cpu:            uint32(vm.CPU),
+					MemMb:          uint64(vm.MemMB),
+					DiskGb:         uint64(vm.DiskGB),
+					SchedulingRule: schedRule,
+					Network:        netUUID,
+				}
+				if _, err := m.client.CreateVM(ctx, req); err != nil {
+					return inst, m.rollback(ctx, inst, fmt.Errorf("create vm %q: %w", vmName, err))
+				}
+				inst.VMs = append(inst.VMs, vmName)
 			}
-			if _, err := m.client.CreateVM(ctx, req); err != nil {
-				return inst, m.rollback(ctx, inst, fmt.Errorf("create vm %q: %w", vmName, err))
-			}
-			inst.VMs = append(inst.VMs, vmName)
 		}
 	}
 

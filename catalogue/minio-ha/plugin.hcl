@@ -147,25 +147,20 @@ plugin "minio-ha" {
     env_from "root_password" { env_name = "MINIO_ROOT_PASSWORD" }
     env_from "region"        { env_name = "MINIO_REGION" }
 
-    volume "drive-0" {
+    # `volumes_per_node` was previously documented but inert because
+    # the schema had no way to materialise N volume blocks from one
+    # input. With the count attribute (pluginstore v1 since 2026-06),
+    # one block expands at install time : the installer creates
+    # drive-0..drive-(N-1) and mounts them at /mnt/drive-0../mnt/drive-(N-1).
+    # Default 4 drives × 4 nodes = 16 drives, EC:8+8.
+    #
+    # NOTE : `volume_size_gib` stays inert for now — sizing is still a
+    # static int attribute. Lift it the same way once a use case lands.
+    volume "drive" {
       size_gib = 200
       format   = "raw"
-      mount    = "/mnt/drive-0"
-    }
-    volume "drive-1" {
-      size_gib = 200
-      format   = "raw"
-      mount    = "/mnt/drive-1"
-    }
-    volume "drive-2" {
-      size_gib = 200
-      format   = "raw"
-      mount    = "/mnt/drive-2"
-    }
-    volume "drive-3" {
-      size_gib = 200
-      format   = "raw"
-      mount    = "/mnt/drive-3"
+      mount    = "/mnt/drive"
+      count    = input.volumes_per_node
     }
   }
 }

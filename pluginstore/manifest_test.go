@@ -242,6 +242,156 @@ func TestParseCatalogue_AllShippedPluginsParse(t *testing.T) {
 	}
 }
 
+// ── Count grammar : parse-time validation ───────────────────────
+
+func TestParseManifest_CountLiteralAccepted(t *testing.T) {
+	src := `
+plugin "demo" {
+  version     = "v1"
+  kind        = "x"
+  description = "d"
+  vm "v" {
+    image = "i"
+    count = "2"
+    volume "drive" {
+      size_gib = 10
+      count    = "4"
+    }
+  }
+}`
+	m, err := ParseManifest("demo.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if m.VMs[0].Count != "2" {
+		t.Errorf("vm count = %q (want 2)", m.VMs[0].Count)
+	}
+	if m.VMs[0].Volumes[0].Count != "4" {
+		t.Errorf("volume count = %q (want 4)", m.VMs[0].Volumes[0].Count)
+	}
+}
+
+func TestParseManifest_CountInputRefDecodesToString(t *testing.T) {
+	src := `
+plugin "demo" {
+  version     = "v1"
+  kind        = "x"
+  description = "d"
+  input "drives" {
+    type    = "int"
+    default = "3"
+  }
+  vm "v" {
+    image = "i"
+    volume "drive" {
+      size_gib = 10
+      count    = input.drives
+    }
+  }
+}`
+	m, err := ParseManifest("demo.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := m.VMs[0].Volumes[0].Count; got != "input.drives" {
+		t.Errorf("expected count to decode as %q, got %q", "input.drives", got)
+	}
+}
+
+func TestParseManifest_CountInputRefUnknownInputRejected(t *testing.T) {
+	src := `
+plugin "demo" {
+  version     = "v1"
+  kind        = "x"
+  description = "d"
+  vm "v" {
+    image = "i"
+    volume "drive" {
+      size_gib = 10
+      count    = input.ghost
+    }
+  }
+}`
+	_, err := ParseManifest("demo.hcl", []byte(src))
+	if err == nil {
+		t.Fatal("expected error for unknown input in count")
+	}
+	if !strings.Contains(err.Error(), "ghost") {
+		t.Errorf("expected error to name the missing input, got %v", err)
+	}
+}
+
+func TestParseManifest_CountBadGrammarRejected(t *testing.T) {
+	src := `
+plugin "demo" {
+  version     = "v1"
+  kind        = "x"
+  description = "d"
+  vm "v" {
+    image = "i"
+    count = "0"
+  }
+}`
+	_, err := ParseManifest("demo.hcl", []byte(src))
+	if err == nil || !strings.Contains(err.Error(), "positive integer literal") {
+		t.Fatalf("expected grammar error, got %v", err)
+	}
+}
+
+// ── Count grammar : install-time resolution ─────────────────────
+
+func TestResolveCount_Default(t *testing.T) {
+	n, err := resolveCount("", nil)
+	if err != nil || n != 1 {
+		t.Errorf("empty count : got (%d, %v), want (1, nil)", n, err)
+	}
+}
+
+func TestResolveCount_Literal(t *testing.T) {
+	n, err := resolveCount("4", nil)
+	if err != nil || n != 4 {
+		t.Errorf("literal 4 : got (%d, %v)", n, err)
+	}
+}
+
+func TestResolveCount_InputRef(t *testing.T) {
+	n, err := resolveCount("input.replicas", map[string]string{"replicas": "3"})
+	if err != nil || n != 3 {
+		t.Errorf("input ref : got (%d, %v), want (3, nil)", n, err)
+	}
+}
+
+func TestResolveCount_InputMissing(t *testing.T) {
+	_, err := resolveCount("input.replicas", map[string]string{})
+	if err == nil || !strings.Contains(err.Error(), "not set") {
+		t.Errorf("expected missing-input error, got %v", err)
+	}
+}
+
+func TestResolveCount_InputNonNumeric(t *testing.T) {
+	_, err := resolveCount("input.replicas", map[string]string{"replicas": "abc"})
+	if err == nil || !strings.Contains(err.Error(), "not an integer") {
+		t.Errorf("expected non-integer error, got %v", err)
+	}
+}
+
+func TestResolveCount_InputZeroRejected(t *testing.T) {
+	_, err := resolveCount("input.replicas", map[string]string{"replicas": "0"})
+	if err == nil || !strings.Contains(err.Error(), "> 0") {
+		t.Errorf("expected >0 error for zero input, got %v", err)
+	}
+}
+
+func TestResolveCount_InputNegativeRejected(t *testing.T) {
+	// Negative integers don't match the input-ref regex on the
+	// HCL side, but the install-time resolver still rejects them
+	// defensively when a user supplies the input via CLI.
+	_, err := resolveCount("input.replicas", map[string]string{"replicas": "-2"})
+	if err == nil || !strings.Contains(err.Error(), "> 0") {
+		t.Errorf("expected >0 error for negative input, got %v", err)
+	}
+}
+
 // findCatalogueRoot walks up from the test cwd until it finds a
 // directory named "catalogue" — the same heuristic the runtime
 // uses. Tests don't take a flag so this needs to be a closed-form
