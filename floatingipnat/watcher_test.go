@@ -10,16 +10,14 @@ import (
 
 // fakeScope is a hand-rolled Scope driven by literal slices.
 type fakeScope struct {
-	vmsByHost  map[string][]weft.VM
-	fips       []weft.FloatingIP
-	portsByVM  map[string][]weft.Port
-	vmsByName  map[string]weft.VM
+	vmsByHost map[string][]weft.VM
+	fips      []weft.FloatingIP
+	portsByVM map[string][]weft.Port
 }
 
-func (f *fakeScope) ListVMsForHost(h string) []weft.VM       { return f.vmsByHost[h] }
-func (f *fakeScope) ListFloatingIPs() []weft.FloatingIP      { return f.fips }
-func (f *fakeScope) ListPortsForVM(uuid string) []weft.Port  { return f.portsByVM[uuid] }
-func (f *fakeScope) VMByName(name string) (weft.VM, bool)    { v, ok := f.vmsByName[name]; return v, ok }
+func (f *fakeScope) ListVMsForHost(h string) []weft.VM      { return f.vmsByHost[h] }
+func (f *fakeScope) ListFloatingIPs() []weft.FloatingIP     { return f.fips }
+func (f *fakeScope) ListPortsForVM(uuid string) []weft.Port { return f.portsByVM[uuid] }
 
 // recorderReconciler captures every Apply payload for assertion.
 type recorderReconciler struct {
