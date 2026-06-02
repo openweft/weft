@@ -70,7 +70,12 @@ const (
 	WeftAgent_CreateVolumeSnapshot_FullMethodName            = "/weft.v1.WeftAgent/CreateVolumeSnapshot"
 	WeftAgent_ListVolumeSnapshots_FullMethodName             = "/weft.v1.WeftAgent/ListVolumeSnapshots"
 	WeftAgent_RestoreVolumeSnapshot_FullMethodName           = "/weft.v1.WeftAgent/RestoreVolumeSnapshot"
+	WeftAgent_RevertVolumeSnapshot_FullMethodName            = "/weft.v1.WeftAgent/RevertVolumeSnapshot"
 	WeftAgent_DeleteVolumeSnapshot_FullMethodName            = "/weft.v1.WeftAgent/DeleteVolumeSnapshot"
+	WeftAgent_CreateVolumeBackup_FullMethodName              = "/weft.v1.WeftAgent/CreateVolumeBackup"
+	WeftAgent_ListVolumeBackups_FullMethodName               = "/weft.v1.WeftAgent/ListVolumeBackups"
+	WeftAgent_DeleteVolumeBackup_FullMethodName              = "/weft.v1.WeftAgent/DeleteVolumeBackup"
+	WeftAgent_RestoreVolumeBackup_FullMethodName             = "/weft.v1.WeftAgent/RestoreVolumeBackup"
 	WeftAgent_WatchEvents_FullMethodName                     = "/weft.v1.WeftAgent/WatchEvents"
 	WeftAgent_RenderNATSAuthorization_FullMethodName         = "/weft.v1.WeftAgent/RenderNATSAuthorization"
 	WeftAgent_RegisterHost_FullMethodName                    = "/weft.v1.WeftAgent/RegisterHost"
@@ -118,6 +123,10 @@ const (
 	WeftAgent_ListVMSSHKeys_FullMethodName                   = "/weft.v1.WeftAgent/ListVMSSHKeys"
 	WeftAgent_AddVMSSHKey_FullMethodName                     = "/weft.v1.WeftAgent/AddVMSSHKey"
 	WeftAgent_RemoveVMSSHKey_FullMethodName                  = "/weft.v1.WeftAgent/RemoveVMSSHKey"
+	WeftAgent_ListFederationPeers_FullMethodName             = "/weft.v1.WeftAgent/ListFederationPeers"
+	WeftAgent_ListPluginCatalogue_FullMethodName             = "/weft.v1.WeftAgent/ListPluginCatalogue"
+	WeftAgent_ListInstalledPlugins_FullMethodName            = "/weft.v1.WeftAgent/ListInstalledPlugins"
+	WeftAgent_InstallPlugin_FullMethodName                   = "/weft.v1.WeftAgent/InstallPlugin"
 )
 
 // WeftAgentClient is the client API for WeftAgent service.
@@ -213,7 +222,16 @@ type WeftAgentClient interface {
 	CreateVolumeSnapshot(ctx context.Context, in *CreateVolumeSnapshotRequest, opts ...grpc.CallOption) (*CreateVolumeSnapshotResponse, error)
 	ListVolumeSnapshots(ctx context.Context, in *ListVolumeSnapshotsRequest, opts ...grpc.CallOption) (*ListVolumeSnapshotsResponse, error)
 	RestoreVolumeSnapshot(ctx context.Context, in *RestoreVolumeSnapshotRequest, opts ...grpc.CallOption) (*RestoreVolumeSnapshotResponse, error)
+	RevertVolumeSnapshot(ctx context.Context, in *RevertVolumeSnapshotRequest, opts ...grpc.CallOption) (*RevertVolumeSnapshotResponse, error)
 	DeleteVolumeSnapshot(ctx context.Context, in *DeleteVolumeSnapshotRequest, opts ...grpc.CallOption) (*DeleteVolumeSnapshotResponse, error)
+	// Volume backup RPCs. A backup ships a snapshot's contents to a remote
+	// backupstore (S3 / SFTP) and yields a URL that's stable across volume
+	// lifecycles — survives the source volume's deletion and can be restored
+	// into any project the caller has access to.
+	CreateVolumeBackup(ctx context.Context, in *CreateVolumeBackupRequest, opts ...grpc.CallOption) (*CreateVolumeBackupResponse, error)
+	ListVolumeBackups(ctx context.Context, in *ListVolumeBackupsRequest, opts ...grpc.CallOption) (*ListVolumeBackupsResponse, error)
+	DeleteVolumeBackup(ctx context.Context, in *DeleteVolumeBackupRequest, opts ...grpc.CallOption) (*DeleteVolumeBackupResponse, error)
+	RestoreVolumeBackup(ctx context.Context, in *RestoreVolumeBackupRequest, opts ...grpc.CallOption) (*RestoreVolumeBackupResponse, error)
 	// WatchEvents opens a server-stream of platform events. Lets
 	// clients react to VM lifecycle / project mutation / guest-side
 	// marker changes without polling. ACL-filtered server-side by
@@ -287,6 +305,15 @@ type WeftAgentClient interface {
 	ListVMSSHKeys(ctx context.Context, in *ListVMSSHKeysRequest, opts ...grpc.CallOption) (*ListVMSSHKeysResponse, error)
 	AddVMSSHKey(ctx context.Context, in *AddVMSSHKeyRequest, opts ...grpc.CallOption) (*AddVMSSHKeyResponse, error)
 	RemoveVMSSHKey(ctx context.Context, in *RemoveVMSSHKeyRequest, opts ...grpc.CallOption) (*RemoveVMSSHKeyResponse, error)
+	// --- Federation (peer-poll snapshot, read-only) ---
+	// Reads the in-memory federation.Poller cache. Per
+	// [[openweft_pull_model]], the agent already holds the snapshot ;
+	// the RPC does NOT trigger a remote pull on the hot path.
+	ListFederationPeers(ctx context.Context, in *ListFederationPeersRequest, opts ...grpc.CallOption) (*ListFederationPeersResponse, error)
+	// --- Plugin catalogue + installed-instance registry ---
+	ListPluginCatalogue(ctx context.Context, in *ListPluginCatalogueRequest, opts ...grpc.CallOption) (*ListPluginCatalogueResponse, error)
+	ListInstalledPlugins(ctx context.Context, in *ListInstalledPluginsRequest, opts ...grpc.CallOption) (*ListInstalledPluginsResponse, error)
+	InstallPlugin(ctx context.Context, in *InstallPluginRequest, opts ...grpc.CallOption) (*InstallPluginResponse, error)
 }
 
 type weftAgentClient struct {
@@ -807,10 +834,60 @@ func (c *weftAgentClient) RestoreVolumeSnapshot(ctx context.Context, in *Restore
 	return out, nil
 }
 
+func (c *weftAgentClient) RevertVolumeSnapshot(ctx context.Context, in *RevertVolumeSnapshotRequest, opts ...grpc.CallOption) (*RevertVolumeSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevertVolumeSnapshotResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_RevertVolumeSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *weftAgentClient) DeleteVolumeSnapshot(ctx context.Context, in *DeleteVolumeSnapshotRequest, opts ...grpc.CallOption) (*DeleteVolumeSnapshotResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteVolumeSnapshotResponse)
 	err := c.cc.Invoke(ctx, WeftAgent_DeleteVolumeSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) CreateVolumeBackup(ctx context.Context, in *CreateVolumeBackupRequest, opts ...grpc.CallOption) (*CreateVolumeBackupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateVolumeBackupResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_CreateVolumeBackup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListVolumeBackups(ctx context.Context, in *ListVolumeBackupsRequest, opts ...grpc.CallOption) (*ListVolumeBackupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListVolumeBackupsResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListVolumeBackups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteVolumeBackup(ctx context.Context, in *DeleteVolumeBackupRequest, opts ...grpc.CallOption) (*DeleteVolumeBackupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteVolumeBackupResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteVolumeBackup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) RestoreVolumeBackup(ctx context.Context, in *RestoreVolumeBackupRequest, opts ...grpc.CallOption) (*RestoreVolumeBackupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreVolumeBackupResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_RestoreVolumeBackup_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1296,6 +1373,46 @@ func (c *weftAgentClient) RemoveVMSSHKey(ctx context.Context, in *RemoveVMSSHKey
 	return out, nil
 }
 
+func (c *weftAgentClient) ListFederationPeers(ctx context.Context, in *ListFederationPeersRequest, opts ...grpc.CallOption) (*ListFederationPeersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFederationPeersResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListFederationPeers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListPluginCatalogue(ctx context.Context, in *ListPluginCatalogueRequest, opts ...grpc.CallOption) (*ListPluginCatalogueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPluginCatalogueResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListPluginCatalogue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListInstalledPlugins(ctx context.Context, in *ListInstalledPluginsRequest, opts ...grpc.CallOption) (*ListInstalledPluginsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListInstalledPluginsResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListInstalledPlugins_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) InstallPlugin(ctx context.Context, in *InstallPluginRequest, opts ...grpc.CallOption) (*InstallPluginResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InstallPluginResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_InstallPlugin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeftAgentServer is the server API for WeftAgent service.
 // All implementations must embed UnimplementedWeftAgentServer
 // for forward compatibility.
@@ -1389,7 +1506,16 @@ type WeftAgentServer interface {
 	CreateVolumeSnapshot(context.Context, *CreateVolumeSnapshotRequest) (*CreateVolumeSnapshotResponse, error)
 	ListVolumeSnapshots(context.Context, *ListVolumeSnapshotsRequest) (*ListVolumeSnapshotsResponse, error)
 	RestoreVolumeSnapshot(context.Context, *RestoreVolumeSnapshotRequest) (*RestoreVolumeSnapshotResponse, error)
+	RevertVolumeSnapshot(context.Context, *RevertVolumeSnapshotRequest) (*RevertVolumeSnapshotResponse, error)
 	DeleteVolumeSnapshot(context.Context, *DeleteVolumeSnapshotRequest) (*DeleteVolumeSnapshotResponse, error)
+	// Volume backup RPCs. A backup ships a snapshot's contents to a remote
+	// backupstore (S3 / SFTP) and yields a URL that's stable across volume
+	// lifecycles — survives the source volume's deletion and can be restored
+	// into any project the caller has access to.
+	CreateVolumeBackup(context.Context, *CreateVolumeBackupRequest) (*CreateVolumeBackupResponse, error)
+	ListVolumeBackups(context.Context, *ListVolumeBackupsRequest) (*ListVolumeBackupsResponse, error)
+	DeleteVolumeBackup(context.Context, *DeleteVolumeBackupRequest) (*DeleteVolumeBackupResponse, error)
+	RestoreVolumeBackup(context.Context, *RestoreVolumeBackupRequest) (*RestoreVolumeBackupResponse, error)
 	// WatchEvents opens a server-stream of platform events. Lets
 	// clients react to VM lifecycle / project mutation / guest-side
 	// marker changes without polling. ACL-filtered server-side by
@@ -1463,6 +1589,15 @@ type WeftAgentServer interface {
 	ListVMSSHKeys(context.Context, *ListVMSSHKeysRequest) (*ListVMSSHKeysResponse, error)
 	AddVMSSHKey(context.Context, *AddVMSSHKeyRequest) (*AddVMSSHKeyResponse, error)
 	RemoveVMSSHKey(context.Context, *RemoveVMSSHKeyRequest) (*RemoveVMSSHKeyResponse, error)
+	// --- Federation (peer-poll snapshot, read-only) ---
+	// Reads the in-memory federation.Poller cache. Per
+	// [[openweft_pull_model]], the agent already holds the snapshot ;
+	// the RPC does NOT trigger a remote pull on the hot path.
+	ListFederationPeers(context.Context, *ListFederationPeersRequest) (*ListFederationPeersResponse, error)
+	// --- Plugin catalogue + installed-instance registry ---
+	ListPluginCatalogue(context.Context, *ListPluginCatalogueRequest) (*ListPluginCatalogueResponse, error)
+	ListInstalledPlugins(context.Context, *ListInstalledPluginsRequest) (*ListInstalledPluginsResponse, error)
+	InstallPlugin(context.Context, *InstallPluginRequest) (*InstallPluginResponse, error)
 	mustEmbedUnimplementedWeftAgentServer()
 }
 
@@ -1626,8 +1761,23 @@ func (UnimplementedWeftAgentServer) ListVolumeSnapshots(context.Context, *ListVo
 func (UnimplementedWeftAgentServer) RestoreVolumeSnapshot(context.Context, *RestoreVolumeSnapshotRequest) (*RestoreVolumeSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RestoreVolumeSnapshot not implemented")
 }
+func (UnimplementedWeftAgentServer) RevertVolumeSnapshot(context.Context, *RevertVolumeSnapshotRequest) (*RevertVolumeSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevertVolumeSnapshot not implemented")
+}
 func (UnimplementedWeftAgentServer) DeleteVolumeSnapshot(context.Context, *DeleteVolumeSnapshotRequest) (*DeleteVolumeSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteVolumeSnapshot not implemented")
+}
+func (UnimplementedWeftAgentServer) CreateVolumeBackup(context.Context, *CreateVolumeBackupRequest) (*CreateVolumeBackupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateVolumeBackup not implemented")
+}
+func (UnimplementedWeftAgentServer) ListVolumeBackups(context.Context, *ListVolumeBackupsRequest) (*ListVolumeBackupsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListVolumeBackups not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteVolumeBackup(context.Context, *DeleteVolumeBackupRequest) (*DeleteVolumeBackupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteVolumeBackup not implemented")
+}
+func (UnimplementedWeftAgentServer) RestoreVolumeBackup(context.Context, *RestoreVolumeBackupRequest) (*RestoreVolumeBackupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreVolumeBackup not implemented")
 }
 func (UnimplementedWeftAgentServer) WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[PlatformEvent]) error {
 	return status.Error(codes.Unimplemented, "method WatchEvents not implemented")
@@ -1769,6 +1919,18 @@ func (UnimplementedWeftAgentServer) AddVMSSHKey(context.Context, *AddVMSSHKeyReq
 }
 func (UnimplementedWeftAgentServer) RemoveVMSSHKey(context.Context, *RemoveVMSSHKeyRequest) (*RemoveVMSSHKeyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveVMSSHKey not implemented")
+}
+func (UnimplementedWeftAgentServer) ListFederationPeers(context.Context, *ListFederationPeersRequest) (*ListFederationPeersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFederationPeers not implemented")
+}
+func (UnimplementedWeftAgentServer) ListPluginCatalogue(context.Context, *ListPluginCatalogueRequest) (*ListPluginCatalogueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListPluginCatalogue not implemented")
+}
+func (UnimplementedWeftAgentServer) ListInstalledPlugins(context.Context, *ListInstalledPluginsRequest) (*ListInstalledPluginsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListInstalledPlugins not implemented")
+}
+func (UnimplementedWeftAgentServer) InstallPlugin(context.Context, *InstallPluginRequest) (*InstallPluginResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InstallPlugin not implemented")
 }
 func (UnimplementedWeftAgentServer) mustEmbedUnimplementedWeftAgentServer() {}
 func (UnimplementedWeftAgentServer) testEmbeddedByValue()                   {}
@@ -2709,6 +2871,24 @@ func _WeftAgent_RestoreVolumeSnapshot_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WeftAgent_RevertVolumeSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevertVolumeSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).RevertVolumeSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_RevertVolumeSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).RevertVolumeSnapshot(ctx, req.(*RevertVolumeSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WeftAgent_DeleteVolumeSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteVolumeSnapshotRequest)
 	if err := dec(in); err != nil {
@@ -2723,6 +2903,78 @@ func _WeftAgent_DeleteVolumeSnapshot_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeftAgentServer).DeleteVolumeSnapshot(ctx, req.(*DeleteVolumeSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_CreateVolumeBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateVolumeBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).CreateVolumeBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_CreateVolumeBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).CreateVolumeBackup(ctx, req.(*CreateVolumeBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListVolumeBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListVolumeBackupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListVolumeBackups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListVolumeBackups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListVolumeBackups(ctx, req.(*ListVolumeBackupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteVolumeBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteVolumeBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteVolumeBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteVolumeBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteVolumeBackup(ctx, req.(*DeleteVolumeBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_RestoreVolumeBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreVolumeBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).RestoreVolumeBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_RestoreVolumeBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).RestoreVolumeBackup(ctx, req.(*RestoreVolumeBackupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3566,6 +3818,78 @@ func _WeftAgent_RemoveVMSSHKey_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WeftAgent_ListFederationPeers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFederationPeersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListFederationPeers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListFederationPeers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListFederationPeers(ctx, req.(*ListFederationPeersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListPluginCatalogue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPluginCatalogueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListPluginCatalogue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListPluginCatalogue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListPluginCatalogue(ctx, req.(*ListPluginCatalogueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListInstalledPlugins_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListInstalledPluginsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListInstalledPlugins(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListInstalledPlugins_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListInstalledPlugins(ctx, req.(*ListInstalledPluginsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_InstallPlugin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InstallPluginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).InstallPlugin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_InstallPlugin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).InstallPlugin(ctx, req.(*InstallPluginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WeftAgent_ServiceDesc is the grpc.ServiceDesc for WeftAgent service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3778,8 +4102,28 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _WeftAgent_RestoreVolumeSnapshot_Handler,
 		},
 		{
+			MethodName: "RevertVolumeSnapshot",
+			Handler:    _WeftAgent_RevertVolumeSnapshot_Handler,
+		},
+		{
 			MethodName: "DeleteVolumeSnapshot",
 			Handler:    _WeftAgent_DeleteVolumeSnapshot_Handler,
+		},
+		{
+			MethodName: "CreateVolumeBackup",
+			Handler:    _WeftAgent_CreateVolumeBackup_Handler,
+		},
+		{
+			MethodName: "ListVolumeBackups",
+			Handler:    _WeftAgent_ListVolumeBackups_Handler,
+		},
+		{
+			MethodName: "DeleteVolumeBackup",
+			Handler:    _WeftAgent_DeleteVolumeBackup_Handler,
+		},
+		{
+			MethodName: "RestoreVolumeBackup",
+			Handler:    _WeftAgent_RestoreVolumeBackup_Handler,
 		},
 		{
 			MethodName: "RenderNATSAuthorization",
@@ -3964,6 +4308,22 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveVMSSHKey",
 			Handler:    _WeftAgent_RemoveVMSSHKey_Handler,
+		},
+		{
+			MethodName: "ListFederationPeers",
+			Handler:    _WeftAgent_ListFederationPeers_Handler,
+		},
+		{
+			MethodName: "ListPluginCatalogue",
+			Handler:    _WeftAgent_ListPluginCatalogue_Handler,
+		},
+		{
+			MethodName: "ListInstalledPlugins",
+			Handler:    _WeftAgent_ListInstalledPlugins_Handler,
+		},
+		{
+			MethodName: "InstallPlugin",
+			Handler:    _WeftAgent_InstallPlugin_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

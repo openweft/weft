@@ -7,6 +7,13 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [v0.5.0] — 2026-06-02
+
+### Added
+
+- `ListFederationPeers` RPC on `WeftAgent` service + `FederationPeerInfo` / `ListFederationPeersRequest` / `ListFederationPeersResponse` messages — surfaces the in-process `federation.Poller` snapshot (peer name, region, weight, last-seen, classified status). Per [[openweft_pull_model]], the RPC reads the locally-cached pull state ; it does NOT trigger a remote pull on the hot path.
+- `ListPluginCatalogue` + `ListInstalledPlugins` + `InstallPlugin` RPCs on `WeftAgent` service + supporting `PluginInput` / `PluginCatalogueEntry` / `PluginInstance` / request-response messages — exposes the `pluginstore.Manager` catalogue + installed-instance registry + idempotent install (returns the deterministic instance UUID).
+
 ## [v0.4.0] — 2026-06-02
 
 ### Added
