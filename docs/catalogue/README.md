@@ -55,31 +55,27 @@ the catalogue root ; `--state-dir` overrides the instance-state path.
 
 ## Available plugins
 
-Grouped by `kind`:
+Grouped by `kind`. All `ha-3dc`.
 
-| Name                  | Kind            | Layout  | Description                                          |
-|-----------------------|-----------------|---------|------------------------------------------------------|
-| `gitlab-runners-ha`   | runner-farm     | ha-3dc  | Three GitLab CI runners pinned one-per-AZ            |
-| `github-runners-ha`   | runner-farm     | ha-3dc  | Three self-hosted GitHub Actions runners             |
-| `forgejo-runners-ha`  | runner-farm     | ha-3dc  | Three Forgejo `act_runner` replicas                  |
-| `jupyterhub-ha`       | portal          | ha-3dc  | Per-user notebook portal (see [jupyterhub-ha.md](jupyterhub-ha.md)) |
-| `postgres-ha`         | database        | ha-3dc  | Three Patroni-managed Postgres members with failover |
-| `redis-ha`            | cache           | ha-3dc  | Three Redis + Sentinel replicas, one per DC          |
-| `minio-ha`            | object-storage  | ha-3dc  | Four-node erasure-coded MinIO (EC:8+8, survives a DC)|
-| `vault-ha`            | secrets         | ha-3dc  | Three Vault members, Raft HA, KMS auto-unseal        |
-| `caddy-edge`          | edge-proxy      | ha-3dc  | Three Caddy replicas at network edge, ACME TLS       |
+| Group           | Name                  | Kind            | Description                                          |
+|-----------------|-----------------------|-----------------|------------------------------------------------------|
+| Runner farm     | `gitlab-runners-ha`   | runner-farm     | Three GitLab CI runners pinned one-per-AZ            |
+| Runner farm     | `github-runners-ha`   | runner-farm     | Three self-hosted GitHub Actions runners             |
+| Runner farm     | `forgejo-runners-ha`  | runner-farm     | Three Forgejo `act_runner` replicas                  |
+| Portal          | `jupyterhub-ha`       | portal          | Per-user notebook portal ([doc](jupyterhub-ha.md))   |
+| Database        | `postgres-ha`         | database        | Three Patroni-managed Postgres members with failover |
+| Cache           | `redis-ha`            | cache           | Three Redis + Sentinel replicas, one per DC          |
+| Object storage  | `minio-ha`            | object-storage  | Four-node erasure-coded MinIO (EC:8+8, survives a DC)|
+| Secrets         | `vault-ha`            | secrets         | Three Vault members, Raft HA, KMS auto-unseal        |
+| Edge proxy      | `caddy-edge`          | edge-proxy      | Three Caddy replicas at network edge, ACME TLS       |
+| Observability   | `prometheus-ha`       | metrics         | Three federated Prometheus replicas ([doc](prometheus-ha.md)) |
+| Observability   | `loki-ha`             | logs            | Three Loki replicas, simple-scalable, S3-backed ([doc](loki-ha.md)) |
+| Observability   | `grafana-ha`          | dashboards      | Three Grafana replicas, sticky sessions, OIDC ([doc](grafana-ha.md)) |
 
-The three runner plugins all share the same shape :
-
-- **Replicas = 3**, one per DC (`az = "different"` in the scheduling
-  rule). Bump with `--input replicas=N`.
-- Image `ghcr.io/openweft/weft-runner-{gitlab,github,forgejo}:v0.1.0`
-  from the matching runner repo.
-- Dedicated `runners` network on `10.4{2,3,4}.0.0/24`, isolated from
-  tenant networks.
-- Egress-only security group : 443/tcp (CI hub), 22/tcp (git+ssh),
-  53/udp (DNS). No inbound rules.
-- One 10 GiB ephemeral cache volume per replica.
+The three runner plugins share the same shape : 3 replicas (`az = "different"`),
+image `ghcr.io/openweft/weft-runner-{gitlab,github,forgejo}:v0.1.0`, dedicated
+`runners` network on `10.4{2,3,4}.0.0/24`, egress-only SG (443/tcp + 22/tcp +
+53/udp), one 10 GiB ephemeral cache volume per replica.
 
 ## Worked example — GitLab
 
