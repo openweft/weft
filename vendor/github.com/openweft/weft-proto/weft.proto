@@ -102,7 +102,21 @@ message ListVMsResponse {
 // path. Non-empty + non-self triggers AgentDispatch routing —
 // same gate as RegisterMicroVMRequest.host_uuid.
 
-message StartVMRequest  { string name = 1; string project = 2; string host_uuid = 3; }
+message StartVMRequest  {
+  string name      = 1;
+  string project   = 2;
+  string host_uuid = 3;
+  // requested_gpus / requested_pci add start-time passthrough
+  // requests on top of the VM's persisted passthrough config.
+  // Empty = no start-time additions. Matching semantics mirror
+  // CreateVMRequest.requested_gpus / requested_pci ; the scheduler
+  // validates the chosen host's inventory satisfies every entry,
+  // then the driver attaches the resolved BDFs (vfio-pci on QEMU ;
+  // VZ rejects with InvalidArgument). See
+  // docs/operations/pci-passthrough.md.
+  repeated GPURequest            requested_gpus = 4;
+  repeated PCIPassthroughRequest requested_pci  = 5;
+}
 message StartVMResponse {}
 
 // --- StopVM ---
@@ -116,6 +130,34 @@ message VMStatusRequest  { string name = 1; string project = 2; }
 message VMStatusResponse { VMInfo vm = 1; }
 
 // --- CreateVM ---
+
+// GPURequest is a single GPU passthrough shape attached to a VM
+// at create time. The scheduler matches every entry against the
+// candidate host's inventory before placement ; the driver then
+// resolves the (vendor, model[, mig_slice]) tuple to concrete
+// PCI BDFs (or MIG instance UUIDs for sliced cards). Mirrors the
+// in-tree weft/scheduling.GPURequest struct one-to-one. See
+// [[openweft_gpu_fleet]] for the supported (vendor, model) set
+// — currently NVIDIA H200 (datacenter, MIG-capable) and RTX 6000
+// Ada (workstation, whole-card passthrough only).
+message GPURequest {
+  string vendor    = 1; // e.g. "nvidia"
+  string model     = 2; // e.g. "H200" or "RTX-6000-Ada"
+  int32  count     = 3; // 0 → 1
+  string mig_slice = 4; // optional MIG profile, e.g. "1g.10gb" ; empty = whole card
+}
+
+// PCIPassthroughRequest is one (vendor:device) tuple a VM
+// asks to passthrough at create time. Sibling of the GPU
+// passthrough surface — same matching semantics (host inventory
+// must satisfy every entry) but for non-GPU endpoints (NICs,
+// NVMe, sound cards, FPGAs). See docs/operations/pci-passthrough.md
+// for the operator workflow and the "no exclusivity today" gotcha.
+message PCIPassthroughRequest {
+  string vendor_id = 1; // 4-hex-digit PCI Vendor Code, lowercase, no "0x" prefix (e.g. "10de")
+  string device_id = 2; // 4-hex-digit PCI Device Code, lowercase, no "0x" prefix (e.g. "2330") ; empty = any device from this vendor
+  int32  count     = 3; // 0 → 1
+}
 
 message CreateVMRequest {
   // Tag 6 (ssh_pub) was a cloud-init-era field — microVMs don't run
@@ -151,6 +193,22 @@ message CreateVMRequest {
   // reconciles AttachVM on its own. Editing the field on a live VM
   // is a separate concern (not handled by CreateVM).
   string network = 9;
+
+  // requested_gpus is the GPU passthrough shape persisted on the
+  // VMRecord and enforced by tenant_quotas at admission. Empty =
+  // no GPU passthrough. The scheduler picks a host whose inventory
+  // satisfies every entry ; the driver resolves to BDFs/MIG UUIDs
+  // at StartVM. Closes the loop noted in tenant_quotas
+  // (EnforceTenantQuotaForGPU previously got nil because the proto
+  // did not carry the field — see commit 2ca4fce).
+  repeated GPURequest requested_gpus = 10;
+
+  // requested_pci is the generic (non-GPU) PCI passthrough shape
+  // persisted on the VMRecord. Same matching/lifecycle semantics
+  // as requested_gpus. Empty = no PCI passthrough. Operators use
+  // it for NIC, NVMe, FPGA, sound-card passthrough — anything the
+  // host exposes through its PCI inventory that isn't a GPU.
+  repeated PCIPassthroughRequest requested_pci = 11;
 }
 message CreateVMResponse {}
 
@@ -696,6 +754,27 @@ message RegisterMicroVMRequest {
   // must already be connected (Unavailable error otherwise).
   // The scheduler typically fills this in via ScheduleVMGroup.
   string host_uuid = 8;
+
+  // requested_gpus / requested_pci mirror the CreateVMRequest
+  // surface for the microVM-style boot path : same shape, same
+  // tenant-quota enforcement at admission, same scheduler
+  // matching against host inventory. Empty = no passthrough.
+  // See CreateVMRequest.requested_gpus for the per-entry contract.
+  repeated GPURequest requested_gpus = 9;
+  repeated PCIPassthroughRequest requested_pci = 10;
+
+  // OCI image reference, e.g. "ghcr.io/openweft/weft-router:v0.1.0".
+  // When set, the server-side handler pulls the image, materialises
+  // its rootfs in the imagestore cache, synthesises the boot
+  // artefacts (shared weft-microvm-init kernel + initrd, cmdline
+  // "weft.rootfs=virtiofs:rootfs0 console=hvc0"), and assembles the
+  // matching MicroVMShare automatically. Mutually exclusive with
+  // boot_iso / kernel / initrd / cmdline / shares ; the server
+  // returns InvalidArgument on collision. This is the path
+  // weft-network's lifecycle.Ensure uses for weft-router
+  // micro-VMs — the client just passes the image, the server
+  // handles the orchestration.
+  string image = 11;
 }
 message RegisterMicroVMResponse {}
 
@@ -853,9 +932,10 @@ service WeftAgent {
   rpc ListHosts      (ListHostsRequest)      returns (ListHostsResponse);
   rpc GetHost        (GetHostRequest)        returns (GetHostResponse);
   rpc HeartbeatHost  (HeartbeatHostRequest)  returns (HeartbeatHostResponse);
-  rpc SetHostState   (SetHostStateRequest)   returns (SetHostStateResponse);
-  rpc SetHostLabels  (SetHostLabelsRequest)  returns (SetHostLabelsResponse);
-  rpc DeleteHost     (DeleteHostRequest)     returns (DeleteHostResponse);
+  rpc SetHostState    (SetHostStateRequest)    returns (SetHostStateResponse);
+  rpc SetHostLabels   (SetHostLabelsRequest)   returns (SetHostLabelsResponse);
+  rpc SetHostCordoned (SetHostCordonedRequest) returns (SetHostCordonedResponse);
+  rpc DeleteHost      (DeleteHostRequest)      returns (DeleteHostResponse);
 
   // PublishShareToProject fans a CubeFS share mount (or, with
   // mount.action="unmount", an unmount) out to every VM in a project over
@@ -938,6 +1018,13 @@ message HostInfo {
   string state                = 11;
   int64  created_at_unix_ns   = 12;
   int64  last_seen_at_unix_ns = 13;
+  // cordoned, when true, takes this host out of the scheduler's
+  // candidate set for *new* placements ; already-running VMs stay
+  // put. Set/cleared via SetHostCordoned. Independent of `state` —
+  // a cordoned host stays Active + reachable, it just refuses new
+  // work. Implements the upgrade-runbook primitive previously
+  // documented as proposed.
+  bool   cordoned             = 14;
 }
 
 // RegisterHost adds a new host or refreshes an existing one
@@ -1000,6 +1087,15 @@ message SetHostStateResponse {}
 // scheduler's LabelSelectors match against these.
 message SetHostLabelsRequest  { string uuid = 1; map<string, string> labels = 2; }
 message SetHostLabelsResponse {}
+
+// SetHostCordoned flips the host's cordon flag. Cordoned hosts
+// stay Active (existing VMs keep running) but the scheduler drops
+// them from candidate sets for new placements. Idempotent — calling
+// with the current value is a no-op + OK return. Operators use
+// `weft host cordon` / `weft host uncordon`. See upgrade.md for
+// the maintenance-window workflow.
+message SetHostCordonedRequest  { string uuid = 1; bool cordoned = 2; }
+message SetHostCordonedResponse {}
 
 // DeleteHost removes a host from the registry. The operator
 // should drain + stop the host's VMs first ; the server does not

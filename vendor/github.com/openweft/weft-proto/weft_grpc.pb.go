@@ -79,6 +79,7 @@ const (
 	WeftAgent_HeartbeatHost_FullMethodName                   = "/weft.v1.WeftAgent/HeartbeatHost"
 	WeftAgent_SetHostState_FullMethodName                    = "/weft.v1.WeftAgent/SetHostState"
 	WeftAgent_SetHostLabels_FullMethodName                   = "/weft.v1.WeftAgent/SetHostLabels"
+	WeftAgent_SetHostCordoned_FullMethodName                 = "/weft.v1.WeftAgent/SetHostCordoned"
 	WeftAgent_DeleteHost_FullMethodName                      = "/weft.v1.WeftAgent/DeleteHost"
 	WeftAgent_PublishShareToProject_FullMethodName           = "/weft.v1.WeftAgent/PublishShareToProject"
 	WeftAgent_ListTenants_FullMethodName                     = "/weft.v1.WeftAgent/ListTenants"
@@ -233,6 +234,7 @@ type WeftAgentClient interface {
 	HeartbeatHost(ctx context.Context, in *HeartbeatHostRequest, opts ...grpc.CallOption) (*HeartbeatHostResponse, error)
 	SetHostState(ctx context.Context, in *SetHostStateRequest, opts ...grpc.CallOption) (*SetHostStateResponse, error)
 	SetHostLabels(ctx context.Context, in *SetHostLabelsRequest, opts ...grpc.CallOption) (*SetHostLabelsResponse, error)
+	SetHostCordoned(ctx context.Context, in *SetHostCordonedRequest, opts ...grpc.CallOption) (*SetHostCordonedResponse, error)
 	DeleteHost(ctx context.Context, in *DeleteHostRequest, opts ...grpc.CallOption) (*DeleteHostResponse, error)
 	// PublishShareToProject fans a CubeFS share mount (or, with
 	// mount.action="unmount", an unmount) out to every VM in a project over
@@ -904,6 +906,16 @@ func (c *weftAgentClient) SetHostLabels(ctx context.Context, in *SetHostLabelsRe
 	return out, nil
 }
 
+func (c *weftAgentClient) SetHostCordoned(ctx context.Context, in *SetHostCordonedRequest, opts ...grpc.CallOption) (*SetHostCordonedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetHostCordonedResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetHostCordoned_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *weftAgentClient) DeleteHost(ctx context.Context, in *DeleteHostRequest, opts ...grpc.CallOption) (*DeleteHostResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteHostResponse)
@@ -1398,6 +1410,7 @@ type WeftAgentServer interface {
 	HeartbeatHost(context.Context, *HeartbeatHostRequest) (*HeartbeatHostResponse, error)
 	SetHostState(context.Context, *SetHostStateRequest) (*SetHostStateResponse, error)
 	SetHostLabels(context.Context, *SetHostLabelsRequest) (*SetHostLabelsResponse, error)
+	SetHostCordoned(context.Context, *SetHostCordonedRequest) (*SetHostCordonedResponse, error)
 	DeleteHost(context.Context, *DeleteHostRequest) (*DeleteHostResponse, error)
 	// PublishShareToProject fans a CubeFS share mount (or, with
 	// mount.action="unmount", an unmount) out to every VM in a project over
@@ -1639,6 +1652,9 @@ func (UnimplementedWeftAgentServer) SetHostState(context.Context, *SetHostStateR
 }
 func (UnimplementedWeftAgentServer) SetHostLabels(context.Context, *SetHostLabelsRequest) (*SetHostLabelsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetHostLabels not implemented")
+}
+func (UnimplementedWeftAgentServer) SetHostCordoned(context.Context, *SetHostCordonedRequest) (*SetHostCordonedResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetHostCordoned not implemented")
 }
 func (UnimplementedWeftAgentServer) DeleteHost(context.Context, *DeleteHostRequest) (*DeleteHostResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteHost not implemented")
@@ -2848,6 +2864,24 @@ func _WeftAgent_SetHostLabels_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WeftAgent_SetHostCordoned_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetHostCordonedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SetHostCordoned(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SetHostCordoned_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SetHostCordoned(ctx, req.(*SetHostCordonedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WeftAgent_DeleteHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteHostRequest)
 	if err := dec(in); err != nil {
@@ -3774,6 +3808,10 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetHostLabels",
 			Handler:    _WeftAgent_SetHostLabels_Handler,
+		},
+		{
+			MethodName: "SetHostCordoned",
+			Handler:    _WeftAgent_SetHostCordoned_Handler,
 		},
 		{
 			MethodName: "DeleteHost",

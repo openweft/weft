@@ -843,6 +843,51 @@ func (s *weftServer) VMStatus(ctx context.Context, req *weftv1.VMStatusRequest) 
 	return &weftv1.VMStatusResponse{Vm: info}, nil
 }
 
+// protoGPUsToNative converts the wire-level []*weftv1.GPURequest
+// shape into the Go-native []weft.GPURequest the adapter API
+// expects (EnforceTenantQuotaForGPU, scheduler entry points).
+// Returns nil for nil/empty inputs so call sites can pass the
+// result through unconditionally.
+func protoGPUsToNative(in []*weftv1.GPURequest) []weft.GPURequest {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]weft.GPURequest, 0, len(in))
+	for _, g := range in {
+		if g == nil {
+			continue
+		}
+		out = append(out, weft.GPURequest{
+			Vendor:   g.Vendor,
+			Model:    g.Model,
+			Count:    int(g.Count),
+			MIGSlice: g.MigSlice,
+		})
+	}
+	return out
+}
+
+// protoPCIsToNative is the PCI sibling of protoGPUsToNative.
+// Converts wire-level []*weftv1.PCIPassthroughRequest into the
+// Go-native []weft.PCIRequest the adapter API expects.
+func protoPCIsToNative(in []*weftv1.PCIPassthroughRequest) []weft.PCIRequest {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]weft.PCIRequest, 0, len(in))
+	for _, p := range in {
+		if p == nil {
+			continue
+		}
+		out = append(out, weft.PCIRequest{
+			VendorID: p.VendorId,
+			DeviceID: p.DeviceId,
+			Count:    int(p.Count),
+		})
+	}
+	return out
+}
+
 func (s *weftServer) StartVM(ctx context.Context, req *weftv1.StartVMRequest) (*weftv1.StartVMResponse, error) {
 	logger.Printf("StartVM name=%s project=%s host=%s", req.Name, req.Project, req.HostUuid)
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
@@ -893,28 +938,18 @@ func (s *weftServer) CreateVM(ctx context.Context, req *weftv1.CreateVMRequest) 
 	if err := s.adp.EnforceTenantQuotaForVM(projUUID, int(req.Cpu), int(req.MemMb)); err != nil {
 		return nil, err
 	}
-	// GPU aggregate cap. The proto's CreateVMRequest doesn't yet
-	// carry RequestedGpus (classic VMs don't request GPUs through
-	// this RPC today — see weftv1.CreateVMRequest) ; passing nil
-	// re-checks the already-allocated total against the cap, a
-	// no-op for projects still within budget. Threading
-	// RequestedGpus through the proto is a follow-up for when
-	// CreateVMRequest grows a GPU surface ; the aggregate
-	// arithmetic itself is in place via projectAllocation +
-	// EnforceTenantQuotaForGPU.
-	if err := s.adp.EnforceTenantQuotaForGPU(projUUID, nil); err != nil {
+	// GPU aggregate cap. CreateVMRequest now carries RequestedGpus
+	// (since weft-proto v0.3.0) — feed it through so the quota
+	// check accounts for the *delta* this admission would add on
+	// top of the already-allocated total. Empty / nil is fine and
+	// re-checks the running total against the cap.
+	if err := s.adp.EnforceTenantQuotaForGPU(projUUID, protoGPUsToNative(req.RequestedGpus)); err != nil {
 		return nil, err
 	}
-	// PCI aggregate cap. Same wire-side gap as RequestedGpus —
-	// CreateVMRequest doesn't carry RequestedPci yet (the PCI
-	// passthrough surface lives on the scheduler-side
-	// ScheduleRequest, not on the classic-VM CreateVM RPC) so
-	// passing nil re-checks the already-allocated total against
-	// the cap. Threading RequestedPci through the proto is a
-	// follow-up for when CreateVMRequest grows a PCI surface ; the
-	// aggregate arithmetic is in place via projectAllocation +
-	// EnforceTenantQuotaForPCI today.
-	if err := s.adp.EnforceTenantQuotaForPCI(projUUID, nil); err != nil {
+	// PCI aggregate cap, same shape as GPU. CreateVMRequest now
+	// carries RequestedPci (since weft-proto v0.3.0) ; thread it
+	// through so admission accounts for the requested delta.
+	if err := s.adp.EnforceTenantQuotaForPCI(projUUID, protoPCIsToNative(req.RequestedPci)); err != nil {
 		return nil, err
 	}
 	if err := s.adp.CloneVM(req.Image, req.Project, req.Name, nil, io.Discard); err != nil {
@@ -1221,22 +1256,17 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 	if err := s.adp.EnforceTenantQuotaForVM(projUUID, 0, 0); err != nil {
 		return nil, err
 	}
-	// GPU aggregate cap, same shape as the CreateVM site. The
-	// proto's RegisterMicroVMRequest doesn't carry RequestedGpus
-	// either (microVM boots so far don't request GPUs through
-	// this RPC) ; passing nil re-checks the already-allocated
-	// total against the cap. Threading RequestedGpus through the
-	// proto is a follow-up for when the microVM surface grows a
-	// GPU shape.
-	if err := s.adp.EnforceTenantQuotaForGPU(projUUID, nil); err != nil {
+	// GPU aggregate cap, same shape as the CreateVM site.
+	// RegisterMicroVMRequest carries RequestedGpus since weft-proto
+	// v0.3.0 — feed it through so the quota check accounts for the
+	// delta this microVM boot would add on top of the running total.
+	if err := s.adp.EnforceTenantQuotaForGPU(projUUID, protoGPUsToNative(req.RequestedGpus)); err != nil {
 		return nil, err
 	}
-	// PCI aggregate cap, same shape + same wire-gap as above.
-	// RegisterMicroVMRequest doesn't carry RequestedPci either ;
-	// passing nil re-checks the already-allocated total against
-	// the cap. Threading RequestedPci through the proto is a
-	// follow-up for when the microVM surface grows a PCI shape.
-	if err := s.adp.EnforceTenantQuotaForPCI(projUUID, nil); err != nil {
+	// PCI aggregate cap, same shape as the CreateVM site.
+	// RegisterMicroVMRequest carries RequestedPci since weft-proto
+	// v0.3.0 — thread it through for delta-aware admission.
+	if err := s.adp.EnforceTenantQuotaForPCI(projUUID, protoPCIsToNative(req.RequestedPci)); err != nil {
 		return nil, err
 	}
 	shares := make([]weft.MicroVMShare, len(req.Shares))
