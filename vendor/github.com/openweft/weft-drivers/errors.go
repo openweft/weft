@@ -24,4 +24,10 @@ var (
 	// (DeleteVM, DestroyNetwork, …) treat "not found" as success
 	// per their idempotence contract — they do NOT return this.
 	ErrNotFound = errors.New("driver: not found")
+
+	// ErrInUse is returned by destructive snapshot/backup operations
+	// (RevertSnapshot, DeleteSnapshot of the head's parent, …) when
+	// the volume is currently attached or otherwise in active use.
+	// The caller is expected to detach + retry.
+	ErrInUse = errors.New("driver: volume in use")
 )

@@ -47,4 +47,53 @@ type VolumeDriver interface {
 	// DetachVolume releases the per-host attachment (unmap RBD,
 	// release file lock). Does NOT delete the volume.
 	DetachVolume(ctx context.Context, volumeUUID, hostUUID string) error
+
+	// CreateSnapshot freezes the volume's current state under the given
+	// name (or a driver-generated one if SnapshotSpec.Name is empty) and
+	// returns its descriptor. Drivers that don't support snapshots return
+	// ErrUnsupported — file-backed drivers (qcow2 internal snapshots) +
+	// cluster drivers (Longhorn / Ceph RBD) implement it.
+	CreateSnapshot(ctx context.Context, spec SnapshotSpec) (Snapshot, error)
+
+	// ListSnapshots returns every snapshot known for volumeUUID, in driver-
+	// stable order (typically oldest-first by Parent chain). Empty list +
+	// nil error means "no snapshots", not "unsupported" — use ErrUnsupported
+	// for the latter.
+	ListSnapshots(ctx context.Context, volumeUUID string) ([]Snapshot, error)
+
+	// DeleteSnapshot drops a snapshot's on-disk delta. The driver may
+	// physically merge it into its parent / child, which can take a while
+	// for large deltas. Idempotent : deleting a missing snapshot is a no-op.
+	DeleteSnapshot(ctx context.Context, volumeUUID, snapshotName string) error
+
+	// RevertSnapshot rolls the volume back to the given snapshot's state.
+	// The volume must be detached first (the driver may enforce this with
+	// ErrInUse). Effectively the inverse of CreateSnapshot.
+	RevertSnapshot(ctx context.Context, volumeUUID, snapshotName string) error
+
+	// CreateBackup ships a snapshot's contents to the backupstore at
+	// spec.Target and returns the resulting backup descriptor. The driver
+	// runs the transfer asynchronously when the backupstore is remote ;
+	// callers poll ListBackups (the State field) for completion. The
+	// snapshot referenced by spec.SnapshotName must already exist.
+	CreateBackup(ctx context.Context, spec BackupSpec) (Backup, error)
+
+	// ListBackups enumerates the backups stored at target for volumeUUID
+	// (empty volumeUUID = every volume at the target). The target string
+	// is the same schema as BackupSpec.Target.
+	ListBackups(ctx context.Context, target, volumeUUID string) ([]Backup, error)
+
+	// DeleteBackup removes one backup from the store. Idempotent. The full
+	// backup URL (as returned in Backup.URL) is the addressing key — backups
+	// can move between volumes during restore, so we don't key by (volume,
+	// name).
+	DeleteBackup(ctx context.Context, backupURL string) error
+
+	// RestoreBackup creates a new volume (spec) populated from backupURL.
+	// The new volume's UUID is spec.UUID ; the driver materialises the
+	// backing storage at the requested size (which must be ≥ the original
+	// volume size — restore can grow but not shrink). Idempotent : a second
+	// restore with the same (spec.UUID, backupURL) is a no-op once the new
+	// volume already exists.
+	RestoreBackup(ctx context.Context, backupURL string, spec VolumeSpec) error
 }
