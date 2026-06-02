@@ -10,6 +10,7 @@ package sharemount
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/nats-io/nats.go"
@@ -52,8 +53,8 @@ func PublishToGroup(nc *nats.Conn, vmIDs []string, m pod.ShareMount) error {
 			first = fmt.Errorf("publish %s: %w", vmID, err)
 		}
 	}
-	if ferr := nc.Flush(); ferr != nil && first == nil {
-		first = ferr
+	if ferr := nc.Flush(); ferr != nil {
+		return errors.Join(first, fmt.Errorf("flush: %w", ferr))
 	}
 	return first
 }

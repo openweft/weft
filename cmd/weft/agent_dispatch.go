@@ -102,6 +102,11 @@ type agentSession struct {
 	// Atomic so the receiver (writer) and liveness goroutine
 	// (reader) don't race on it.
 	lastPongUnixNano atomic.Int64
+	// cancel tears down the per-session goroutines (sender,
+	// keepalive, liveness). Set by Connect before launching them ;
+	// invoked on supersede-by-reconnect so the old session's
+	// goroutines stop sending on the channel before any cleanup.
+	cancel context.CancelFunc
 }
 
 // pendingReplies is a small thread-safe map[request_id] →
@@ -186,23 +191,31 @@ func (s *agentDispatchServer) Connect(stream weftv1.AgentDispatch_ConnectServer)
 		return status.Error(codes.InvalidArgument, "Hello.host_uuid is required")
 	}
 
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
 	sess := &agentSession{
 		hostUUID:    hello.HostUuid,
 		sessionID:   newSessionID(),
 		stream:      stream,
 		connectedAt: time.Now().UTC(),
 		send:        make(chan *weftv1.ControlMessage, 16),
+		cancel:      cancel,
 	}
 	// Seed the pong clock so a freshly-connected agent isn't
 	// immediately considered stale by the liveness check.
 	sess.lastPongUnixNano.Store(time.Now().UnixNano())
 	if existing := s.register(sess); existing != nil {
-		// Same host reconnected — close the old session first.
+		// Same host reconnected — tear down the old session first.
 		// In a real deployment the underlying TCP / Unix-socket
 		// drop already torn down `existing.stream` ; this is
 		// belt-and-braces for the never-quite-disconnected case.
+		// Cancelling the old context stops runSender / runKeepalive
+		// / runLivenessCheck cleanly ; closing sess.send here would
+		// race those goroutines and panic.
 		existing.pending.drainAll("session superseded by reconnect")
-		close(existing.send)
+		if existing.cancel != nil {
+			existing.cancel()
+		}
 	}
 	defer func() {
 		removed := s.deregister(sess)
@@ -238,8 +251,6 @@ func (s *agentDispatchServer) Connect(stream weftv1.AgentDispatch_ConnectServer)
 	// without surfacing an error). errCh is buffered for all
 	// goroutines so an early exit on one path doesn't block the
 	// others' shutdown writes.
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
 	errCh := make(chan error, 4)
 	go s.runSender(ctx, sess, errCh)
 	go s.runReceiver(ctx, sess, errCh)

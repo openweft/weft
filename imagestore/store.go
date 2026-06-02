@@ -168,13 +168,16 @@ func (s *store) pullHTTP(ctx context.Context, ref, destDir string, w io.Writer) 
 	if err != nil {
 		return fmt.Errorf("imagestore http pull: create %s: %w", outPath, err)
 	}
-	defer f.Close()
 	var body io.Reader = resp.Body
 	if resp.ContentLength > 0 {
 		body = &progressReader{r: resp.Body, w: w, total: resp.ContentLength}
 	}
 	if _, err := io.Copy(f, body); err != nil {
+		_ = f.Close()
 		return fmt.Errorf("imagestore http pull: write %s: %w", outPath, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("imagestore http pull: close %s: %w", outPath, err)
 	}
 	_, _ = fmt.Fprintf(w, "pulled %s\n", ref)
 	return nil
@@ -409,9 +412,7 @@ func (sr *streamProgressReader) Read(p []byte) (int, error) {
 		if sr.ps.total > 0 {
 			if pct := int(sr.ps.written * 100 / sr.ps.total); pct > sr.ps.lastPct {
 				sr.ps.lastPct = pct
-				sr.ps.mu.Unlock()
 				_, _ = fmt.Fprintf(sr.ps.w, "%d%%\n", pct)
-				return n, err
 			}
 		}
 		sr.ps.mu.Unlock()
