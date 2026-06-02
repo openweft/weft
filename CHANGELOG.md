@@ -5,6 +5,79 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **SecurityGroup → nftables enforcement (full pipeline)**. The proto's
+  SecurityGroup RPCs were already implemented at the registry level,
+  but the **data plane was missing** — rules were stored, nothing
+  filtered packets. New `firewallpub` package closes the loop :
+  - `firewallpub.EffectiveFirewall(snap, vmUUID)` walks every port
+    attached to a VM, merges the effective SG list (port override OR
+    network defaults), dereferences every `remote_group_uuid` to the
+    concrete /32 (or /128) of every other port currently bound to
+    that SG, dedups, validates. Pure ; the guest never sees group
+    references.
+  - `firewallpub.Publisher` reacts to existing events
+    (`security_group.*`, `port.*`,
+    `network.default_security_groups_updated`, `vm.created`) and
+    publishes the impacted VMs' rulesets on `weft.firewall.<vm-uuid>`.
+    Whole-state push, idempotent reconcile, self-healing on missed
+    messages.
+  - `firewallpub.StatusReceiver` decodes the reverse-direction
+    `weft.firewall.*.status` wildcard the in-VM agents publish every
+    10 s and re-emits each as a synthetic `firewall.status`
+    PlatformEvent — so the webui's existing `/api/events` SSE pipe
+    surfaces live per-VM enforcement state with no new transport.
+  - Wired in cmd/weft via `startFirewallPublisher` +
+    `startFirewallStatusReceiver`. No-op on the LocalEventBus.
+- **Floating-IP control plane (registry + adapter + 5 gRPC handlers)**.
+  The proto's FloatingIP RPCs (`AllocateFloatingIP` /
+  `ReleaseFloatingIP` / `MapFloatingIP` / `UnmapFloatingIP` /
+  `ListFloatingIPs`) **returned Unimplemented before this release** —
+  now backed by an HCL-persisted registry. Allocator picks the next
+  free address in the network's CIDR, skipping the network/broadcast
+  addresses, every port-occupied IP, and the network's reserved
+  gateway. Lifecycle `Allocate → Map ⇄ Unmap → Release`, idempotent
+  Map on same target, refuses Release on an active FIP. Mutations
+  emit `floating_ip.{allocated,released,mapped,unmapped}` events.
+- **Floating-IP NAT reconciler (host-side, pure-Go nftables)**. New
+  `floatingipnat` package. `LinuxReconciler` (real netlink path via
+  `github.com/google/nftables`) builds the host table whole on every
+  Apply :
+  ```
+  table ip weft-fip-nat {
+    chain prerouting  { type nat hook prerouting  priority dstnat ;
+      ip daddr <publicIP> dnat to <privateIP>      # per mapping
+    }
+    chain postrouting { type nat hook postrouting priority srcnat ;
+      ip saddr <privateIP> snat to <publicIP>      # per mapping
+    }
+  }
+  ```
+  Atomic at the netlink-batch level. `StubReconciler` (darwin)
+  records the desired state without touching the kernel. `Watcher`
+  subscribes to `floating_ip.*` + `vm.*` + `port.*`, recomputes
+  the local mappings (joining FIP mapped_to with VM port IPs), and
+  drives the reconciler — wired in cmd/weft via
+  `startFloatingIPNATWatcher`. IPv4-only for now ; v6 hooks land
+  when an edge network is configured for v6.
+- **`Adapter.ListAllPorts()`** : sorted snapshot of every port,
+  used by the firewall publisher's SG-impact scan.
+
+### Notes
+
+- The OpenStack-parity audit (SecurityGroups + Floating IPs +
+  per-tenant private networks) is now closed on the platform's
+  chosen axes. The `Subnet/Bridge/VXLAN` slot is intentionally **not**
+  filled : openweft's mesh-type Networks + WireGuard per-port keys
+  provide L3 isolation with built-in encryption (vs VXLAN's L2
+  broadcast + cleartext), and that's the architectural choice for
+  cloud-native workloads. Legacy workloads needing L2 broadcast
+  semantics remain available via the `weft instance` (classic VM)
+  escape hatch with an operator-installed host bridge.
+
 ## [0.2.0] - 2026-06-02
 
 v0.2.0-track work since `v0.1.0` (`8582108ab`). Roll-up of every
