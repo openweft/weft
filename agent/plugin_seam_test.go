@@ -67,6 +67,27 @@ func (seamVolume) AttachVolume(context.Context, string, string) (drivers.Attache
 }
 func (seamVolume) DetachVolume(context.Context, string, string) error { return nil }
 
+// Snapshot + backup surface — added to the VolumeDriver contract for
+// Longhorn / file-image parity. The seam doesn't store anything, so
+// every method is a no-op returning the zero value ; tests that
+// exercise these paths set up a different fake.
+func (seamVolume) CreateSnapshot(context.Context, drivers.SnapshotSpec) (drivers.Snapshot, error) {
+	return drivers.Snapshot{}, nil
+}
+func (seamVolume) ListSnapshots(context.Context, string) ([]drivers.Snapshot, error) {
+	return nil, nil
+}
+func (seamVolume) DeleteSnapshot(context.Context, string, string) error { return nil }
+func (seamVolume) RevertSnapshot(context.Context, string, string) error { return nil }
+func (seamVolume) CreateBackup(context.Context, drivers.BackupSpec) (drivers.Backup, error) {
+	return drivers.Backup{}, nil
+}
+func (seamVolume) ListBackups(context.Context, string, string) ([]drivers.Backup, error) {
+	return nil, nil
+}
+func (seamVolume) DeleteBackup(context.Context, string) error                       { return nil }
+func (seamVolume) RestoreBackup(context.Context, string, drivers.VolumeSpec) error { return nil }
+
 type seamImage struct{}
 
 func (seamImage) HostInfo(context.Context) (drivers.HostInfo, error) { return drivers.HostInfo{}, nil }

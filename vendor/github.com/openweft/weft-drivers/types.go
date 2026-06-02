@@ -94,6 +94,59 @@ type AttachedVolume struct {
 	ReadOnly    bool
 }
 
+// SnapshotSpec is what VolumeDriver.CreateSnapshot consumes. Name is the
+// snapshot identifier the driver will key by; empty asks the driver to
+// generate one (e.g. timestamped). Labels are opaque key/value pairs
+// stored alongside the snapshot for filtering / debugging.
+type SnapshotSpec struct {
+	VolumeUUID string
+	Name       string            // empty → driver-generated
+	Labels     map[string]string // optional, e.g. {"reason":"pre-upgrade"}
+}
+
+// Snapshot is the descriptor VolumeDriver.{Create,List}Snapshots returns
+// for one snapshot. SizeBytes is the on-disk delta from the parent (zero
+// for the initial / head-derived snapshot). CreatedAtUnixNs is the
+// driver-side creation time in nanoseconds since the Unix epoch (we keep
+// the wire shape primitive — see types.go header note).
+type Snapshot struct {
+	VolumeUUID      string
+	Name            string
+	Parent          string            // name of the parent snapshot, "" if root
+	SizeBytes       int64             // delta on disk (sparse-aware)
+	CreatedAtUnixNs int64             // driver-side creation timestamp
+	Labels          map[string]string // copy of SnapshotSpec.Labels
+	UserCreated     bool              // true if not an automatic / system snapshot
+}
+
+// BackupSpec is what VolumeDriver.CreateBackup consumes. Snapshot is the
+// source snapshot name (the driver always backs up FROM a snapshot, not
+// from the live head — caller is responsible for taking the snapshot
+// first). Target is the backupstore URL ("s3://bucket@region/path",
+// "nfs://host:/export/dir", "cifs://…", …). Labels are propagated to the
+// backupstore metadata.
+type BackupSpec struct {
+	VolumeUUID   string
+	SnapshotName string
+	Target       string
+	Labels       map[string]string
+}
+
+// Backup is the descriptor VolumeDriver.{Create,List}Backups returns for
+// one backup. URL is the full backup reference at the target store (e.g.
+// "s3://bucket@region/path?backup=...&volume=..."). CreatedAtUnixNs is the
+// backup-time wallclock.
+type Backup struct {
+	VolumeUUID      string
+	SnapshotName    string
+	URL             string
+	SizeBytes       int64
+	CreatedAtUnixNs int64
+	Labels          map[string]string
+	State           string // "in-progress" | "complete" | "error" | "unknown"
+	Error           string // human-readable error when State == "error"
+}
+
 // VMSpec is what HypervisorDriver consumes at CreateVM time. The
 // driver materialises this into the hypervisor's native config
 // (vz.VirtualMachineConfiguration, qemu cmdline, etc.).
