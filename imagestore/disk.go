@@ -204,9 +204,12 @@ func copyFileRaw(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("open dest: %w", err)
 	}
-	defer out.Close()
 	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
 		return fmt.Errorf("copy: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("close dest: %w", err)
 	}
 	return nil
 }

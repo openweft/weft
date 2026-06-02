@@ -63,7 +63,7 @@ type NATSEventBus struct {
 
 type natsSubscription struct {
 	out    chan PlatformEvent
-	sub    *nats.Subscription
+	subs   []*nats.Subscription
 	filter EventFilter
 }
 
@@ -239,7 +239,7 @@ func (b *NATSEventBus) Subscribe(filter EventFilter) (<-chan PlatformEvent, func
 			// subscriptions still deliver.
 			continue
 		}
-		s.sub = sub // last one wins; we keep it for diagnostics
+		s.subs = append(s.subs, sub)
 	}
 
 	b.mu.Lock()
@@ -252,8 +252,8 @@ func (b *NATSEventBus) Subscribe(filter EventFilter) (<-chan PlatformEvent, func
 			b.mu.Lock()
 			delete(b.subs, s)
 			b.mu.Unlock()
-			if s.sub != nil {
-				_ = s.sub.Unsubscribe()
+			for _, sub := range s.subs {
+				_ = sub.Unsubscribe()
 			}
 			close(out)
 		})
@@ -300,8 +300,8 @@ func (b *NATSEventBus) Close() error {
 	}
 	b.mu.Lock()
 	for s := range b.subs {
-		if s.sub != nil {
-			_ = s.sub.Unsubscribe()
+		for _, sub := range s.subs {
+			_ = sub.Unsubscribe()
 		}
 		close(s.out)
 	}

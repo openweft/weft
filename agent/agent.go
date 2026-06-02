@@ -350,6 +350,7 @@ func loadOrCreateHostUUID(stateDir string) (string, error) {
 	}
 	_ = os.Chmod(tmp.Name(), 0o600)
 	if err := os.Rename(tmp.Name(), path); err != nil {
+		os.Remove(tmp.Name())
 		return "", err
 	}
 	return uuid, nil
