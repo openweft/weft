@@ -48,6 +48,16 @@ type TenantQuota struct {
 	VolumeGiB    int `json:"volume_gib,omitempty"`
 	GPUCount     int `json:"gpu_count,omitempty"`
 	GPUMemoryGiB int `json:"gpu_memory_gib,omitempty"`
+	// PCICount caps the aggregate non-GPU PCI passthrough count
+	// across the project's VMs (NICs, NVMe, sound cards, FPGAs ;
+	// GPUs go through GPUCount / GPUMemoryGiB instead). PCI
+	// devices don't carry an aggregate-meaningful memory
+	// dimension — NIC line-rate isn't sum-able to one cap and
+	// NVMe capacity belongs under VolumeGiB once the device is
+	// fronted as a volume — so the surface is a single
+	// cardinality dimension, not the count + memory pair GPUs
+	// got.
+	PCICount int `json:"pci_count,omitempty"`
 }
 
 // tenantQuotaDoc is the HCL on-disk shape. One `tenant_quota
@@ -64,6 +74,7 @@ type tenantQuotaBlock struct {
 	VolumeGiB    int    `hcl:"volume_gib,optional"`
 	GPUCount     int    `hcl:"gpu_count,optional"`
 	GPUMemoryGiB int    `hcl:"gpu_memory_gib,optional"`
+	PCICount     int    `hcl:"pci_count,optional"`
 }
 
 // tenantQuotaRegistry is the in-memory cache of the on-disk
@@ -98,6 +109,7 @@ func loadTenantQuotaRegistry(ctx context.Context, storage Storage) (*tenantQuota
 			VolumeGiB:    b.VolumeGiB,
 			GPUCount:     b.GPUCount,
 			GPUMemoryGiB: b.GPUMemoryGiB,
+			PCICount:     b.PCICount,
 		}
 	}
 	return reg, nil
@@ -132,6 +144,9 @@ func (r *tenantQuotaRegistry) saveLocked() error {
 		if q.GPUMemoryGiB > 0 {
 			bb.SetAttributeValue("gpu_memory_gib", cty.NumberIntVal(int64(q.GPUMemoryGiB)))
 		}
+		if q.PCICount > 0 {
+			bb.SetAttributeValue("pci_count", cty.NumberIntVal(int64(q.PCICount)))
+		}
 		body.AppendNewline()
 	}
 	return r.storage.Save(context.Background(), f.Bytes())
@@ -150,7 +165,7 @@ func (r *tenantQuotaRegistry) set(projectUUID string, q TenantQuota) error {
 	// Zero-only quota = clear. Treats `--cpu=0 --mem=0 --volume=0`
 	// as "remove the entry" so operators can wipe a cap without
 	// thinking about whether to call a separate Delete.
-	if q.CPUCount == 0 && q.MemoryGiB == 0 && q.VolumeGiB == 0 && q.GPUCount == 0 && q.GPUMemoryGiB == 0 {
+	if q.CPUCount == 0 && q.MemoryGiB == 0 && q.VolumeGiB == 0 && q.GPUCount == 0 && q.GPUMemoryGiB == 0 && q.PCICount == 0 {
 		delete(r.byUUID, projectUUID)
 	} else {
 		r.byUUID[projectUUID] = q
@@ -275,6 +290,13 @@ func (a *Adapter) projectAllocation(projectUUID string) TenantQuota {
 			out.GPUCount += c
 			out.GPUMemoryGiB += gpuRequestMemoryGiB(g)
 		}
+		for _, p := range v.RequestedPCI {
+			c := p.Count
+			if c <= 0 {
+				c = 1
+			}
+			out.PCICount += c
+		}
 	}
 	for _, vol := range a.volumeReg.listForProject(projectUUID) {
 		out.VolumeGiB += vol.SizeGiB
@@ -393,6 +415,41 @@ func (a *Adapter) EnforceTenantQuotaForGPU(projectUUID string, requestedGPUs []G
 		return status.Errorf(codes.ResourceExhausted,
 			"tenant quota exhausted: gpu_memory_gib (allocated %d + requested %d > cap %d)",
 			alloc.GPUMemoryGiB, deltaMem, cap.GPUMemoryGiB)
+	}
+	return nil
+}
+
+// EnforceTenantQuotaForPCI returns ResourceExhausted when admitting
+// a VM whose `requestedPCI` slice would push the project's pci_count
+// allocation past its cap. Zero cap means "no limit". A nil/empty
+// slice is a no-op (re-checks the existing allocation against the
+// cap, the RegisterMicroVM no-cpu/mem pattern).
+//
+// Aggregate enforcement : sums the to-be-added Count from the slice
+// + the already-allocated total from projectAllocation. Mirrors
+// EnforceTenantQuotaForGPU's count-axis half — PCI has no per-card
+// memory dimension (NIC bandwidth + NVMe capacity aren't sum-able
+// usefully under one cap), so the helper is single-dimension. Both
+// the per-request (single VM × N PCI > cap) and aggregate (n VMs ×
+// 1 PCI > cap) paths trip via the standard delta + alloc framing.
+func (a *Adapter) EnforceTenantQuotaForPCI(projectUUID string, requestedPCI []PCIRequest) error {
+	cap := a.TenantQuota(projectUUID)
+	if cap.PCICount <= 0 {
+		return nil
+	}
+	var deltaCount int
+	for _, p := range requestedPCI {
+		c := p.Count
+		if c <= 0 {
+			c = 1
+		}
+		deltaCount += c
+	}
+	alloc := a.projectAllocation(projectUUID)
+	if alloc.PCICount+deltaCount > cap.PCICount {
+		return status.Errorf(codes.ResourceExhausted,
+			"tenant quota exhausted: pci_count (allocated %d + requested %d > cap %d)",
+			alloc.PCICount, deltaCount, cap.PCICount)
 	}
 	return nil
 }

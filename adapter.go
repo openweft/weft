@@ -224,6 +224,13 @@ type VZAdapter interface {
 	// catches both the per-request and the n×small-VMs paths.
 	// See tenant_quotas.go.
 	EnforceTenantQuotaForGPU(projectUUID string, requestedGPUs []GPURequest) error
+	// EnforceTenantQuotaForPCI returns ResourceExhausted when
+	// admitting a VM with the given RequestedPCI would push the
+	// project's pci_count allocation past its cap. Aggregate
+	// across the project's already-running VMs, single-dimension
+	// (PCI devices don't carry an aggregate-meaningful memory
+	// axis like GPUs do). See tenant_quotas.go.
+	EnforceTenantQuotaForPCI(projectUUID string, requestedPCI []PCIRequest) error
 	DiskPath(name string) string
 	CachedImagePath(imageURL string) (string, error)
 	ListCachedImages() ([]CachedImage, error)

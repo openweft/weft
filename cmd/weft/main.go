@@ -905,6 +905,18 @@ func (s *weftServer) CreateVM(ctx context.Context, req *weftv1.CreateVMRequest) 
 	if err := s.adp.EnforceTenantQuotaForGPU(projUUID, nil); err != nil {
 		return nil, err
 	}
+	// PCI aggregate cap. Same wire-side gap as RequestedGpus —
+	// CreateVMRequest doesn't carry RequestedPci yet (the PCI
+	// passthrough surface lives on the scheduler-side
+	// ScheduleRequest, not on the classic-VM CreateVM RPC) so
+	// passing nil re-checks the already-allocated total against
+	// the cap. Threading RequestedPci through the proto is a
+	// follow-up for when CreateVMRequest grows a PCI surface ; the
+	// aggregate arithmetic is in place via projectAllocation +
+	// EnforceTenantQuotaForPCI today.
+	if err := s.adp.EnforceTenantQuotaForPCI(projUUID, nil); err != nil {
+		return nil, err
+	}
 	if err := s.adp.CloneVM(req.Image, req.Project, req.Name, nil, io.Discard); err != nil {
 		logger.Printf("CreateVM %s: error: %v", req.Name, err)
 		return nil, status.Errorf(codes.Internal, "create vm: %v", err)
@@ -1217,6 +1229,14 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 	// proto is a follow-up for when the microVM surface grows a
 	// GPU shape.
 	if err := s.adp.EnforceTenantQuotaForGPU(projUUID, nil); err != nil {
+		return nil, err
+	}
+	// PCI aggregate cap, same shape + same wire-gap as above.
+	// RegisterMicroVMRequest doesn't carry RequestedPci either ;
+	// passing nil re-checks the already-allocated total against
+	// the cap. Threading RequestedPci through the proto is a
+	// follow-up for when the microVM surface grows a PCI shape.
+	if err := s.adp.EnforceTenantQuotaForPCI(projUUID, nil); err != nil {
 		return nil, err
 	}
 	shares := make([]weft.MicroVMShare, len(req.Shares))

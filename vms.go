@@ -107,9 +107,23 @@ type VM struct {
 	// every VMInfo block written before this field landed) means
 	// "this VM didn't request a GPU" — the aggregate skips it.
 	RequestedGPUs []GPURequest `json:"requested_gpus,omitempty"`
-	State         VMState      `json:"state"`
-	CreatedAt     time.Time    `json:"created_at"`
-	LastStartAt   time.Time    `json:"last_start_at,omitempty"`
+	// RequestedPCI is the non-GPU PCI passthrough shape this VM
+	// asked for at creation time (vendor:device:count). The
+	// scheduler consumes the same shape via
+	// ScheduleRequest.RequestedPCI ; the tenant-quotas layer reads
+	// it here to sum the project-wide PCI footprint when admitting
+	// a new VM, mirroring the RequestedGPUs aggregate path.
+	//
+	// Persists through the HCL round-trip as one nested
+	// `requested_pci "<vendor>:<device>" { vendor_id = … device_id = …
+	// count = … }` block per entry, mirroring the requested_gpu shape.
+	// A nil/empty slice (back-compat for VMInfo blocks written before
+	// this field landed) means "this VM didn't request a PCI
+	// passthrough" — the aggregate skips it.
+	RequestedPCI []PCIRequest `json:"requested_pci,omitempty"`
+	State        VMState      `json:"state"`
+	CreatedAt    time.Time    `json:"created_at"`
+	LastStartAt  time.Time    `json:"last_start_at,omitempty"`
 }
 
 // vmsDoc / vmBlock mirror the HCL schema.
@@ -118,18 +132,19 @@ type vmsDoc struct {
 }
 
 type vmBlock struct {
-	UUID         string                  `hcl:",label"`
-	ProjectUUID  string                  `hcl:"project_uuid"`
-	Name         string                  `hcl:"name"`
-	HostUUID     string                  `hcl:"host_uuid"`
-	Image        string                  `hcl:"image,optional"`
-	CPUCount     int                     `hcl:"cpu_count,optional"`
-	MemoryMiB    int                     `hcl:"memory_mib,optional"`
-	Architecture string                  `hcl:"architecture,optional"`
-	RequestedGPU []requestedGPUBlock     `hcl:"requested_gpu,block"`
-	State        string                  `hcl:"state,optional"`
-	CreatedAt    string                  `hcl:"created_at"`
-	LastStartAt  string                  `hcl:"last_start_at,optional"`
+	UUID         string              `hcl:",label"`
+	ProjectUUID  string              `hcl:"project_uuid"`
+	Name         string              `hcl:"name"`
+	HostUUID     string              `hcl:"host_uuid"`
+	Image        string              `hcl:"image,optional"`
+	CPUCount     int                 `hcl:"cpu_count,optional"`
+	MemoryMiB    int                 `hcl:"memory_mib,optional"`
+	Architecture string              `hcl:"architecture,optional"`
+	RequestedGPU []requestedGPUBlock `hcl:"requested_gpu,block"`
+	RequestedPCI []requestedPCIBlock `hcl:"requested_pci,block"`
+	State        string              `hcl:"state,optional"`
+	CreatedAt    string              `hcl:"created_at"`
+	LastStartAt  string              `hcl:"last_start_at,optional"`
 }
 
 // requestedGPUBlock is the HCL on-disk shape for one GPURequest
@@ -144,6 +159,19 @@ type requestedGPUBlock struct {
 	Model    string `hcl:"model,optional"`
 	Count    int    `hcl:"count,optional"`
 	MIGSlice string `hcl:"mig_slice,optional"`
+}
+
+// requestedPCIBlock is the HCL on-disk shape for one PCIRequest
+// entry attached to a VM. The label combines vendor + device so
+// the operator can read the file by the requested SKU first ;
+// count lives inside the block. Mirrors requestedGPUBlock —
+// same encoding pattern (label = "<vendor>:<device>"), different
+// passthrough class (non-GPU PCI vs GPU).
+type requestedPCIBlock struct {
+	Label    string `hcl:",label"` // "vendor:device" — display key only
+	VendorID string `hcl:"vendor_id"`
+	DeviceID string `hcl:"device_id,optional"`
+	Count    int    `hcl:"count,optional"`
 }
 
 // vmRegistry mirrors the multi-tenant registries (networks,
@@ -204,6 +232,17 @@ func loadVMRegistry(ctx context.Context, storage Storage) (*vmRegistry, error) {
 				})
 			}
 		}
+		var reqPCI []PCIRequest
+		if len(b.RequestedPCI) > 0 {
+			reqPCI = make([]PCIRequest, 0, len(b.RequestedPCI))
+			for _, rp := range b.RequestedPCI {
+				reqPCI = append(reqPCI, PCIRequest{
+					VendorID: rp.VendorID,
+					DeviceID: rp.DeviceID,
+					Count:    rp.Count,
+				})
+			}
+		}
 		v := VM{
 			UUID:          b.UUID,
 			ProjectUUID:   b.ProjectUUID,
@@ -214,6 +253,7 @@ func loadVMRegistry(ctx context.Context, storage Storage) (*vmRegistry, error) {
 			MemoryMiB:     b.MemoryMiB,
 			Architecture:  b.Architecture,
 			RequestedGPUs: reqGPUs,
+			RequestedPCI:  reqPCI,
 			State:         state,
 			CreatedAt:     created,
 			LastStartAt:   lastStart,
@@ -316,6 +356,21 @@ func (r *vmRegistry) saveLocked() error {
 			}
 			if g.MIGSlice != "" {
 				gb.SetAttributeValue("mig_slice", cty.StringVal(g.MIGSlice))
+			}
+		}
+		// RequestedPCI : one nested `requested_pci "<vendor>:<device>" { … }`
+		// block per entry. Mirrors the requested_gpu pattern above —
+		// nil/empty slice writes nothing (back-compat with VM blocks
+		// persisted before this field landed).
+		for _, p := range v.RequestedPCI {
+			label := p.VendorID + ":" + p.DeviceID
+			pb := bb.AppendNewBlock("requested_pci", []string{label}).Body()
+			pb.SetAttributeValue("vendor_id", cty.StringVal(p.VendorID))
+			if p.DeviceID != "" {
+				pb.SetAttributeValue("device_id", cty.StringVal(p.DeviceID))
+			}
+			if p.Count > 0 {
+				pb.SetAttributeValue("count", cty.NumberIntVal(int64(p.Count)))
 			}
 		}
 		if v.State != "" {
@@ -440,6 +495,12 @@ type CreateVMSpec struct {
 	// across all VMs (closes the per-request-only gap left by
 	// commit 3f18e2a2d). Nil/empty = no GPU request.
 	RequestedGPUs []GPURequest
+	// RequestedPCI is the non-GPU PCI passthrough request the VM
+	// asked for. Recorded on the VM at registration time so the
+	// tenant-quotas layer can sum the project-wide pci_count
+	// across all VMs — same aggregate path as RequestedGPUs.
+	// Nil/empty = no PCI request.
+	RequestedPCI []PCIRequest
 }
 
 // create registers a new VM. Refuses name collisions within the
@@ -470,6 +531,12 @@ func (r *vmRegistry) create(spec CreateVMSpec) (VM, error) {
 		reqGPUs = make([]GPURequest, len(spec.RequestedGPUs))
 		copy(reqGPUs, spec.RequestedGPUs)
 	}
+	// Deep-copy RequestedPCI for the same reason.
+	var reqPCI []PCIRequest
+	if len(spec.RequestedPCI) > 0 {
+		reqPCI = make([]PCIRequest, len(spec.RequestedPCI))
+		copy(reqPCI, spec.RequestedPCI)
+	}
 	v := VM{
 		UUID:          newUUID(),
 		ProjectUUID:   spec.ProjectUUID,
@@ -480,6 +547,7 @@ func (r *vmRegistry) create(spec CreateVMSpec) (VM, error) {
 		MemoryMiB:     spec.MemoryMiB,
 		Architecture:  spec.Architecture,
 		RequestedGPUs: reqGPUs,
+		RequestedPCI:  reqPCI,
 		State:         VMStateCreated,
 		CreatedAt:     time.Now().UTC(),
 	}
