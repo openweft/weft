@@ -30,6 +30,7 @@ import (
 	"github.com/openweft/weft/auditlog"
 	"github.com/openweft/weft/cmd/weft/admin"
 	"github.com/openweft/weft/cmd/weft/clean"
+	"github.com/openweft/weft/cmd/weft/completion"
 	"github.com/openweft/weft/cmd/weft/events"
 	"github.com/openweft/weft/cmd/weft/flavor"
 	"github.com/openweft/weft/cmd/weft/host"
@@ -145,6 +146,12 @@ running agent.`,
 		login.WhoamiCommand(),
 		overlaycmd.Command(),
 		plugin.Command(&socketPath, &sshSocket, &sshKey),
+		// Shell-completion script generator. Stateless — no socket
+		// flags, no gRPC. The script is generated against `root`
+		// (resolved via c.Root() inside completion.Command) so it
+		// covers the whole tree, not just the completion subcommand.
+		// See docs/operations/completion.md for the install runbook.
+		completion.Command(),
 	)
 	return root
 }
