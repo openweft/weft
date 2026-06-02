@@ -348,6 +348,236 @@ func TestFileStore_PersistsAcrossInstances(t *testing.T) {
 	}
 }
 
+// ── Count grammar : install-time materialisation ─────────────────
+
+const countManifestLiteral = `
+plugin "drives-lit" {
+  version     = "v1"
+  kind        = "object-storage"
+  description = "literal volume count"
+  layout      = "ha-3dc"
+  vm "node" {
+    image    = "ghcr.io/example/node:v1"
+    replicas = 1
+    volume "drive" {
+      size_gib = 10
+      count    = "4"
+    }
+  }
+}`
+
+func TestInstall_VolumeCountLiteralMaterialisesN(t *testing.T) {
+	m, err := ParseManifest("drives.hcl", []byte(countManifestLiteral))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := &fakeClient{}
+	mgr := NewManager(c, NewMemStore())
+	if _, err := mgr.Install(context.Background(), m, "proj", nil); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if got := len(c.createVols); got != 4 {
+		t.Errorf("expected 4 CreateVolume calls, got %d", got)
+	}
+	seen := map[string]bool{}
+	for _, v := range c.createVols {
+		seen[v.Name] = true
+	}
+	for i := 0; i < 4; i++ {
+		want := fmt.Sprintf("drive-%d", i)
+		matched := false
+		for name := range seen {
+			if strings.HasSuffix(name, "-"+want) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("missing volume suffix %q in %v", want, seen)
+		}
+	}
+}
+
+const countManifestInputRef = `
+plugin "drives-input" {
+  version     = "v1"
+  kind        = "object-storage"
+  description = "input-driven volume count"
+  layout      = "ha-3dc"
+  input "drives" {
+    type    = "int"
+    default = "3"
+  }
+  vm "node" {
+    image    = "ghcr.io/example/node:v1"
+    replicas = 1
+    volume "drive" {
+      size_gib = 10
+      count    = input.drives
+    }
+  }
+}`
+
+func TestInstall_VolumeCountInputRefMaterialisesN(t *testing.T) {
+	m, err := ParseManifest("drives.hcl", []byte(countManifestInputRef))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := &fakeClient{}
+	mgr := NewManager(c, NewMemStore())
+	if _, err := mgr.Install(context.Background(), m, "proj", map[string]any{"drives": 3}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if got := len(c.createVols); got != 3 {
+		t.Errorf("expected 3 CreateVolume calls (input.drives=3), got %d", got)
+	}
+}
+
+func TestInstall_CountInputUnsetTrigsErr(t *testing.T) {
+	// Same manifest, but no Default and no supplied input ; the
+	// resolver should refuse rather than silently materialise 0.
+	src := `
+plugin "drives-input" {
+  version     = "v1"
+  kind        = "object-storage"
+  description = "input-driven volume count"
+  layout      = "ha-3dc"
+  input "drives" {
+    type     = "int"
+    required = false
+  }
+  vm "node" {
+    image    = "ghcr.io/example/node:v1"
+    replicas = 1
+    volume "drive" {
+      size_gib = 10
+      count    = input.drives
+    }
+  }
+}`
+	m, err := ParseManifest("drives.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := &fakeClient{}
+	mgr := NewManager(c, NewMemStore())
+	if _, err := mgr.Install(context.Background(), m, "proj", nil); err == nil {
+		t.Fatal("expected install to fail when count input is unset")
+	} else if !strings.Contains(err.Error(), "not set") {
+		t.Errorf("expected not-set error, got %v", err)
+	}
+}
+
+func TestInstall_CountInputNonNumericTrigsErr(t *testing.T) {
+	m, err := ParseManifest("drives.hcl", []byte(countManifestInputRef))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := &fakeClient{}
+	mgr := NewManager(c, NewMemStore())
+	if _, err := mgr.Install(context.Background(), m, "proj", map[string]any{"drives": "not-a-number"}); err == nil {
+		t.Fatal("expected install to fail on non-numeric input")
+	}
+}
+
+const countManifestVMLevel = `
+plugin "shards" {
+  version     = "v1"
+  kind        = "database"
+  description = "VM-level count materialises N tiers"
+  layout      = "ha-3dc"
+  input "shards" {
+    type    = "int"
+    default = "2"
+  }
+  vm "shard" {
+    image    = "ghcr.io/example/shard:v1"
+    replicas = 1
+    count    = input.shards
+  }
+}`
+
+func TestInstall_VMCountMultipliesBlocks(t *testing.T) {
+	m, err := ParseManifest("shards.hcl", []byte(countManifestVMLevel))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := &fakeClient{}
+	mgr := NewManager(c, NewMemStore())
+	if _, err := mgr.Install(context.Background(), m, "proj", map[string]any{"shards": 3}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	// 3 shards × 1 replica = 3 VMs.
+	if got := len(c.createVMs); got != 3 {
+		t.Errorf("expected 3 CreateVM calls (count=3 × replicas=1), got %d", got)
+	}
+	// Names must include the -0, -1, -2 suffix from the count
+	// expansion (whereas replicas-only would just give -0).
+	names := map[string]bool{}
+	for _, vm := range c.createVMs {
+		names[vm.Name] = true
+	}
+	hasSuffix := func(s string) bool {
+		for name := range names {
+			if strings.Contains(name, s) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []string{"shard-0-", "shard-1-", "shard-2-"} {
+		if !hasSuffix(want) {
+			t.Errorf("missing VM name fragment %q in %v", want, names)
+		}
+	}
+}
+
+// ── Catalogue : minio-ha drives expand correctly ─────────────────
+
+func TestInstall_MinioHAVolumesPerNodeMaterialisesDrives(t *testing.T) {
+	root := findCatalogueRoot(t)
+	cat, err := LoadCatalogue(root)
+	if err != nil {
+		t.Fatalf("load catalogue: %v", err)
+	}
+	minio, ok := cat["minio-ha"]
+	if !ok {
+		t.Fatal("minio-ha not in catalogue")
+	}
+	c := &fakeClient{}
+	mgr := NewManager(c, NewMemStore())
+	_, err = mgr.Install(context.Background(), minio, "storage", map[string]any{
+		"root_user":     "admin",
+		"root_password": "longpassword",
+	})
+	if err != nil {
+		t.Fatalf("install minio-ha: %v", err)
+	}
+	// 4 replicas × volumes_per_node (default 4) = 16 CreateVolume
+	// calls — the entire point of the count attribute landing in
+	// the catalogue.
+	if got := len(c.createVols); got != 16 {
+		t.Errorf("expected 16 CreateVolume calls (4 nodes × 4 drives), got %d", got)
+	}
+	// Every drive name must follow the drive-0..drive-3 pattern,
+	// proving the count expansion is in effect.
+	suffixes := map[string]int{}
+	for _, v := range c.createVols {
+		for i := 0; i < 4; i++ {
+			s := fmt.Sprintf("-drive-%d", i)
+			if strings.HasSuffix(v.Name, s) {
+				suffixes[s]++
+			}
+		}
+	}
+	for i := 0; i < 4; i++ {
+		s := fmt.Sprintf("-drive-%d", i)
+		if suffixes[s] != 4 {
+			t.Errorf("expected 4 volumes with suffix %q (one per node), got %d", s, suffixes[s])
+		}
+	}
+}
+
 // Sanity check the qualifiedName / replicaName helpers — they're
 // what the agent sees as resource names downstream, so naming
 // regressions hurt operators trying to find the VMs.

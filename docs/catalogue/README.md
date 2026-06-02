@@ -22,7 +22,12 @@ A plugin is a directory under `catalogue/<name>/` containing a single
 - **vms** — one or more tiers. Each `vm "<name>" {}` block expands into
   `replicas` micro-VMs with hard anti-affinity across the chosen axis
   (`az = "different"` for the 3-DC layout). Per-replica volumes are
-  declared inline via nested `volume "<name>" {}` blocks.
+  declared inline via nested `volume "<name>" {}` blocks. Both `vm`
+  and `volume` blocks accept an optional `count` attribute — either a
+  positive integer literal (`count = "4"`) or an input reference
+  (`count = input.volumes_per_node`) — that materialises N copies
+  named `<base>-0`..`<base>-(N-1)` at install time (default 1, no
+  suffix). `minio-ha` wires `volumes_per_node` this way.
 
 Resource names are mangled with the per-install **instance UUID** so
 multiple installs of the same plugin in different projects don't
@@ -92,13 +97,9 @@ weft plugin install gitlab-runners-ha \
 # Output:
 # installed   gitlab-runners-ha   <instance-uuid>   ci
 
-# 3. Verify the spread :
+# 3. Verify the spread (replicas register as
+#    gitlab-runners-ha-<short-uuid>-runner-<0|1|2>) :
 weft plugin status gitlab-runners-ha
-
-# 4. Three replicas register under the runner name pattern
-#    gitlab-runners-ha-<short-uuid>-runner-<0|1|2>. In the GitLab
-#    runners page they show up tagged with the labels you pinned
-#    via `--input labels=...`.
 ```
 
 ## Authoring a new plugin

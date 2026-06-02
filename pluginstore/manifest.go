@@ -21,12 +21,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // Manifest is the in-memory representation of a plugin.hcl file. It
@@ -166,6 +169,19 @@ type VMSpec struct {
 	// allocates one CreateVolume + AttachVolume pair.
 	Volumes []VolumeSpec `hcl:"volume,block"`
 
+	// Count is an optional multiplicity attribute. When set, the
+	// installer materialises N copies of this whole VM block,
+	// naming them "<base>-0", ..., "<base>-(N-1)" ; each copy still
+	// expands to `Replicas` replicas internally. Accepted grammar :
+	//   - an integer literal matching `^[1-9]\d*$`  (e.g. "4")
+	//   - an input reference matching `^input\.[a-z_][a-z0-9_]*$`
+	//     (e.g. "input.replica_count")
+	// Empty means "1" : current behaviour, no name suffix added.
+	//
+	// Count and Replicas compose multiplicatively : a vm with
+	// count=2 and replicas=3 yields 6 CreateVM calls.
+	Count string `hcl:"count,optional"`
+
 	// Remain absorbs forward-compatible blocks (e.g. JupyterHub's
 	// `share`, `secret_volume`, …) so parsing succeeds even when
 	// a plugin uses a newer schema this binary doesn't know.
@@ -190,11 +206,137 @@ type EnvFromInput struct {
 
 // VolumeSpec declares one persistent disk attached to each replica.
 type VolumeSpec struct {
-	Name    string   `hcl:"name,label"`
-	SizeGiB int      `hcl:"size_gib"`
-	Format  string   `hcl:"format,optional"` // "raw" (default) / "qcow2"
-	Mount   string   `hcl:"mount,optional"`  // optional guest mount path (forward-compat hint)
-	Remain  hcl.Body `hcl:",remain"`
+	Name    string `hcl:"name,label"`
+	SizeGiB int    `hcl:"size_gib"`
+	Format  string `hcl:"format,optional"` // "raw" (default) / "qcow2"
+	Mount   string `hcl:"mount,optional"`  // optional guest mount path (forward-compat hint)
+	// Count is an optional multiplicity attribute. When set, the
+	// installer materialises N copies of this volume per replica,
+	// named "<base>-0", ..., "<base>-(N-1)" and (when Mount is set)
+	// mounted at "<Mount>-0", ..., "<Mount>-(N-1)". Same grammar as
+	// VMSpec.Count : integer literal or `input.<name>`.
+	//
+	// This is the mechanism that wires e.g. minio-ha's
+	// `volumes_per_node` input to the drive layout — one
+	// `volume "drive" { count = input.volumes_per_node }` block
+	// replaces N hard-pinned drive-* blocks.
+	Count  string   `hcl:"count,optional"`
+	Remain hcl.Body `hcl:",remain"`
+}
+
+// Count grammar : either a positive integer literal, or an input
+// reference of the form `input.<name>`. We accept neither raw HCL
+// expressions nor empty input names — both broaden the surface past
+// what Install can resolve.
+var (
+	countLiteralRE = regexp.MustCompile(`^[1-9][0-9]*$`)
+	countInputRE   = regexp.MustCompile(`^input\.[a-z_][a-z0-9_]*$`)
+)
+
+// inputRefName extracts the `<name>` part of an `input.<name>` count
+// value. Returns ("", false) for literal or empty counts.
+func inputRefName(value string) (string, bool) {
+	if !countInputRE.MatchString(value) {
+		return "", false
+	}
+	return strings.TrimPrefix(value, "input."), true
+}
+
+// validateCount checks the textual form of a count attribute. An
+// empty value is allowed (treated as "1" at resolve time).
+func validateCount(field, value string) error {
+	if value == "" {
+		return nil
+	}
+	if countLiteralRE.MatchString(value) || countInputRE.MatchString(value) {
+		return nil
+	}
+	return fmt.Errorf("%s = %q : expected a positive integer literal or an `input.<name>` reference", field, value)
+}
+
+// resolveCount turns the textual count into an integer, resolving
+// `input.<name>` against the operator-supplied input map. Errors on :
+// missing input, non-numeric value, count <= 0.
+func resolveCount(value string, inputs map[string]string) (int, error) {
+	if value == "" {
+		return 1, nil
+	}
+	if countLiteralRE.MatchString(value) {
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			// regexp guarantees this won't happen ; stay defensive.
+			return 0, fmt.Errorf("count %q : %w", value, err)
+		}
+		return n, nil
+	}
+	if countInputRE.MatchString(value) {
+		key := strings.TrimPrefix(value, "input.")
+		raw, ok := inputs[key]
+		if !ok {
+			return 0, fmt.Errorf("count = %s : input %q is not set", value, key)
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			return 0, fmt.Errorf("count = %s : input %q value %q is not an integer", value, key, raw)
+		}
+		if n <= 0 {
+			return 0, fmt.Errorf("count = %s : input %q value %d must be > 0", value, key, n)
+		}
+		return n, nil
+	}
+	return 0, fmt.Errorf("count %q : unrecognised form (want literal or `input.<name>`)", value)
+}
+
+// buildCountEvalContext walks the parsed HCL body looking for
+// `input "<name>" {}` blocks and returns an EvalContext whose `input`
+// object maps each declared name to the literal string
+// "input.<name>". That keeps `count = input.volumes_per_node` legal
+// HCL syntax at decode time, where gohcl evaluates it and writes the
+// reference back as a string on VMSpec.Count / VolumeSpec.Count. We
+// resolve the actual integer at install time against the operator's
+// supplied inputs (see resolveCount).
+//
+// We deliberately do NOT surface inputs anywhere else in the schema —
+// only the count attribute reads from this context. Everything else
+// stays a static decode against the textual default / supplied value.
+func buildCountEvalContext(body hcl.Body) *hcl.EvalContext {
+	names := scanInputNames(body)
+	attrs := make(map[string]cty.Value, len(names))
+	for _, n := range names {
+		attrs[n] = cty.StringVal("input." + n)
+	}
+	if len(attrs) == 0 {
+		return &hcl.EvalContext{
+			Variables: map[string]cty.Value{"input": cty.EmptyObjectVal},
+		}
+	}
+	return &hcl.EvalContext{
+		Variables: map[string]cty.Value{"input": cty.ObjectVal(attrs)},
+	}
+}
+
+// scanInputNames returns the set of `input "<name>" {}` block labels
+// declared under any nested plugin block in body. Uses hclsyntax so
+// we can introspect the AST without partially decoding it via gohcl
+// (which would force us to commit to the wrapper struct twice).
+func scanInputNames(body hcl.Body) []string {
+	bb, ok := body.(*hclsyntax.Body)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, blk := range bb.Blocks {
+		if blk.Type != "plugin" {
+			continue
+		}
+		for _, inner := range blk.Body.Blocks {
+			if inner.Type != "input" || len(inner.Labels) == 0 {
+				continue
+			}
+			out = append(out, inner.Labels[0])
+		}
+	}
+	return out
 }
 
 // ---------------------------------------------------------------
@@ -221,6 +363,13 @@ func ParseManifest(filename string, src []byte) (*Manifest, error) {
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	// Pre-scan input block labels so `count = input.<name>` decodes
+	// to the literal string "input.<name>" via gohcl's eval pass.
+	// We're not resolving the input value here — we just want the
+	// operator-facing reference to survive into VMSpec.Count /
+	// VolumeSpec.Count as text. resolveCount evaluates it at install
+	// time against the operator's supplied inputs.
+	ctx := buildCountEvalContext(file.Body)
 	// The manifest is wrapped in a `plugin "<name>" { ... }`
 	// block — same shape as Terraform's resource blocks. That
 	// way the file is self-describing and the top-level Name is
@@ -228,7 +377,7 @@ func ParseManifest(filename string, src []byte) (*Manifest, error) {
 	var wrapper struct {
 		Plugins []Manifest `hcl:"plugin,block"`
 	}
-	if diags := gohcl.DecodeBody(file.Body, nil, &wrapper); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(file.Body, ctx, &wrapper); diags.HasErrors() {
 		return nil, diags
 	}
 	if len(wrapper.Plugins) != 1 {
@@ -291,6 +440,10 @@ func (m *Manifest) Validate() error {
 			}
 		}
 	}
+	declaredInputs := map[string]struct{}{}
+	for _, in := range m.Inputs {
+		declaredInputs[in.Name] = struct{}{}
+	}
 	for _, v := range m.VMs {
 		if v.Image == "" {
 			return fmt.Errorf("plugin manifest %q: vm %q is missing an image reference", m.Name, v.Name)
@@ -298,6 +451,24 @@ func (m *Manifest) Validate() error {
 		if v.Network != "" {
 			if _, ok := known[v.Network]; !ok {
 				return fmt.Errorf("plugin manifest %q: vm %q references unknown network %q", m.Name, v.Name, v.Network)
+			}
+		}
+		if err := validateCount(fmt.Sprintf("vm %q count", v.Name), v.Count); err != nil {
+			return fmt.Errorf("plugin manifest %q: %w", m.Name, err)
+		}
+		if ref, ok := inputRefName(v.Count); ok {
+			if _, declared := declaredInputs[ref]; !declared {
+				return fmt.Errorf("plugin manifest %q: vm %q count references unknown input %q", m.Name, v.Name, ref)
+			}
+		}
+		for _, vol := range v.Volumes {
+			if err := validateCount(fmt.Sprintf("vm %q volume %q count", v.Name, vol.Name), vol.Count); err != nil {
+				return fmt.Errorf("plugin manifest %q: %w", m.Name, err)
+			}
+			if ref, ok := inputRefName(vol.Count); ok {
+				if _, declared := declaredInputs[ref]; !declared {
+					return fmt.Errorf("plugin manifest %q: vm %q volume %q count references unknown input %q", m.Name, v.Name, vol.Name, ref)
+				}
 			}
 		}
 	}
