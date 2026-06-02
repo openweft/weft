@@ -150,6 +150,7 @@ type VZAdapter interface {
 	PortByUUID(uuid string) (Port, bool)
 	ListPortsForVM(vmUUID string) []Port
 	ListPortsForNetwork(networkUUID string) []Port
+	ListAllPorts() []Port
 	CreatePort(spec CreatePortSpec) (Port, error)
 	SetPortSecurityGroups(uuid string, sgUUIDs []string) error
 	SetPortWireguardPubKey(uuid, pubkey string) error
