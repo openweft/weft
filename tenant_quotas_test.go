@@ -428,3 +428,152 @@ func TestVMRegistry_RequestedGPUsRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// seedPCIVM is the PCI cousin of seedGPUVM : drops one VM with the
+// given RequestedPCI into the registry under f.projUUID, bypassing
+// the driver-handle plumbing. The aggregate enforcement reads
+// vmRegistry directly, so a direct create is fine for the
+// arithmetic the tests pin.
+func seedPCIVM(t *testing.T, f quotaFixture, hostUUID, name string, devs []PCIRequest) {
+	t.Helper()
+	if _, err := f.a.vmReg.create(CreateVMSpec{
+		ProjectUUID:  f.projUUID,
+		Name:         name,
+		HostUUID:     hostUUID,
+		RequestedPCI: devs,
+	}); err != nil {
+		t.Fatalf("seed vm %q: %v", name, err)
+	}
+}
+
+// TestTenantQuota_PCICountRoundTrip pins the pci_count dimension
+// in the on-disk HCL shape : set + reload via a fresh Adapter
+// against the same state dir must surface the same value.
+// Mirrors TestTenantQuota_PersistsAcrossLoad for the new axis.
+func TestTenantQuota_PCICountRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	a1 := New(dir).(*Adapter)
+	p, _, err := a1.CreateProject("alpha")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	want := TenantQuota{PCICount: 7}
+	if err := a1.SetTenantQuota(p.UUID, want); err != nil {
+		t.Fatalf("SetTenantQuota: %v", err)
+	}
+	a2 := New(dir).(*Adapter)
+	if got := a2.TenantQuota(p.UUID); got != want {
+		t.Errorf("after reload: got %+v, want %+v", got, want)
+	}
+}
+
+// TestEnforcePCI_AggregateCountTrips pins the aggregate path :
+// three 1-PCI VMs already in the project + a fourth 1-PCI VM
+// admission against a pci_count=3 cap must trip. The per-request
+// path alone would miss this (every individual request 1 ≤ 3).
+func TestEnforcePCI_AggregateCountTrips(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{PCICount: 3}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	host, err := f.a.RegisterHost(RegisterHostSpec{Hostname: "h-pci", Endpoint: "tcp://h-pci:1"})
+	if err != nil {
+		t.Fatalf("RegisterHost: %v", err)
+	}
+	// Three 1-PCI VMs already in the project — total = 3, exactly
+	// at cap.
+	one := []PCIRequest{{VendorID: "8086", DeviceID: "1572", Count: 1}}
+	seedPCIVM(t, f, host.UUID, "vm1", one)
+	seedPCIVM(t, f, host.UUID, "vm2", one)
+	seedPCIVM(t, f, host.UUID, "vm3", one)
+	// Re-checking with nil delta stays clean (3 ≤ 3).
+	if err := f.a.EnforceTenantQuotaForPCI(f.projUUID, nil); err != nil {
+		t.Errorf("at-cap re-check should fit: %v", err)
+	}
+	// Fourth 1-PCI admission must trip : 3 + 1 > 3.
+	err = f.a.EnforceTenantQuotaForPCI(f.projUUID, one)
+	if err == nil {
+		t.Fatal("expected ResourceExhausted on aggregate pci_count, got nil")
+	}
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("got code %s, want ResourceExhausted", status.Code(err))
+	}
+	if !contains(err.Error(), "pci_count") {
+		t.Errorf("error %q should mention pci_count", err.Error())
+	}
+}
+
+// TestEnforcePCI_PerRequestTrips pins the per-request path on
+// an empty project : a single VM asking for 8 PCI devices against
+// a pci_count=4 cap must fail without any pre-seeded VMs.
+func TestEnforcePCI_PerRequestTrips(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{PCICount: 4}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	// No VMs registered → alloc=0 ; the request alone (8) breaches.
+	err := f.a.EnforceTenantQuotaForPCI(f.projUUID, []PCIRequest{
+		{VendorID: "8086", DeviceID: "1572", Count: 8},
+	})
+	if err == nil {
+		t.Fatal("expected ResourceExhausted on per-request pci_count, got nil")
+	}
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("got code %s, want ResourceExhausted", status.Code(err))
+	}
+}
+
+// TestEnforcePCI_UnlimitedAllows pins the "zero cap = unlimited"
+// short-circuit : a fresh project with no quota set must allow
+// any PCI request (no allocation lookup, no error path).
+func TestEnforcePCI_UnlimitedAllows(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.EnforceTenantQuotaForPCI(f.projUUID, []PCIRequest{
+		{VendorID: "8086", DeviceID: "1572", Count: 999},
+	}); err != nil {
+		t.Fatalf("unlimited should allow: %v", err)
+	}
+}
+
+// TestVMRegistry_RequestedPCIRoundTrip pins the HCL persistence
+// of the new VM.RequestedPCI field : seed a VM with two PCI
+// requests, reload the registry from the same storage, and
+// confirm the slice round-trips verbatim. Back-compat with old
+// blocks (where the field is absent) is implicit — the load path
+// treats no `requested_pci` block as nil RequestedPCI.
+func TestVMRegistry_RequestedPCIRoundTrip(t *testing.T) {
+	storage := NewMemStorage()
+	reg, err := loadVMRegistry(context.Background(), storage)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := []PCIRequest{
+		{VendorID: "8086", DeviceID: "1572", Count: 2},
+		{VendorID: "10de", DeviceID: "1eb8", Count: 1},
+	}
+	v, err := reg.create(CreateVMSpec{
+		ProjectUUID:  "p-1",
+		Name:         "pci-vm",
+		HostUUID:     "h-1",
+		RequestedPCI: want,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	reg2, err := loadVMRegistry(context.Background(), storage)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	got, ok := reg2.lookupByUUID(v.UUID)
+	if !ok {
+		t.Fatal("vm missing after reload")
+	}
+	if len(got.RequestedPCI) != len(want) {
+		t.Fatalf("RequestedPCI len = %d, want %d", len(got.RequestedPCI), len(want))
+	}
+	for i := range want {
+		if got.RequestedPCI[i] != want[i] {
+			t.Errorf("RequestedPCI[%d] = %+v, want %+v", i, got.RequestedPCI[i], want[i])
+		}
+	}
+}
