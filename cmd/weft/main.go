@@ -45,10 +45,11 @@ import (
 	"github.com/openweft/weft/cmd/weft/script"
 	"github.com/openweft/weft/cmd/weft/securitygroup"
 	"github.com/openweft/weft/cmd/weft/share"
+	telemetrycmd "github.com/openweft/weft/cmd/weft/telemetry"
 	"github.com/openweft/weft/cmd/weft/user"
 	"github.com/openweft/weft/cmd/weft/volume"
 	"github.com/openweft/weft/cmd/weft/wait"
-	"github.com/openweft/weft/federation"
+	telem "github.com/openweft/weft/telemetry"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -147,6 +148,12 @@ running agent.`,
 		login.WhoamiCommand(),
 		overlaycmd.Command(),
 		plugin.Command(&socketPath, &sshSocket, &sshKey),
+		// `weft telemetry` — opt-in anonymous heartbeat. Operates on the
+		// agent's registry blob directly (no gRPC ; the data is single-
+		// blob and the verbs are operator-local). See
+		// docs/operations/telemetry.md for the no-default-endpoint
+		// policy and the full payload contract.
+		telemetrycmd.Command(&socketPath, &sshSocket, &sshKey),
 		// Shell-completion script generator. Stateless — no socket
 		// flags, no gRPC. The script is generated against `root`
 		// (resolved via c.Root() inside completion.Command) so it
@@ -666,6 +673,30 @@ func run(t fileConfigTargets) error {
 		logger.Printf("SSH gRPC listening on %s", t.sshSocket)
 	}
 
+	// Telemetry — opt-in anonymous heartbeat (per
+	// docs/operations/telemetry.md). The 24h ticker only runs when
+	// the operator has flipped the flag on via `weft telemetry
+	// enable` ; the State is loaded at startup so a daemon restart
+	// is required after enable/disable. Disabled-or-no-endpoint is
+	// a no-op inside Sender.Send, so the goroutine cost is one
+	// idle ticker — bounded.
+	telemStore := telem.NewBlobStore(a.RegistryStorage("telemetry"))
+	if st, terr := telemStore.LoadState(ctx); terr == nil && st.Enabled {
+		sender := telem.New(telem.Options{
+			Store:  telemStore,
+			Source: &telemetrySource{adp: a},
+			Logger: logger,
+		})
+		sender.MarkStart(time.Now())
+		go runTelemetryTicker(ctx, sender, 24*time.Hour)
+		logger.Printf("telemetry: enabled (endpoint=%s) — heartbeat every 24h", displayOrDefault(st.Endpoint, "<unset>"))
+	} else if terr != nil {
+		// Load failure isn't fatal — telemetry being off is
+		// the safe default. Surface at INFO so an operator
+		// debugging a missing heartbeat can see why.
+		logger.Printf("telemetry: load state: %v (heartbeat NOT started)", terr)
+	}
+
 	// Block until a termination signal lands. The deferred
 	// proxyCloser + sf.close() then run LIFO : watcher cancelled
 	// → Caddy stopped → etcd client closed. Pre-proxy code path
@@ -675,6 +706,68 @@ func run(t fileConfigTargets) error {
 	<-ctx.Done()
 	logger.Printf("weft agent: shutdown signal received")
 	return nil
+}
+
+// runTelemetryTicker drives Sender.Send on a 24h cadence. The
+// first tick fires after the interval (NOT immediately at
+// boot) so an operator who enables telemetry doesn't see a
+// stampede of heartbeats during a fast-restart loop.
+func runTelemetryTicker(ctx context.Context, sender *telem.Sender, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := sender.Send(ctx); err != nil {
+				logger.Printf("telemetry: send: %v", err)
+			}
+		}
+	}
+}
+
+// telemetrySource projects the live Adapter into the minimal
+// counts the telemetry payload carries. NO names, IPs, UUIDs,
+// or other identifying data crosses this boundary — review the
+// returned Snapshot before adding fields.
+type telemetrySource struct {
+	adp weft.VZAdapter
+}
+
+func (t *telemetrySource) Snapshot(_ context.Context) (telem.Snapshot, error) {
+	snap := telem.Snapshot{
+		Drivers:          []string{},
+		PluginsInstalled: []string{},
+	}
+	// HostCount + per-host hypervisor-kind aggregation.
+	driverSet := map[string]struct{}{}
+	for _, h := range t.adp.Hosts() {
+		snap.HostCount++
+		// Host.Hypervisor is a public driver-kind label
+		// (apple-vz / qemu) — already auditable via
+		// `weft host ls`. NOT the hostname, UUID, AZ etc.
+		if h.Hypervisor != "" {
+			driverSet[h.Hypervisor] = struct{}{}
+		}
+	}
+	for k := range driverSet {
+		snap.Drivers = append(snap.Drivers, k)
+	}
+	// VMCountRunning — local-host inventory only. The agent
+	// runs one telemetry goroutine per host ; in a multi-host
+	// cluster only the host the operator opted in on reports.
+	// (Telemetry is single-blob cluster-global ; a future
+	// multi-host aggregation can ship on top of weft-network's
+	// pull model, but it's out of scope here.)
+	if local, err := t.adp.ListLocal(); err == nil {
+		for _, p := range local {
+			if running, _ := p["Running"].(bool); running {
+				snap.VMCountRunning++
+			}
+		}
+	}
+	return snap, nil
 }
 
 // ---- gRPC server -----------------------------------------------------------
@@ -714,14 +807,6 @@ type weftServer struct {
 	// the in-guest pkg/sshkeys subscriber (writes authorized_keys +
 	// feeds the embedded sshd AuthStore).
 	vmKeys *weft.VMSSHKeyRegistry
-	// federationPoller is the in-process peer-poll cache (see the
-	// federation package). nil = federation not configured ;
-	// ListFederationPeers returns an empty peer slice.
-	federationPoller *federation.Poller
-	// plugins is the catalogue + installed-instance + install
-	// surface backing the Plugin RPCs. nil = plugin manager not
-	// wired ; List* returns empty, Install returns Unavailable.
-	plugins pluginManager
 }
 
 func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
