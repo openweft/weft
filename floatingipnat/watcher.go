@@ -24,9 +24,6 @@ type Scope interface {
 	// sort ; tomorrow : the one whose network matches the FIP's
 	// project gateway).
 	ListPortsForVM(vmUUID string) []weft.Port
-	// VMByName resolves a name to its UUID — Map's target_name is
-	// stored as VM name, not UUID, so we need this hop.
-	VMByName(name string) (weft.VM, bool)
 }
 
 // Watcher is the host-side reactor : subscribes to platform
