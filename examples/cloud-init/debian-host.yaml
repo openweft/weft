@@ -197,7 +197,27 @@ runcmd:
         echo "weft microvm pull-kernel failed; retry manually after first boot" >&2
     fi
 
-  # 6. Enable + start the agent unit. systemd will fail-loop the service
+  # 6. Install shell completion scripts for the weft CLI. Bash is wired
+  #    unconditionally (Debian ships /etc/bash_completion.d sourced by
+  #    /etc/bash.bashrc) ; zsh is installed only when zsh is present on
+  #    the host. fish + powershell are skipped on Debian default — see
+  #    docs/operations/completion.md for the operator-workstation install.
+  #    Generation is best-effort : a missing /usr/local/bin/weft only
+  #    delays setup until the binary lands, it doesn't fail the host.
+  - |
+    set -eu
+    if [ -x /usr/local/bin/weft ]; then
+      install -d -m 0755 /etc/bash_completion.d
+      /usr/local/bin/weft completion bash > /etc/bash_completion.d/weft || \
+        echo "weft completion bash: failed; retry after binary lands" >&2
+      if command -v zsh >/dev/null 2>&1; then
+        install -d -m 0755 /usr/local/share/zsh/site-functions
+        /usr/local/bin/weft completion zsh > /usr/local/share/zsh/site-functions/_weft || \
+          echo "weft completion zsh: failed; retry after binary lands" >&2
+      fi
+    fi
+
+  # 7. Enable + start the agent unit. systemd will fail-loop the service
   #    until /usr/local/bin/weft is in place (see TODO above) — that's the
   #    intended signal for the operator.
   - systemctl daemon-reload
