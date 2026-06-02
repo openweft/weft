@@ -155,6 +155,17 @@ type VZAdapter interface {
 	SetPortSecurityGroups(uuid string, sgUUIDs []string) error
 	SetPortWireguardPubKey(uuid, pubkey string) error
 	DeletePort(uuid string) error
+	// Floating-IP registry surface — addresses pulled from a
+	// network's CIDR and (optionally) NAT-mapped to a VM or LB.
+	// See floating_ips.go / adapter_floating_ips.go.
+	ListFloatingIPs() []FloatingIP
+	ListFloatingIPsForProject(projectUUID string) []FloatingIP
+	ListFloatingIPsForTarget(kind FloatingIPTargetKind, target string) []FloatingIP
+	FloatingIPByUUID(uuid string) (FloatingIP, bool)
+	AllocateFloatingIP(projectUUID, networkUUID, address string) (FloatingIP, error)
+	ReleaseFloatingIP(uuid string) error
+	MapFloatingIP(uuid string, kind FloatingIPTargetKind, target string) (FloatingIP, error)
+	UnmapFloatingIP(uuid string) (FloatingIP, error)
 	// Host registry surface — global compute-node inventory.
 	// One entry per registered weft-agent. Scheduler reads these
 	// to pick a host for a new VM. See hosts.go and
@@ -291,6 +302,10 @@ type Adapter struct {
 	// NIC, carrying MAC, IP, and per-port WireGuard pubkey for
 	// mesh networks). See ports.go.
 	portReg *portRegistry
+	// fipReg holds the per-project floating-IP pool — addresses
+	// allocated from edge networks and (optionally) mapped to a
+	// VM or LB target. See floating_ips.go.
+	fipReg *floatingIPRegistry
 	// hostReg holds the cluster's compute-node inventory. See
 	// hosts.go and [[weft-driver-registry-split]].
 	hostReg *hostRegistry
@@ -536,6 +551,7 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 	a.initVolumeSnapshots()
 	a.initSecurityGroups()
 	a.initPorts()
+	a.initFloatingIPs()
 	a.initHosts()
 	a.initVMs()
 	a.initTenantQuotas()
