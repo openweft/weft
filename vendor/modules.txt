@@ -116,7 +116,7 @@ github.com/grpc-ecosystem/grpc-gateway/v2/utilities
 # github.com/grpc-transports/ssh v0.2.0 => ../../grpc-transports/ssh
 ## explicit; go 1.25.0
 github.com/grpc-transports/ssh
-# github.com/grpc-transports/wireguard v0.2.0 => ../../grpc-transports/wireguard
+# github.com/grpc-transports/wireguard v0.3.0 => ../../grpc-transports/wireguard
 ## explicit; go 1.25.0
 github.com/grpc-transports/wireguard
 # github.com/hashicorp/go-hclog v0.14.1
@@ -134,6 +134,7 @@ github.com/hashicorp/go-plugin/runner
 github.com/hashicorp/hcl/v2
 github.com/hashicorp/hcl/v2/ext/customdecode
 github.com/hashicorp/hcl/v2/gohcl
+github.com/hashicorp/hcl/v2/hclparse
 github.com/hashicorp/hcl/v2/hclsimple
 github.com/hashicorp/hcl/v2/hclsyntax
 github.com/hashicorp/hcl/v2/hclwrite
@@ -267,7 +268,7 @@ github.com/openweft/weft-client
 ## explicit; go 1.25.0
 github.com/openweft/weft-driver-plugin
 github.com/openweft/weft-driver-plugin/driverpb
-# github.com/openweft/weft-drivers v0.0.0 => ../weft-drivers
+# github.com/openweft/weft-drivers v0.1.0 => ../weft-drivers
 ## explicit; go 1.25.0
 github.com/openweft/weft-drivers
 # github.com/openweft/weft-microvm v0.0.0 => ../weft-microvm
@@ -278,7 +279,7 @@ github.com/openweft/weft-microvm/initbuild
 # github.com/openweft/weft-microvm-init v0.0.0 => ../weft-microvm-init
 ## explicit; go 1.25.0
 github.com/openweft/weft-microvm-init/pkg/pod
-# github.com/openweft/weft-proto v0.2.0 => ../weft-proto
+# github.com/openweft/weft-proto v0.4.0 => ../weft-proto
 ## explicit; go 1.25.0
 github.com/openweft/weft-proto
 github.com/openweft/weft-proto/introspectv1
