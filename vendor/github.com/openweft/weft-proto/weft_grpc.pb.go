@@ -36,6 +36,16 @@ const (
 	WeftAgent_RegisterMicroVM_FullMethodName                 = "/weft.v1.WeftAgent/RegisterMicroVM"
 	WeftAgent_VMTimings_FullMethodName                       = "/weft.v1.WeftAgent/VMTimings"
 	WeftAgent_VMLogs_FullMethodName                          = "/weft.v1.WeftAgent/VMLogs"
+	WeftAgent_ListAZs_FullMethodName                         = "/weft.v1.WeftAgent/ListAZs"
+	WeftAgent_GetAZ_FullMethodName                           = "/weft.v1.WeftAgent/GetAZ"
+	WeftAgent_CreateAZ_FullMethodName                        = "/weft.v1.WeftAgent/CreateAZ"
+	WeftAgent_UpdateAZ_FullMethodName                        = "/weft.v1.WeftAgent/UpdateAZ"
+	WeftAgent_DeleteAZ_FullMethodName                        = "/weft.v1.WeftAgent/DeleteAZ"
+	WeftAgent_ListRacks_FullMethodName                       = "/weft.v1.WeftAgent/ListRacks"
+	WeftAgent_GetRack_FullMethodName                         = "/weft.v1.WeftAgent/GetRack"
+	WeftAgent_CreateRack_FullMethodName                      = "/weft.v1.WeftAgent/CreateRack"
+	WeftAgent_UpdateRack_FullMethodName                      = "/weft.v1.WeftAgent/UpdateRack"
+	WeftAgent_DeleteRack_FullMethodName                      = "/weft.v1.WeftAgent/DeleteRack"
 	WeftAgent_ListProjects_FullMethodName                    = "/weft.v1.WeftAgent/ListProjects"
 	WeftAgent_CreateProject_FullMethodName                   = "/weft.v1.WeftAgent/CreateProject"
 	WeftAgent_RenameProject_FullMethodName                   = "/weft.v1.WeftAgent/RenameProject"
@@ -164,6 +174,25 @@ type WeftAgentClient interface {
 	// stderr, all interleaved). Single-shot read; `tail_bytes` caps
 	// the response to the last N bytes when non-zero.
 	VMLogs(ctx context.Context, in *VMLogsRequest, opts ...grpc.CallOption) (*VMLogsResponse, error)
+	// AvailabilityZone registry RPCs. AZs are the top tier of the
+	// inventory hierarchy (AZ → Rack → Host) ; their `code` is the
+	// value scheduling rules and host registrations carry around to
+	// pin placement. Deletion refuses when racks / hosts still bind
+	// to the AZ.
+	ListAZs(ctx context.Context, in *ListAZsRequest, opts ...grpc.CallOption) (*ListAZsResponse, error)
+	GetAZ(ctx context.Context, in *GetAZRequest, opts ...grpc.CallOption) (*GetAZResponse, error)
+	CreateAZ(ctx context.Context, in *CreateAZRequest, opts ...grpc.CallOption) (*CreateAZResponse, error)
+	UpdateAZ(ctx context.Context, in *UpdateAZRequest, opts ...grpc.CallOption) (*UpdateAZResponse, error)
+	DeleteAZ(ctx context.Context, in *DeleteAZRequest, opts ...grpc.CallOption) (*DeleteAZResponse, error)
+	// Rack registry RPCs. Same UUID-keyed, az-scoped shape as the
+	// existing per-noun registries. Racks carry the U-occupancy
+	// metadata the webui's 2D rack-elevation viz reads (host
+	// height_u / position_u remain on HostInfo).
+	ListRacks(ctx context.Context, in *ListRacksRequest, opts ...grpc.CallOption) (*ListRacksResponse, error)
+	GetRack(ctx context.Context, in *GetRackRequest, opts ...grpc.CallOption) (*GetRackResponse, error)
+	CreateRack(ctx context.Context, in *CreateRackRequest, opts ...grpc.CallOption) (*CreateRackResponse, error)
+	UpdateRack(ctx context.Context, in *UpdateRackRequest, opts ...grpc.CallOption) (*UpdateRackResponse, error)
+	DeleteRack(ctx context.Context, in *DeleteRackRequest, opts ...grpc.CallOption) (*DeleteRackResponse, error)
 	// Project registry RPCs. The UUID returned by ListProjects /
 	// CreateProject is the stable identifier on-disk vmDirs are
 	// keyed on; RenameProject mutates only the display name so every
@@ -488,6 +517,106 @@ func (c *weftAgentClient) VMLogs(ctx context.Context, in *VMLogsRequest, opts ..
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(VMLogsResponse)
 	err := c.cc.Invoke(ctx, WeftAgent_VMLogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListAZs(ctx context.Context, in *ListAZsRequest, opts ...grpc.CallOption) (*ListAZsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAZsResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListAZs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetAZ(ctx context.Context, in *GetAZRequest, opts ...grpc.CallOption) (*GetAZResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAZResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetAZ_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) CreateAZ(ctx context.Context, in *CreateAZRequest, opts ...grpc.CallOption) (*CreateAZResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateAZResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_CreateAZ_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) UpdateAZ(ctx context.Context, in *UpdateAZRequest, opts ...grpc.CallOption) (*UpdateAZResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateAZResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_UpdateAZ_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteAZ(ctx context.Context, in *DeleteAZRequest, opts ...grpc.CallOption) (*DeleteAZResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteAZResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteAZ_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListRacks(ctx context.Context, in *ListRacksRequest, opts ...grpc.CallOption) (*ListRacksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRacksResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListRacks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetRack(ctx context.Context, in *GetRackRequest, opts ...grpc.CallOption) (*GetRackResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRackResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetRack_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) CreateRack(ctx context.Context, in *CreateRackRequest, opts ...grpc.CallOption) (*CreateRackResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateRackResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_CreateRack_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) UpdateRack(ctx context.Context, in *UpdateRackRequest, opts ...grpc.CallOption) (*UpdateRackResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateRackResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_UpdateRack_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteRack(ctx context.Context, in *DeleteRackRequest, opts ...grpc.CallOption) (*DeleteRackResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteRackResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteRack_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1448,6 +1577,25 @@ type WeftAgentServer interface {
 	// stderr, all interleaved). Single-shot read; `tail_bytes` caps
 	// the response to the last N bytes when non-zero.
 	VMLogs(context.Context, *VMLogsRequest) (*VMLogsResponse, error)
+	// AvailabilityZone registry RPCs. AZs are the top tier of the
+	// inventory hierarchy (AZ → Rack → Host) ; their `code` is the
+	// value scheduling rules and host registrations carry around to
+	// pin placement. Deletion refuses when racks / hosts still bind
+	// to the AZ.
+	ListAZs(context.Context, *ListAZsRequest) (*ListAZsResponse, error)
+	GetAZ(context.Context, *GetAZRequest) (*GetAZResponse, error)
+	CreateAZ(context.Context, *CreateAZRequest) (*CreateAZResponse, error)
+	UpdateAZ(context.Context, *UpdateAZRequest) (*UpdateAZResponse, error)
+	DeleteAZ(context.Context, *DeleteAZRequest) (*DeleteAZResponse, error)
+	// Rack registry RPCs. Same UUID-keyed, az-scoped shape as the
+	// existing per-noun registries. Racks carry the U-occupancy
+	// metadata the webui's 2D rack-elevation viz reads (host
+	// height_u / position_u remain on HostInfo).
+	ListRacks(context.Context, *ListRacksRequest) (*ListRacksResponse, error)
+	GetRack(context.Context, *GetRackRequest) (*GetRackResponse, error)
+	CreateRack(context.Context, *CreateRackRequest) (*CreateRackResponse, error)
+	UpdateRack(context.Context, *UpdateRackRequest) (*UpdateRackResponse, error)
+	DeleteRack(context.Context, *DeleteRackRequest) (*DeleteRackResponse, error)
 	// Project registry RPCs. The UUID returned by ListProjects /
 	// CreateProject is the stable identifier on-disk vmDirs are
 	// keyed on; RenameProject mutates only the display name so every
@@ -1658,6 +1806,36 @@ func (UnimplementedWeftAgentServer) VMTimings(context.Context, *VMTimingsRequest
 }
 func (UnimplementedWeftAgentServer) VMLogs(context.Context, *VMLogsRequest) (*VMLogsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method VMLogs not implemented")
+}
+func (UnimplementedWeftAgentServer) ListAZs(context.Context, *ListAZsRequest) (*ListAZsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAZs not implemented")
+}
+func (UnimplementedWeftAgentServer) GetAZ(context.Context, *GetAZRequest) (*GetAZResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAZ not implemented")
+}
+func (UnimplementedWeftAgentServer) CreateAZ(context.Context, *CreateAZRequest) (*CreateAZResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateAZ not implemented")
+}
+func (UnimplementedWeftAgentServer) UpdateAZ(context.Context, *UpdateAZRequest) (*UpdateAZResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateAZ not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteAZ(context.Context, *DeleteAZRequest) (*DeleteAZResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteAZ not implemented")
+}
+func (UnimplementedWeftAgentServer) ListRacks(context.Context, *ListRacksRequest) (*ListRacksResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRacks not implemented")
+}
+func (UnimplementedWeftAgentServer) GetRack(context.Context, *GetRackRequest) (*GetRackResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRack not implemented")
+}
+func (UnimplementedWeftAgentServer) CreateRack(context.Context, *CreateRackRequest) (*CreateRackResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateRack not implemented")
+}
+func (UnimplementedWeftAgentServer) UpdateRack(context.Context, *UpdateRackRequest) (*UpdateRackResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateRack not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteRack(context.Context, *DeleteRackRequest) (*DeleteRackResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteRack not implemented")
 }
 func (UnimplementedWeftAgentServer) ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListProjects not implemented")
@@ -2255,6 +2433,186 @@ func _WeftAgent_VMLogs_Handler(srv interface{}, ctx context.Context, dec func(in
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeftAgentServer).VMLogs(ctx, req.(*VMLogsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListAZs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAZsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListAZs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListAZs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListAZs(ctx, req.(*ListAZsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetAZ_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAZRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetAZ(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetAZ_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetAZ(ctx, req.(*GetAZRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_CreateAZ_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateAZRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).CreateAZ(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_CreateAZ_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).CreateAZ(ctx, req.(*CreateAZRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_UpdateAZ_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateAZRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).UpdateAZ(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_UpdateAZ_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).UpdateAZ(ctx, req.(*UpdateAZRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteAZ_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAZRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteAZ(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteAZ_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteAZ(ctx, req.(*DeleteAZRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListRacks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRacksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListRacks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListRacks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListRacks(ctx, req.(*ListRacksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetRack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetRack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetRack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetRack(ctx, req.(*GetRackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_CreateRack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateRackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).CreateRack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_CreateRack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).CreateRack(ctx, req.(*CreateRackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_UpdateRack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateRackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).UpdateRack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_UpdateRack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).UpdateRack(ctx, req.(*UpdateRackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteRack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteRack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteRack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteRack(ctx, req.(*DeleteRackRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3964,6 +4322,46 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "VMLogs",
 			Handler:    _WeftAgent_VMLogs_Handler,
+		},
+		{
+			MethodName: "ListAZs",
+			Handler:    _WeftAgent_ListAZs_Handler,
+		},
+		{
+			MethodName: "GetAZ",
+			Handler:    _WeftAgent_GetAZ_Handler,
+		},
+		{
+			MethodName: "CreateAZ",
+			Handler:    _WeftAgent_CreateAZ_Handler,
+		},
+		{
+			MethodName: "UpdateAZ",
+			Handler:    _WeftAgent_UpdateAZ_Handler,
+		},
+		{
+			MethodName: "DeleteAZ",
+			Handler:    _WeftAgent_DeleteAZ_Handler,
+		},
+		{
+			MethodName: "ListRacks",
+			Handler:    _WeftAgent_ListRacks_Handler,
+		},
+		{
+			MethodName: "GetRack",
+			Handler:    _WeftAgent_GetRack_Handler,
+		},
+		{
+			MethodName: "CreateRack",
+			Handler:    _WeftAgent_CreateRack_Handler,
+		},
+		{
+			MethodName: "UpdateRack",
+			Handler:    _WeftAgent_UpdateRack_Handler,
+		},
+		{
+			MethodName: "DeleteRack",
+			Handler:    _WeftAgent_DeleteRack_Handler,
 		},
 		{
 			MethodName: "ListProjects",

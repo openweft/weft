@@ -106,11 +106,35 @@ message Snapshot {
   bool user_created = 7;
 }
 
+// BackupEncryption configures end-to-end AEAD over every chunk shipped
+// to the target. Empty algorithm = no encryption.
+message BackupEncryption {
+  string algorithm        = 1; // "" | "chacha20-poly1305" | "aes-256-gcm"
+  string passphrase_env   = 2; // env var holding the passphrase
+  string kdf              = 3; // "argon2id" (default) | "raw"
+  map<string, string> kdf_params = 4;
+}
+
+// BackupEncryptionInfo is what restore needs to re-derive the key :
+// everything from BackupEncryption EXCEPT the passphrase, plus the
+// per-backup random salt.
+message BackupEncryptionInfo {
+  string algorithm = 1;
+  string kdf       = 2;
+  map<string, string> kdf_params = 3;
+  string salt_hex  = 4;
+}
+
 message BackupSpec {
   string volume_uuid = 1;
   string snapshot_name = 2;
   string target = 3;
   map<string, string> labels = 4;
+  // parent_url, when non-empty, makes this an incremental backup whose
+  // body only carries blocks that differ from the parent. Empty = full.
+  string parent_url = 5;
+  // encryption wraps every shipped chunk in AEAD when algorithm is set.
+  BackupEncryption encryption = 6;
 }
 
 message Backup {
@@ -122,6 +146,8 @@ message Backup {
   map<string, string> labels = 6;
   string state = 7;
   string error = 8;
+  string parent_url = 9;
+  BackupEncryptionInfo encryption = 10; // echoes algo+kdf params+salt for restore
 }
 
 // ===== Hypervisor =====

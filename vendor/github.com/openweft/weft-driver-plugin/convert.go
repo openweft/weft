@@ -308,12 +308,62 @@ func snapshotFromPB(p *driverpb.Snapshot) drivers.Snapshot {
 
 // ----- Backup -----
 
+func backupEncryptionToPB(e drivers.BackupEncryption) *driverpb.BackupEncryption {
+	if e.Algorithm == "" && e.PassphraseEnv == "" && e.KDF == "" && len(e.KDFParams) == 0 {
+		return nil
+	}
+	return &driverpb.BackupEncryption{
+		Algorithm:      e.Algorithm,
+		PassphraseEnv:  e.PassphraseEnv,
+		Kdf:            e.KDF,
+		KdfParams:      e.KDFParams,
+	}
+}
+
+func backupEncryptionFromPB(p *driverpb.BackupEncryption) drivers.BackupEncryption {
+	if p == nil {
+		return drivers.BackupEncryption{}
+	}
+	return drivers.BackupEncryption{
+		Algorithm:     p.Algorithm,
+		PassphraseEnv: p.PassphraseEnv,
+		KDF:           p.Kdf,
+		KDFParams:     p.KdfParams,
+	}
+}
+
+func backupEncryptionInfoToPB(e drivers.BackupEncryptionInfo) *driverpb.BackupEncryptionInfo {
+	if e.Algorithm == "" && e.KDF == "" && len(e.KDFParams) == 0 && e.SaltHex == "" {
+		return nil
+	}
+	return &driverpb.BackupEncryptionInfo{
+		Algorithm: e.Algorithm,
+		Kdf:       e.KDF,
+		KdfParams: e.KDFParams,
+		SaltHex:   e.SaltHex,
+	}
+}
+
+func backupEncryptionInfoFromPB(p *driverpb.BackupEncryptionInfo) drivers.BackupEncryptionInfo {
+	if p == nil {
+		return drivers.BackupEncryptionInfo{}
+	}
+	return drivers.BackupEncryptionInfo{
+		Algorithm: p.Algorithm,
+		KDF:       p.Kdf,
+		KDFParams: p.KdfParams,
+		SaltHex:   p.SaltHex,
+	}
+}
+
 func backupSpecToPB(s drivers.BackupSpec) *driverpb.BackupSpec {
 	return &driverpb.BackupSpec{
 		VolumeUuid:   s.VolumeUUID,
 		SnapshotName: s.SnapshotName,
 		Target:       s.Target,
 		Labels:       s.Labels,
+		ParentUrl:    s.ParentURL,
+		Encryption:   backupEncryptionToPB(s.Encryption),
 	}
 }
 
@@ -326,6 +376,8 @@ func backupSpecFromPB(p *driverpb.BackupSpec) drivers.BackupSpec {
 		SnapshotName: p.SnapshotName,
 		Target:       p.Target,
 		Labels:       p.Labels,
+		ParentURL:    p.ParentUrl,
+		Encryption:   backupEncryptionFromPB(p.Encryption),
 	}
 }
 
@@ -334,6 +386,8 @@ func backupToPB(b drivers.Backup) *driverpb.Backup {
 		VolumeUuid:      b.VolumeUUID,
 		SnapshotName:    b.SnapshotName,
 		Url:             b.URL,
+		ParentUrl:       b.ParentURL,
+		Encryption:      backupEncryptionInfoToPB(b.Encryption),
 		SizeBytes:       b.SizeBytes,
 		CreatedAtUnixNs: b.CreatedAtUnixNs,
 		Labels:          b.Labels,
@@ -350,6 +404,8 @@ func backupFromPB(p *driverpb.Backup) drivers.Backup {
 		VolumeUUID:      p.VolumeUuid,
 		SnapshotName:    p.SnapshotName,
 		URL:             p.Url,
+		ParentURL:       p.ParentUrl,
+		Encryption:      backupEncryptionInfoFromPB(p.Encryption),
 		SizeBytes:       p.SizeBytes,
 		CreatedAtUnixNs: p.CreatedAtUnixNs,
 		Labels:          p.Labels,
