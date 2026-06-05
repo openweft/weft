@@ -9,6 +9,46 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ### Added
 
+- **Inventory hierarchy elevated to the control plane (weft-proto v0.7.0)**.
+  AZs and racks are no longer webui-local persistence — they live in
+  the same UUID-keyed registry shape as projects + hosts, with their
+  own RPCs and JSON-backed storage under the Adapter.
+  - `Adapter.AZs / AZByUUID / AZByCode / AZRackCount / AZHostCount /
+    CreateAZ / UpdateAZ / DeleteAZ` — DeleteAZ refuses while racks
+    or hosts still reference the AZ and surfaces the blocking
+    counts on the response.
+  - `Adapter.Racks / RackByUUID / RackHostCount / CreateRack /
+    UpdateRack / DeleteRack` — CreateRack rejects an unknown
+    `az_uuid` parent ; (az_uuid, code) is the secondary uniqueness
+    key (the same rack code can repeat across AZs).
+  - 10 gRPC handlers under the WeftAgent service : `ListAZs`,
+    `GetAZ`, `CreateAZ`, `UpdateAZ`, `DeleteAZ`, `ListRacks`,
+    `GetRack`, `CreateRack`, `UpdateRack`, `DeleteRack`. Read RPCs
+    are open ; mutations are `RequireAdmin`. `toAZInfo` /
+    `toRackInfo` fill the derived counts so clients never need a
+    second round-trip.
+  - 21 unit tests on the registries (round-trip persistence,
+    idempotent create, partial PATCH on update, cascade safety on
+    delete, RFC-4122 v4 UUID shape).
+- **CLI : `weft az` + `weft rack` packages** — pre-existing webui
+  inventory surface now reachable from the operator's shell.
+  - `weft az ls` / `show <code|uuid>` / `create <code> [--name --region --status]` /
+    `update <code|uuid> [--name --region --status]` / `rm <code|uuid>`
+    (cascade error surfaces the blocked count).
+  - `weft rack ls [--az=<code|uuid>]` / `show <uuid>` /
+    `create <code> --az=<...> [--name --status --height-u]` /
+    `update <uuid> [--name --status --height-u]` / `rm <uuid>`.
+    `--height-u` is a partial-PATCH sentinel : default `-1` keeps
+    the current value, explicit `0` clears it, any positive
+    value sets it.
+  - `az.ResolveArg` is exported so `weft rack create --az=DC-A`
+    accepts either a code or a UUID for the parent. JSON output
+    via `--format=json` mirrors the other registry verbs.
+
+  Closes the Tier 1 gap surfaced by the CLI parity audit ; the
+  webui's local inventory store stays in place for now (Phase E
+  of the proto bump will migrate it to the live RPC).
+
 - **CLI : `weft tenant` package** — full tenant-registry surface so
   a fresh cluster can be brought up through SSH-only access without
   the webui : `weft tenant ls` / `create <name> [--domain]` /

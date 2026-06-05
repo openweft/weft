@@ -37,6 +37,113 @@ message VMInfo {
   string   uuid          = 11;
 }
 
+// --- AvailabilityZones (AZ) ---
+
+// AZInfo describes one availability zone — the top-level placement
+// boundary in the inventory tree (AZ → Rack → Host). Operators
+// register an AZ once and then bind racks + hosts to it.
+//
+// `code` is a stable short identifier (e.g. "DC-A") used in
+// SchedulingRule selectors and host registration ; the operator
+// can rename `name` at any time without breaking placement.
+message AZInfo {
+  string uuid              = 1;
+  string code              = 2;  // immutable short id, e.g. "DC-A"
+  string name              = 3;  // human-friendly display name
+  string region            = 4;  // region tag, e.g. "eu-west-1"
+  string status            = 5;  // "active" | "draining" | "down" | "provisioning"
+  int64  created_at_unix_ns = 6;
+  int32  racks             = 7;  // derived count (server-filled, ignored on writes)
+  int32  hosts             = 8;  // derived count
+}
+
+message ListAZsRequest  { int32 limit = 1; string page_token = 2; }
+message ListAZsResponse { repeated AZInfo azs = 1; string next_page_token = 2; }
+
+message GetAZRequest  { string uuid = 1; string code = 2; }  // either lookup key
+message GetAZResponse { AZInfo az = 1; }
+
+message CreateAZRequest  {
+  string code   = 1;
+  string name   = 2;
+  string region = 3;
+  string status = 4;  // defaults to "active" when empty
+}
+message CreateAZResponse { AZInfo az = 1; bool created = 2; }
+
+// UpdateAZ patches the mutable fields (name, region, status). `code`
+// is immutable — operators delete + recreate to rename the
+// identifier. Empty string on any field = keep the current value
+// (partial PATCH).
+message UpdateAZRequest  {
+  string uuid   = 1;
+  string name   = 2;
+  string region = 3;
+  string status = 4;
+}
+message UpdateAZResponse { AZInfo az = 1; }
+
+// DeleteAZ refuses when racks or hosts still reference the AZ —
+// operator must drain first.
+message DeleteAZRequest  { string uuid = 1; }
+message DeleteAZResponse {
+  string deleted_uuid = 1;
+  int32  blocked_by_racks = 2;  // > 0 when deletion was refused
+  int32  blocked_by_hosts = 3;
+}
+
+// --- Racks ---
+
+// RackInfo describes one rack inside an AZ — the second placement
+// tier in the inventory tree.
+//
+// `position_u` + `height_u` are surfaced for the 2D rack-elevation
+// viz the webui draws ; they're informational from the scheduler's
+// POV (placement honours az + rack codes, not U slots).
+message RackInfo {
+  string uuid              = 1;
+  string az_uuid           = 2;  // parent
+  string code              = 3;  // short id, e.g. "R1"
+  string name              = 4;
+  string status            = 5;  // "active" | "draining" | "down"
+  int32  height_u          = 6;  // rack total U height (0 = unspecified)
+  int64  created_at_unix_ns = 7;
+  int32  hosts             = 8;  // derived count
+}
+
+message ListRacksRequest  {
+  string az_uuid    = 1;  // optional filter ; empty = all racks across all AZs
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListRacksResponse { repeated RackInfo racks = 1; string next_page_token = 2; }
+
+message GetRackRequest  { string uuid = 1; }
+message GetRackResponse { RackInfo rack = 1; }
+
+message CreateRackRequest  {
+  string az_uuid  = 1;  // required
+  string code     = 2;
+  string name     = 3;
+  string status   = 4;
+  int32  height_u = 5;
+}
+message CreateRackResponse { RackInfo rack = 1; bool created = 2; }
+
+message UpdateRackRequest  {
+  string uuid     = 1;
+  string name     = 2;
+  string status   = 3;
+  int32  height_u = 4;  // -1 means "keep current" (proto3 int has no nil)
+}
+message UpdateRackResponse { RackInfo rack = 1; }
+
+message DeleteRackRequest  { string uuid = 1; }
+message DeleteRackResponse {
+  string deleted_uuid = 1;
+  int32  blocked_by_hosts = 2;
+}
+
 // --- Projects ---
 
 // ProjectInfo is one entry in the project registry. `uuid` is the
@@ -556,6 +663,11 @@ message VolumeInfo {
   string format             = 5; // "raw" | "qcow2"
   string attached_to_uuid   = 6; // empty = detached
   int64  created_at_unix_ns = 7;
+  // backend picks the storage driver that owns the blocks. "file"
+  // = host-local reflink-aware files (default) ; "block" = replicated
+  // block storage via weft-block. Snapshot revert + backup operations
+  // dispatch on this field and require backend == "block".
+  string backend            = 8;
 }
 
 message ListVolumesRequest  {
@@ -966,6 +1078,27 @@ service WeftAgent {
   // stderr, all interleaved). Single-shot read; `tail_bytes` caps
   // the response to the last N bytes when non-zero.
   rpc VMLogs (VMLogsRequest) returns (VMLogsResponse);
+
+  // AvailabilityZone registry RPCs. AZs are the top tier of the
+  // inventory hierarchy (AZ → Rack → Host) ; their `code` is the
+  // value scheduling rules and host registrations carry around to
+  // pin placement. Deletion refuses when racks / hosts still bind
+  // to the AZ.
+  rpc ListAZs   (ListAZsRequest)   returns (ListAZsResponse);
+  rpc GetAZ     (GetAZRequest)     returns (GetAZResponse);
+  rpc CreateAZ  (CreateAZRequest)  returns (CreateAZResponse);
+  rpc UpdateAZ  (UpdateAZRequest)  returns (UpdateAZResponse);
+  rpc DeleteAZ  (DeleteAZRequest)  returns (DeleteAZResponse);
+
+  // Rack registry RPCs. Same UUID-keyed, az-scoped shape as the
+  // existing per-noun registries. Racks carry the U-occupancy
+  // metadata the webui's 2D rack-elevation viz reads (host
+  // height_u / position_u remain on HostInfo).
+  rpc ListRacks   (ListRacksRequest)   returns (ListRacksResponse);
+  rpc GetRack     (GetRackRequest)     returns (GetRackResponse);
+  rpc CreateRack  (CreateRackRequest)  returns (CreateRackResponse);
+  rpc UpdateRack  (UpdateRackRequest)  returns (UpdateRackResponse);
+  rpc DeleteRack  (DeleteRackRequest)  returns (DeleteRackResponse);
 
   // Project registry RPCs. The UUID returned by ListProjects /
   // CreateProject is the stable identifier on-disk vmDirs are

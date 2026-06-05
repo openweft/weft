@@ -7,6 +7,45 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [v0.7.0] — 2026-06-05
+
+### Added
+
+- **AvailabilityZone + Rack registry on `WeftAgent`** — elevates AZ
+  and Rack from webui-only persistence (previously
+  `resourceByID["azs"|"racks"]`) to first-class control-plane RPCs
+  so the CLI + every other client reaches the same source of truth.
+  - `AZInfo` message : uuid, code (immutable short id), name,
+    region, status, created-at, server-derived racks + hosts
+    counts.
+  - `RackInfo` message : uuid, az_uuid (parent), code, name,
+    status, height_u, created-at, server-derived hosts count.
+  - 10 new RPCs : `ListAZs` / `GetAZ` / `CreateAZ` / `UpdateAZ` /
+    `DeleteAZ` and `ListRacks` / `GetRack` / `CreateRack` /
+    `UpdateRack` / `DeleteRack`. `Update*` are partial PATCHes
+    (empty string fields = keep current). `Delete*` refuses when
+    child rows still bind to the row being deleted ; the response
+    surfaces the blocking-count so the operator sees exactly what
+    needs draining.
+
+  Why proto and not webui-only : the CLI parity audit surfaced
+  AZ/Rack CRUD as a Tier 1 gap because the CLI couldn't drive
+  bring-up of a fresh cluster. With the registry in the control
+  plane, `weft az create` and `weft rack create` work over the
+  Unix socket exactly like every other `weft <noun> <verb>`, and
+  the webui can either continue maintaining its local view or
+  migrate onto the live RPC.
+
+## [v0.6.0] — 2026-06-05
+
+### Added
+
+- **Volume snapshot/backup RPC surface** on `WeftAgent` :
+  - `RevertVolumeSnapshot` — rolls a block-backend volume back to a captured snapshot (driver dispatches via `weft-block` ; file-backend parents reject with FailedPrecondition).
+  - `CreateVolumeBackup` / `ListVolumeBackups` / `DeleteVolumeBackup` / `RestoreVolumeBackup` — off-host backups of block-backend volumes to one of four target schemes (`oci://` recommended, `s3://` for versitygw / CubeFS objectnode, `sftp://` for sftpgo, `fs:///` for dev).
+- Supporting messages : `RevertVolumeSnapshotRequest/Response`, `CreateVolumeBackupRequest/Response`, `ListVolumeBackupsRequest/Response`, `DeleteVolumeBackupRequest/Response`, `RestoreVolumeBackupRequest/Response`, `VolumeBackupInfo` (URL + volume + snapshot + project + size + state + error + created).
+- `VolumeInfo.backend` (field 8) — surfaces the storage backend (`file` default, `block` for weft-block). Drives the dashboard's affordance gating on snapshot Revert + Backup actions (block-only).
+
 ## [v0.5.0] — 2026-06-02
 
 ### Added

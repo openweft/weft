@@ -885,19 +885,165 @@ func (x *Snapshot) GetUserCreated() bool {
 	return false
 }
 
-type BackupSpec struct {
+// BackupEncryption configures end-to-end AEAD over every chunk shipped
+// to the target. Empty algorithm = no encryption.
+type BackupEncryption struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	VolumeUuid    string                 `protobuf:"bytes,1,opt,name=volume_uuid,json=volumeUuid,proto3" json:"volume_uuid,omitempty"`
-	SnapshotName  string                 `protobuf:"bytes,2,opt,name=snapshot_name,json=snapshotName,proto3" json:"snapshot_name,omitempty"`
-	Target        string                 `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`
-	Labels        map[string]string      `protobuf:"bytes,4,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Algorithm     string                 `protobuf:"bytes,1,opt,name=algorithm,proto3" json:"algorithm,omitempty"`                              // "" | "chacha20-poly1305" | "aes-256-gcm"
+	PassphraseEnv string                 `protobuf:"bytes,2,opt,name=passphrase_env,json=passphraseEnv,proto3" json:"passphrase_env,omitempty"` // env var holding the passphrase
+	Kdf           string                 `protobuf:"bytes,3,opt,name=kdf,proto3" json:"kdf,omitempty"`                                          // "argon2id" (default) | "raw"
+	KdfParams     map[string]string      `protobuf:"bytes,4,rep,name=kdf_params,json=kdfParams,proto3" json:"kdf_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackupEncryption) Reset() {
+	*x = BackupEncryption{}
+	mi := &file_driverpb_driver_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupEncryption) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupEncryption) ProtoMessage() {}
+
+func (x *BackupEncryption) ProtoReflect() protoreflect.Message {
+	mi := &file_driverpb_driver_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupEncryption.ProtoReflect.Descriptor instead.
+func (*BackupEncryption) Descriptor() ([]byte, []int) {
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *BackupEncryption) GetAlgorithm() string {
+	if x != nil {
+		return x.Algorithm
+	}
+	return ""
+}
+
+func (x *BackupEncryption) GetPassphraseEnv() string {
+	if x != nil {
+		return x.PassphraseEnv
+	}
+	return ""
+}
+
+func (x *BackupEncryption) GetKdf() string {
+	if x != nil {
+		return x.Kdf
+	}
+	return ""
+}
+
+func (x *BackupEncryption) GetKdfParams() map[string]string {
+	if x != nil {
+		return x.KdfParams
+	}
+	return nil
+}
+
+// BackupEncryptionInfo is what restore needs to re-derive the key :
+// everything from BackupEncryption EXCEPT the passphrase, plus the
+// per-backup random salt.
+type BackupEncryptionInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Algorithm     string                 `protobuf:"bytes,1,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
+	Kdf           string                 `protobuf:"bytes,2,opt,name=kdf,proto3" json:"kdf,omitempty"`
+	KdfParams     map[string]string      `protobuf:"bytes,3,rep,name=kdf_params,json=kdfParams,proto3" json:"kdf_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	SaltHex       string                 `protobuf:"bytes,4,opt,name=salt_hex,json=saltHex,proto3" json:"salt_hex,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackupEncryptionInfo) Reset() {
+	*x = BackupEncryptionInfo{}
+	mi := &file_driverpb_driver_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupEncryptionInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupEncryptionInfo) ProtoMessage() {}
+
+func (x *BackupEncryptionInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_driverpb_driver_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupEncryptionInfo.ProtoReflect.Descriptor instead.
+func (*BackupEncryptionInfo) Descriptor() ([]byte, []int) {
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *BackupEncryptionInfo) GetAlgorithm() string {
+	if x != nil {
+		return x.Algorithm
+	}
+	return ""
+}
+
+func (x *BackupEncryptionInfo) GetKdf() string {
+	if x != nil {
+		return x.Kdf
+	}
+	return ""
+}
+
+func (x *BackupEncryptionInfo) GetKdfParams() map[string]string {
+	if x != nil {
+		return x.KdfParams
+	}
+	return nil
+}
+
+func (x *BackupEncryptionInfo) GetSaltHex() string {
+	if x != nil {
+		return x.SaltHex
+	}
+	return ""
+}
+
+type BackupSpec struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	VolumeUuid   string                 `protobuf:"bytes,1,opt,name=volume_uuid,json=volumeUuid,proto3" json:"volume_uuid,omitempty"`
+	SnapshotName string                 `protobuf:"bytes,2,opt,name=snapshot_name,json=snapshotName,proto3" json:"snapshot_name,omitempty"`
+	Target       string                 `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`
+	Labels       map[string]string      `protobuf:"bytes,4,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// parent_url, when non-empty, makes this an incremental backup whose
+	// body only carries blocks that differ from the parent. Empty = full.
+	ParentUrl string `protobuf:"bytes,5,opt,name=parent_url,json=parentUrl,proto3" json:"parent_url,omitempty"`
+	// encryption wraps every shipped chunk in AEAD when algorithm is set.
+	Encryption    *BackupEncryption `protobuf:"bytes,6,opt,name=encryption,proto3" json:"encryption,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BackupSpec) Reset() {
 	*x = BackupSpec{}
-	mi := &file_driverpb_driver_proto_msgTypes[11]
+	mi := &file_driverpb_driver_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -909,7 +1055,7 @@ func (x *BackupSpec) String() string {
 func (*BackupSpec) ProtoMessage() {}
 
 func (x *BackupSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[11]
+	mi := &file_driverpb_driver_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -922,7 +1068,7 @@ func (x *BackupSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupSpec.ProtoReflect.Descriptor instead.
 func (*BackupSpec) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{11}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BackupSpec) GetVolumeUuid() string {
@@ -953,6 +1099,20 @@ func (x *BackupSpec) GetLabels() map[string]string {
 	return nil
 }
 
+func (x *BackupSpec) GetParentUrl() string {
+	if x != nil {
+		return x.ParentUrl
+	}
+	return ""
+}
+
+func (x *BackupSpec) GetEncryption() *BackupEncryption {
+	if x != nil {
+		return x.Encryption
+	}
+	return nil
+}
+
 type Backup struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	VolumeUuid      string                 `protobuf:"bytes,1,opt,name=volume_uuid,json=volumeUuid,proto3" json:"volume_uuid,omitempty"`
@@ -963,13 +1123,15 @@ type Backup struct {
 	Labels          map[string]string      `protobuf:"bytes,6,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	State           string                 `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`
 	Error           string                 `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
+	ParentUrl       string                 `protobuf:"bytes,9,opt,name=parent_url,json=parentUrl,proto3" json:"parent_url,omitempty"`
+	Encryption      *BackupEncryptionInfo  `protobuf:"bytes,10,opt,name=encryption,proto3" json:"encryption,omitempty"` // echoes algo+kdf params+salt for restore
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Backup) Reset() {
 	*x = Backup{}
-	mi := &file_driverpb_driver_proto_msgTypes[12]
+	mi := &file_driverpb_driver_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -981,7 +1143,7 @@ func (x *Backup) String() string {
 func (*Backup) ProtoMessage() {}
 
 func (x *Backup) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[12]
+	mi := &file_driverpb_driver_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -994,7 +1156,7 @@ func (x *Backup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Backup.ProtoReflect.Descriptor instead.
 func (*Backup) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{12}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Backup) GetVolumeUuid() string {
@@ -1053,6 +1215,20 @@ func (x *Backup) GetError() string {
 	return ""
 }
 
+func (x *Backup) GetParentUrl() string {
+	if x != nil {
+		return x.ParentUrl
+	}
+	return ""
+}
+
+func (x *Backup) GetEncryption() *BackupEncryptionInfo {
+	if x != nil {
+		return x.Encryption
+	}
+	return nil
+}
+
 type CreateVMRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Spec          *VMSpec                `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
@@ -1062,7 +1238,7 @@ type CreateVMRequest struct {
 
 func (x *CreateVMRequest) Reset() {
 	*x = CreateVMRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[13]
+	mi := &file_driverpb_driver_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1074,7 +1250,7 @@ func (x *CreateVMRequest) String() string {
 func (*CreateVMRequest) ProtoMessage() {}
 
 func (x *CreateVMRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[13]
+	mi := &file_driverpb_driver_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1087,7 +1263,7 @@ func (x *CreateVMRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateVMRequest.ProtoReflect.Descriptor instead.
 func (*CreateVMRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{13}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CreateVMRequest) GetSpec() *VMSpec {
@@ -1106,7 +1282,7 @@ type VMUUIDRequest struct {
 
 func (x *VMUUIDRequest) Reset() {
 	*x = VMUUIDRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[14]
+	mi := &file_driverpb_driver_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1118,7 +1294,7 @@ func (x *VMUUIDRequest) String() string {
 func (*VMUUIDRequest) ProtoMessage() {}
 
 func (x *VMUUIDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[14]
+	mi := &file_driverpb_driver_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1131,7 +1307,7 @@ func (x *VMUUIDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VMUUIDRequest.ProtoReflect.Descriptor instead.
 func (*VMUUIDRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{14}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *VMUUIDRequest) GetVmUuid() string {
@@ -1151,7 +1327,7 @@ type AttachDiskRequest struct {
 
 func (x *AttachDiskRequest) Reset() {
 	*x = AttachDiskRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[15]
+	mi := &file_driverpb_driver_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1163,7 +1339,7 @@ func (x *AttachDiskRequest) String() string {
 func (*AttachDiskRequest) ProtoMessage() {}
 
 func (x *AttachDiskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[15]
+	mi := &file_driverpb_driver_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1176,7 +1352,7 @@ func (x *AttachDiskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachDiskRequest.ProtoReflect.Descriptor instead.
 func (*AttachDiskRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{15}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AttachDiskRequest) GetVmUuid() string {
@@ -1203,7 +1379,7 @@ type DetachDiskRequest struct {
 
 func (x *DetachDiskRequest) Reset() {
 	*x = DetachDiskRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[16]
+	mi := &file_driverpb_driver_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1215,7 +1391,7 @@ func (x *DetachDiskRequest) String() string {
 func (*DetachDiskRequest) ProtoMessage() {}
 
 func (x *DetachDiskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[16]
+	mi := &file_driverpb_driver_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1228,7 +1404,7 @@ func (x *DetachDiskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetachDiskRequest.ProtoReflect.Descriptor instead.
 func (*DetachDiskRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{16}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DetachDiskRequest) GetVmUuid() string {
@@ -1255,7 +1431,7 @@ type AttachNICRequest struct {
 
 func (x *AttachNICRequest) Reset() {
 	*x = AttachNICRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[17]
+	mi := &file_driverpb_driver_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1267,7 +1443,7 @@ func (x *AttachNICRequest) String() string {
 func (*AttachNICRequest) ProtoMessage() {}
 
 func (x *AttachNICRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[17]
+	mi := &file_driverpb_driver_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1280,7 +1456,7 @@ func (x *AttachNICRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachNICRequest.ProtoReflect.Descriptor instead.
 func (*AttachNICRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{17}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AttachNICRequest) GetVmUuid() string {
@@ -1307,7 +1483,7 @@ type DetachNICRequest struct {
 
 func (x *DetachNICRequest) Reset() {
 	*x = DetachNICRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[18]
+	mi := &file_driverpb_driver_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1319,7 +1495,7 @@ func (x *DetachNICRequest) String() string {
 func (*DetachNICRequest) ProtoMessage() {}
 
 func (x *DetachNICRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[18]
+	mi := &file_driverpb_driver_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1332,7 +1508,7 @@ func (x *DetachNICRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetachNICRequest.ProtoReflect.Descriptor instead.
 func (*DetachNICRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{18}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DetachNICRequest) GetVmUuid() string {
@@ -1358,7 +1534,7 @@ type EnsureNetworkRequest struct {
 
 func (x *EnsureNetworkRequest) Reset() {
 	*x = EnsureNetworkRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[19]
+	mi := &file_driverpb_driver_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1370,7 +1546,7 @@ func (x *EnsureNetworkRequest) String() string {
 func (*EnsureNetworkRequest) ProtoMessage() {}
 
 func (x *EnsureNetworkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[19]
+	mi := &file_driverpb_driver_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1383,7 +1559,7 @@ func (x *EnsureNetworkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureNetworkRequest.ProtoReflect.Descriptor instead.
 func (*EnsureNetworkRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{19}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *EnsureNetworkRequest) GetSpec() *NetworkSpec {
@@ -1402,7 +1578,7 @@ type DestroyNetworkRequest struct {
 
 func (x *DestroyNetworkRequest) Reset() {
 	*x = DestroyNetworkRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[20]
+	mi := &file_driverpb_driver_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1414,7 +1590,7 @@ func (x *DestroyNetworkRequest) String() string {
 func (*DestroyNetworkRequest) ProtoMessage() {}
 
 func (x *DestroyNetworkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[20]
+	mi := &file_driverpb_driver_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1427,7 +1603,7 @@ func (x *DestroyNetworkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyNetworkRequest.ProtoReflect.Descriptor instead.
 func (*DestroyNetworkRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{20}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *DestroyNetworkRequest) GetNetworkUuid() string {
@@ -1446,7 +1622,7 @@ type AttachPortRequest struct {
 
 func (x *AttachPortRequest) Reset() {
 	*x = AttachPortRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[21]
+	mi := &file_driverpb_driver_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1458,7 +1634,7 @@ func (x *AttachPortRequest) String() string {
 func (*AttachPortRequest) ProtoMessage() {}
 
 func (x *AttachPortRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[21]
+	mi := &file_driverpb_driver_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1471,7 +1647,7 @@ func (x *AttachPortRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachPortRequest.ProtoReflect.Descriptor instead.
 func (*AttachPortRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{21}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AttachPortRequest) GetSpec() *PortSpec {
@@ -1490,7 +1666,7 @@ type AttachPortResponse struct {
 
 func (x *AttachPortResponse) Reset() {
 	*x = AttachPortResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[22]
+	mi := &file_driverpb_driver_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1502,7 +1678,7 @@ func (x *AttachPortResponse) String() string {
 func (*AttachPortResponse) ProtoMessage() {}
 
 func (x *AttachPortResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[22]
+	mi := &file_driverpb_driver_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1515,7 +1691,7 @@ func (x *AttachPortResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachPortResponse.ProtoReflect.Descriptor instead.
 func (*AttachPortResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{22}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *AttachPortResponse) GetHandle() *NICHandle {
@@ -1534,7 +1710,7 @@ type DetachPortRequest struct {
 
 func (x *DetachPortRequest) Reset() {
 	*x = DetachPortRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[23]
+	mi := &file_driverpb_driver_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1546,7 +1722,7 @@ func (x *DetachPortRequest) String() string {
 func (*DetachPortRequest) ProtoMessage() {}
 
 func (x *DetachPortRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[23]
+	mi := &file_driverpb_driver_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1559,7 +1735,7 @@ func (x *DetachPortRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetachPortRequest.ProtoReflect.Descriptor instead.
 func (*DetachPortRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{23}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *DetachPortRequest) GetPortUuid() string {
@@ -1578,7 +1754,7 @@ type RotateMeshPeerRequest struct {
 
 func (x *RotateMeshPeerRequest) Reset() {
 	*x = RotateMeshPeerRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[24]
+	mi := &file_driverpb_driver_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1590,7 +1766,7 @@ func (x *RotateMeshPeerRequest) String() string {
 func (*RotateMeshPeerRequest) ProtoMessage() {}
 
 func (x *RotateMeshPeerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[24]
+	mi := &file_driverpb_driver_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1603,7 +1779,7 @@ func (x *RotateMeshPeerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateMeshPeerRequest.ProtoReflect.Descriptor instead.
 func (*RotateMeshPeerRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{24}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RotateMeshPeerRequest) GetSpec() *PortSpec {
@@ -1622,7 +1798,7 @@ type NameResponse struct {
 
 func (x *NameResponse) Reset() {
 	*x = NameResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[25]
+	mi := &file_driverpb_driver_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1634,7 +1810,7 @@ func (x *NameResponse) String() string {
 func (*NameResponse) ProtoMessage() {}
 
 func (x *NameResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[25]
+	mi := &file_driverpb_driver_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1647,7 +1823,7 @@ func (x *NameResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NameResponse.ProtoReflect.Descriptor instead.
 func (*NameResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{25}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *NameResponse) GetName() string {
@@ -1666,7 +1842,7 @@ type LocalResponse struct {
 
 func (x *LocalResponse) Reset() {
 	*x = LocalResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[26]
+	mi := &file_driverpb_driver_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1678,7 +1854,7 @@ func (x *LocalResponse) String() string {
 func (*LocalResponse) ProtoMessage() {}
 
 func (x *LocalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[26]
+	mi := &file_driverpb_driver_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1691,7 +1867,7 @@ func (x *LocalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalResponse.ProtoReflect.Descriptor instead.
 func (*LocalResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{26}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *LocalResponse) GetLocal() bool {
@@ -1710,7 +1886,7 @@ type EnsureVolumeRequest struct {
 
 func (x *EnsureVolumeRequest) Reset() {
 	*x = EnsureVolumeRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[27]
+	mi := &file_driverpb_driver_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1722,7 +1898,7 @@ func (x *EnsureVolumeRequest) String() string {
 func (*EnsureVolumeRequest) ProtoMessage() {}
 
 func (x *EnsureVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[27]
+	mi := &file_driverpb_driver_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1735,7 +1911,7 @@ func (x *EnsureVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureVolumeRequest.ProtoReflect.Descriptor instead.
 func (*EnsureVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{27}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *EnsureVolumeRequest) GetSpec() *VolumeSpec {
@@ -1754,7 +1930,7 @@ type DestroyVolumeRequest struct {
 
 func (x *DestroyVolumeRequest) Reset() {
 	*x = DestroyVolumeRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[28]
+	mi := &file_driverpb_driver_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1766,7 +1942,7 @@ func (x *DestroyVolumeRequest) String() string {
 func (*DestroyVolumeRequest) ProtoMessage() {}
 
 func (x *DestroyVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[28]
+	mi := &file_driverpb_driver_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1779,7 +1955,7 @@ func (x *DestroyVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyVolumeRequest.ProtoReflect.Descriptor instead.
 func (*DestroyVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{28}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *DestroyVolumeRequest) GetVolumeUuid() string {
@@ -1799,7 +1975,7 @@ type AttachVolumeRequest struct {
 
 func (x *AttachVolumeRequest) Reset() {
 	*x = AttachVolumeRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[29]
+	mi := &file_driverpb_driver_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1811,7 +1987,7 @@ func (x *AttachVolumeRequest) String() string {
 func (*AttachVolumeRequest) ProtoMessage() {}
 
 func (x *AttachVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[29]
+	mi := &file_driverpb_driver_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1824,7 +2000,7 @@ func (x *AttachVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachVolumeRequest.ProtoReflect.Descriptor instead.
 func (*AttachVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{29}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *AttachVolumeRequest) GetVolumeUuid() string {
@@ -1850,7 +2026,7 @@ type AttachVolumeResponse struct {
 
 func (x *AttachVolumeResponse) Reset() {
 	*x = AttachVolumeResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[30]
+	mi := &file_driverpb_driver_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1862,7 +2038,7 @@ func (x *AttachVolumeResponse) String() string {
 func (*AttachVolumeResponse) ProtoMessage() {}
 
 func (x *AttachVolumeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[30]
+	mi := &file_driverpb_driver_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1875,7 +2051,7 @@ func (x *AttachVolumeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachVolumeResponse.ProtoReflect.Descriptor instead.
 func (*AttachVolumeResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{30}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *AttachVolumeResponse) GetVolume() *AttachedVolume {
@@ -1895,7 +2071,7 @@ type DetachVolumeRequest struct {
 
 func (x *DetachVolumeRequest) Reset() {
 	*x = DetachVolumeRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[31]
+	mi := &file_driverpb_driver_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1907,7 +2083,7 @@ func (x *DetachVolumeRequest) String() string {
 func (*DetachVolumeRequest) ProtoMessage() {}
 
 func (x *DetachVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[31]
+	mi := &file_driverpb_driver_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1920,7 +2096,7 @@ func (x *DetachVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetachVolumeRequest.ProtoReflect.Descriptor instead.
 func (*DetachVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{31}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *DetachVolumeRequest) GetVolumeUuid() string {
@@ -1946,7 +2122,7 @@ type CreateSnapshotRequest struct {
 
 func (x *CreateSnapshotRequest) Reset() {
 	*x = CreateSnapshotRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[32]
+	mi := &file_driverpb_driver_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1958,7 +2134,7 @@ func (x *CreateSnapshotRequest) String() string {
 func (*CreateSnapshotRequest) ProtoMessage() {}
 
 func (x *CreateSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[32]
+	mi := &file_driverpb_driver_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1971,7 +2147,7 @@ func (x *CreateSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*CreateSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{32}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *CreateSnapshotRequest) GetSpec() *SnapshotSpec {
@@ -1990,7 +2166,7 @@ type CreateSnapshotResponse struct {
 
 func (x *CreateSnapshotResponse) Reset() {
 	*x = CreateSnapshotResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[33]
+	mi := &file_driverpb_driver_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2002,7 +2178,7 @@ func (x *CreateSnapshotResponse) String() string {
 func (*CreateSnapshotResponse) ProtoMessage() {}
 
 func (x *CreateSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[33]
+	mi := &file_driverpb_driver_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2015,7 +2191,7 @@ func (x *CreateSnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*CreateSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{33}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CreateSnapshotResponse) GetSnapshot() *Snapshot {
@@ -2034,7 +2210,7 @@ type ListSnapshotsRequest struct {
 
 func (x *ListSnapshotsRequest) Reset() {
 	*x = ListSnapshotsRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[34]
+	mi := &file_driverpb_driver_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2046,7 +2222,7 @@ func (x *ListSnapshotsRequest) String() string {
 func (*ListSnapshotsRequest) ProtoMessage() {}
 
 func (x *ListSnapshotsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[34]
+	mi := &file_driverpb_driver_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2059,7 +2235,7 @@ func (x *ListSnapshotsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSnapshotsRequest.ProtoReflect.Descriptor instead.
 func (*ListSnapshotsRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{34}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ListSnapshotsRequest) GetVolumeUuid() string {
@@ -2078,7 +2254,7 @@ type ListSnapshotsResponse struct {
 
 func (x *ListSnapshotsResponse) Reset() {
 	*x = ListSnapshotsResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[35]
+	mi := &file_driverpb_driver_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2090,7 +2266,7 @@ func (x *ListSnapshotsResponse) String() string {
 func (*ListSnapshotsResponse) ProtoMessage() {}
 
 func (x *ListSnapshotsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[35]
+	mi := &file_driverpb_driver_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2103,7 +2279,7 @@ func (x *ListSnapshotsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSnapshotsResponse.ProtoReflect.Descriptor instead.
 func (*ListSnapshotsResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{35}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ListSnapshotsResponse) GetSnapshots() []*Snapshot {
@@ -2123,7 +2299,7 @@ type DeleteSnapshotRequest struct {
 
 func (x *DeleteSnapshotRequest) Reset() {
 	*x = DeleteSnapshotRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[36]
+	mi := &file_driverpb_driver_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2135,7 +2311,7 @@ func (x *DeleteSnapshotRequest) String() string {
 func (*DeleteSnapshotRequest) ProtoMessage() {}
 
 func (x *DeleteSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[36]
+	mi := &file_driverpb_driver_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2148,7 +2324,7 @@ func (x *DeleteSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{36}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *DeleteSnapshotRequest) GetVolumeUuid() string {
@@ -2175,7 +2351,7 @@ type RevertSnapshotRequest struct {
 
 func (x *RevertSnapshotRequest) Reset() {
 	*x = RevertSnapshotRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[37]
+	mi := &file_driverpb_driver_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2187,7 +2363,7 @@ func (x *RevertSnapshotRequest) String() string {
 func (*RevertSnapshotRequest) ProtoMessage() {}
 
 func (x *RevertSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[37]
+	mi := &file_driverpb_driver_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2200,7 +2376,7 @@ func (x *RevertSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevertSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*RevertSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{37}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *RevertSnapshotRequest) GetVolumeUuid() string {
@@ -2226,7 +2402,7 @@ type CreateBackupRequest struct {
 
 func (x *CreateBackupRequest) Reset() {
 	*x = CreateBackupRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[38]
+	mi := &file_driverpb_driver_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2238,7 +2414,7 @@ func (x *CreateBackupRequest) String() string {
 func (*CreateBackupRequest) ProtoMessage() {}
 
 func (x *CreateBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[38]
+	mi := &file_driverpb_driver_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2251,7 +2427,7 @@ func (x *CreateBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateBackupRequest.ProtoReflect.Descriptor instead.
 func (*CreateBackupRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{38}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *CreateBackupRequest) GetSpec() *BackupSpec {
@@ -2270,7 +2446,7 @@ type CreateBackupResponse struct {
 
 func (x *CreateBackupResponse) Reset() {
 	*x = CreateBackupResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[39]
+	mi := &file_driverpb_driver_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2282,7 +2458,7 @@ func (x *CreateBackupResponse) String() string {
 func (*CreateBackupResponse) ProtoMessage() {}
 
 func (x *CreateBackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[39]
+	mi := &file_driverpb_driver_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2295,7 +2471,7 @@ func (x *CreateBackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateBackupResponse.ProtoReflect.Descriptor instead.
 func (*CreateBackupResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{39}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *CreateBackupResponse) GetBackup() *Backup {
@@ -2315,7 +2491,7 @@ type ListBackupsRequest struct {
 
 func (x *ListBackupsRequest) Reset() {
 	*x = ListBackupsRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[40]
+	mi := &file_driverpb_driver_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2327,7 +2503,7 @@ func (x *ListBackupsRequest) String() string {
 func (*ListBackupsRequest) ProtoMessage() {}
 
 func (x *ListBackupsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[40]
+	mi := &file_driverpb_driver_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2340,7 +2516,7 @@ func (x *ListBackupsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBackupsRequest.ProtoReflect.Descriptor instead.
 func (*ListBackupsRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{40}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ListBackupsRequest) GetTarget() string {
@@ -2366,7 +2542,7 @@ type ListBackupsResponse struct {
 
 func (x *ListBackupsResponse) Reset() {
 	*x = ListBackupsResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[41]
+	mi := &file_driverpb_driver_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2378,7 +2554,7 @@ func (x *ListBackupsResponse) String() string {
 func (*ListBackupsResponse) ProtoMessage() {}
 
 func (x *ListBackupsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[41]
+	mi := &file_driverpb_driver_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2391,7 +2567,7 @@ func (x *ListBackupsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBackupsResponse.ProtoReflect.Descriptor instead.
 func (*ListBackupsResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{41}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ListBackupsResponse) GetBackups() []*Backup {
@@ -2410,7 +2586,7 @@ type DeleteBackupRequest struct {
 
 func (x *DeleteBackupRequest) Reset() {
 	*x = DeleteBackupRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[42]
+	mi := &file_driverpb_driver_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2422,7 +2598,7 @@ func (x *DeleteBackupRequest) String() string {
 func (*DeleteBackupRequest) ProtoMessage() {}
 
 func (x *DeleteBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[42]
+	mi := &file_driverpb_driver_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2435,7 +2611,7 @@ func (x *DeleteBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteBackupRequest.ProtoReflect.Descriptor instead.
 func (*DeleteBackupRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{42}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *DeleteBackupRequest) GetBackupUrl() string {
@@ -2455,7 +2631,7 @@ type RestoreBackupRequest struct {
 
 func (x *RestoreBackupRequest) Reset() {
 	*x = RestoreBackupRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[43]
+	mi := &file_driverpb_driver_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2467,7 +2643,7 @@ func (x *RestoreBackupRequest) String() string {
 func (*RestoreBackupRequest) ProtoMessage() {}
 
 func (x *RestoreBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[43]
+	mi := &file_driverpb_driver_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2480,7 +2656,7 @@ func (x *RestoreBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreBackupRequest.ProtoReflect.Descriptor instead.
 func (*RestoreBackupRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{43}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *RestoreBackupRequest) GetBackupUrl() string {
@@ -2506,7 +2682,7 @@ type RefRequest struct {
 
 func (x *RefRequest) Reset() {
 	*x = RefRequest{}
-	mi := &file_driverpb_driver_proto_msgTypes[44]
+	mi := &file_driverpb_driver_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2518,7 +2694,7 @@ func (x *RefRequest) String() string {
 func (*RefRequest) ProtoMessage() {}
 
 func (x *RefRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[44]
+	mi := &file_driverpb_driver_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2531,7 +2707,7 @@ func (x *RefRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefRequest.ProtoReflect.Descriptor instead.
 func (*RefRequest) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{44}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *RefRequest) GetRef() string {
@@ -2550,7 +2726,7 @@ type LocalPathResponse struct {
 
 func (x *LocalPathResponse) Reset() {
 	*x = LocalPathResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[45]
+	mi := &file_driverpb_driver_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2562,7 +2738,7 @@ func (x *LocalPathResponse) String() string {
 func (*LocalPathResponse) ProtoMessage() {}
 
 func (x *LocalPathResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[45]
+	mi := &file_driverpb_driver_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2575,7 +2751,7 @@ func (x *LocalPathResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalPathResponse.ProtoReflect.Descriptor instead.
 func (*LocalPathResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{45}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *LocalPathResponse) GetPath() string {
@@ -2594,7 +2770,7 @@ type InCacheResponse struct {
 
 func (x *InCacheResponse) Reset() {
 	*x = InCacheResponse{}
-	mi := &file_driverpb_driver_proto_msgTypes[46]
+	mi := &file_driverpb_driver_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2606,7 +2782,7 @@ func (x *InCacheResponse) String() string {
 func (*InCacheResponse) ProtoMessage() {}
 
 func (x *InCacheResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driverpb_driver_proto_msgTypes[46]
+	mi := &file_driverpb_driver_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2619,7 +2795,7 @@ func (x *InCacheResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InCacheResponse.ProtoReflect.Descriptor instead.
 func (*InCacheResponse) Descriptor() ([]byte, []int) {
-	return file_driverpb_driver_proto_rawDescGZIP(), []int{46}
+	return file_driverpb_driver_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *InCacheResponse) GetInCache() bool {
@@ -2716,17 +2892,40 @@ const file_driverpb_driver_proto_rawDesc = "" +
 	"\fuser_created\x18\a \x01(\bR\vuserCreated\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe5\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf7\x01\n" +
+	"\x10BackupEncryption\x12\x1c\n" +
+	"\talgorithm\x18\x01 \x01(\tR\talgorithm\x12%\n" +
+	"\x0epassphrase_env\x18\x02 \x01(\tR\rpassphraseEnv\x12\x10\n" +
+	"\x03kdf\x18\x03 \x01(\tR\x03kdf\x12N\n" +
+	"\n" +
+	"kdf_params\x18\x04 \x03(\v2/.weft.driver.v1.BackupEncryption.KdfParamsEntryR\tkdfParams\x1a<\n" +
+	"\x0eKdfParamsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf3\x01\n" +
+	"\x14BackupEncryptionInfo\x12\x1c\n" +
+	"\talgorithm\x18\x01 \x01(\tR\talgorithm\x12\x10\n" +
+	"\x03kdf\x18\x02 \x01(\tR\x03kdf\x12R\n" +
+	"\n" +
+	"kdf_params\x18\x03 \x03(\v23.weft.driver.v1.BackupEncryptionInfo.KdfParamsEntryR\tkdfParams\x12\x19\n" +
+	"\bsalt_hex\x18\x04 \x01(\tR\asaltHex\x1a<\n" +
+	"\x0eKdfParamsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc6\x02\n" +
 	"\n" +
 	"BackupSpec\x12\x1f\n" +
 	"\vvolume_uuid\x18\x01 \x01(\tR\n" +
 	"volumeUuid\x12#\n" +
 	"\rsnapshot_name\x18\x02 \x01(\tR\fsnapshotName\x12\x16\n" +
 	"\x06target\x18\x03 \x01(\tR\x06target\x12>\n" +
-	"\x06labels\x18\x04 \x03(\v2&.weft.driver.v1.BackupSpec.LabelsEntryR\x06labels\x1a9\n" +
+	"\x06labels\x18\x04 \x03(\v2&.weft.driver.v1.BackupSpec.LabelsEntryR\x06labels\x12\x1d\n" +
+	"\n" +
+	"parent_url\x18\x05 \x01(\tR\tparentUrl\x12@\n" +
+	"\n" +
+	"encryption\x18\x06 \x01(\v2 .weft.driver.v1.BackupEncryptionR\n" +
+	"encryption\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcf\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb4\x03\n" +
 	"\x06Backup\x12\x1f\n" +
 	"\vvolume_uuid\x18\x01 \x01(\tR\n" +
 	"volumeUuid\x12#\n" +
@@ -2737,7 +2936,13 @@ const file_driverpb_driver_proto_rawDesc = "" +
 	"\x12created_at_unix_ns\x18\x05 \x01(\x03R\x0fcreatedAtUnixNs\x12:\n" +
 	"\x06labels\x18\x06 \x03(\v2\".weft.driver.v1.Backup.LabelsEntryR\x06labels\x12\x14\n" +
 	"\x05state\x18\a \x01(\tR\x05state\x12\x14\n" +
-	"\x05error\x18\b \x01(\tR\x05error\x1a9\n" +
+	"\x05error\x18\b \x01(\tR\x05error\x12\x1d\n" +
+	"\n" +
+	"parent_url\x18\t \x01(\tR\tparentUrl\x12D\n" +
+	"\n" +
+	"encryption\x18\n" +
+	" \x01(\v2$.weft.driver.v1.BackupEncryptionInfoR\n" +
+	"encryption\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"=\n" +
@@ -2888,7 +3093,7 @@ func file_driverpb_driver_proto_rawDescGZIP() []byte {
 	return file_driverpb_driver_proto_rawDescData
 }
 
-var file_driverpb_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_driverpb_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_driverpb_driver_proto_goTypes = []any{
 	(*HostInfo)(nil),               // 0: weft.driver.v1.HostInfo
 	(*HostInfoResponse)(nil),       // 1: weft.driver.v1.HostInfoResponse
@@ -2901,145 +3106,153 @@ var file_driverpb_driver_proto_goTypes = []any{
 	(*AttachedVolume)(nil),         // 8: weft.driver.v1.AttachedVolume
 	(*SnapshotSpec)(nil),           // 9: weft.driver.v1.SnapshotSpec
 	(*Snapshot)(nil),               // 10: weft.driver.v1.Snapshot
-	(*BackupSpec)(nil),             // 11: weft.driver.v1.BackupSpec
-	(*Backup)(nil),                 // 12: weft.driver.v1.Backup
-	(*CreateVMRequest)(nil),        // 13: weft.driver.v1.CreateVMRequest
-	(*VMUUIDRequest)(nil),          // 14: weft.driver.v1.VMUUIDRequest
-	(*AttachDiskRequest)(nil),      // 15: weft.driver.v1.AttachDiskRequest
-	(*DetachDiskRequest)(nil),      // 16: weft.driver.v1.DetachDiskRequest
-	(*AttachNICRequest)(nil),       // 17: weft.driver.v1.AttachNICRequest
-	(*DetachNICRequest)(nil),       // 18: weft.driver.v1.DetachNICRequest
-	(*EnsureNetworkRequest)(nil),   // 19: weft.driver.v1.EnsureNetworkRequest
-	(*DestroyNetworkRequest)(nil),  // 20: weft.driver.v1.DestroyNetworkRequest
-	(*AttachPortRequest)(nil),      // 21: weft.driver.v1.AttachPortRequest
-	(*AttachPortResponse)(nil),     // 22: weft.driver.v1.AttachPortResponse
-	(*DetachPortRequest)(nil),      // 23: weft.driver.v1.DetachPortRequest
-	(*RotateMeshPeerRequest)(nil),  // 24: weft.driver.v1.RotateMeshPeerRequest
-	(*NameResponse)(nil),           // 25: weft.driver.v1.NameResponse
-	(*LocalResponse)(nil),          // 26: weft.driver.v1.LocalResponse
-	(*EnsureVolumeRequest)(nil),    // 27: weft.driver.v1.EnsureVolumeRequest
-	(*DestroyVolumeRequest)(nil),   // 28: weft.driver.v1.DestroyVolumeRequest
-	(*AttachVolumeRequest)(nil),    // 29: weft.driver.v1.AttachVolumeRequest
-	(*AttachVolumeResponse)(nil),   // 30: weft.driver.v1.AttachVolumeResponse
-	(*DetachVolumeRequest)(nil),    // 31: weft.driver.v1.DetachVolumeRequest
-	(*CreateSnapshotRequest)(nil),  // 32: weft.driver.v1.CreateSnapshotRequest
-	(*CreateSnapshotResponse)(nil), // 33: weft.driver.v1.CreateSnapshotResponse
-	(*ListSnapshotsRequest)(nil),   // 34: weft.driver.v1.ListSnapshotsRequest
-	(*ListSnapshotsResponse)(nil),  // 35: weft.driver.v1.ListSnapshotsResponse
-	(*DeleteSnapshotRequest)(nil),  // 36: weft.driver.v1.DeleteSnapshotRequest
-	(*RevertSnapshotRequest)(nil),  // 37: weft.driver.v1.RevertSnapshotRequest
-	(*CreateBackupRequest)(nil),    // 38: weft.driver.v1.CreateBackupRequest
-	(*CreateBackupResponse)(nil),   // 39: weft.driver.v1.CreateBackupResponse
-	(*ListBackupsRequest)(nil),     // 40: weft.driver.v1.ListBackupsRequest
-	(*ListBackupsResponse)(nil),    // 41: weft.driver.v1.ListBackupsResponse
-	(*DeleteBackupRequest)(nil),    // 42: weft.driver.v1.DeleteBackupRequest
-	(*RestoreBackupRequest)(nil),   // 43: weft.driver.v1.RestoreBackupRequest
-	(*RefRequest)(nil),             // 44: weft.driver.v1.RefRequest
-	(*LocalPathResponse)(nil),      // 45: weft.driver.v1.LocalPathResponse
-	(*InCacheResponse)(nil),        // 46: weft.driver.v1.InCacheResponse
-	nil,                            // 47: weft.driver.v1.SnapshotSpec.LabelsEntry
-	nil,                            // 48: weft.driver.v1.Snapshot.LabelsEntry
-	nil,                            // 49: weft.driver.v1.BackupSpec.LabelsEntry
-	nil,                            // 50: weft.driver.v1.Backup.LabelsEntry
-	(*emptypb.Empty)(nil),          // 51: google.protobuf.Empty
+	(*BackupEncryption)(nil),       // 11: weft.driver.v1.BackupEncryption
+	(*BackupEncryptionInfo)(nil),   // 12: weft.driver.v1.BackupEncryptionInfo
+	(*BackupSpec)(nil),             // 13: weft.driver.v1.BackupSpec
+	(*Backup)(nil),                 // 14: weft.driver.v1.Backup
+	(*CreateVMRequest)(nil),        // 15: weft.driver.v1.CreateVMRequest
+	(*VMUUIDRequest)(nil),          // 16: weft.driver.v1.VMUUIDRequest
+	(*AttachDiskRequest)(nil),      // 17: weft.driver.v1.AttachDiskRequest
+	(*DetachDiskRequest)(nil),      // 18: weft.driver.v1.DetachDiskRequest
+	(*AttachNICRequest)(nil),       // 19: weft.driver.v1.AttachNICRequest
+	(*DetachNICRequest)(nil),       // 20: weft.driver.v1.DetachNICRequest
+	(*EnsureNetworkRequest)(nil),   // 21: weft.driver.v1.EnsureNetworkRequest
+	(*DestroyNetworkRequest)(nil),  // 22: weft.driver.v1.DestroyNetworkRequest
+	(*AttachPortRequest)(nil),      // 23: weft.driver.v1.AttachPortRequest
+	(*AttachPortResponse)(nil),     // 24: weft.driver.v1.AttachPortResponse
+	(*DetachPortRequest)(nil),      // 25: weft.driver.v1.DetachPortRequest
+	(*RotateMeshPeerRequest)(nil),  // 26: weft.driver.v1.RotateMeshPeerRequest
+	(*NameResponse)(nil),           // 27: weft.driver.v1.NameResponse
+	(*LocalResponse)(nil),          // 28: weft.driver.v1.LocalResponse
+	(*EnsureVolumeRequest)(nil),    // 29: weft.driver.v1.EnsureVolumeRequest
+	(*DestroyVolumeRequest)(nil),   // 30: weft.driver.v1.DestroyVolumeRequest
+	(*AttachVolumeRequest)(nil),    // 31: weft.driver.v1.AttachVolumeRequest
+	(*AttachVolumeResponse)(nil),   // 32: weft.driver.v1.AttachVolumeResponse
+	(*DetachVolumeRequest)(nil),    // 33: weft.driver.v1.DetachVolumeRequest
+	(*CreateSnapshotRequest)(nil),  // 34: weft.driver.v1.CreateSnapshotRequest
+	(*CreateSnapshotResponse)(nil), // 35: weft.driver.v1.CreateSnapshotResponse
+	(*ListSnapshotsRequest)(nil),   // 36: weft.driver.v1.ListSnapshotsRequest
+	(*ListSnapshotsResponse)(nil),  // 37: weft.driver.v1.ListSnapshotsResponse
+	(*DeleteSnapshotRequest)(nil),  // 38: weft.driver.v1.DeleteSnapshotRequest
+	(*RevertSnapshotRequest)(nil),  // 39: weft.driver.v1.RevertSnapshotRequest
+	(*CreateBackupRequest)(nil),    // 40: weft.driver.v1.CreateBackupRequest
+	(*CreateBackupResponse)(nil),   // 41: weft.driver.v1.CreateBackupResponse
+	(*ListBackupsRequest)(nil),     // 42: weft.driver.v1.ListBackupsRequest
+	(*ListBackupsResponse)(nil),    // 43: weft.driver.v1.ListBackupsResponse
+	(*DeleteBackupRequest)(nil),    // 44: weft.driver.v1.DeleteBackupRequest
+	(*RestoreBackupRequest)(nil),   // 45: weft.driver.v1.RestoreBackupRequest
+	(*RefRequest)(nil),             // 46: weft.driver.v1.RefRequest
+	(*LocalPathResponse)(nil),      // 47: weft.driver.v1.LocalPathResponse
+	(*InCacheResponse)(nil),        // 48: weft.driver.v1.InCacheResponse
+	nil,                            // 49: weft.driver.v1.SnapshotSpec.LabelsEntry
+	nil,                            // 50: weft.driver.v1.Snapshot.LabelsEntry
+	nil,                            // 51: weft.driver.v1.BackupEncryption.KdfParamsEntry
+	nil,                            // 52: weft.driver.v1.BackupEncryptionInfo.KdfParamsEntry
+	nil,                            // 53: weft.driver.v1.BackupSpec.LabelsEntry
+	nil,                            // 54: weft.driver.v1.Backup.LabelsEntry
+	(*emptypb.Empty)(nil),          // 55: google.protobuf.Empty
 }
 var file_driverpb_driver_proto_depIdxs = []int32{
 	0,  // 0: weft.driver.v1.HostInfoResponse.host_info:type_name -> weft.driver.v1.HostInfo
-	47, // 1: weft.driver.v1.SnapshotSpec.labels:type_name -> weft.driver.v1.SnapshotSpec.LabelsEntry
-	48, // 2: weft.driver.v1.Snapshot.labels:type_name -> weft.driver.v1.Snapshot.LabelsEntry
-	49, // 3: weft.driver.v1.BackupSpec.labels:type_name -> weft.driver.v1.BackupSpec.LabelsEntry
-	50, // 4: weft.driver.v1.Backup.labels:type_name -> weft.driver.v1.Backup.LabelsEntry
-	2,  // 5: weft.driver.v1.CreateVMRequest.spec:type_name -> weft.driver.v1.VMSpec
-	3,  // 6: weft.driver.v1.AttachDiskRequest.disk:type_name -> weft.driver.v1.DiskSpec
-	4,  // 7: weft.driver.v1.AttachNICRequest.nic:type_name -> weft.driver.v1.NICHandle
-	5,  // 8: weft.driver.v1.EnsureNetworkRequest.spec:type_name -> weft.driver.v1.NetworkSpec
-	6,  // 9: weft.driver.v1.AttachPortRequest.spec:type_name -> weft.driver.v1.PortSpec
-	4,  // 10: weft.driver.v1.AttachPortResponse.handle:type_name -> weft.driver.v1.NICHandle
-	6,  // 11: weft.driver.v1.RotateMeshPeerRequest.spec:type_name -> weft.driver.v1.PortSpec
-	7,  // 12: weft.driver.v1.EnsureVolumeRequest.spec:type_name -> weft.driver.v1.VolumeSpec
-	8,  // 13: weft.driver.v1.AttachVolumeResponse.volume:type_name -> weft.driver.v1.AttachedVolume
-	9,  // 14: weft.driver.v1.CreateSnapshotRequest.spec:type_name -> weft.driver.v1.SnapshotSpec
-	10, // 15: weft.driver.v1.CreateSnapshotResponse.snapshot:type_name -> weft.driver.v1.Snapshot
-	10, // 16: weft.driver.v1.ListSnapshotsResponse.snapshots:type_name -> weft.driver.v1.Snapshot
-	11, // 17: weft.driver.v1.CreateBackupRequest.spec:type_name -> weft.driver.v1.BackupSpec
-	12, // 18: weft.driver.v1.CreateBackupResponse.backup:type_name -> weft.driver.v1.Backup
-	12, // 19: weft.driver.v1.ListBackupsResponse.backups:type_name -> weft.driver.v1.Backup
-	7,  // 20: weft.driver.v1.RestoreBackupRequest.spec:type_name -> weft.driver.v1.VolumeSpec
-	51, // 21: weft.driver.v1.Hypervisor.HostInfo:input_type -> google.protobuf.Empty
-	13, // 22: weft.driver.v1.Hypervisor.CreateVM:input_type -> weft.driver.v1.CreateVMRequest
-	14, // 23: weft.driver.v1.Hypervisor.StartVM:input_type -> weft.driver.v1.VMUUIDRequest
-	14, // 24: weft.driver.v1.Hypervisor.StopVM:input_type -> weft.driver.v1.VMUUIDRequest
-	14, // 25: weft.driver.v1.Hypervisor.DeleteVM:input_type -> weft.driver.v1.VMUUIDRequest
-	15, // 26: weft.driver.v1.Hypervisor.AttachDisk:input_type -> weft.driver.v1.AttachDiskRequest
-	16, // 27: weft.driver.v1.Hypervisor.DetachDisk:input_type -> weft.driver.v1.DetachDiskRequest
-	17, // 28: weft.driver.v1.Hypervisor.AttachNIC:input_type -> weft.driver.v1.AttachNICRequest
-	18, // 29: weft.driver.v1.Hypervisor.DetachNIC:input_type -> weft.driver.v1.DetachNICRequest
-	51, // 30: weft.driver.v1.Network.HostInfo:input_type -> google.protobuf.Empty
-	19, // 31: weft.driver.v1.Network.EnsureNetwork:input_type -> weft.driver.v1.EnsureNetworkRequest
-	20, // 32: weft.driver.v1.Network.DestroyNetwork:input_type -> weft.driver.v1.DestroyNetworkRequest
-	21, // 33: weft.driver.v1.Network.AttachPort:input_type -> weft.driver.v1.AttachPortRequest
-	23, // 34: weft.driver.v1.Network.DetachPort:input_type -> weft.driver.v1.DetachPortRequest
-	24, // 35: weft.driver.v1.Network.RotateMeshPeer:input_type -> weft.driver.v1.RotateMeshPeerRequest
-	51, // 36: weft.driver.v1.Volume.Name:input_type -> google.protobuf.Empty
-	51, // 37: weft.driver.v1.Volume.Local:input_type -> google.protobuf.Empty
-	51, // 38: weft.driver.v1.Volume.HostInfo:input_type -> google.protobuf.Empty
-	27, // 39: weft.driver.v1.Volume.EnsureVolume:input_type -> weft.driver.v1.EnsureVolumeRequest
-	28, // 40: weft.driver.v1.Volume.DestroyVolume:input_type -> weft.driver.v1.DestroyVolumeRequest
-	29, // 41: weft.driver.v1.Volume.AttachVolume:input_type -> weft.driver.v1.AttachVolumeRequest
-	31, // 42: weft.driver.v1.Volume.DetachVolume:input_type -> weft.driver.v1.DetachVolumeRequest
-	32, // 43: weft.driver.v1.Volume.CreateSnapshot:input_type -> weft.driver.v1.CreateSnapshotRequest
-	34, // 44: weft.driver.v1.Volume.ListSnapshots:input_type -> weft.driver.v1.ListSnapshotsRequest
-	36, // 45: weft.driver.v1.Volume.DeleteSnapshot:input_type -> weft.driver.v1.DeleteSnapshotRequest
-	37, // 46: weft.driver.v1.Volume.RevertSnapshot:input_type -> weft.driver.v1.RevertSnapshotRequest
-	38, // 47: weft.driver.v1.Volume.CreateBackup:input_type -> weft.driver.v1.CreateBackupRequest
-	40, // 48: weft.driver.v1.Volume.ListBackups:input_type -> weft.driver.v1.ListBackupsRequest
-	42, // 49: weft.driver.v1.Volume.DeleteBackup:input_type -> weft.driver.v1.DeleteBackupRequest
-	43, // 50: weft.driver.v1.Volume.RestoreBackup:input_type -> weft.driver.v1.RestoreBackupRequest
-	51, // 51: weft.driver.v1.Image.HostInfo:input_type -> google.protobuf.Empty
-	44, // 52: weft.driver.v1.Image.Pull:input_type -> weft.driver.v1.RefRequest
-	44, // 53: weft.driver.v1.Image.LocalPath:input_type -> weft.driver.v1.RefRequest
-	44, // 54: weft.driver.v1.Image.Delete:input_type -> weft.driver.v1.RefRequest
-	44, // 55: weft.driver.v1.Image.InCache:input_type -> weft.driver.v1.RefRequest
-	1,  // 56: weft.driver.v1.Hypervisor.HostInfo:output_type -> weft.driver.v1.HostInfoResponse
-	51, // 57: weft.driver.v1.Hypervisor.CreateVM:output_type -> google.protobuf.Empty
-	51, // 58: weft.driver.v1.Hypervisor.StartVM:output_type -> google.protobuf.Empty
-	51, // 59: weft.driver.v1.Hypervisor.StopVM:output_type -> google.protobuf.Empty
-	51, // 60: weft.driver.v1.Hypervisor.DeleteVM:output_type -> google.protobuf.Empty
-	51, // 61: weft.driver.v1.Hypervisor.AttachDisk:output_type -> google.protobuf.Empty
-	51, // 62: weft.driver.v1.Hypervisor.DetachDisk:output_type -> google.protobuf.Empty
-	51, // 63: weft.driver.v1.Hypervisor.AttachNIC:output_type -> google.protobuf.Empty
-	51, // 64: weft.driver.v1.Hypervisor.DetachNIC:output_type -> google.protobuf.Empty
-	1,  // 65: weft.driver.v1.Network.HostInfo:output_type -> weft.driver.v1.HostInfoResponse
-	51, // 66: weft.driver.v1.Network.EnsureNetwork:output_type -> google.protobuf.Empty
-	51, // 67: weft.driver.v1.Network.DestroyNetwork:output_type -> google.protobuf.Empty
-	22, // 68: weft.driver.v1.Network.AttachPort:output_type -> weft.driver.v1.AttachPortResponse
-	51, // 69: weft.driver.v1.Network.DetachPort:output_type -> google.protobuf.Empty
-	51, // 70: weft.driver.v1.Network.RotateMeshPeer:output_type -> google.protobuf.Empty
-	25, // 71: weft.driver.v1.Volume.Name:output_type -> weft.driver.v1.NameResponse
-	26, // 72: weft.driver.v1.Volume.Local:output_type -> weft.driver.v1.LocalResponse
-	1,  // 73: weft.driver.v1.Volume.HostInfo:output_type -> weft.driver.v1.HostInfoResponse
-	51, // 74: weft.driver.v1.Volume.EnsureVolume:output_type -> google.protobuf.Empty
-	51, // 75: weft.driver.v1.Volume.DestroyVolume:output_type -> google.protobuf.Empty
-	30, // 76: weft.driver.v1.Volume.AttachVolume:output_type -> weft.driver.v1.AttachVolumeResponse
-	51, // 77: weft.driver.v1.Volume.DetachVolume:output_type -> google.protobuf.Empty
-	33, // 78: weft.driver.v1.Volume.CreateSnapshot:output_type -> weft.driver.v1.CreateSnapshotResponse
-	35, // 79: weft.driver.v1.Volume.ListSnapshots:output_type -> weft.driver.v1.ListSnapshotsResponse
-	51, // 80: weft.driver.v1.Volume.DeleteSnapshot:output_type -> google.protobuf.Empty
-	51, // 81: weft.driver.v1.Volume.RevertSnapshot:output_type -> google.protobuf.Empty
-	39, // 82: weft.driver.v1.Volume.CreateBackup:output_type -> weft.driver.v1.CreateBackupResponse
-	41, // 83: weft.driver.v1.Volume.ListBackups:output_type -> weft.driver.v1.ListBackupsResponse
-	51, // 84: weft.driver.v1.Volume.DeleteBackup:output_type -> google.protobuf.Empty
-	51, // 85: weft.driver.v1.Volume.RestoreBackup:output_type -> google.protobuf.Empty
-	1,  // 86: weft.driver.v1.Image.HostInfo:output_type -> weft.driver.v1.HostInfoResponse
-	51, // 87: weft.driver.v1.Image.Pull:output_type -> google.protobuf.Empty
-	45, // 88: weft.driver.v1.Image.LocalPath:output_type -> weft.driver.v1.LocalPathResponse
-	51, // 89: weft.driver.v1.Image.Delete:output_type -> google.protobuf.Empty
-	46, // 90: weft.driver.v1.Image.InCache:output_type -> weft.driver.v1.InCacheResponse
-	56, // [56:91] is the sub-list for method output_type
-	21, // [21:56] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	49, // 1: weft.driver.v1.SnapshotSpec.labels:type_name -> weft.driver.v1.SnapshotSpec.LabelsEntry
+	50, // 2: weft.driver.v1.Snapshot.labels:type_name -> weft.driver.v1.Snapshot.LabelsEntry
+	51, // 3: weft.driver.v1.BackupEncryption.kdf_params:type_name -> weft.driver.v1.BackupEncryption.KdfParamsEntry
+	52, // 4: weft.driver.v1.BackupEncryptionInfo.kdf_params:type_name -> weft.driver.v1.BackupEncryptionInfo.KdfParamsEntry
+	53, // 5: weft.driver.v1.BackupSpec.labels:type_name -> weft.driver.v1.BackupSpec.LabelsEntry
+	11, // 6: weft.driver.v1.BackupSpec.encryption:type_name -> weft.driver.v1.BackupEncryption
+	54, // 7: weft.driver.v1.Backup.labels:type_name -> weft.driver.v1.Backup.LabelsEntry
+	12, // 8: weft.driver.v1.Backup.encryption:type_name -> weft.driver.v1.BackupEncryptionInfo
+	2,  // 9: weft.driver.v1.CreateVMRequest.spec:type_name -> weft.driver.v1.VMSpec
+	3,  // 10: weft.driver.v1.AttachDiskRequest.disk:type_name -> weft.driver.v1.DiskSpec
+	4,  // 11: weft.driver.v1.AttachNICRequest.nic:type_name -> weft.driver.v1.NICHandle
+	5,  // 12: weft.driver.v1.EnsureNetworkRequest.spec:type_name -> weft.driver.v1.NetworkSpec
+	6,  // 13: weft.driver.v1.AttachPortRequest.spec:type_name -> weft.driver.v1.PortSpec
+	4,  // 14: weft.driver.v1.AttachPortResponse.handle:type_name -> weft.driver.v1.NICHandle
+	6,  // 15: weft.driver.v1.RotateMeshPeerRequest.spec:type_name -> weft.driver.v1.PortSpec
+	7,  // 16: weft.driver.v1.EnsureVolumeRequest.spec:type_name -> weft.driver.v1.VolumeSpec
+	8,  // 17: weft.driver.v1.AttachVolumeResponse.volume:type_name -> weft.driver.v1.AttachedVolume
+	9,  // 18: weft.driver.v1.CreateSnapshotRequest.spec:type_name -> weft.driver.v1.SnapshotSpec
+	10, // 19: weft.driver.v1.CreateSnapshotResponse.snapshot:type_name -> weft.driver.v1.Snapshot
+	10, // 20: weft.driver.v1.ListSnapshotsResponse.snapshots:type_name -> weft.driver.v1.Snapshot
+	13, // 21: weft.driver.v1.CreateBackupRequest.spec:type_name -> weft.driver.v1.BackupSpec
+	14, // 22: weft.driver.v1.CreateBackupResponse.backup:type_name -> weft.driver.v1.Backup
+	14, // 23: weft.driver.v1.ListBackupsResponse.backups:type_name -> weft.driver.v1.Backup
+	7,  // 24: weft.driver.v1.RestoreBackupRequest.spec:type_name -> weft.driver.v1.VolumeSpec
+	55, // 25: weft.driver.v1.Hypervisor.HostInfo:input_type -> google.protobuf.Empty
+	15, // 26: weft.driver.v1.Hypervisor.CreateVM:input_type -> weft.driver.v1.CreateVMRequest
+	16, // 27: weft.driver.v1.Hypervisor.StartVM:input_type -> weft.driver.v1.VMUUIDRequest
+	16, // 28: weft.driver.v1.Hypervisor.StopVM:input_type -> weft.driver.v1.VMUUIDRequest
+	16, // 29: weft.driver.v1.Hypervisor.DeleteVM:input_type -> weft.driver.v1.VMUUIDRequest
+	17, // 30: weft.driver.v1.Hypervisor.AttachDisk:input_type -> weft.driver.v1.AttachDiskRequest
+	18, // 31: weft.driver.v1.Hypervisor.DetachDisk:input_type -> weft.driver.v1.DetachDiskRequest
+	19, // 32: weft.driver.v1.Hypervisor.AttachNIC:input_type -> weft.driver.v1.AttachNICRequest
+	20, // 33: weft.driver.v1.Hypervisor.DetachNIC:input_type -> weft.driver.v1.DetachNICRequest
+	55, // 34: weft.driver.v1.Network.HostInfo:input_type -> google.protobuf.Empty
+	21, // 35: weft.driver.v1.Network.EnsureNetwork:input_type -> weft.driver.v1.EnsureNetworkRequest
+	22, // 36: weft.driver.v1.Network.DestroyNetwork:input_type -> weft.driver.v1.DestroyNetworkRequest
+	23, // 37: weft.driver.v1.Network.AttachPort:input_type -> weft.driver.v1.AttachPortRequest
+	25, // 38: weft.driver.v1.Network.DetachPort:input_type -> weft.driver.v1.DetachPortRequest
+	26, // 39: weft.driver.v1.Network.RotateMeshPeer:input_type -> weft.driver.v1.RotateMeshPeerRequest
+	55, // 40: weft.driver.v1.Volume.Name:input_type -> google.protobuf.Empty
+	55, // 41: weft.driver.v1.Volume.Local:input_type -> google.protobuf.Empty
+	55, // 42: weft.driver.v1.Volume.HostInfo:input_type -> google.protobuf.Empty
+	29, // 43: weft.driver.v1.Volume.EnsureVolume:input_type -> weft.driver.v1.EnsureVolumeRequest
+	30, // 44: weft.driver.v1.Volume.DestroyVolume:input_type -> weft.driver.v1.DestroyVolumeRequest
+	31, // 45: weft.driver.v1.Volume.AttachVolume:input_type -> weft.driver.v1.AttachVolumeRequest
+	33, // 46: weft.driver.v1.Volume.DetachVolume:input_type -> weft.driver.v1.DetachVolumeRequest
+	34, // 47: weft.driver.v1.Volume.CreateSnapshot:input_type -> weft.driver.v1.CreateSnapshotRequest
+	36, // 48: weft.driver.v1.Volume.ListSnapshots:input_type -> weft.driver.v1.ListSnapshotsRequest
+	38, // 49: weft.driver.v1.Volume.DeleteSnapshot:input_type -> weft.driver.v1.DeleteSnapshotRequest
+	39, // 50: weft.driver.v1.Volume.RevertSnapshot:input_type -> weft.driver.v1.RevertSnapshotRequest
+	40, // 51: weft.driver.v1.Volume.CreateBackup:input_type -> weft.driver.v1.CreateBackupRequest
+	42, // 52: weft.driver.v1.Volume.ListBackups:input_type -> weft.driver.v1.ListBackupsRequest
+	44, // 53: weft.driver.v1.Volume.DeleteBackup:input_type -> weft.driver.v1.DeleteBackupRequest
+	45, // 54: weft.driver.v1.Volume.RestoreBackup:input_type -> weft.driver.v1.RestoreBackupRequest
+	55, // 55: weft.driver.v1.Image.HostInfo:input_type -> google.protobuf.Empty
+	46, // 56: weft.driver.v1.Image.Pull:input_type -> weft.driver.v1.RefRequest
+	46, // 57: weft.driver.v1.Image.LocalPath:input_type -> weft.driver.v1.RefRequest
+	46, // 58: weft.driver.v1.Image.Delete:input_type -> weft.driver.v1.RefRequest
+	46, // 59: weft.driver.v1.Image.InCache:input_type -> weft.driver.v1.RefRequest
+	1,  // 60: weft.driver.v1.Hypervisor.HostInfo:output_type -> weft.driver.v1.HostInfoResponse
+	55, // 61: weft.driver.v1.Hypervisor.CreateVM:output_type -> google.protobuf.Empty
+	55, // 62: weft.driver.v1.Hypervisor.StartVM:output_type -> google.protobuf.Empty
+	55, // 63: weft.driver.v1.Hypervisor.StopVM:output_type -> google.protobuf.Empty
+	55, // 64: weft.driver.v1.Hypervisor.DeleteVM:output_type -> google.protobuf.Empty
+	55, // 65: weft.driver.v1.Hypervisor.AttachDisk:output_type -> google.protobuf.Empty
+	55, // 66: weft.driver.v1.Hypervisor.DetachDisk:output_type -> google.protobuf.Empty
+	55, // 67: weft.driver.v1.Hypervisor.AttachNIC:output_type -> google.protobuf.Empty
+	55, // 68: weft.driver.v1.Hypervisor.DetachNIC:output_type -> google.protobuf.Empty
+	1,  // 69: weft.driver.v1.Network.HostInfo:output_type -> weft.driver.v1.HostInfoResponse
+	55, // 70: weft.driver.v1.Network.EnsureNetwork:output_type -> google.protobuf.Empty
+	55, // 71: weft.driver.v1.Network.DestroyNetwork:output_type -> google.protobuf.Empty
+	24, // 72: weft.driver.v1.Network.AttachPort:output_type -> weft.driver.v1.AttachPortResponse
+	55, // 73: weft.driver.v1.Network.DetachPort:output_type -> google.protobuf.Empty
+	55, // 74: weft.driver.v1.Network.RotateMeshPeer:output_type -> google.protobuf.Empty
+	27, // 75: weft.driver.v1.Volume.Name:output_type -> weft.driver.v1.NameResponse
+	28, // 76: weft.driver.v1.Volume.Local:output_type -> weft.driver.v1.LocalResponse
+	1,  // 77: weft.driver.v1.Volume.HostInfo:output_type -> weft.driver.v1.HostInfoResponse
+	55, // 78: weft.driver.v1.Volume.EnsureVolume:output_type -> google.protobuf.Empty
+	55, // 79: weft.driver.v1.Volume.DestroyVolume:output_type -> google.protobuf.Empty
+	32, // 80: weft.driver.v1.Volume.AttachVolume:output_type -> weft.driver.v1.AttachVolumeResponse
+	55, // 81: weft.driver.v1.Volume.DetachVolume:output_type -> google.protobuf.Empty
+	35, // 82: weft.driver.v1.Volume.CreateSnapshot:output_type -> weft.driver.v1.CreateSnapshotResponse
+	37, // 83: weft.driver.v1.Volume.ListSnapshots:output_type -> weft.driver.v1.ListSnapshotsResponse
+	55, // 84: weft.driver.v1.Volume.DeleteSnapshot:output_type -> google.protobuf.Empty
+	55, // 85: weft.driver.v1.Volume.RevertSnapshot:output_type -> google.protobuf.Empty
+	41, // 86: weft.driver.v1.Volume.CreateBackup:output_type -> weft.driver.v1.CreateBackupResponse
+	43, // 87: weft.driver.v1.Volume.ListBackups:output_type -> weft.driver.v1.ListBackupsResponse
+	55, // 88: weft.driver.v1.Volume.DeleteBackup:output_type -> google.protobuf.Empty
+	55, // 89: weft.driver.v1.Volume.RestoreBackup:output_type -> google.protobuf.Empty
+	1,  // 90: weft.driver.v1.Image.HostInfo:output_type -> weft.driver.v1.HostInfoResponse
+	55, // 91: weft.driver.v1.Image.Pull:output_type -> google.protobuf.Empty
+	47, // 92: weft.driver.v1.Image.LocalPath:output_type -> weft.driver.v1.LocalPathResponse
+	55, // 93: weft.driver.v1.Image.Delete:output_type -> google.protobuf.Empty
+	48, // 94: weft.driver.v1.Image.InCache:output_type -> weft.driver.v1.InCacheResponse
+	60, // [60:95] is the sub-list for method output_type
+	25, // [25:60] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_driverpb_driver_proto_init() }
@@ -3053,7 +3266,7 @@ func file_driverpb_driver_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_driverpb_driver_proto_rawDesc), len(file_driverpb_driver_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   51,
+			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   4,
 		},

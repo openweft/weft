@@ -28,7 +28,7 @@ require (
 	github.com/openweft/weft-drivers v0.1.0
 	github.com/openweft/weft-microvm v0.0.0
 	github.com/openweft/weft-microvm-init v0.0.0
-	github.com/openweft/weft-proto v0.5.0
+	github.com/openweft/weft-proto v0.7.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
 	github.com/spf13/cobra v1.10.2

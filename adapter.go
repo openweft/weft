@@ -84,6 +84,28 @@ type VZAdapter interface {
 	AddProjectMember(projectUUID, userUUID string) error
 	RemoveProjectMember(projectUUID, userUUID string) error
 	ProjectMembers(projectUUID string) ([]string, bool)
+	// Inventory (AZ + Rack) registry surface — promoted from
+	// webui-local persistence to a first-class control-plane
+	// concern in proto v0.7.0. AZ/Rack registries persist via the
+	// Adapter's Storage backend just like every other UUID-keyed
+	// noun ; cascade safety (DeleteAZ refuses when racks/hosts
+	// still reference it ; DeleteRack refuses when hosts still
+	// reference it) lives in the Adapter because only it sees
+	// every registry.
+	AZs() []AZ
+	AZByUUID(uuid string) (AZ, bool)
+	AZByCode(code string) (AZ, bool)
+	AZRackCount(uuid string) int32
+	AZHostCount(uuid string) int32
+	CreateAZ(code, name, region, status string) (AZ, bool, error)
+	UpdateAZ(uuid, name, region, status string) (AZ, error)
+	DeleteAZ(uuid string) (blockedRacks, blockedHosts int32, err error)
+	Racks(azUUID string) []Rack
+	RackByUUID(uuid string) (Rack, bool)
+	RackHostCount(uuid string) int32
+	CreateRack(azUUID, code, name, status string, heightU int32) (Rack, bool, error)
+	UpdateRack(uuid, name, status string, heightU int32) (Rack, error)
+	DeleteRack(uuid string) (blockedHosts int32, err error)
 	// User registry surface — maps (OIDC issuer, subject) ↔ stable
 	// weft UUID. Volatile fields (email, groups, last_seen) refresh
 	// on every successful auth via RegisterUser. See users.go.
@@ -327,6 +349,14 @@ type Adapter struct {
 	// hostReg holds the cluster's compute-node inventory. See
 	// hosts.go and [[weft-driver-registry-split]].
 	hostReg *hostRegistry
+	// azReg + rackReg hold the top two tiers of the inventory
+	// hierarchy. Promoted from webui-local persistence (v0.7.0
+	// proto bump) so the CLI + every other client reaches the
+	// same source of truth. Cascade safety lives in the Adapter
+	// (DeleteAZ counts racks + hosts ; DeleteRack counts hosts)
+	// because only the Adapter has visibility on every registry.
+	azReg   *azRegistry
+	rackReg *rackRegistry
 	// vmReg holds the VM inventory — one entry per managed VM,
 	// each carrying its host_uuid for multi-host dispatch. See
 	// vms.go.
@@ -563,6 +593,7 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 		}
 	}
 	a.initProjects()
+	a.initInventory()
 	a.initUsers()
 	a.initNetworks()
 	a.initVolumes()

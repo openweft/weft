@@ -119,27 +119,101 @@ type Snapshot struct {
 	UserCreated     bool              // true if not an automatic / system snapshot
 }
 
+// BackupEncryption configures end-to-end encryption applied BEFORE the
+// backup body hits the target. Empty algorithm = no encryption (the
+// target sees plaintext) ; non-empty enables an AEAD pass over every
+// chunk shipped. The same struct is echoed back in the Backup descriptor
+// so restore can re-derive the key without the operator restating the
+// algorithm / KDF params (only the passphrase env name + salt are
+// needed at restore time).
+//
+// Algorithms supported by weft-block today :
+//
+//   * "chacha20-poly1305" : pure-Go AEAD via golang.org/x/crypto. 256-bit
+//     keys, 96-bit nonces, fast without hardware AES, single-nonce safe
+//     up to ≈256 GiB per stream — bigger volumes get auto-chunked with
+//     per-chunk nonce derivation.
+//   * "aes-256-gcm"       : hardware-accelerated on AESNI/ARM64 ; same
+//     security level as above. Pick this on hosts that have AESNI for
+//     better throughput.
+//
+// KDFs :
+//
+//   * "argon2id" (default) : memory-hard, OWASP-recommended. Params (memory,
+//     iterations, parallelism) live in the Backup descriptor so restore
+//     uses the SAME settings the create-time operator chose.
+type BackupEncryption struct {
+	// Algorithm is "" (no encryption) | "chacha20-poly1305" | "aes-256-gcm".
+	Algorithm string
+	// PassphraseEnv names the env var holding the encryption passphrase
+	// (e.g. "WEFT_BACKUP_PASSPHRASE"). Required when Algorithm != "" ;
+	// empty disables encryption regardless of Algorithm.
+	PassphraseEnv string
+	// KDF is the key derivation function : "argon2id" (default) for
+	// passphrase-based ; "raw" treats the env var's value as a hex-
+	// encoded 256-bit key (advanced, for KMS-managed deployments where
+	// the operator's tool already did the KDF).
+	KDF string
+	// KDFParams are passed to the KDF. For argon2id : "memory_kib" (default
+	// 65536), "iterations" (default 3), "parallelism" (default 2). Empty
+	// map uses defaults.
+	KDFParams map[string]string
+}
+
+// BackupEncryptionInfo is the descriptor echoed back in the Backup
+// struct. Carries everything restore needs EXCEPT the passphrase :
+// algorithm + KDF + per-backup random salt (so the key derivation is
+// reproducible).
+type BackupEncryptionInfo struct {
+	Algorithm string
+	KDF       string
+	KDFParams map[string]string
+	// SaltHex is the per-backup random salt the KDF was seeded with,
+	// hex-encoded. Without it the operator's passphrase derives a
+	// different key each backup, defeating restore.
+	SaltHex string
+}
+
 // BackupSpec is what VolumeDriver.CreateBackup consumes. Snapshot is the
 // source snapshot name (the driver always backs up FROM a snapshot, not
 // from the live head — caller is responsible for taking the snapshot
-// first). Target is the backupstore URL ("s3://bucket@region/path",
-// "nfs://host:/export/dir", "cifs://…", …). Labels are propagated to the
-// backupstore metadata.
+// first). Target is the backupstore URL ("oci://registry/repo:tag",
+// "s3://bucket@region/path", "sftp://user@host:port/path", …). Labels are
+// propagated to the backupstore metadata.
+//
+// ParentURL, when non-empty, makes the backup INCREMENTAL : the driver
+// uses BackupStatus.CompareSnapshot(new, parent) to ship only the block
+// ranges that differ from the parent backup's snapshot. Empty ParentURL
+// = full backup. Restore walks the parent chain back to a full and
+// applies the deltas. The parent backup must still exist at the target
+// for restore to work ; weft-block guards Delete against unlinking a
+// backup that's a parent of another backup in the same target.
+//
+// Encryption, when Algorithm != "", wraps every shipped chunk in AEAD —
+// the target only stores ciphertext. Encryption is orthogonal to
+// ParentURL : incremental + encrypted is the common production path.
 type BackupSpec struct {
 	VolumeUUID   string
 	SnapshotName string
 	Target       string
+	ParentURL    string // "" → full backup ; URL of a prior backup → incremental delta
+	Encryption   BackupEncryption
 	Labels       map[string]string
 }
 
 // Backup is the descriptor VolumeDriver.{Create,List}Backups returns for
 // one backup. URL is the full backup reference at the target store (e.g.
-// "s3://bucket@region/path?backup=...&volume=..."). CreatedAtUnixNs is the
-// backup-time wallclock.
+// "oci://registry/repo:vol-snap" or "s3://bucket@region/path?…").
+// CreatedAtUnixNs is the backup-time wallclock. ParentURL echoes
+// BackupSpec.ParentURL (empty for full backups), so List + Restore can
+// walk the chain. Encryption echoes the algorithm + KDF params + per-
+// backup salt — empty Algorithm = plaintext backup.
 type Backup struct {
 	VolumeUUID      string
 	SnapshotName    string
 	URL             string
+	ParentURL       string // "" → full backup ; non-empty → incremental, points at the previous backup
+	Encryption      BackupEncryptionInfo
 	SizeBytes       int64
 	CreatedAtUnixNs int64
 	Labels          map[string]string

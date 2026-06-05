@@ -41,8 +41,10 @@ import (
 	"github.com/openweft/weft/cmd/weft/network"
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/plugin"
+	"github.com/openweft/weft/cmd/weft/az"
 	"github.com/openweft/weft/cmd/weft/project"
 	"github.com/openweft/weft/cmd/weft/quota"
+	"github.com/openweft/weft/cmd/weft/rack"
 	"github.com/openweft/weft/cmd/weft/script"
 	"github.com/openweft/weft/cmd/weft/securitygroup"
 	"github.com/openweft/weft/cmd/weft/share"
@@ -141,6 +143,8 @@ running agent.`,
 		user.Command(&socketPath, &sshSocket, &sshKey),
 		events.Command(&socketPath, &sshSocket, &sshKey),
 		host.Command(&socketPath, &sshSocket, &sshKey),
+		az.Command(&socketPath, &sshSocket, &sshKey),
+		rack.Command(&socketPath, &sshSocket, &sshKey),
 		tenant.Command(&socketPath, &sshSocket, &sshKey),
 		quota.Command(&socketPath, &sshSocket, &sshKey),
 		admin.Command(&socketPath, &sshSocket, &sshKey),
@@ -1756,6 +1760,190 @@ func (s *weftServer) DeleteProject(ctx context.Context, req *weftv1.DeleteProjec
 	}
 	logger.Printf("DeleteProject uuid=%s", req.Uuid)
 	return &weftv1.DeleteProjectResponse{}, nil
+}
+
+// ---- AvailabilityZones (inventory tier 1) -------------------------
+//
+// AZs are the top tier of the inventory hierarchy (AZ → Rack → Host).
+// The proto's immutable `code` is the value scheduling rules + host
+// registrations carry around to pin placement ; `name` / `region` /
+// `status` are operator-mutable via UpdateAZ.
+//
+// Read RPCs are open to any authenticated caller (every CreateVMModal
+// + scheduler view needs the AZ list) ; mutations are admin-only.
+
+func (s *weftServer) ListAZs(_ context.Context, _ *weftv1.ListAZsRequest) (*weftv1.ListAZsResponse, error) {
+	azs := s.adp.AZs()
+	out := make([]*weftv1.AZInfo, 0, len(azs))
+	for _, a := range azs {
+		out = append(out, toAZInfo(s.adp, a))
+	}
+	return &weftv1.ListAZsResponse{Azs: out}, nil
+}
+
+func (s *weftServer) GetAZ(_ context.Context, req *weftv1.GetAZRequest) (*weftv1.GetAZResponse, error) {
+	if req.Uuid == "" && req.Code == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid or code is required")
+	}
+	var (
+		az weft.AZ
+		ok bool
+	)
+	if req.Uuid != "" {
+		az, ok = s.adp.AZByUUID(req.Uuid)
+	} else {
+		az, ok = s.adp.AZByCode(req.Code)
+	}
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "az not found")
+	}
+	return &weftv1.GetAZResponse{Az: toAZInfo(s.adp, az)}, nil
+}
+
+func (s *weftServer) CreateAZ(ctx context.Context, req *weftv1.CreateAZRequest) (*weftv1.CreateAZResponse, error) {
+	if req.Code == "" {
+		return nil, status.Error(codes.InvalidArgument, "code is required")
+	}
+	if err := weft.RequireAdmin(ctx, "create az"); err != nil {
+		return nil, err
+	}
+	az, created, err := s.adp.CreateAZ(req.Code, req.Name, req.Region, req.Status)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "create az: %v", err)
+	}
+	logger.Printf("CreateAZ code=%s uuid=%s created=%v", az.Code, az.UUID, created)
+	return &weftv1.CreateAZResponse{Az: toAZInfo(s.adp, az), Created: created}, nil
+}
+
+func (s *weftServer) UpdateAZ(ctx context.Context, req *weftv1.UpdateAZRequest) (*weftv1.UpdateAZResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "update az"); err != nil {
+		return nil, err
+	}
+	az, err := s.adp.UpdateAZ(req.Uuid, req.Name, req.Region, req.Status)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "update az: %v", err)
+	}
+	logger.Printf("UpdateAZ uuid=%s code=%s", az.UUID, az.Code)
+	return &weftv1.UpdateAZResponse{Az: toAZInfo(s.adp, az)}, nil
+}
+
+func (s *weftServer) DeleteAZ(ctx context.Context, req *weftv1.DeleteAZRequest) (*weftv1.DeleteAZResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete az"); err != nil {
+		return nil, err
+	}
+	blockedRacks, blockedHosts, err := s.adp.DeleteAZ(req.Uuid)
+	if err != nil {
+		return &weftv1.DeleteAZResponse{
+			BlockedByRacks: blockedRacks,
+			BlockedByHosts: blockedHosts,
+		}, status.Errorf(codes.FailedPrecondition, "delete az: %v", err)
+	}
+	logger.Printf("DeleteAZ uuid=%s", req.Uuid)
+	return &weftv1.DeleteAZResponse{DeletedUuid: req.Uuid}, nil
+}
+
+// ---- Racks (inventory tier 2) -------------------------------------
+
+func (s *weftServer) ListRacks(_ context.Context, req *weftv1.ListRacksRequest) (*weftv1.ListRacksResponse, error) {
+	racks := s.adp.Racks(req.AzUuid)
+	out := make([]*weftv1.RackInfo, 0, len(racks))
+	for _, r := range racks {
+		out = append(out, toRackInfo(s.adp, r))
+	}
+	return &weftv1.ListRacksResponse{Racks: out}, nil
+}
+
+func (s *weftServer) GetRack(_ context.Context, req *weftv1.GetRackRequest) (*weftv1.GetRackResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	rk, ok := s.adp.RackByUUID(req.Uuid)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "rack not found")
+	}
+	return &weftv1.GetRackResponse{Rack: toRackInfo(s.adp, rk)}, nil
+}
+
+func (s *weftServer) CreateRack(ctx context.Context, req *weftv1.CreateRackRequest) (*weftv1.CreateRackResponse, error) {
+	if req.AzUuid == "" || req.Code == "" {
+		return nil, status.Error(codes.InvalidArgument, "az_uuid and code are required")
+	}
+	if err := weft.RequireAdmin(ctx, "create rack"); err != nil {
+		return nil, err
+	}
+	rk, created, err := s.adp.CreateRack(req.AzUuid, req.Code, req.Name, req.Status, req.HeightU)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "create rack: %v", err)
+	}
+	logger.Printf("CreateRack az=%s code=%s uuid=%s created=%v", rk.AZUUID, rk.Code, rk.UUID, created)
+	return &weftv1.CreateRackResponse{Rack: toRackInfo(s.adp, rk), Created: created}, nil
+}
+
+func (s *weftServer) UpdateRack(ctx context.Context, req *weftv1.UpdateRackRequest) (*weftv1.UpdateRackResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "update rack"); err != nil {
+		return nil, err
+	}
+	rk, err := s.adp.UpdateRack(req.Uuid, req.Name, req.Status, req.HeightU)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "update rack: %v", err)
+	}
+	logger.Printf("UpdateRack uuid=%s code=%s", rk.UUID, rk.Code)
+	return &weftv1.UpdateRackResponse{Rack: toRackInfo(s.adp, rk)}, nil
+}
+
+func (s *weftServer) DeleteRack(ctx context.Context, req *weftv1.DeleteRackRequest) (*weftv1.DeleteRackResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete rack"); err != nil {
+		return nil, err
+	}
+	blockedHosts, err := s.adp.DeleteRack(req.Uuid)
+	if err != nil {
+		return &weftv1.DeleteRackResponse{BlockedByHosts: blockedHosts}, status.Errorf(codes.FailedPrecondition, "delete rack: %v", err)
+	}
+	logger.Printf("DeleteRack uuid=%s", req.Uuid)
+	return &weftv1.DeleteRackResponse{DeletedUuid: req.Uuid}, nil
+}
+
+// toAZInfo projects an AZ + the derived rack/host counts onto the
+// wire shape. The counts are server-side derived ; clients never
+// fill them on writes.
+func toAZInfo(adp weft.VZAdapter, a weft.AZ) *weftv1.AZInfo {
+	return &weftv1.AZInfo{
+		Uuid:            a.UUID,
+		Code:            a.Code,
+		Name:            a.Name,
+		Region:          a.Region,
+		Status:          a.Status,
+		CreatedAtUnixNs: a.CreatedAt.UnixNano(),
+		Racks:           adp.AZRackCount(a.UUID),
+		Hosts:           adp.AZHostCount(a.UUID),
+	}
+}
+
+// toRackInfo projects a Rack + the derived host count onto the wire
+// shape.
+func toRackInfo(adp weft.VZAdapter, r weft.Rack) *weftv1.RackInfo {
+	return &weftv1.RackInfo{
+		Uuid:            r.UUID,
+		AzUuid:          r.AZUUID,
+		Code:            r.Code,
+		Name:            r.Name,
+		Status:          r.Status,
+		HeightU:         r.HeightU,
+		CreatedAtUnixNs: r.CreatedAt.UnixNano(),
+		Hosts:           adp.RackHostCount(r.UUID),
+	}
 }
 
 // ---- Flavors (compute-envelope catalogue) -------------------------
