@@ -1996,7 +1996,14 @@ func (s *weftServer) CreateSubnet(ctx context.Context, req *weftv1.CreateSubnetR
 	if req.NetworkUuid == "" || req.Cidr == "" {
 		return nil, status.Error(codes.InvalidArgument, "network_uuid and cidr are required")
 	}
-	if err := weft.RequireAdmin(ctx, "create subnet"); err != nil {
+	// Subnets are project-scoped via their parent network. Resolve
+	// the network's owning project, then defer to AuthorizeProject
+	// (dev / platform-admin / project-member all pass).
+	net, ok := s.adp.NetworkByUUID(req.NetworkUuid)
+	if !ok {
+		return nil, status.Errorf(codes.PermissionDenied, "no access to network %s", req.NetworkUuid)
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, net.ProjectUUID); err != nil {
 		return nil, err
 	}
 	sn, created, err := s.adp.CreateSubnet(req.NetworkUuid, req.Name, req.Description, req.Cidr, req.Gateway, req.DnsServers)
@@ -2011,7 +2018,7 @@ func (s *weftServer) UpdateSubnet(ctx context.Context, req *weftv1.UpdateSubnetR
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "update subnet"); err != nil {
+	if _, err := s.authSubnet(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	sn, err := s.adp.UpdateSubnet(req.Uuid, req.Name, req.Description, req.Gateway, req.ClearDnsServers, req.DnsServers)
@@ -2026,7 +2033,7 @@ func (s *weftServer) DeleteSubnet(ctx context.Context, req *weftv1.DeleteSubnetR
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "delete subnet"); err != nil {
+	if _, err := s.authSubnet(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	if err := s.adp.DeleteSubnet(req.Uuid); err != nil {
@@ -2034,6 +2041,25 @@ func (s *weftServer) DeleteSubnet(ctx context.Context, req *weftv1.DeleteSubnetR
 	}
 	logger.Printf("DeleteSubnet uuid=%s", req.Uuid)
 	return &weftv1.DeleteSubnetResponse{DeletedUuid: req.Uuid}, nil
+}
+
+// authSubnet resolves a subnet UUID to its owning project via the
+// parent network, then delegates to AuthorizeProject. Hides
+// cross-project existence by returning PermissionDenied for both
+// unknown and unauthorised cases, matching authNetwork's pattern.
+func (s *weftServer) authSubnet(ctx context.Context, uuid string) (weft.Subnet, error) {
+	sn, ok := s.adp.SubnetByUUID(uuid)
+	if !ok {
+		return weft.Subnet{}, status.Errorf(codes.PermissionDenied, "no access to subnet %s", uuid)
+	}
+	net, ok := s.adp.NetworkByUUID(sn.NetworkUUID)
+	if !ok {
+		return weft.Subnet{}, status.Errorf(codes.PermissionDenied, "no access to subnet %s", uuid)
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, net.ProjectUUID); err != nil {
+		return weft.Subnet{}, err
+	}
+	return sn, nil
 }
 
 func toSubnetInfo(sn weft.Subnet) *weftv1.SubnetInfo {
@@ -2081,12 +2107,9 @@ func (s *weftServer) CreateLoadBalancer(ctx context.Context, req *weftv1.CreateL
 	if req.Name == "" || req.ListenAddr == "" || req.Protocol == "" {
 		return nil, status.Error(codes.InvalidArgument, "name, listen_addr, protocol are required")
 	}
-	if err := weft.RequireAdmin(ctx, "create loadbalancer"); err != nil {
+	projectUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
 		return nil, err
-	}
-	projectUUID := s.resolveProjectUUID(req.Project)
-	if projectUUID == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q not found", req.Project)
 	}
 	backends := fromLBBackends(req.Backends)
 	lb, created, err := s.adp.CreateLoadBalancer(projectUUID, req.Name, req.ListenAddr, req.Protocol, backends)
@@ -2101,7 +2124,7 @@ func (s *weftServer) UpdateLoadBalancer(ctx context.Context, req *weftv1.UpdateL
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "update loadbalancer"); err != nil {
+	if err := s.authLoadBalancer(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	lb, err := s.adp.UpdateLoadBalancer(req.Uuid, req.Name, req.ListenAddr, req.Protocol)
@@ -2116,7 +2139,7 @@ func (s *weftServer) SetLoadBalancerBackends(ctx context.Context, req *weftv1.Se
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "set loadbalancer backends"); err != nil {
+	if err := s.authLoadBalancer(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	lb, err := s.adp.SetLoadBalancerBackends(req.Uuid, fromLBBackends(req.Backends))
@@ -2131,7 +2154,7 @@ func (s *weftServer) DeleteLoadBalancer(ctx context.Context, req *weftv1.DeleteL
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "delete loadbalancer"); err != nil {
+	if err := s.authLoadBalancer(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	blockedFIPs, err := s.adp.DeleteLoadBalancer(req.Uuid)
@@ -2169,6 +2192,20 @@ func fromLBBackends(in []*weftv1.LBBackend) []weft.LBBackend {
 	return out
 }
 
+// authLoadBalancer resolves a LB UUID to its owning project and
+// delegates to AuthorizeProject. Hides cross-project existence by
+// returning PermissionDenied on unknown UUID.
+func (s *weftServer) authLoadBalancer(ctx context.Context, uuid string) error {
+	lb, ok := s.adp.LoadBalancerByUUID(uuid)
+	if !ok {
+		return status.Errorf(codes.PermissionDenied, "no access to loadbalancer %s", uuid)
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, lb.ProjectUUID); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ---- DNS Zones (proto v0.8.0) -------------------------------------
 
 func (s *weftServer) ListDNSZones(_ context.Context, req *weftv1.ListDNSZonesRequest) (*weftv1.ListDNSZonesResponse, error) {
@@ -2204,10 +2241,10 @@ func (s *weftServer) CreateDNSZone(ctx context.Context, req *weftv1.CreateDNSZon
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
-	if err := weft.RequireAdmin(ctx, "create dns zone"); err != nil {
+	projectUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
 		return nil, err
 	}
-	projectUUID := s.resolveProjectUUID(req.Project)
 	z, created, err := s.adp.CreateDNSZone(projectUUID, req.Name, req.SoaEmail, req.Ttl)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create dns zone: %v", err)
@@ -2220,7 +2257,7 @@ func (s *weftServer) UpdateDNSZone(ctx context.Context, req *weftv1.UpdateDNSZon
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "update dns zone"); err != nil {
+	if err := s.authDNSZone(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	z, err := s.adp.UpdateDNSZone(req.Uuid, req.SoaEmail, req.Ttl)
@@ -2235,7 +2272,7 @@ func (s *weftServer) DeleteDNSZone(ctx context.Context, req *weftv1.DeleteDNSZon
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "delete dns zone"); err != nil {
+	if err := s.authDNSZone(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	blocked, err := s.adp.DeleteDNSZone(req.Uuid)
@@ -2258,6 +2295,29 @@ func toDNSZoneInfo(adp weft.VZAdapter, z weft.DNSZone) *weftv1.DNSZoneInfo {
 	}
 }
 
+// authDNSZone resolves a zone UUID to its owning project and
+// delegates to AuthorizeProject.
+func (s *weftServer) authDNSZone(ctx context.Context, uuid string) error {
+	z, ok := s.adp.DNSZoneByUUID(uuid)
+	if !ok {
+		return status.Errorf(codes.PermissionDenied, "no access to dns zone %s", uuid)
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, z.ProjectUUID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// authDNSRecord resolves a record UUID → parent zone → owning
+// project, then delegates to AuthorizeProject.
+func (s *weftServer) authDNSRecord(ctx context.Context, uuid string) error {
+	rec, ok := s.adp.DNSRecordByUUID(uuid)
+	if !ok {
+		return status.Errorf(codes.PermissionDenied, "no access to dns record %s", uuid)
+	}
+	return s.authDNSZone(ctx, rec.ZoneUUID)
+}
+
 // ---- DNS Records (proto v0.8.0) -----------------------------------
 
 func (s *weftServer) ListDNSRecords(_ context.Context, req *weftv1.ListDNSRecordsRequest) (*weftv1.ListDNSRecordsResponse, error) {
@@ -2276,7 +2336,7 @@ func (s *weftServer) CreateDNSRecord(ctx context.Context, req *weftv1.CreateDNSR
 	if req.ZoneUuid == "" || req.Name == "" || req.Type == "" || req.Value == "" {
 		return nil, status.Error(codes.InvalidArgument, "zone_uuid, name, type, value are required")
 	}
-	if err := weft.RequireAdmin(ctx, "create dns record"); err != nil {
+	if err := s.authDNSZone(ctx, req.ZoneUuid); err != nil {
 		return nil, err
 	}
 	rec, created, err := s.adp.CreateDNSRecord(req.ZoneUuid, req.Name, req.Type, req.Value, req.Ttl, req.Priority)
@@ -2291,7 +2351,7 @@ func (s *weftServer) UpdateDNSRecord(ctx context.Context, req *weftv1.UpdateDNSR
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "update dns record"); err != nil {
+	if err := s.authDNSRecord(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	rec, err := s.adp.UpdateDNSRecord(req.Uuid, req.Value, req.Ttl, req.Priority)
@@ -2306,7 +2366,7 @@ func (s *weftServer) DeleteDNSRecord(ctx context.Context, req *weftv1.DeleteDNSR
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "delete dns record"); err != nil {
+	if err := s.authDNSRecord(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	if err := s.adp.DeleteDNSRecord(req.Uuid); err != nil {
@@ -2346,7 +2406,7 @@ func (s *weftServer) SetVolumeProperty(ctx context.Context, req *weftv1.SetVolum
 	if req.VolumeUuid == "" || req.Key == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume_uuid and key are required")
 	}
-	if err := weft.RequireAdmin(ctx, "set volume property"); err != nil {
+	if _, err := s.authVolume(ctx, req.VolumeUuid); err != nil {
 		return nil, err
 	}
 	p, err := s.adp.SetVolumeProperty(req.VolumeUuid, req.Key, req.Value)
@@ -2360,7 +2420,7 @@ func (s *weftServer) DeleteVolumeProperty(ctx context.Context, req *weftv1.Delet
 	if req.VolumeUuid == "" || req.Key == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume_uuid and key are required")
 	}
-	if err := weft.RequireAdmin(ctx, "delete volume property"); err != nil {
+	if _, err := s.authVolume(ctx, req.VolumeUuid); err != nil {
 		return nil, err
 	}
 	if err := s.adp.DeleteVolumeProperty(req.VolumeUuid, req.Key); err != nil {
@@ -2405,12 +2465,9 @@ func (s *weftServer) CreateShare(ctx context.Context, req *weftv1.CreateShareReq
 	if req.Name == "" || req.SizeGb <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "name and size_gb (>0) are required")
 	}
-	if err := weft.RequireAdmin(ctx, "create share"); err != nil {
+	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
 		return nil, err
-	}
-	projUUID := s.resolveProjectUUID(req.Project)
-	if projUUID == "" {
-		return nil, status.Error(codes.InvalidArgument, "project is required")
 	}
 	sh, created, err := s.adp.CreateShare(projUUID, req.Name, req.SizeGb, req.Readonly, req.Backend)
 	if err != nil {
@@ -2424,7 +2481,7 @@ func (s *weftServer) ResizeShare(ctx context.Context, req *weftv1.ResizeShareReq
 	if req.Uuid == "" || req.NewSizeGb <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "uuid and new_size_gb (>0) are required")
 	}
-	if err := weft.RequireAdmin(ctx, "resize share"); err != nil {
+	if err := s.authShare(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	sh, err := s.adp.ResizeShare(req.Uuid, req.NewSizeGb)
@@ -2439,7 +2496,7 @@ func (s *weftServer) DeleteShare(ctx context.Context, req *weftv1.DeleteShareReq
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "delete share"); err != nil {
+	if err := s.authShare(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	if err := s.adp.DeleteShare(req.Uuid); err != nil {
@@ -2460,6 +2517,19 @@ func toShareInfo(sh weft.Share) *weftv1.ShareInfo {
 		Status:          sh.Status,
 		CreatedAtUnixNs: sh.CreatedAt.UnixNano(),
 	}
+}
+
+// authShare resolves a share UUID → owning project and delegates to
+// AuthorizeProject.
+func (s *weftServer) authShare(ctx context.Context, uuid string) error {
+	sh, ok := s.adp.ShareByUUID(uuid)
+	if !ok {
+		return status.Errorf(codes.PermissionDenied, "no access to share %s", uuid)
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, sh.ProjectUUID); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ---- Buckets (v0.9.0) ---------------------------------------------
@@ -2489,12 +2559,9 @@ func (s *weftServer) CreateBucket(ctx context.Context, req *weftv1.CreateBucketR
 	if req.Name == "" || req.Endpoint == "" {
 		return nil, status.Error(codes.InvalidArgument, "name and endpoint are required")
 	}
-	if err := weft.RequireAdmin(ctx, "create bucket"); err != nil {
+	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
 		return nil, err
-	}
-	projUUID := s.resolveProjectUUID(req.Project)
-	if projUUID == "" {
-		return nil, status.Error(codes.InvalidArgument, "project is required")
 	}
 	b, created, err := s.adp.CreateBucket(projUUID, req.Name, req.Endpoint, req.Region, req.AccessKeyId, req.SecretAccessKey)
 	if err != nil {
@@ -2508,7 +2575,7 @@ func (s *weftServer) DeleteBucket(ctx context.Context, req *weftv1.DeleteBucketR
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "delete bucket"); err != nil {
+	if err := s.authBucket(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	if err := s.adp.DeleteBucket(req.Uuid); err != nil {
@@ -2533,7 +2600,7 @@ func (s *weftServer) SetBucketPolicy(ctx context.Context, req *weftv1.SetBucketP
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	if err := weft.RequireAdmin(ctx, "set bucket policy"); err != nil {
+	if err := s.authBucket(ctx, req.Uuid); err != nil {
 		return nil, err
 	}
 	b, err := s.adp.SetBucketPolicy(req.Uuid, req.Policy)
@@ -2572,6 +2639,19 @@ func toBucketInfoFull(b weft.Bucket) *weftv1.BucketInfo {
 		Policy:          b.Policy,
 		CreatedAtUnixNs: b.CreatedAt.UnixNano(),
 	}
+}
+
+// authBucket resolves a bucket UUID → owning project and delegates
+// to AuthorizeProject.
+func (s *weftServer) authBucket(ctx context.Context, uuid string) error {
+	b, ok := s.adp.BucketByUUID(uuid)
+	if !ok {
+		return status.Errorf(codes.PermissionDenied, "no access to bucket %s", uuid)
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, b.ProjectUUID); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ---- SSH key catalogue (v0.9.0) -----------------------------------
@@ -3046,7 +3126,7 @@ func (s *weftServer) SetVMProperty(ctx context.Context, req *weftv1.SetVMPropert
 	if req.VmName == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
 	}
-	if err := weft.RequireAdmin(ctx, "set vm property"); err != nil {
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
 	in := req.Property
@@ -3069,7 +3149,7 @@ func (s *weftServer) DeleteVMProperty(ctx context.Context, req *weftv1.DeleteVMP
 	if req.VmName == "" || req.Key == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_name and key are required")
 	}
-	if err := weft.RequireAdmin(ctx, "delete vm property"); err != nil {
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
 	if err := s.vmProps.Delete(req.Project, req.VmName, req.Key); err != nil {
@@ -3140,7 +3220,7 @@ func (s *weftServer) SetUEFIVar(ctx context.Context, req *weftv1.SetUEFIVarReque
 	if req.Var == nil || req.VmName == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_name and var are required")
 	}
-	if err := weft.RequireAdmin(ctx, "set uefi var"); err != nil {
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
 	in := req.Var
@@ -3175,7 +3255,7 @@ func (s *weftServer) DeleteUEFIVar(ctx context.Context, req *weftv1.DeleteUEFIVa
 	if req.VmName == "" || req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_name and name are required")
 	}
-	if err := weft.RequireAdmin(ctx, "delete uefi var"); err != nil {
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
 	if err := s.uefiVars.Delete(req.Project, req.VmName, req.Namespace, req.Name); err != nil {
@@ -3232,7 +3312,7 @@ func (s *weftServer) AddVMSSHKey(ctx context.Context, req *weftv1.AddVMSSHKeyReq
 	if req.VmName == "" || req.PublicKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_name and public_key are required")
 	}
-	if err := weft.RequireAdmin(ctx, "add vm ssh key"); err != nil {
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
 	entry, err := s.vmKeys.Add(req.Project, req.VmName, req.PublicKey)
@@ -3250,7 +3330,7 @@ func (s *weftServer) RemoveVMSSHKey(ctx context.Context, req *weftv1.RemoveVMSSH
 	if req.VmName == "" || req.Fingerprint == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_name and fingerprint are required")
 	}
-	if err := weft.RequireAdmin(ctx, "remove vm ssh key"); err != nil {
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
 	if err := s.vmKeys.Remove(req.Project, req.VmName, req.Fingerprint); err != nil {

@@ -283,6 +283,30 @@ schemas, webui surfaces).
 
 ### Changed
 
+- **Per-project ACLs : project-scoped mutations now gate on
+  `AuthorizeProject(project_uuid)` instead of `RequireAdmin`
+  global.** Any project member (dex `project:<uuid>` group, weft
+  `Project.Members` entry, or platform-admin / dev mode) can now
+  Create / Update / Delete the resources their project owns ;
+  before, only platform admins could because the Tier 1-6 RPCs
+  landed before the ACL layer was wired. Affected handlers in
+  `cmd/weft/main.go` : Subnet (create/update/delete), LoadBalancer
+  (create/update/set-backends/delete), DNSZone (create/update/delete),
+  DNSRecord (create/update/delete), VolumeProperty (set/delete),
+  Share (create/resize/delete), Bucket (create/delete/set-policy),
+  VMProperty (set/delete), UEFIVar (set/delete), VMSSHKey
+  (add/remove) — 26 mutations in total. By-UUID handlers resolve the
+  owning project via the parent (Subnet → Network → Project ;
+  DNSRecord → DNSZone → Project ; VolumeProperty → Volume →
+  Project) through new `authSubnet` / `authLoadBalancer` /
+  `authDNSZone` / `authDNSRecord` / `authShare` / `authBucket`
+  helpers, mirroring the existing `authNetwork` / `authVolume`
+  pattern in `networks.go` / `volumes.go`. Cluster-wide resources
+  (AZ, Rack, Host, RegistryRemote, SSHKeyCatalogue, SchedulingRule,
+  Flavor, Script, Project create/rename/delete, ProjectMember
+  add/remove) stay `RequireAdmin` — they touch state outside any
+  one project's boundary.
+
 - **`AttachDriverSet` / `AttachDrivers` over the gRPC control plane
   now accept the call and return `nil`** instead of
   `ErrAttachSetUnsupported`. Handles are local in-process pointers ;
