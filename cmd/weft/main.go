@@ -42,9 +42,11 @@ import (
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/plugin"
 	"github.com/openweft/weft/cmd/weft/project"
+	"github.com/openweft/weft/cmd/weft/quota"
 	"github.com/openweft/weft/cmd/weft/script"
 	"github.com/openweft/weft/cmd/weft/securitygroup"
 	"github.com/openweft/weft/cmd/weft/share"
+	"github.com/openweft/weft/cmd/weft/tenant"
 	"github.com/openweft/weft/cmd/weft/user"
 	"github.com/openweft/weft/cmd/weft/volume"
 	"github.com/openweft/weft/cmd/weft/wait"
@@ -139,6 +141,8 @@ running agent.`,
 		user.Command(&socketPath, &sshSocket, &sshKey),
 		events.Command(&socketPath, &sshSocket, &sshKey),
 		host.Command(&socketPath, &sshSocket, &sshKey),
+		tenant.Command(&socketPath, &sshSocket, &sshKey),
+		quota.Command(&socketPath, &sshSocket, &sshKey),
 		admin.Command(&socketPath, &sshSocket, &sshKey),
 		clean.Command(&socketPath, &sshSocket, &sshKey),
 		wait.Command(&socketPath, &sshSocket, &sshKey),
