@@ -9,6 +9,31 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ### Added
 
+- **CLI : `weft tenant` package** — full tenant-registry surface so
+  a fresh cluster can be brought up through SSH-only access without
+  the webui : `weft tenant ls` / `create <name> [--domain]` /
+  `rm <name|uuid>` / `add-admin <tenant> <email>` /
+  `remove-admin` / `add-member <tenant> <email> [--group ...]` /
+  `remove-member`. Name-or-UUID resolution mirrors `weft project`.
+- **CLI : `weft quota` package** — read + patch tenant + project
+  quotas : `weft quota tenant get <name|uuid>` /
+  `weft quota tenant set <t> --vcpu=N --ram-gib=N ...` /
+  `weft quota project get` / `weft quota project set`.
+  Eleven dimensions (vcpu, ram-gib, volumes, volumes-gib, shares,
+  shares-gib, buckets, buckets-gib, registry-gib, floating-ips,
+  projects) drawn from a single `quotaDims` table so the flag set
+  and the table output stay in lockstep. `set` is a partial PATCH —
+  unset flags reuse the live value (explicit `--vcpu=0` is honoured
+  as "disable this dimension"). Read-modify-write protects against
+  accidentally zero-ing other dimensions ; server still rejects any
+  delta that would shrink the cap below `allocated`.
+
+  Both packages cover the Tier 2 (multi-tenant) gap surfaced by the
+  CLI-vs-webui parity audit. Tier 1 (az/rack CRUD) stays open : the
+  webui's inventory model is webui-local persistence, not exposed
+  via gRPC ; elevating it would need a proto bump. Host-side CRUD
+  is already complete (`weft host ls/show/register/set-state/set-labels/rm`).
+
 - **Catalogue : `irods-ha`** — three iRODS catalog providers (BSD-3-Clause)
   on a shared `postgres-ha` catalog, one per DC. Managed by the new
   `weft-ha-irods` Go agent (zone bootstrap with etcd advisory lock,
