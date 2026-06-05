@@ -22,6 +22,7 @@ import (
 	"github.com/go-grub/grub"
 	weftplugin "github.com/openweft/weft-driver-plugin"
 	driversAPI "github.com/openweft/weft-drivers"
+	"github.com/openweft/weft-microvm-init/pkg/pod"
 	"github.com/openweft/weft/driverplugins"
 	"github.com/openweft/weft/imagestore"
 	"golang.org/x/crypto/ssh"
@@ -130,6 +131,23 @@ type VZAdapter interface {
 	RegisterVolumeSnapshot(ctx context.Context, parentVolumeUUID, name, projectUUID string) (VolumeSnapshot, error)
 	RestoreVolumeSnapshot(ctx context.Context, snapshotUUID, newVolumeName string) (Volume, error)
 	DeleteVolumeSnapshotByUUID(ctx context.Context, uuid string) error
+	// RevertVolumeSnapshotByUUID rolls a block-backend parent
+	// volume back to the snapshot's state. File-backend volumes
+	// reject with a clear "only supported on block" error.
+	RevertVolumeSnapshotByUUID(ctx context.Context, uuid string) error
+
+	// Volume backup surface — block-backend only. Backups ship to
+	// oci:// / s3:// / sftp:// / fs:// targets via weft-block.
+	CreateVolumeBackup(ctx context.Context, snapshotUUID, target string) (driversAPI.Backup, error)
+	ListVolumeBackups(ctx context.Context, target, volumeUUID string) ([]driversAPI.Backup, error)
+	DeleteVolumeBackup(ctx context.Context, backupURL string) error
+	RestoreVolumeBackup(ctx context.Context, backupURL, newVolumeName, projectUUID string) (Volume, error)
+
+	// Share fan-out surface. Used by PublishShareToProject /
+	// UnpublishShareFromProject to drop a share mount onto every
+	// VM in a project (CubeFS today, more backends as they land).
+	AttachShareToProject(projectUUID string, m pod.ShareMount) (int, error)
+	DetachShareFromProject(projectUUID, shareID, mountPoint string) (int, error)
 	// Security-group registry surface — per-project firewall
 	// containers. Each group carries a slice of ingress / egress
 	// rules edited atomically via SetSecurityGroupRules. See

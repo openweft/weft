@@ -44,6 +44,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		detachCmd(socket, sshSocket, sshKey),
 		rmCmd(socket, sshSocket, sshKey),
 		snapshotCommand(socket, sshSocket, sshKey),
+		backupCommand(socket, sshSocket, sshKey),
 	)
 	return cmd
 }
