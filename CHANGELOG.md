@@ -9,6 +9,76 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ### Added
 
+- **Catalogue : `irods-ha`** — three iRODS catalog providers (BSD-3-Clause)
+  on a shared `postgres-ha` catalog, one per DC. Managed by the new
+  `weft-ha-irods` Go agent (zone bootstrap with etcd advisory lock,
+  zone-key minting + seeding, role API at `:8009` for the L4 Caddy
+  active probe). Kind = `data-management`.
+- **Catalogue : `forgejo-ha`** — three Forgejo Git-forge replicas
+  (AGPLv3+ upstream, packaged unmodified ; the agent is BSD-3) on
+  shared Postgres + S3 (versitygw-ha or external), one per DC.
+  Managed by the new `weft-ha-forgejo` Go agent (install bootstrap
+  with shared-secret minting + seeding so `SECRET_KEY` /
+  `INTERNAL_TOKEN` / `LFS_JWT_SECRET` agree across replicas, role
+  API at `:3001`). Kind = `git-forge` ; distinct from
+  `forgejo-runners-ha` (CI workers).
+- **Federation : `AdminKeyVerifier`** — multi-key (ed25519 + RSA ≥2048)
+  PEM-bundle verifier with implicit sig-size dispatch (64 bytes →
+  ed25519 keys, larger → RSA-PKCS1v15-SHA256). Supports rotation
+  (verify accepts any enrolled key), `SignRSA` companion. Replaces
+  the `DenyAllVerifier`-only path for air-gapped / SSH-key-rooted
+  federations that don't have a public OIDC issuer ; cosign-keyless
+  stays the next addition.
+- **Catalogue : `versitygw-ha`** — three-replica versitygw S3 gateway
+  (Apache-2.0) over weft-block-replicated volumes. Replaces the
+  removed `minio-ha` plugin (AGPL policy violation per
+  `feedback_no_minio`).
+- **Catalogue : `postgres-ha` v2** — switched from upstream Patroni
+  to our native `weft-ha-postgresql` operator. New image
+  `ghcr.io/openweft/postgres-ha:v0.2.0` bundles Postgres + the Go
+  agent ; etcd DCS + VMFencer (hard-stops a fenced primary via
+  weft-agent `StopVM` before promoting) + Caddy active-health-check
+  routing at `:8008/primary`. Structural advantage over Patroni :
+  we own the substrate, so we PROVE the old primary is dead rather
+  than trust a guest-side watchdog.
+- **Inventory : `Volume.Backend` propagated end-to-end** through
+  `weft-proto` → `weft-agent` → `wclient` → webui. Backend-aware
+  affordance gating on the dashboard's snapshot Revert + Backup
+  actions (block-only).
+- **WebUI : Groups before Users in the Identity sidebar** + new
+  `GroupsTreePage` collapsible tree (groups by tenant).
+- **Inventory U-occupancy** — `Rack.HeightU` + `Host.PositionU` +
+  `Host.HeightU` ; validation refuses overlaps in the same rack ;
+  2D rack-elevation viz draws hosts at their absolute U slot with
+  height = chassis size ; 3D iso view scales rack height by total U.
+
+### Changed
+
+- **`AttachDriverSet` / `AttachDrivers` over the gRPC control plane
+  now accept the call and return `nil`** instead of
+  `ErrAttachSetUnsupported`. Handles are local in-process pointers ;
+  the wire-side per-kind capability list already travels via
+  `RegisterHost.Drivers`, and dispatch flows over the
+  `AgentDispatch.Connect` bidi stream. The previous Unsupported
+  scaffold forced multi-plugin Apple-Silicon agents to fall back to
+  single-handle dispatch when the CP was remote — fixed.
+
+### Removed
+
+- **`minio-ha` plugin from the catalogue + the `minio-ha` row from
+  `docs/catalogue/`** (AGPL policy violation, replaced by
+  `versitygw-ha`). All cross-refs scrubbed across docs +
+  `pluginstore/install_test.go` + manifest comments.
+
+- **Volume snapshot/backup dispatch + RPC handlers**.
+  - `Volume.Backend` field (`file` default, `block` for weft-block) ; HCL round-trip is backwards-compatible (emitted only when non-default).
+  - `Adapter.RegisterVolumeSnapshot` + `DeleteVolumeSnapshotByUUID` dispatch on `parent.Backend` : `file` → existing reflink CoW clone ; `block` → driver-side controller snapshot via `weft-block` (over the `drivers.VolumeDriver` interface).
+  - New `Adapter.RevertVolumeSnapshotByUUID` (block-only ; file-backend parents reject with a clear error).
+  - New `CreateVolumeBackup` / `ListVolumeBackups` / `DeleteVolumeBackup` / `RestoreVolumeBackup` on `Adapter` + matching gRPC handlers. Restore discovers backup size from sidecar metadata (no proto surface change needed). Targets : `oci://` (recommended), `s3://` (versitygw / CubeFS objectnode), `sftp://` (sftpgo), `fs:///` (dev).
+  - CLI subcommands `weft volume snapshot revert` + `weft volume backup create/list/delete/restore`.
+  - `Adapter.VolumeOn` reaches the block driver via a `Name() == "block"` walk over the dispatch table — any host running weft-block can service any block volume.
+- **Share fan-out widening**. `AttachShareToProject` + `DetachShareFromProject` lifted into the `VZAdapter` interface ; the defensive type assertion + `codes.Unimplemented` in `PublishShareToProject` are gone (mock adapters that forget to wire share now fail at compile time).
+
 - **SecurityGroup → nftables enforcement (full pipeline)**. The proto's
   SecurityGroup RPCs were already implemented at the registry level,
   but the **data plane was missing** — rules were stored, nothing
@@ -147,7 +217,7 @@ substantive commit, grouped by topic rather than commit order.
       (`6ae777774`), parallelised admin bulk-stop via thread pool
       (`1bb2fd7ab`). Docs :
       [`docs/catalogue/jupyterhub-ha.md`](docs/catalogue/jupyterhub-ha.md).
-    - **5 HA platform plugins** : postgres-ha, redis-ha, minio-ha,
+    - **5 HA platform plugins** : postgres-ha, redis-ha, versitygw-ha,
       vault-ha, caddy-edge (`d548f739b`). Docs under
       [`docs/catalogue/`](docs/catalogue/).
 - **Reproducible builds + supply chain** :

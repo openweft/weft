@@ -1,0 +1,9 @@
+# Build artefacts
+/weft
+/dist/
+/coverage.out
+/coverage.html
+
+# Editor / OS noise
+.DS_Store
+*.swp
