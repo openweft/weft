@@ -137,6 +137,26 @@ const (
 	WeftAgent_ListPluginCatalogue_FullMethodName             = "/weft.v1.WeftAgent/ListPluginCatalogue"
 	WeftAgent_ListInstalledPlugins_FullMethodName            = "/weft.v1.WeftAgent/ListInstalledPlugins"
 	WeftAgent_InstallPlugin_FullMethodName                   = "/weft.v1.WeftAgent/InstallPlugin"
+	WeftAgent_ListSubnets_FullMethodName                     = "/weft.v1.WeftAgent/ListSubnets"
+	WeftAgent_GetSubnet_FullMethodName                       = "/weft.v1.WeftAgent/GetSubnet"
+	WeftAgent_CreateSubnet_FullMethodName                    = "/weft.v1.WeftAgent/CreateSubnet"
+	WeftAgent_UpdateSubnet_FullMethodName                    = "/weft.v1.WeftAgent/UpdateSubnet"
+	WeftAgent_DeleteSubnet_FullMethodName                    = "/weft.v1.WeftAgent/DeleteSubnet"
+	WeftAgent_ListLoadBalancers_FullMethodName               = "/weft.v1.WeftAgent/ListLoadBalancers"
+	WeftAgent_GetLoadBalancer_FullMethodName                 = "/weft.v1.WeftAgent/GetLoadBalancer"
+	WeftAgent_CreateLoadBalancer_FullMethodName              = "/weft.v1.WeftAgent/CreateLoadBalancer"
+	WeftAgent_UpdateLoadBalancer_FullMethodName              = "/weft.v1.WeftAgent/UpdateLoadBalancer"
+	WeftAgent_SetLoadBalancerBackends_FullMethodName         = "/weft.v1.WeftAgent/SetLoadBalancerBackends"
+	WeftAgent_DeleteLoadBalancer_FullMethodName              = "/weft.v1.WeftAgent/DeleteLoadBalancer"
+	WeftAgent_ListDNSZones_FullMethodName                    = "/weft.v1.WeftAgent/ListDNSZones"
+	WeftAgent_GetDNSZone_FullMethodName                      = "/weft.v1.WeftAgent/GetDNSZone"
+	WeftAgent_CreateDNSZone_FullMethodName                   = "/weft.v1.WeftAgent/CreateDNSZone"
+	WeftAgent_UpdateDNSZone_FullMethodName                   = "/weft.v1.WeftAgent/UpdateDNSZone"
+	WeftAgent_DeleteDNSZone_FullMethodName                   = "/weft.v1.WeftAgent/DeleteDNSZone"
+	WeftAgent_ListDNSRecords_FullMethodName                  = "/weft.v1.WeftAgent/ListDNSRecords"
+	WeftAgent_CreateDNSRecord_FullMethodName                 = "/weft.v1.WeftAgent/CreateDNSRecord"
+	WeftAgent_UpdateDNSRecord_FullMethodName                 = "/weft.v1.WeftAgent/UpdateDNSRecord"
+	WeftAgent_DeleteDNSRecord_FullMethodName                 = "/weft.v1.WeftAgent/DeleteDNSRecord"
 )
 
 // WeftAgentClient is the client API for WeftAgent service.
@@ -343,6 +363,39 @@ type WeftAgentClient interface {
 	ListPluginCatalogue(ctx context.Context, in *ListPluginCatalogueRequest, opts ...grpc.CallOption) (*ListPluginCatalogueResponse, error)
 	ListInstalledPlugins(ctx context.Context, in *ListInstalledPluginsRequest, opts ...grpc.CallOption) (*ListInstalledPluginsResponse, error)
 	InstallPlugin(ctx context.Context, in *InstallPluginRequest, opts ...grpc.CallOption) (*InstallPluginResponse, error)
+	// --- Subnets (per-network IP scopes) ---
+	// Subnets are children of a Network ; cidr is immutable, gateway +
+	// dns_servers move via UpdateSubnet. Delete refuses while ports
+	// still allocate addresses from the scope.
+	ListSubnets(ctx context.Context, in *ListSubnetsRequest, opts ...grpc.CallOption) (*ListSubnetsResponse, error)
+	GetSubnet(ctx context.Context, in *GetSubnetRequest, opts ...grpc.CallOption) (*GetSubnetResponse, error)
+	CreateSubnet(ctx context.Context, in *CreateSubnetRequest, opts ...grpc.CallOption) (*CreateSubnetResponse, error)
+	UpdateSubnet(ctx context.Context, in *UpdateSubnetRequest, opts ...grpc.CallOption) (*UpdateSubnetResponse, error)
+	DeleteSubnet(ctx context.Context, in *DeleteSubnetRequest, opts ...grpc.CallOption) (*DeleteSubnetResponse, error)
+	// --- LoadBalancers (L4 / L7 virtual ingress) ---
+	// SetLoadBalancerBackends replaces the backend list atomically ;
+	// DeleteLoadBalancer refuses when a FloatingIP still maps to the VIP.
+	ListLoadBalancers(ctx context.Context, in *ListLoadBalancersRequest, opts ...grpc.CallOption) (*ListLoadBalancersResponse, error)
+	GetLoadBalancer(ctx context.Context, in *GetLoadBalancerRequest, opts ...grpc.CallOption) (*GetLoadBalancerResponse, error)
+	CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerRequest, opts ...grpc.CallOption) (*CreateLoadBalancerResponse, error)
+	UpdateLoadBalancer(ctx context.Context, in *UpdateLoadBalancerRequest, opts ...grpc.CallOption) (*UpdateLoadBalancerResponse, error)
+	SetLoadBalancerBackends(ctx context.Context, in *SetLoadBalancerBackendsRequest, opts ...grpc.CallOption) (*SetLoadBalancerBackendsResponse, error)
+	DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerRequest, opts ...grpc.CallOption) (*DeleteLoadBalancerResponse, error)
+	// --- DNS Zones (authoritative apex) ---
+	// DeleteDNSZone refuses while records still attach ; the response
+	// surfaces blocked_by_records so the operator drains in one go.
+	ListDNSZones(ctx context.Context, in *ListDNSZonesRequest, opts ...grpc.CallOption) (*ListDNSZonesResponse, error)
+	GetDNSZone(ctx context.Context, in *GetDNSZoneRequest, opts ...grpc.CallOption) (*GetDNSZoneResponse, error)
+	CreateDNSZone(ctx context.Context, in *CreateDNSZoneRequest, opts ...grpc.CallOption) (*CreateDNSZoneResponse, error)
+	UpdateDNSZone(ctx context.Context, in *UpdateDNSZoneRequest, opts ...grpc.CallOption) (*UpdateDNSZoneResponse, error)
+	DeleteDNSZone(ctx context.Context, in *DeleteDNSZoneRequest, opts ...grpc.CallOption) (*DeleteDNSZoneResponse, error)
+	// --- DNS Records (zone children) ---
+	// Records belong to exactly one zone ; deletion is straight-through
+	// (no cascade). MX/SRV carry a priority field, ignored otherwise.
+	ListDNSRecords(ctx context.Context, in *ListDNSRecordsRequest, opts ...grpc.CallOption) (*ListDNSRecordsResponse, error)
+	CreateDNSRecord(ctx context.Context, in *CreateDNSRecordRequest, opts ...grpc.CallOption) (*CreateDNSRecordResponse, error)
+	UpdateDNSRecord(ctx context.Context, in *UpdateDNSRecordRequest, opts ...grpc.CallOption) (*UpdateDNSRecordResponse, error)
+	DeleteDNSRecord(ctx context.Context, in *DeleteDNSRecordRequest, opts ...grpc.CallOption) (*DeleteDNSRecordResponse, error)
 }
 
 type weftAgentClient struct {
@@ -1542,6 +1595,206 @@ func (c *weftAgentClient) InstallPlugin(ctx context.Context, in *InstallPluginRe
 	return out, nil
 }
 
+func (c *weftAgentClient) ListSubnets(ctx context.Context, in *ListSubnetsRequest, opts ...grpc.CallOption) (*ListSubnetsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSubnetsResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListSubnets_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetSubnet(ctx context.Context, in *GetSubnetRequest, opts ...grpc.CallOption) (*GetSubnetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSubnetResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetSubnet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) CreateSubnet(ctx context.Context, in *CreateSubnetRequest, opts ...grpc.CallOption) (*CreateSubnetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateSubnetResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_CreateSubnet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) UpdateSubnet(ctx context.Context, in *UpdateSubnetRequest, opts ...grpc.CallOption) (*UpdateSubnetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateSubnetResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_UpdateSubnet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteSubnet(ctx context.Context, in *DeleteSubnetRequest, opts ...grpc.CallOption) (*DeleteSubnetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteSubnetResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteSubnet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListLoadBalancers(ctx context.Context, in *ListLoadBalancersRequest, opts ...grpc.CallOption) (*ListLoadBalancersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListLoadBalancersResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListLoadBalancers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetLoadBalancer(ctx context.Context, in *GetLoadBalancerRequest, opts ...grpc.CallOption) (*GetLoadBalancerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetLoadBalancerResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetLoadBalancer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerRequest, opts ...grpc.CallOption) (*CreateLoadBalancerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateLoadBalancerResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_CreateLoadBalancer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) UpdateLoadBalancer(ctx context.Context, in *UpdateLoadBalancerRequest, opts ...grpc.CallOption) (*UpdateLoadBalancerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateLoadBalancerResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_UpdateLoadBalancer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) SetLoadBalancerBackends(ctx context.Context, in *SetLoadBalancerBackendsRequest, opts ...grpc.CallOption) (*SetLoadBalancerBackendsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetLoadBalancerBackendsResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetLoadBalancerBackends_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerRequest, opts ...grpc.CallOption) (*DeleteLoadBalancerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteLoadBalancerResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteLoadBalancer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListDNSZones(ctx context.Context, in *ListDNSZonesRequest, opts ...grpc.CallOption) (*ListDNSZonesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDNSZonesResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListDNSZones_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetDNSZone(ctx context.Context, in *GetDNSZoneRequest, opts ...grpc.CallOption) (*GetDNSZoneResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDNSZoneResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetDNSZone_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) CreateDNSZone(ctx context.Context, in *CreateDNSZoneRequest, opts ...grpc.CallOption) (*CreateDNSZoneResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateDNSZoneResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_CreateDNSZone_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) UpdateDNSZone(ctx context.Context, in *UpdateDNSZoneRequest, opts ...grpc.CallOption) (*UpdateDNSZoneResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateDNSZoneResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_UpdateDNSZone_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteDNSZone(ctx context.Context, in *DeleteDNSZoneRequest, opts ...grpc.CallOption) (*DeleteDNSZoneResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteDNSZoneResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteDNSZone_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListDNSRecords(ctx context.Context, in *ListDNSRecordsRequest, opts ...grpc.CallOption) (*ListDNSRecordsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDNSRecordsResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListDNSRecords_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) CreateDNSRecord(ctx context.Context, in *CreateDNSRecordRequest, opts ...grpc.CallOption) (*CreateDNSRecordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateDNSRecordResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_CreateDNSRecord_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) UpdateDNSRecord(ctx context.Context, in *UpdateDNSRecordRequest, opts ...grpc.CallOption) (*UpdateDNSRecordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateDNSRecordResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_UpdateDNSRecord_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteDNSRecord(ctx context.Context, in *DeleteDNSRecordRequest, opts ...grpc.CallOption) (*DeleteDNSRecordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteDNSRecordResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteDNSRecord_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeftAgentServer is the server API for WeftAgent service.
 // All implementations must embed UnimplementedWeftAgentServer
 // for forward compatibility.
@@ -1746,6 +1999,39 @@ type WeftAgentServer interface {
 	ListPluginCatalogue(context.Context, *ListPluginCatalogueRequest) (*ListPluginCatalogueResponse, error)
 	ListInstalledPlugins(context.Context, *ListInstalledPluginsRequest) (*ListInstalledPluginsResponse, error)
 	InstallPlugin(context.Context, *InstallPluginRequest) (*InstallPluginResponse, error)
+	// --- Subnets (per-network IP scopes) ---
+	// Subnets are children of a Network ; cidr is immutable, gateway +
+	// dns_servers move via UpdateSubnet. Delete refuses while ports
+	// still allocate addresses from the scope.
+	ListSubnets(context.Context, *ListSubnetsRequest) (*ListSubnetsResponse, error)
+	GetSubnet(context.Context, *GetSubnetRequest) (*GetSubnetResponse, error)
+	CreateSubnet(context.Context, *CreateSubnetRequest) (*CreateSubnetResponse, error)
+	UpdateSubnet(context.Context, *UpdateSubnetRequest) (*UpdateSubnetResponse, error)
+	DeleteSubnet(context.Context, *DeleteSubnetRequest) (*DeleteSubnetResponse, error)
+	// --- LoadBalancers (L4 / L7 virtual ingress) ---
+	// SetLoadBalancerBackends replaces the backend list atomically ;
+	// DeleteLoadBalancer refuses when a FloatingIP still maps to the VIP.
+	ListLoadBalancers(context.Context, *ListLoadBalancersRequest) (*ListLoadBalancersResponse, error)
+	GetLoadBalancer(context.Context, *GetLoadBalancerRequest) (*GetLoadBalancerResponse, error)
+	CreateLoadBalancer(context.Context, *CreateLoadBalancerRequest) (*CreateLoadBalancerResponse, error)
+	UpdateLoadBalancer(context.Context, *UpdateLoadBalancerRequest) (*UpdateLoadBalancerResponse, error)
+	SetLoadBalancerBackends(context.Context, *SetLoadBalancerBackendsRequest) (*SetLoadBalancerBackendsResponse, error)
+	DeleteLoadBalancer(context.Context, *DeleteLoadBalancerRequest) (*DeleteLoadBalancerResponse, error)
+	// --- DNS Zones (authoritative apex) ---
+	// DeleteDNSZone refuses while records still attach ; the response
+	// surfaces blocked_by_records so the operator drains in one go.
+	ListDNSZones(context.Context, *ListDNSZonesRequest) (*ListDNSZonesResponse, error)
+	GetDNSZone(context.Context, *GetDNSZoneRequest) (*GetDNSZoneResponse, error)
+	CreateDNSZone(context.Context, *CreateDNSZoneRequest) (*CreateDNSZoneResponse, error)
+	UpdateDNSZone(context.Context, *UpdateDNSZoneRequest) (*UpdateDNSZoneResponse, error)
+	DeleteDNSZone(context.Context, *DeleteDNSZoneRequest) (*DeleteDNSZoneResponse, error)
+	// --- DNS Records (zone children) ---
+	// Records belong to exactly one zone ; deletion is straight-through
+	// (no cascade). MX/SRV carry a priority field, ignored otherwise.
+	ListDNSRecords(context.Context, *ListDNSRecordsRequest) (*ListDNSRecordsResponse, error)
+	CreateDNSRecord(context.Context, *CreateDNSRecordRequest) (*CreateDNSRecordResponse, error)
+	UpdateDNSRecord(context.Context, *UpdateDNSRecordRequest) (*UpdateDNSRecordResponse, error)
+	DeleteDNSRecord(context.Context, *DeleteDNSRecordRequest) (*DeleteDNSRecordResponse, error)
 	mustEmbedUnimplementedWeftAgentServer()
 }
 
@@ -2109,6 +2395,66 @@ func (UnimplementedWeftAgentServer) ListInstalledPlugins(context.Context, *ListI
 }
 func (UnimplementedWeftAgentServer) InstallPlugin(context.Context, *InstallPluginRequest) (*InstallPluginResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InstallPlugin not implemented")
+}
+func (UnimplementedWeftAgentServer) ListSubnets(context.Context, *ListSubnetsRequest) (*ListSubnetsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSubnets not implemented")
+}
+func (UnimplementedWeftAgentServer) GetSubnet(context.Context, *GetSubnetRequest) (*GetSubnetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSubnet not implemented")
+}
+func (UnimplementedWeftAgentServer) CreateSubnet(context.Context, *CreateSubnetRequest) (*CreateSubnetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSubnet not implemented")
+}
+func (UnimplementedWeftAgentServer) UpdateSubnet(context.Context, *UpdateSubnetRequest) (*UpdateSubnetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateSubnet not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteSubnet(context.Context, *DeleteSubnetRequest) (*DeleteSubnetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSubnet not implemented")
+}
+func (UnimplementedWeftAgentServer) ListLoadBalancers(context.Context, *ListLoadBalancersRequest) (*ListLoadBalancersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListLoadBalancers not implemented")
+}
+func (UnimplementedWeftAgentServer) GetLoadBalancer(context.Context, *GetLoadBalancerRequest) (*GetLoadBalancerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetLoadBalancer not implemented")
+}
+func (UnimplementedWeftAgentServer) CreateLoadBalancer(context.Context, *CreateLoadBalancerRequest) (*CreateLoadBalancerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateLoadBalancer not implemented")
+}
+func (UnimplementedWeftAgentServer) UpdateLoadBalancer(context.Context, *UpdateLoadBalancerRequest) (*UpdateLoadBalancerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateLoadBalancer not implemented")
+}
+func (UnimplementedWeftAgentServer) SetLoadBalancerBackends(context.Context, *SetLoadBalancerBackendsRequest) (*SetLoadBalancerBackendsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetLoadBalancerBackends not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteLoadBalancer(context.Context, *DeleteLoadBalancerRequest) (*DeleteLoadBalancerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteLoadBalancer not implemented")
+}
+func (UnimplementedWeftAgentServer) ListDNSZones(context.Context, *ListDNSZonesRequest) (*ListDNSZonesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListDNSZones not implemented")
+}
+func (UnimplementedWeftAgentServer) GetDNSZone(context.Context, *GetDNSZoneRequest) (*GetDNSZoneResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetDNSZone not implemented")
+}
+func (UnimplementedWeftAgentServer) CreateDNSZone(context.Context, *CreateDNSZoneRequest) (*CreateDNSZoneResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateDNSZone not implemented")
+}
+func (UnimplementedWeftAgentServer) UpdateDNSZone(context.Context, *UpdateDNSZoneRequest) (*UpdateDNSZoneResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateDNSZone not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteDNSZone(context.Context, *DeleteDNSZoneRequest) (*DeleteDNSZoneResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteDNSZone not implemented")
+}
+func (UnimplementedWeftAgentServer) ListDNSRecords(context.Context, *ListDNSRecordsRequest) (*ListDNSRecordsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListDNSRecords not implemented")
+}
+func (UnimplementedWeftAgentServer) CreateDNSRecord(context.Context, *CreateDNSRecordRequest) (*CreateDNSRecordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateDNSRecord not implemented")
+}
+func (UnimplementedWeftAgentServer) UpdateDNSRecord(context.Context, *UpdateDNSRecordRequest) (*UpdateDNSRecordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateDNSRecord not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteDNSRecord(context.Context, *DeleteDNSRecordRequest) (*DeleteDNSRecordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteDNSRecord not implemented")
 }
 func (UnimplementedWeftAgentServer) mustEmbedUnimplementedWeftAgentServer() {}
 func (UnimplementedWeftAgentServer) testEmbeddedByValue()                   {}
@@ -4248,6 +4594,366 @@ func _WeftAgent_InstallPlugin_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WeftAgent_ListSubnets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSubnetsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListSubnets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListSubnets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListSubnets(ctx, req.(*ListSubnetsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetSubnet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSubnetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetSubnet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetSubnet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetSubnet(ctx, req.(*GetSubnetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_CreateSubnet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateSubnetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).CreateSubnet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_CreateSubnet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).CreateSubnet(ctx, req.(*CreateSubnetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_UpdateSubnet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateSubnetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).UpdateSubnet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_UpdateSubnet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).UpdateSubnet(ctx, req.(*UpdateSubnetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteSubnet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSubnetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteSubnet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteSubnet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteSubnet(ctx, req.(*DeleteSubnetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListLoadBalancers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListLoadBalancersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListLoadBalancers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListLoadBalancers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListLoadBalancers(ctx, req.(*ListLoadBalancersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetLoadBalancer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLoadBalancerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetLoadBalancer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetLoadBalancer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetLoadBalancer(ctx, req.(*GetLoadBalancerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_CreateLoadBalancer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateLoadBalancerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).CreateLoadBalancer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_CreateLoadBalancer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).CreateLoadBalancer(ctx, req.(*CreateLoadBalancerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_UpdateLoadBalancer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateLoadBalancerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).UpdateLoadBalancer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_UpdateLoadBalancer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).UpdateLoadBalancer(ctx, req.(*UpdateLoadBalancerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_SetLoadBalancerBackends_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetLoadBalancerBackendsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SetLoadBalancerBackends(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SetLoadBalancerBackends_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SetLoadBalancerBackends(ctx, req.(*SetLoadBalancerBackendsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteLoadBalancer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteLoadBalancerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteLoadBalancer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteLoadBalancer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteLoadBalancer(ctx, req.(*DeleteLoadBalancerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListDNSZones_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDNSZonesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListDNSZones(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListDNSZones_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListDNSZones(ctx, req.(*ListDNSZonesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetDNSZone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDNSZoneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetDNSZone(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetDNSZone_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetDNSZone(ctx, req.(*GetDNSZoneRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_CreateDNSZone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateDNSZoneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).CreateDNSZone(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_CreateDNSZone_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).CreateDNSZone(ctx, req.(*CreateDNSZoneRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_UpdateDNSZone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateDNSZoneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).UpdateDNSZone(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_UpdateDNSZone_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).UpdateDNSZone(ctx, req.(*UpdateDNSZoneRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteDNSZone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteDNSZoneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteDNSZone(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteDNSZone_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteDNSZone(ctx, req.(*DeleteDNSZoneRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListDNSRecords_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDNSRecordsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListDNSRecords(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListDNSRecords_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListDNSRecords(ctx, req.(*ListDNSRecordsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_CreateDNSRecord_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateDNSRecordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).CreateDNSRecord(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_CreateDNSRecord_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).CreateDNSRecord(ctx, req.(*CreateDNSRecordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_UpdateDNSRecord_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateDNSRecordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).UpdateDNSRecord(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_UpdateDNSRecord_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).UpdateDNSRecord(ctx, req.(*UpdateDNSRecordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteDNSRecord_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteDNSRecordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteDNSRecord(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteDNSRecord_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteDNSRecord(ctx, req.(*DeleteDNSRecordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WeftAgent_ServiceDesc is the grpc.ServiceDesc for WeftAgent service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -4722,6 +5428,86 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InstallPlugin",
 			Handler:    _WeftAgent_InstallPlugin_Handler,
+		},
+		{
+			MethodName: "ListSubnets",
+			Handler:    _WeftAgent_ListSubnets_Handler,
+		},
+		{
+			MethodName: "GetSubnet",
+			Handler:    _WeftAgent_GetSubnet_Handler,
+		},
+		{
+			MethodName: "CreateSubnet",
+			Handler:    _WeftAgent_CreateSubnet_Handler,
+		},
+		{
+			MethodName: "UpdateSubnet",
+			Handler:    _WeftAgent_UpdateSubnet_Handler,
+		},
+		{
+			MethodName: "DeleteSubnet",
+			Handler:    _WeftAgent_DeleteSubnet_Handler,
+		},
+		{
+			MethodName: "ListLoadBalancers",
+			Handler:    _WeftAgent_ListLoadBalancers_Handler,
+		},
+		{
+			MethodName: "GetLoadBalancer",
+			Handler:    _WeftAgent_GetLoadBalancer_Handler,
+		},
+		{
+			MethodName: "CreateLoadBalancer",
+			Handler:    _WeftAgent_CreateLoadBalancer_Handler,
+		},
+		{
+			MethodName: "UpdateLoadBalancer",
+			Handler:    _WeftAgent_UpdateLoadBalancer_Handler,
+		},
+		{
+			MethodName: "SetLoadBalancerBackends",
+			Handler:    _WeftAgent_SetLoadBalancerBackends_Handler,
+		},
+		{
+			MethodName: "DeleteLoadBalancer",
+			Handler:    _WeftAgent_DeleteLoadBalancer_Handler,
+		},
+		{
+			MethodName: "ListDNSZones",
+			Handler:    _WeftAgent_ListDNSZones_Handler,
+		},
+		{
+			MethodName: "GetDNSZone",
+			Handler:    _WeftAgent_GetDNSZone_Handler,
+		},
+		{
+			MethodName: "CreateDNSZone",
+			Handler:    _WeftAgent_CreateDNSZone_Handler,
+		},
+		{
+			MethodName: "UpdateDNSZone",
+			Handler:    _WeftAgent_UpdateDNSZone_Handler,
+		},
+		{
+			MethodName: "DeleteDNSZone",
+			Handler:    _WeftAgent_DeleteDNSZone_Handler,
+		},
+		{
+			MethodName: "ListDNSRecords",
+			Handler:    _WeftAgent_ListDNSRecords_Handler,
+		},
+		{
+			MethodName: "CreateDNSRecord",
+			Handler:    _WeftAgent_CreateDNSRecord_Handler,
+		},
+		{
+			MethodName: "UpdateDNSRecord",
+			Handler:    _WeftAgent_UpdateDNSRecord_Handler,
+		},
+		{
+			MethodName: "DeleteDNSRecord",
+			Handler:    _WeftAgent_DeleteDNSRecord_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

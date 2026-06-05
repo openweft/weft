@@ -1271,6 +1271,43 @@ service WeftAgent {
   rpc ListPluginCatalogue  (ListPluginCatalogueRequest)  returns (ListPluginCatalogueResponse);
   rpc ListInstalledPlugins (ListInstalledPluginsRequest) returns (ListInstalledPluginsResponse);
   rpc InstallPlugin        (InstallPluginRequest)        returns (InstallPluginResponse);
+
+  // --- Subnets (per-network IP scopes) ---
+  // Subnets are children of a Network ; cidr is immutable, gateway +
+  // dns_servers move via UpdateSubnet. Delete refuses while ports
+  // still allocate addresses from the scope.
+  rpc ListSubnets  (ListSubnetsRequest)  returns (ListSubnetsResponse);
+  rpc GetSubnet    (GetSubnetRequest)    returns (GetSubnetResponse);
+  rpc CreateSubnet (CreateSubnetRequest) returns (CreateSubnetResponse);
+  rpc UpdateSubnet (UpdateSubnetRequest) returns (UpdateSubnetResponse);
+  rpc DeleteSubnet (DeleteSubnetRequest) returns (DeleteSubnetResponse);
+
+  // --- LoadBalancers (L4 / L7 virtual ingress) ---
+  // SetLoadBalancerBackends replaces the backend list atomically ;
+  // DeleteLoadBalancer refuses when a FloatingIP still maps to the VIP.
+  rpc ListLoadBalancers       (ListLoadBalancersRequest)       returns (ListLoadBalancersResponse);
+  rpc GetLoadBalancer         (GetLoadBalancerRequest)         returns (GetLoadBalancerResponse);
+  rpc CreateLoadBalancer      (CreateLoadBalancerRequest)      returns (CreateLoadBalancerResponse);
+  rpc UpdateLoadBalancer      (UpdateLoadBalancerRequest)      returns (UpdateLoadBalancerResponse);
+  rpc SetLoadBalancerBackends (SetLoadBalancerBackendsRequest) returns (SetLoadBalancerBackendsResponse);
+  rpc DeleteLoadBalancer      (DeleteLoadBalancerRequest)      returns (DeleteLoadBalancerResponse);
+
+  // --- DNS Zones (authoritative apex) ---
+  // DeleteDNSZone refuses while records still attach ; the response
+  // surfaces blocked_by_records so the operator drains in one go.
+  rpc ListDNSZones  (ListDNSZonesRequest)  returns (ListDNSZonesResponse);
+  rpc GetDNSZone    (GetDNSZoneRequest)    returns (GetDNSZoneResponse);
+  rpc CreateDNSZone (CreateDNSZoneRequest) returns (CreateDNSZoneResponse);
+  rpc UpdateDNSZone (UpdateDNSZoneRequest) returns (UpdateDNSZoneResponse);
+  rpc DeleteDNSZone (DeleteDNSZoneRequest) returns (DeleteDNSZoneResponse);
+
+  // --- DNS Records (zone children) ---
+  // Records belong to exactly one zone ; deletion is straight-through
+  // (no cascade). MX/SRV carry a priority field, ignored otherwise.
+  rpc ListDNSRecords  (ListDNSRecordsRequest)  returns (ListDNSRecordsResponse);
+  rpc CreateDNSRecord (CreateDNSRecordRequest) returns (CreateDNSRecordResponse);
+  rpc UpdateDNSRecord (UpdateDNSRecordRequest) returns (UpdateDNSRecordResponse);
+  rpc DeleteDNSRecord (DeleteDNSRecordRequest) returns (DeleteDNSRecordResponse);
 }
 
 // --- Hosts -------------------------------------------------------
@@ -1988,3 +2025,236 @@ message RemoveVMSSHKeyRequest {
   string fingerprint = 3;
 }
 message RemoveVMSSHKeyResponse { string removed = 1; }
+
+// --- Subnets (per-network IP scope) -----------------------------
+//
+// A Subnet is a CIDR block carved out of a parent Network. A
+// Network can carry multiple Subnets (dual-stack v4+v6, multi-vlan,
+// staged rollouts). `cidr` is immutable — operators delete and
+// recreate to renumber. `gateway` + `dns_servers` are mutable via
+// UpdateSubnet ; cascade safety is delegated to the parent
+// network's port registry (DeleteSubnet refuses when allocations
+// remain).
+
+message SubnetInfo {
+  string uuid               = 1;
+  string network_uuid       = 2;  // parent network
+  string project_uuid       = 3;  // denormalised from the parent for filtering
+  string name               = 4;
+  string description        = 5;
+  string cidr               = 6;  // immutable
+  string gateway            = 7;
+  repeated string dns_servers = 8;
+  int64  created_at_unix_ns = 9;
+}
+
+message ListSubnetsRequest  {
+  string network_uuid = 1;  // optional ; empty = every subnet in the project / cluster
+  string project      = 2;  // optional ACL narrow ; ignored when network_uuid set
+  int32  limit        = 3;
+  string page_token   = 4;
+}
+message ListSubnetsResponse {
+  repeated SubnetInfo subnets = 1;
+  string next_page_token      = 2;
+}
+
+message GetSubnetRequest  { string uuid = 1; }
+message GetSubnetResponse { SubnetInfo subnet = 1; }
+
+message CreateSubnetRequest {
+  string network_uuid = 1;  // required
+  string name         = 2;
+  string description  = 3;
+  string cidr         = 4;  // required, immutable
+  string gateway      = 5;
+  repeated string dns_servers = 6;
+}
+message CreateSubnetResponse { SubnetInfo subnet = 1; bool created = 2; }
+
+message UpdateSubnetRequest {
+  string uuid        = 1;
+  string name        = 2;  // empty = keep current
+  string description = 3;  // empty = keep current
+  string gateway     = 4;  // empty = keep current
+  // dns_servers : nil slice = keep current ; empty slice (non-nil)
+  // = clear. The proto3 repeated has no nil/empty distinction on the
+  // wire — clients that want "clear" send `clear_dns_servers=true`.
+  bool   clear_dns_servers = 5;
+  repeated string dns_servers = 6;
+}
+message UpdateSubnetResponse { SubnetInfo subnet = 1; }
+
+message DeleteSubnetRequest  { string uuid = 1; }
+message DeleteSubnetResponse {
+  string deleted_uuid = 1;
+}
+
+// --- LoadBalancers (L4 / L7 virtual ingress) --------------------
+//
+// A LoadBalancer fronts a backend pool with a single listen address
+// + protocol. Protocols : "l4_tcp" | "l4_udp" | "l7_http" |
+// "l7_https". Backends are { address, weight } pairs ; weight 0
+// means "drain". SetLoadBalancerBackends replaces the list
+// atomically — clients GET-modify-PUT to add/remove a single entry.
+//
+// Cascade : DeleteLoadBalancer refuses when a FloatingIP still maps
+// to it ; the caller unmaps the FIP first.
+
+message LBBackend {
+  string address = 1;  // host[:port] ; port optional, defaults per listener
+  int32  weight  = 2;  // 0 = drain, 1..N = relative weight
+}
+
+message LoadBalancerInfo {
+  string uuid               = 1;
+  string project_uuid       = 2;
+  string name               = 3;
+  string listen_addr        = 4;  // VIP or CIDR the listener binds to
+  string protocol           = 5;  // "l4_tcp" | "l4_udp" | "l7_http" | "l7_https"
+  repeated LBBackend backends = 6;
+  int64  created_at_unix_ns = 7;
+}
+
+message ListLoadBalancersRequest  {
+  string project    = 1;  // name or UUID ; empty = caller's accessible set
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListLoadBalancersResponse {
+  repeated LoadBalancerInfo load_balancers = 1;
+  string next_page_token                   = 2;
+}
+
+message GetLoadBalancerRequest  { string uuid = 1; }
+message GetLoadBalancerResponse { LoadBalancerInfo load_balancer = 1; }
+
+message CreateLoadBalancerRequest {
+  string project     = 1;  // name or UUID
+  string name        = 2;
+  string listen_addr = 3;
+  string protocol    = 4;
+  repeated LBBackend backends = 5;
+}
+message CreateLoadBalancerResponse { LoadBalancerInfo load_balancer = 1; bool created = 2; }
+
+message UpdateLoadBalancerRequest {
+  string uuid        = 1;
+  string name        = 2;  // empty = keep current
+  string listen_addr = 3;  // empty = keep current
+  string protocol    = 4;  // empty = keep current
+}
+message UpdateLoadBalancerResponse { LoadBalancerInfo load_balancer = 1; }
+
+// SetLoadBalancerBackends replaces the backend list atomically.
+// Empty backends slice clears every member (LB becomes a black
+// hole until the next set call).
+message SetLoadBalancerBackendsRequest {
+  string uuid = 1;
+  repeated LBBackend backends = 2;
+}
+message SetLoadBalancerBackendsResponse { LoadBalancerInfo load_balancer = 1; }
+
+message DeleteLoadBalancerRequest  { string uuid = 1; }
+message DeleteLoadBalancerResponse {
+  string deleted_uuid     = 1;
+  int32  blocked_by_fips  = 2;  // > 0 when a FloatingIP still maps to this LB
+}
+
+// --- DNS Zones + Records (authoritative DNS catalogue) ----------
+//
+// A DNSZone is one apex (e.g. "acme.example.com") tied to a project.
+// DNSRecords are children of a zone (name + type + value + ttl). The
+// zone's records_count is server-derived.
+//
+// Cascade : DeleteDNSZone refuses when records still attach. The
+// `blocked_by_records` count surfaces the blocking volume so the
+// operator runs the drain in one go.
+
+message DNSZoneInfo {
+  string uuid               = 1;
+  string project_uuid       = 2;
+  string name               = 3;  // FQDN, e.g. "acme.example.com"
+  string soa_email          = 4;  // rname for the SOA record (e.g. "hostmaster@acme.example.com")
+  int32  ttl                = 5;  // default TTL for records that don't override
+  int32  records            = 6;  // derived count (server-filled)
+  int64  created_at_unix_ns = 7;
+}
+
+message ListDNSZonesRequest  {
+  string project    = 1;
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListDNSZonesResponse {
+  repeated DNSZoneInfo zones = 1;
+  string next_page_token     = 2;
+}
+
+message GetDNSZoneRequest  { string uuid = 1; string name = 2; }  // either lookup key
+message GetDNSZoneResponse { DNSZoneInfo zone = 1; }
+
+message CreateDNSZoneRequest {
+  string project   = 1;
+  string name      = 2;
+  string soa_email = 3;
+  int32  ttl       = 4;  // 0 → 3600
+}
+message CreateDNSZoneResponse { DNSZoneInfo zone = 1; bool created = 2; }
+
+message UpdateDNSZoneRequest {
+  string uuid      = 1;
+  string soa_email = 2;  // empty = keep current
+  int32  ttl       = 3;  // -1 = keep current (proto3 int32 has no nil)
+}
+message UpdateDNSZoneResponse { DNSZoneInfo zone = 1; }
+
+message DeleteDNSZoneRequest  { string uuid = 1; }
+message DeleteDNSZoneResponse {
+  string deleted_uuid          = 1;
+  int32  blocked_by_records    = 2;
+}
+
+// DNSRecord types : "A" | "AAAA" | "CNAME" | "MX" | "TXT" | "SRV".
+// `priority` is required for MX + SRV, ignored otherwise.
+message DNSRecordInfo {
+  string uuid               = 1;
+  string zone_uuid          = 2;  // parent
+  string name               = 3;  // sub.acme.example.com ; "@" = zone apex
+  string type               = 4;  // see comment above
+  string value              = 5;
+  int32  ttl                = 6;  // 0 = inherit zone default
+  int32  priority           = 7;  // MX / SRV only
+  int64  created_at_unix_ns = 8;
+}
+
+message ListDNSRecordsRequest  {
+  string zone_uuid  = 1;  // required
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListDNSRecordsResponse {
+  repeated DNSRecordInfo records = 1;
+  string next_page_token         = 2;
+}
+
+message CreateDNSRecordRequest {
+  string zone_uuid = 1;
+  string name      = 2;
+  string type      = 3;
+  string value     = 4;
+  int32  ttl       = 5;
+  int32  priority  = 6;
+}
+message CreateDNSRecordResponse { DNSRecordInfo record = 1; bool created = 2; }
+
+message UpdateDNSRecordRequest {
+  string uuid     = 1;
+  string value    = 2;  // empty = keep current
+  int32  ttl      = 3;  // -1 = keep current
+  int32  priority = 4;  // -1 = keep current
+}
+message UpdateDNSRecordResponse { DNSRecordInfo record = 1; }
+
+message DeleteDNSRecordRequest  { string uuid = 1; }
+message DeleteDNSRecordResponse { string deleted_uuid = 1; }

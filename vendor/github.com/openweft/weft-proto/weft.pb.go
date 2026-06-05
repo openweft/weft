@@ -16485,6 +16485,2626 @@ func (x *RemoveVMSSHKeyResponse) GetRemoved() string {
 	return ""
 }
 
+type SubnetInfo struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Uuid            string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	NetworkUuid     string                 `protobuf:"bytes,2,opt,name=network_uuid,json=networkUuid,proto3" json:"network_uuid,omitempty"` // parent network
+	ProjectUuid     string                 `protobuf:"bytes,3,opt,name=project_uuid,json=projectUuid,proto3" json:"project_uuid,omitempty"` // denormalised from the parent for filtering
+	Name            string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	Description     string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	Cidr            string                 `protobuf:"bytes,6,opt,name=cidr,proto3" json:"cidr,omitempty"` // immutable
+	Gateway         string                 `protobuf:"bytes,7,opt,name=gateway,proto3" json:"gateway,omitempty"`
+	DnsServers      []string               `protobuf:"bytes,8,rep,name=dns_servers,json=dnsServers,proto3" json:"dns_servers,omitempty"`
+	CreatedAtUnixNs int64                  `protobuf:"varint,9,opt,name=created_at_unix_ns,json=createdAtUnixNs,proto3" json:"created_at_unix_ns,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SubnetInfo) Reset() {
+	*x = SubnetInfo{}
+	mi := &file_weft_proto_msgTypes[289]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubnetInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubnetInfo) ProtoMessage() {}
+
+func (x *SubnetInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[289]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubnetInfo.ProtoReflect.Descriptor instead.
+func (*SubnetInfo) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{289}
+}
+
+func (x *SubnetInfo) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *SubnetInfo) GetNetworkUuid() string {
+	if x != nil {
+		return x.NetworkUuid
+	}
+	return ""
+}
+
+func (x *SubnetInfo) GetProjectUuid() string {
+	if x != nil {
+		return x.ProjectUuid
+	}
+	return ""
+}
+
+func (x *SubnetInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SubnetInfo) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *SubnetInfo) GetCidr() string {
+	if x != nil {
+		return x.Cidr
+	}
+	return ""
+}
+
+func (x *SubnetInfo) GetGateway() string {
+	if x != nil {
+		return x.Gateway
+	}
+	return ""
+}
+
+func (x *SubnetInfo) GetDnsServers() []string {
+	if x != nil {
+		return x.DnsServers
+	}
+	return nil
+}
+
+func (x *SubnetInfo) GetCreatedAtUnixNs() int64 {
+	if x != nil {
+		return x.CreatedAtUnixNs
+	}
+	return 0
+}
+
+type ListSubnetsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NetworkUuid   string                 `protobuf:"bytes,1,opt,name=network_uuid,json=networkUuid,proto3" json:"network_uuid,omitempty"` // optional ; empty = every subnet in the project / cluster
+	Project       string                 `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`                            // optional ACL narrow ; ignored when network_uuid set
+	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	PageToken     string                 `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSubnetsRequest) Reset() {
+	*x = ListSubnetsRequest{}
+	mi := &file_weft_proto_msgTypes[290]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubnetsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubnetsRequest) ProtoMessage() {}
+
+func (x *ListSubnetsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[290]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubnetsRequest.ProtoReflect.Descriptor instead.
+func (*ListSubnetsRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{290}
+}
+
+func (x *ListSubnetsRequest) GetNetworkUuid() string {
+	if x != nil {
+		return x.NetworkUuid
+	}
+	return ""
+}
+
+func (x *ListSubnetsRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *ListSubnetsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListSubnetsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListSubnetsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Subnets       []*SubnetInfo          `protobuf:"bytes,1,rep,name=subnets,proto3" json:"subnets,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSubnetsResponse) Reset() {
+	*x = ListSubnetsResponse{}
+	mi := &file_weft_proto_msgTypes[291]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubnetsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubnetsResponse) ProtoMessage() {}
+
+func (x *ListSubnetsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[291]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubnetsResponse.ProtoReflect.Descriptor instead.
+func (*ListSubnetsResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{291}
+}
+
+func (x *ListSubnetsResponse) GetSubnets() []*SubnetInfo {
+	if x != nil {
+		return x.Subnets
+	}
+	return nil
+}
+
+func (x *ListSubnetsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type GetSubnetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSubnetRequest) Reset() {
+	*x = GetSubnetRequest{}
+	mi := &file_weft_proto_msgTypes[292]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSubnetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSubnetRequest) ProtoMessage() {}
+
+func (x *GetSubnetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[292]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSubnetRequest.ProtoReflect.Descriptor instead.
+func (*GetSubnetRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{292}
+}
+
+func (x *GetSubnetRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+type GetSubnetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Subnet        *SubnetInfo            `protobuf:"bytes,1,opt,name=subnet,proto3" json:"subnet,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSubnetResponse) Reset() {
+	*x = GetSubnetResponse{}
+	mi := &file_weft_proto_msgTypes[293]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSubnetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSubnetResponse) ProtoMessage() {}
+
+func (x *GetSubnetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[293]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSubnetResponse.ProtoReflect.Descriptor instead.
+func (*GetSubnetResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{293}
+}
+
+func (x *GetSubnetResponse) GetSubnet() *SubnetInfo {
+	if x != nil {
+		return x.Subnet
+	}
+	return nil
+}
+
+type CreateSubnetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NetworkUuid   string                 `protobuf:"bytes,1,opt,name=network_uuid,json=networkUuid,proto3" json:"network_uuid,omitempty"` // required
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Cidr          string                 `protobuf:"bytes,4,opt,name=cidr,proto3" json:"cidr,omitempty"` // required, immutable
+	Gateway       string                 `protobuf:"bytes,5,opt,name=gateway,proto3" json:"gateway,omitempty"`
+	DnsServers    []string               `protobuf:"bytes,6,rep,name=dns_servers,json=dnsServers,proto3" json:"dns_servers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateSubnetRequest) Reset() {
+	*x = CreateSubnetRequest{}
+	mi := &file_weft_proto_msgTypes[294]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateSubnetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateSubnetRequest) ProtoMessage() {}
+
+func (x *CreateSubnetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[294]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateSubnetRequest.ProtoReflect.Descriptor instead.
+func (*CreateSubnetRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{294}
+}
+
+func (x *CreateSubnetRequest) GetNetworkUuid() string {
+	if x != nil {
+		return x.NetworkUuid
+	}
+	return ""
+}
+
+func (x *CreateSubnetRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateSubnetRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *CreateSubnetRequest) GetCidr() string {
+	if x != nil {
+		return x.Cidr
+	}
+	return ""
+}
+
+func (x *CreateSubnetRequest) GetGateway() string {
+	if x != nil {
+		return x.Gateway
+	}
+	return ""
+}
+
+func (x *CreateSubnetRequest) GetDnsServers() []string {
+	if x != nil {
+		return x.DnsServers
+	}
+	return nil
+}
+
+type CreateSubnetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Subnet        *SubnetInfo            `protobuf:"bytes,1,opt,name=subnet,proto3" json:"subnet,omitempty"`
+	Created       bool                   `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateSubnetResponse) Reset() {
+	*x = CreateSubnetResponse{}
+	mi := &file_weft_proto_msgTypes[295]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateSubnetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateSubnetResponse) ProtoMessage() {}
+
+func (x *CreateSubnetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[295]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateSubnetResponse.ProtoReflect.Descriptor instead.
+func (*CreateSubnetResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{295}
+}
+
+func (x *CreateSubnetResponse) GetSubnet() *SubnetInfo {
+	if x != nil {
+		return x.Subnet
+	}
+	return nil
+}
+
+func (x *CreateSubnetResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+type UpdateSubnetRequest struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Uuid        string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`               // empty = keep current
+	Description string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"` // empty = keep current
+	Gateway     string                 `protobuf:"bytes,4,opt,name=gateway,proto3" json:"gateway,omitempty"`         // empty = keep current
+	// dns_servers : nil slice = keep current ; empty slice (non-nil)
+	// = clear. The proto3 repeated has no nil/empty distinction on the
+	// wire — clients that want "clear" send `clear_dns_servers=true`.
+	ClearDnsServers bool     `protobuf:"varint,5,opt,name=clear_dns_servers,json=clearDnsServers,proto3" json:"clear_dns_servers,omitempty"`
+	DnsServers      []string `protobuf:"bytes,6,rep,name=dns_servers,json=dnsServers,proto3" json:"dns_servers,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *UpdateSubnetRequest) Reset() {
+	*x = UpdateSubnetRequest{}
+	mi := &file_weft_proto_msgTypes[296]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateSubnetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateSubnetRequest) ProtoMessage() {}
+
+func (x *UpdateSubnetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[296]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateSubnetRequest.ProtoReflect.Descriptor instead.
+func (*UpdateSubnetRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{296}
+}
+
+func (x *UpdateSubnetRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *UpdateSubnetRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *UpdateSubnetRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *UpdateSubnetRequest) GetGateway() string {
+	if x != nil {
+		return x.Gateway
+	}
+	return ""
+}
+
+func (x *UpdateSubnetRequest) GetClearDnsServers() bool {
+	if x != nil {
+		return x.ClearDnsServers
+	}
+	return false
+}
+
+func (x *UpdateSubnetRequest) GetDnsServers() []string {
+	if x != nil {
+		return x.DnsServers
+	}
+	return nil
+}
+
+type UpdateSubnetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Subnet        *SubnetInfo            `protobuf:"bytes,1,opt,name=subnet,proto3" json:"subnet,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateSubnetResponse) Reset() {
+	*x = UpdateSubnetResponse{}
+	mi := &file_weft_proto_msgTypes[297]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateSubnetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateSubnetResponse) ProtoMessage() {}
+
+func (x *UpdateSubnetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[297]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateSubnetResponse.ProtoReflect.Descriptor instead.
+func (*UpdateSubnetResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{297}
+}
+
+func (x *UpdateSubnetResponse) GetSubnet() *SubnetInfo {
+	if x != nil {
+		return x.Subnet
+	}
+	return nil
+}
+
+type DeleteSubnetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSubnetRequest) Reset() {
+	*x = DeleteSubnetRequest{}
+	mi := &file_weft_proto_msgTypes[298]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSubnetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSubnetRequest) ProtoMessage() {}
+
+func (x *DeleteSubnetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[298]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSubnetRequest.ProtoReflect.Descriptor instead.
+func (*DeleteSubnetRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{298}
+}
+
+func (x *DeleteSubnetRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+type DeleteSubnetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeletedUuid   string                 `protobuf:"bytes,1,opt,name=deleted_uuid,json=deletedUuid,proto3" json:"deleted_uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSubnetResponse) Reset() {
+	*x = DeleteSubnetResponse{}
+	mi := &file_weft_proto_msgTypes[299]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSubnetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSubnetResponse) ProtoMessage() {}
+
+func (x *DeleteSubnetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[299]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSubnetResponse.ProtoReflect.Descriptor instead.
+func (*DeleteSubnetResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{299}
+}
+
+func (x *DeleteSubnetResponse) GetDeletedUuid() string {
+	if x != nil {
+		return x.DeletedUuid
+	}
+	return ""
+}
+
+type LBBackend struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Address       string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"` // host[:port] ; port optional, defaults per listener
+	Weight        int32                  `protobuf:"varint,2,opt,name=weight,proto3" json:"weight,omitempty"`  // 0 = drain, 1..N = relative weight
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LBBackend) Reset() {
+	*x = LBBackend{}
+	mi := &file_weft_proto_msgTypes[300]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LBBackend) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LBBackend) ProtoMessage() {}
+
+func (x *LBBackend) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[300]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LBBackend.ProtoReflect.Descriptor instead.
+func (*LBBackend) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{300}
+}
+
+func (x *LBBackend) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *LBBackend) GetWeight() int32 {
+	if x != nil {
+		return x.Weight
+	}
+	return 0
+}
+
+type LoadBalancerInfo struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Uuid            string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	ProjectUuid     string                 `protobuf:"bytes,2,opt,name=project_uuid,json=projectUuid,proto3" json:"project_uuid,omitempty"`
+	Name            string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	ListenAddr      string                 `protobuf:"bytes,4,opt,name=listen_addr,json=listenAddr,proto3" json:"listen_addr,omitempty"` // VIP or CIDR the listener binds to
+	Protocol        string                 `protobuf:"bytes,5,opt,name=protocol,proto3" json:"protocol,omitempty"`                       // "l4_tcp" | "l4_udp" | "l7_http" | "l7_https"
+	Backends        []*LBBackend           `protobuf:"bytes,6,rep,name=backends,proto3" json:"backends,omitempty"`
+	CreatedAtUnixNs int64                  `protobuf:"varint,7,opt,name=created_at_unix_ns,json=createdAtUnixNs,proto3" json:"created_at_unix_ns,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *LoadBalancerInfo) Reset() {
+	*x = LoadBalancerInfo{}
+	mi := &file_weft_proto_msgTypes[301]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LoadBalancerInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LoadBalancerInfo) ProtoMessage() {}
+
+func (x *LoadBalancerInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[301]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LoadBalancerInfo.ProtoReflect.Descriptor instead.
+func (*LoadBalancerInfo) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{301}
+}
+
+func (x *LoadBalancerInfo) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *LoadBalancerInfo) GetProjectUuid() string {
+	if x != nil {
+		return x.ProjectUuid
+	}
+	return ""
+}
+
+func (x *LoadBalancerInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *LoadBalancerInfo) GetListenAddr() string {
+	if x != nil {
+		return x.ListenAddr
+	}
+	return ""
+}
+
+func (x *LoadBalancerInfo) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *LoadBalancerInfo) GetBackends() []*LBBackend {
+	if x != nil {
+		return x.Backends
+	}
+	return nil
+}
+
+func (x *LoadBalancerInfo) GetCreatedAtUnixNs() int64 {
+	if x != nil {
+		return x.CreatedAtUnixNs
+	}
+	return 0
+}
+
+type ListLoadBalancersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"` // name or UUID ; empty = caller's accessible set
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	PageToken     string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListLoadBalancersRequest) Reset() {
+	*x = ListLoadBalancersRequest{}
+	mi := &file_weft_proto_msgTypes[302]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListLoadBalancersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListLoadBalancersRequest) ProtoMessage() {}
+
+func (x *ListLoadBalancersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[302]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListLoadBalancersRequest.ProtoReflect.Descriptor instead.
+func (*ListLoadBalancersRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{302}
+}
+
+func (x *ListLoadBalancersRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *ListLoadBalancersRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListLoadBalancersRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListLoadBalancersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LoadBalancers []*LoadBalancerInfo    `protobuf:"bytes,1,rep,name=load_balancers,json=loadBalancers,proto3" json:"load_balancers,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListLoadBalancersResponse) Reset() {
+	*x = ListLoadBalancersResponse{}
+	mi := &file_weft_proto_msgTypes[303]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListLoadBalancersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListLoadBalancersResponse) ProtoMessage() {}
+
+func (x *ListLoadBalancersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[303]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListLoadBalancersResponse.ProtoReflect.Descriptor instead.
+func (*ListLoadBalancersResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{303}
+}
+
+func (x *ListLoadBalancersResponse) GetLoadBalancers() []*LoadBalancerInfo {
+	if x != nil {
+		return x.LoadBalancers
+	}
+	return nil
+}
+
+func (x *ListLoadBalancersResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type GetLoadBalancerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetLoadBalancerRequest) Reset() {
+	*x = GetLoadBalancerRequest{}
+	mi := &file_weft_proto_msgTypes[304]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetLoadBalancerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLoadBalancerRequest) ProtoMessage() {}
+
+func (x *GetLoadBalancerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[304]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLoadBalancerRequest.ProtoReflect.Descriptor instead.
+func (*GetLoadBalancerRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{304}
+}
+
+func (x *GetLoadBalancerRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+type GetLoadBalancerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LoadBalancer  *LoadBalancerInfo      `protobuf:"bytes,1,opt,name=load_balancer,json=loadBalancer,proto3" json:"load_balancer,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetLoadBalancerResponse) Reset() {
+	*x = GetLoadBalancerResponse{}
+	mi := &file_weft_proto_msgTypes[305]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetLoadBalancerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLoadBalancerResponse) ProtoMessage() {}
+
+func (x *GetLoadBalancerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[305]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLoadBalancerResponse.ProtoReflect.Descriptor instead.
+func (*GetLoadBalancerResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{305}
+}
+
+func (x *GetLoadBalancerResponse) GetLoadBalancer() *LoadBalancerInfo {
+	if x != nil {
+		return x.LoadBalancer
+	}
+	return nil
+}
+
+type CreateLoadBalancerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"` // name or UUID
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	ListenAddr    string                 `protobuf:"bytes,3,opt,name=listen_addr,json=listenAddr,proto3" json:"listen_addr,omitempty"`
+	Protocol      string                 `protobuf:"bytes,4,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	Backends      []*LBBackend           `protobuf:"bytes,5,rep,name=backends,proto3" json:"backends,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateLoadBalancerRequest) Reset() {
+	*x = CreateLoadBalancerRequest{}
+	mi := &file_weft_proto_msgTypes[306]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateLoadBalancerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateLoadBalancerRequest) ProtoMessage() {}
+
+func (x *CreateLoadBalancerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[306]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateLoadBalancerRequest.ProtoReflect.Descriptor instead.
+func (*CreateLoadBalancerRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{306}
+}
+
+func (x *CreateLoadBalancerRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *CreateLoadBalancerRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateLoadBalancerRequest) GetListenAddr() string {
+	if x != nil {
+		return x.ListenAddr
+	}
+	return ""
+}
+
+func (x *CreateLoadBalancerRequest) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *CreateLoadBalancerRequest) GetBackends() []*LBBackend {
+	if x != nil {
+		return x.Backends
+	}
+	return nil
+}
+
+type CreateLoadBalancerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LoadBalancer  *LoadBalancerInfo      `protobuf:"bytes,1,opt,name=load_balancer,json=loadBalancer,proto3" json:"load_balancer,omitempty"`
+	Created       bool                   `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateLoadBalancerResponse) Reset() {
+	*x = CreateLoadBalancerResponse{}
+	mi := &file_weft_proto_msgTypes[307]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateLoadBalancerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateLoadBalancerResponse) ProtoMessage() {}
+
+func (x *CreateLoadBalancerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[307]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateLoadBalancerResponse.ProtoReflect.Descriptor instead.
+func (*CreateLoadBalancerResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{307}
+}
+
+func (x *CreateLoadBalancerResponse) GetLoadBalancer() *LoadBalancerInfo {
+	if x != nil {
+		return x.LoadBalancer
+	}
+	return nil
+}
+
+func (x *CreateLoadBalancerResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+type UpdateLoadBalancerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                               // empty = keep current
+	ListenAddr    string                 `protobuf:"bytes,3,opt,name=listen_addr,json=listenAddr,proto3" json:"listen_addr,omitempty"` // empty = keep current
+	Protocol      string                 `protobuf:"bytes,4,opt,name=protocol,proto3" json:"protocol,omitempty"`                       // empty = keep current
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateLoadBalancerRequest) Reset() {
+	*x = UpdateLoadBalancerRequest{}
+	mi := &file_weft_proto_msgTypes[308]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateLoadBalancerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateLoadBalancerRequest) ProtoMessage() {}
+
+func (x *UpdateLoadBalancerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[308]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateLoadBalancerRequest.ProtoReflect.Descriptor instead.
+func (*UpdateLoadBalancerRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{308}
+}
+
+func (x *UpdateLoadBalancerRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *UpdateLoadBalancerRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *UpdateLoadBalancerRequest) GetListenAddr() string {
+	if x != nil {
+		return x.ListenAddr
+	}
+	return ""
+}
+
+func (x *UpdateLoadBalancerRequest) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+type UpdateLoadBalancerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LoadBalancer  *LoadBalancerInfo      `protobuf:"bytes,1,opt,name=load_balancer,json=loadBalancer,proto3" json:"load_balancer,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateLoadBalancerResponse) Reset() {
+	*x = UpdateLoadBalancerResponse{}
+	mi := &file_weft_proto_msgTypes[309]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateLoadBalancerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateLoadBalancerResponse) ProtoMessage() {}
+
+func (x *UpdateLoadBalancerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[309]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateLoadBalancerResponse.ProtoReflect.Descriptor instead.
+func (*UpdateLoadBalancerResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{309}
+}
+
+func (x *UpdateLoadBalancerResponse) GetLoadBalancer() *LoadBalancerInfo {
+	if x != nil {
+		return x.LoadBalancer
+	}
+	return nil
+}
+
+// SetLoadBalancerBackends replaces the backend list atomically.
+// Empty backends slice clears every member (LB becomes a black
+// hole until the next set call).
+type SetLoadBalancerBackendsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Backends      []*LBBackend           `protobuf:"bytes,2,rep,name=backends,proto3" json:"backends,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetLoadBalancerBackendsRequest) Reset() {
+	*x = SetLoadBalancerBackendsRequest{}
+	mi := &file_weft_proto_msgTypes[310]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetLoadBalancerBackendsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetLoadBalancerBackendsRequest) ProtoMessage() {}
+
+func (x *SetLoadBalancerBackendsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[310]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetLoadBalancerBackendsRequest.ProtoReflect.Descriptor instead.
+func (*SetLoadBalancerBackendsRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{310}
+}
+
+func (x *SetLoadBalancerBackendsRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *SetLoadBalancerBackendsRequest) GetBackends() []*LBBackend {
+	if x != nil {
+		return x.Backends
+	}
+	return nil
+}
+
+type SetLoadBalancerBackendsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LoadBalancer  *LoadBalancerInfo      `protobuf:"bytes,1,opt,name=load_balancer,json=loadBalancer,proto3" json:"load_balancer,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetLoadBalancerBackendsResponse) Reset() {
+	*x = SetLoadBalancerBackendsResponse{}
+	mi := &file_weft_proto_msgTypes[311]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetLoadBalancerBackendsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetLoadBalancerBackendsResponse) ProtoMessage() {}
+
+func (x *SetLoadBalancerBackendsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[311]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetLoadBalancerBackendsResponse.ProtoReflect.Descriptor instead.
+func (*SetLoadBalancerBackendsResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{311}
+}
+
+func (x *SetLoadBalancerBackendsResponse) GetLoadBalancer() *LoadBalancerInfo {
+	if x != nil {
+		return x.LoadBalancer
+	}
+	return nil
+}
+
+type DeleteLoadBalancerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteLoadBalancerRequest) Reset() {
+	*x = DeleteLoadBalancerRequest{}
+	mi := &file_weft_proto_msgTypes[312]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteLoadBalancerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteLoadBalancerRequest) ProtoMessage() {}
+
+func (x *DeleteLoadBalancerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[312]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteLoadBalancerRequest.ProtoReflect.Descriptor instead.
+func (*DeleteLoadBalancerRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{312}
+}
+
+func (x *DeleteLoadBalancerRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+type DeleteLoadBalancerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeletedUuid   string                 `protobuf:"bytes,1,opt,name=deleted_uuid,json=deletedUuid,proto3" json:"deleted_uuid,omitempty"`
+	BlockedByFips int32                  `protobuf:"varint,2,opt,name=blocked_by_fips,json=blockedByFips,proto3" json:"blocked_by_fips,omitempty"` // > 0 when a FloatingIP still maps to this LB
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteLoadBalancerResponse) Reset() {
+	*x = DeleteLoadBalancerResponse{}
+	mi := &file_weft_proto_msgTypes[313]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteLoadBalancerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteLoadBalancerResponse) ProtoMessage() {}
+
+func (x *DeleteLoadBalancerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[313]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteLoadBalancerResponse.ProtoReflect.Descriptor instead.
+func (*DeleteLoadBalancerResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{313}
+}
+
+func (x *DeleteLoadBalancerResponse) GetDeletedUuid() string {
+	if x != nil {
+		return x.DeletedUuid
+	}
+	return ""
+}
+
+func (x *DeleteLoadBalancerResponse) GetBlockedByFips() int32 {
+	if x != nil {
+		return x.BlockedByFips
+	}
+	return 0
+}
+
+type DNSZoneInfo struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Uuid            string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	ProjectUuid     string                 `protobuf:"bytes,2,opt,name=project_uuid,json=projectUuid,proto3" json:"project_uuid,omitempty"`
+	Name            string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`                         // FQDN, e.g. "acme.example.com"
+	SoaEmail        string                 `protobuf:"bytes,4,opt,name=soa_email,json=soaEmail,proto3" json:"soa_email,omitempty"` // rname for the SOA record (e.g. "hostmaster@acme.example.com")
+	Ttl             int32                  `protobuf:"varint,5,opt,name=ttl,proto3" json:"ttl,omitempty"`                          // default TTL for records that don't override
+	Records         int32                  `protobuf:"varint,6,opt,name=records,proto3" json:"records,omitempty"`                  // derived count (server-filled)
+	CreatedAtUnixNs int64                  `protobuf:"varint,7,opt,name=created_at_unix_ns,json=createdAtUnixNs,proto3" json:"created_at_unix_ns,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *DNSZoneInfo) Reset() {
+	*x = DNSZoneInfo{}
+	mi := &file_weft_proto_msgTypes[314]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DNSZoneInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DNSZoneInfo) ProtoMessage() {}
+
+func (x *DNSZoneInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[314]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DNSZoneInfo.ProtoReflect.Descriptor instead.
+func (*DNSZoneInfo) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{314}
+}
+
+func (x *DNSZoneInfo) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *DNSZoneInfo) GetProjectUuid() string {
+	if x != nil {
+		return x.ProjectUuid
+	}
+	return ""
+}
+
+func (x *DNSZoneInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DNSZoneInfo) GetSoaEmail() string {
+	if x != nil {
+		return x.SoaEmail
+	}
+	return ""
+}
+
+func (x *DNSZoneInfo) GetTtl() int32 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+func (x *DNSZoneInfo) GetRecords() int32 {
+	if x != nil {
+		return x.Records
+	}
+	return 0
+}
+
+func (x *DNSZoneInfo) GetCreatedAtUnixNs() int64 {
+	if x != nil {
+		return x.CreatedAtUnixNs
+	}
+	return 0
+}
+
+type ListDNSZonesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	PageToken     string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDNSZonesRequest) Reset() {
+	*x = ListDNSZonesRequest{}
+	mi := &file_weft_proto_msgTypes[315]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDNSZonesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDNSZonesRequest) ProtoMessage() {}
+
+func (x *ListDNSZonesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[315]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDNSZonesRequest.ProtoReflect.Descriptor instead.
+func (*ListDNSZonesRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{315}
+}
+
+func (x *ListDNSZonesRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *ListDNSZonesRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListDNSZonesRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListDNSZonesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Zones         []*DNSZoneInfo         `protobuf:"bytes,1,rep,name=zones,proto3" json:"zones,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDNSZonesResponse) Reset() {
+	*x = ListDNSZonesResponse{}
+	mi := &file_weft_proto_msgTypes[316]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDNSZonesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDNSZonesResponse) ProtoMessage() {}
+
+func (x *ListDNSZonesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[316]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDNSZonesResponse.ProtoReflect.Descriptor instead.
+func (*ListDNSZonesResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{316}
+}
+
+func (x *ListDNSZonesResponse) GetZones() []*DNSZoneInfo {
+	if x != nil {
+		return x.Zones
+	}
+	return nil
+}
+
+func (x *ListDNSZonesResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type GetDNSZoneRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDNSZoneRequest) Reset() {
+	*x = GetDNSZoneRequest{}
+	mi := &file_weft_proto_msgTypes[317]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDNSZoneRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDNSZoneRequest) ProtoMessage() {}
+
+func (x *GetDNSZoneRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[317]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDNSZoneRequest.ProtoReflect.Descriptor instead.
+func (*GetDNSZoneRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{317}
+}
+
+func (x *GetDNSZoneRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *GetDNSZoneRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type GetDNSZoneResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Zone          *DNSZoneInfo           `protobuf:"bytes,1,opt,name=zone,proto3" json:"zone,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDNSZoneResponse) Reset() {
+	*x = GetDNSZoneResponse{}
+	mi := &file_weft_proto_msgTypes[318]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDNSZoneResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDNSZoneResponse) ProtoMessage() {}
+
+func (x *GetDNSZoneResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[318]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDNSZoneResponse.ProtoReflect.Descriptor instead.
+func (*GetDNSZoneResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{318}
+}
+
+func (x *GetDNSZoneResponse) GetZone() *DNSZoneInfo {
+	if x != nil {
+		return x.Zone
+	}
+	return nil
+}
+
+type CreateDNSZoneRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	SoaEmail      string                 `protobuf:"bytes,3,opt,name=soa_email,json=soaEmail,proto3" json:"soa_email,omitempty"`
+	Ttl           int32                  `protobuf:"varint,4,opt,name=ttl,proto3" json:"ttl,omitempty"` // 0 → 3600
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDNSZoneRequest) Reset() {
+	*x = CreateDNSZoneRequest{}
+	mi := &file_weft_proto_msgTypes[319]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDNSZoneRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDNSZoneRequest) ProtoMessage() {}
+
+func (x *CreateDNSZoneRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[319]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDNSZoneRequest.ProtoReflect.Descriptor instead.
+func (*CreateDNSZoneRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{319}
+}
+
+func (x *CreateDNSZoneRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *CreateDNSZoneRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateDNSZoneRequest) GetSoaEmail() string {
+	if x != nil {
+		return x.SoaEmail
+	}
+	return ""
+}
+
+func (x *CreateDNSZoneRequest) GetTtl() int32 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+type CreateDNSZoneResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Zone          *DNSZoneInfo           `protobuf:"bytes,1,opt,name=zone,proto3" json:"zone,omitempty"`
+	Created       bool                   `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDNSZoneResponse) Reset() {
+	*x = CreateDNSZoneResponse{}
+	mi := &file_weft_proto_msgTypes[320]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDNSZoneResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDNSZoneResponse) ProtoMessage() {}
+
+func (x *CreateDNSZoneResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[320]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDNSZoneResponse.ProtoReflect.Descriptor instead.
+func (*CreateDNSZoneResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{320}
+}
+
+func (x *CreateDNSZoneResponse) GetZone() *DNSZoneInfo {
+	if x != nil {
+		return x.Zone
+	}
+	return nil
+}
+
+func (x *CreateDNSZoneResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+type UpdateDNSZoneRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	SoaEmail      string                 `protobuf:"bytes,2,opt,name=soa_email,json=soaEmail,proto3" json:"soa_email,omitempty"` // empty = keep current
+	Ttl           int32                  `protobuf:"varint,3,opt,name=ttl,proto3" json:"ttl,omitempty"`                          // -1 = keep current (proto3 int32 has no nil)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateDNSZoneRequest) Reset() {
+	*x = UpdateDNSZoneRequest{}
+	mi := &file_weft_proto_msgTypes[321]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateDNSZoneRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateDNSZoneRequest) ProtoMessage() {}
+
+func (x *UpdateDNSZoneRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[321]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateDNSZoneRequest.ProtoReflect.Descriptor instead.
+func (*UpdateDNSZoneRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{321}
+}
+
+func (x *UpdateDNSZoneRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *UpdateDNSZoneRequest) GetSoaEmail() string {
+	if x != nil {
+		return x.SoaEmail
+	}
+	return ""
+}
+
+func (x *UpdateDNSZoneRequest) GetTtl() int32 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+type UpdateDNSZoneResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Zone          *DNSZoneInfo           `protobuf:"bytes,1,opt,name=zone,proto3" json:"zone,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateDNSZoneResponse) Reset() {
+	*x = UpdateDNSZoneResponse{}
+	mi := &file_weft_proto_msgTypes[322]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateDNSZoneResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateDNSZoneResponse) ProtoMessage() {}
+
+func (x *UpdateDNSZoneResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[322]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateDNSZoneResponse.ProtoReflect.Descriptor instead.
+func (*UpdateDNSZoneResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{322}
+}
+
+func (x *UpdateDNSZoneResponse) GetZone() *DNSZoneInfo {
+	if x != nil {
+		return x.Zone
+	}
+	return nil
+}
+
+type DeleteDNSZoneRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteDNSZoneRequest) Reset() {
+	*x = DeleteDNSZoneRequest{}
+	mi := &file_weft_proto_msgTypes[323]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteDNSZoneRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteDNSZoneRequest) ProtoMessage() {}
+
+func (x *DeleteDNSZoneRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[323]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteDNSZoneRequest.ProtoReflect.Descriptor instead.
+func (*DeleteDNSZoneRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{323}
+}
+
+func (x *DeleteDNSZoneRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+type DeleteDNSZoneResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	DeletedUuid      string                 `protobuf:"bytes,1,opt,name=deleted_uuid,json=deletedUuid,proto3" json:"deleted_uuid,omitempty"`
+	BlockedByRecords int32                  `protobuf:"varint,2,opt,name=blocked_by_records,json=blockedByRecords,proto3" json:"blocked_by_records,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *DeleteDNSZoneResponse) Reset() {
+	*x = DeleteDNSZoneResponse{}
+	mi := &file_weft_proto_msgTypes[324]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteDNSZoneResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteDNSZoneResponse) ProtoMessage() {}
+
+func (x *DeleteDNSZoneResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[324]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteDNSZoneResponse.ProtoReflect.Descriptor instead.
+func (*DeleteDNSZoneResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{324}
+}
+
+func (x *DeleteDNSZoneResponse) GetDeletedUuid() string {
+	if x != nil {
+		return x.DeletedUuid
+	}
+	return ""
+}
+
+func (x *DeleteDNSZoneResponse) GetBlockedByRecords() int32 {
+	if x != nil {
+		return x.BlockedByRecords
+	}
+	return 0
+}
+
+// DNSRecord types : "A" | "AAAA" | "CNAME" | "MX" | "TXT" | "SRV".
+// `priority` is required for MX + SRV, ignored otherwise.
+type DNSRecordInfo struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Uuid            string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	ZoneUuid        string                 `protobuf:"bytes,2,opt,name=zone_uuid,json=zoneUuid,proto3" json:"zone_uuid,omitempty"` // parent
+	Name            string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`                         // sub.acme.example.com ; "@" = zone apex
+	Type            string                 `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`                         // see comment above
+	Value           string                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`
+	Ttl             int32                  `protobuf:"varint,6,opt,name=ttl,proto3" json:"ttl,omitempty"`           // 0 = inherit zone default
+	Priority        int32                  `protobuf:"varint,7,opt,name=priority,proto3" json:"priority,omitempty"` // MX / SRV only
+	CreatedAtUnixNs int64                  `protobuf:"varint,8,opt,name=created_at_unix_ns,json=createdAtUnixNs,proto3" json:"created_at_unix_ns,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *DNSRecordInfo) Reset() {
+	*x = DNSRecordInfo{}
+	mi := &file_weft_proto_msgTypes[325]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DNSRecordInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DNSRecordInfo) ProtoMessage() {}
+
+func (x *DNSRecordInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[325]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DNSRecordInfo.ProtoReflect.Descriptor instead.
+func (*DNSRecordInfo) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{325}
+}
+
+func (x *DNSRecordInfo) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *DNSRecordInfo) GetZoneUuid() string {
+	if x != nil {
+		return x.ZoneUuid
+	}
+	return ""
+}
+
+func (x *DNSRecordInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DNSRecordInfo) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *DNSRecordInfo) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *DNSRecordInfo) GetTtl() int32 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+func (x *DNSRecordInfo) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
+}
+
+func (x *DNSRecordInfo) GetCreatedAtUnixNs() int64 {
+	if x != nil {
+		return x.CreatedAtUnixNs
+	}
+	return 0
+}
+
+type ListDNSRecordsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ZoneUuid      string                 `protobuf:"bytes,1,opt,name=zone_uuid,json=zoneUuid,proto3" json:"zone_uuid,omitempty"` // required
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	PageToken     string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDNSRecordsRequest) Reset() {
+	*x = ListDNSRecordsRequest{}
+	mi := &file_weft_proto_msgTypes[326]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDNSRecordsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDNSRecordsRequest) ProtoMessage() {}
+
+func (x *ListDNSRecordsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[326]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDNSRecordsRequest.ProtoReflect.Descriptor instead.
+func (*ListDNSRecordsRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{326}
+}
+
+func (x *ListDNSRecordsRequest) GetZoneUuid() string {
+	if x != nil {
+		return x.ZoneUuid
+	}
+	return ""
+}
+
+func (x *ListDNSRecordsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListDNSRecordsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListDNSRecordsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Records       []*DNSRecordInfo       `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDNSRecordsResponse) Reset() {
+	*x = ListDNSRecordsResponse{}
+	mi := &file_weft_proto_msgTypes[327]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDNSRecordsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDNSRecordsResponse) ProtoMessage() {}
+
+func (x *ListDNSRecordsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[327]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDNSRecordsResponse.ProtoReflect.Descriptor instead.
+func (*ListDNSRecordsResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{327}
+}
+
+func (x *ListDNSRecordsResponse) GetRecords() []*DNSRecordInfo {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+func (x *ListDNSRecordsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type CreateDNSRecordRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ZoneUuid      string                 `protobuf:"bytes,1,opt,name=zone_uuid,json=zoneUuid,proto3" json:"zone_uuid,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	Value         string                 `protobuf:"bytes,4,opt,name=value,proto3" json:"value,omitempty"`
+	Ttl           int32                  `protobuf:"varint,5,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	Priority      int32                  `protobuf:"varint,6,opt,name=priority,proto3" json:"priority,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDNSRecordRequest) Reset() {
+	*x = CreateDNSRecordRequest{}
+	mi := &file_weft_proto_msgTypes[328]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDNSRecordRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDNSRecordRequest) ProtoMessage() {}
+
+func (x *CreateDNSRecordRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[328]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDNSRecordRequest.ProtoReflect.Descriptor instead.
+func (*CreateDNSRecordRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{328}
+}
+
+func (x *CreateDNSRecordRequest) GetZoneUuid() string {
+	if x != nil {
+		return x.ZoneUuid
+	}
+	return ""
+}
+
+func (x *CreateDNSRecordRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateDNSRecordRequest) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *CreateDNSRecordRequest) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *CreateDNSRecordRequest) GetTtl() int32 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+func (x *CreateDNSRecordRequest) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
+}
+
+type CreateDNSRecordResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Record        *DNSRecordInfo         `protobuf:"bytes,1,opt,name=record,proto3" json:"record,omitempty"`
+	Created       bool                   `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDNSRecordResponse) Reset() {
+	*x = CreateDNSRecordResponse{}
+	mi := &file_weft_proto_msgTypes[329]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDNSRecordResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDNSRecordResponse) ProtoMessage() {}
+
+func (x *CreateDNSRecordResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[329]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDNSRecordResponse.ProtoReflect.Descriptor instead.
+func (*CreateDNSRecordResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{329}
+}
+
+func (x *CreateDNSRecordResponse) GetRecord() *DNSRecordInfo {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+func (x *CreateDNSRecordResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+type UpdateDNSRecordRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`        // empty = keep current
+	Ttl           int32                  `protobuf:"varint,3,opt,name=ttl,proto3" json:"ttl,omitempty"`           // -1 = keep current
+	Priority      int32                  `protobuf:"varint,4,opt,name=priority,proto3" json:"priority,omitempty"` // -1 = keep current
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateDNSRecordRequest) Reset() {
+	*x = UpdateDNSRecordRequest{}
+	mi := &file_weft_proto_msgTypes[330]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateDNSRecordRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateDNSRecordRequest) ProtoMessage() {}
+
+func (x *UpdateDNSRecordRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[330]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateDNSRecordRequest.ProtoReflect.Descriptor instead.
+func (*UpdateDNSRecordRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{330}
+}
+
+func (x *UpdateDNSRecordRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *UpdateDNSRecordRequest) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *UpdateDNSRecordRequest) GetTtl() int32 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+func (x *UpdateDNSRecordRequest) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
+}
+
+type UpdateDNSRecordResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Record        *DNSRecordInfo         `protobuf:"bytes,1,opt,name=record,proto3" json:"record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateDNSRecordResponse) Reset() {
+	*x = UpdateDNSRecordResponse{}
+	mi := &file_weft_proto_msgTypes[331]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateDNSRecordResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateDNSRecordResponse) ProtoMessage() {}
+
+func (x *UpdateDNSRecordResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[331]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateDNSRecordResponse.ProtoReflect.Descriptor instead.
+func (*UpdateDNSRecordResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{331}
+}
+
+func (x *UpdateDNSRecordResponse) GetRecord() *DNSRecordInfo {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+type DeleteDNSRecordRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteDNSRecordRequest) Reset() {
+	*x = DeleteDNSRecordRequest{}
+	mi := &file_weft_proto_msgTypes[332]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteDNSRecordRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteDNSRecordRequest) ProtoMessage() {}
+
+func (x *DeleteDNSRecordRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[332]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteDNSRecordRequest.ProtoReflect.Descriptor instead.
+func (*DeleteDNSRecordRequest) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{332}
+}
+
+func (x *DeleteDNSRecordRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+type DeleteDNSRecordResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeletedUuid   string                 `protobuf:"bytes,1,opt,name=deleted_uuid,json=deletedUuid,proto3" json:"deleted_uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteDNSRecordResponse) Reset() {
+	*x = DeleteDNSRecordResponse{}
+	mi := &file_weft_proto_msgTypes[333]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteDNSRecordResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteDNSRecordResponse) ProtoMessage() {}
+
+func (x *DeleteDNSRecordResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_weft_proto_msgTypes[333]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteDNSRecordResponse.ProtoReflect.Descriptor instead.
+func (*DeleteDNSRecordResponse) Descriptor() ([]byte, []int) {
+	return file_weft_proto_rawDescGZIP(), []int{333}
+}
+
+func (x *DeleteDNSRecordResponse) GetDeletedUuid() string {
+	if x != nil {
+		return x.DeletedUuid
+	}
+	return ""
+}
+
 var File_weft_proto protoreflect.FileDescriptor
 
 const file_weft_proto_rawDesc = "" +
@@ -17580,13 +20200,193 @@ const file_weft_proto_rawDesc = "" +
 	"\aproject\x18\x02 \x01(\tR\aproject\x12 \n" +
 	"\vfingerprint\x18\x03 \x01(\tR\vfingerprint\"2\n" +
 	"\x16RemoveVMSSHKeyResponse\x12\x18\n" +
-	"\aremoved\x18\x01 \x01(\tR\aremoved*}\n" +
+	"\aremoved\x18\x01 \x01(\tR\aremoved\"\x98\x02\n" +
+	"\n" +
+	"SubnetInfo\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12!\n" +
+	"\fnetwork_uuid\x18\x02 \x01(\tR\vnetworkUuid\x12!\n" +
+	"\fproject_uuid\x18\x03 \x01(\tR\vprojectUuid\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04cidr\x18\x06 \x01(\tR\x04cidr\x12\x18\n" +
+	"\agateway\x18\a \x01(\tR\agateway\x12\x1f\n" +
+	"\vdns_servers\x18\b \x03(\tR\n" +
+	"dnsServers\x12+\n" +
+	"\x12created_at_unix_ns\x18\t \x01(\x03R\x0fcreatedAtUnixNs\"\x86\x01\n" +
+	"\x12ListSubnetsRequest\x12!\n" +
+	"\fnetwork_uuid\x18\x01 \x01(\tR\vnetworkUuid\x12\x18\n" +
+	"\aproject\x18\x02 \x01(\tR\aproject\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x04 \x01(\tR\tpageToken\"l\n" +
+	"\x13ListSubnetsResponse\x12-\n" +
+	"\asubnets\x18\x01 \x03(\v2\x13.weft.v1.SubnetInfoR\asubnets\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"&\n" +
+	"\x10GetSubnetRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\"@\n" +
+	"\x11GetSubnetResponse\x12+\n" +
+	"\x06subnet\x18\x01 \x01(\v2\x13.weft.v1.SubnetInfoR\x06subnet\"\xbd\x01\n" +
+	"\x13CreateSubnetRequest\x12!\n" +
+	"\fnetwork_uuid\x18\x01 \x01(\tR\vnetworkUuid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04cidr\x18\x04 \x01(\tR\x04cidr\x12\x18\n" +
+	"\agateway\x18\x05 \x01(\tR\agateway\x12\x1f\n" +
+	"\vdns_servers\x18\x06 \x03(\tR\n" +
+	"dnsServers\"]\n" +
+	"\x14CreateSubnetResponse\x12+\n" +
+	"\x06subnet\x18\x01 \x01(\v2\x13.weft.v1.SubnetInfoR\x06subnet\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"\xc6\x01\n" +
+	"\x13UpdateSubnetRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x18\n" +
+	"\agateway\x18\x04 \x01(\tR\agateway\x12*\n" +
+	"\x11clear_dns_servers\x18\x05 \x01(\bR\x0fclearDnsServers\x12\x1f\n" +
+	"\vdns_servers\x18\x06 \x03(\tR\n" +
+	"dnsServers\"C\n" +
+	"\x14UpdateSubnetResponse\x12+\n" +
+	"\x06subnet\x18\x01 \x01(\v2\x13.weft.v1.SubnetInfoR\x06subnet\")\n" +
+	"\x13DeleteSubnetRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\"9\n" +
+	"\x14DeleteSubnetResponse\x12!\n" +
+	"\fdeleted_uuid\x18\x01 \x01(\tR\vdeletedUuid\"=\n" +
+	"\tLBBackend\x12\x18\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x16\n" +
+	"\x06weight\x18\x02 \x01(\x05R\x06weight\"\xf7\x01\n" +
+	"\x10LoadBalancerInfo\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12!\n" +
+	"\fproject_uuid\x18\x02 \x01(\tR\vprojectUuid\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1f\n" +
+	"\vlisten_addr\x18\x04 \x01(\tR\n" +
+	"listenAddr\x12\x1a\n" +
+	"\bprotocol\x18\x05 \x01(\tR\bprotocol\x12.\n" +
+	"\bbackends\x18\x06 \x03(\v2\x12.weft.v1.LBBackendR\bbackends\x12+\n" +
+	"\x12created_at_unix_ns\x18\a \x01(\x03R\x0fcreatedAtUnixNs\"i\n" +
+	"\x18ListLoadBalancersRequest\x12\x18\n" +
+	"\aproject\x18\x01 \x01(\tR\aproject\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"\x85\x01\n" +
+	"\x19ListLoadBalancersResponse\x12@\n" +
+	"\x0eload_balancers\x18\x01 \x03(\v2\x19.weft.v1.LoadBalancerInfoR\rloadBalancers\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\",\n" +
+	"\x16GetLoadBalancerRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\"Y\n" +
+	"\x17GetLoadBalancerResponse\x12>\n" +
+	"\rload_balancer\x18\x01 \x01(\v2\x19.weft.v1.LoadBalancerInfoR\floadBalancer\"\xb6\x01\n" +
+	"\x19CreateLoadBalancerRequest\x12\x18\n" +
+	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
+	"\vlisten_addr\x18\x03 \x01(\tR\n" +
+	"listenAddr\x12\x1a\n" +
+	"\bprotocol\x18\x04 \x01(\tR\bprotocol\x12.\n" +
+	"\bbackends\x18\x05 \x03(\v2\x12.weft.v1.LBBackendR\bbackends\"v\n" +
+	"\x1aCreateLoadBalancerResponse\x12>\n" +
+	"\rload_balancer\x18\x01 \x01(\v2\x19.weft.v1.LoadBalancerInfoR\floadBalancer\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"\x80\x01\n" +
+	"\x19UpdateLoadBalancerRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
+	"\vlisten_addr\x18\x03 \x01(\tR\n" +
+	"listenAddr\x12\x1a\n" +
+	"\bprotocol\x18\x04 \x01(\tR\bprotocol\"\\\n" +
+	"\x1aUpdateLoadBalancerResponse\x12>\n" +
+	"\rload_balancer\x18\x01 \x01(\v2\x19.weft.v1.LoadBalancerInfoR\floadBalancer\"d\n" +
+	"\x1eSetLoadBalancerBackendsRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12.\n" +
+	"\bbackends\x18\x02 \x03(\v2\x12.weft.v1.LBBackendR\bbackends\"a\n" +
+	"\x1fSetLoadBalancerBackendsResponse\x12>\n" +
+	"\rload_balancer\x18\x01 \x01(\v2\x19.weft.v1.LoadBalancerInfoR\floadBalancer\"/\n" +
+	"\x19DeleteLoadBalancerRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\"g\n" +
+	"\x1aDeleteLoadBalancerResponse\x12!\n" +
+	"\fdeleted_uuid\x18\x01 \x01(\tR\vdeletedUuid\x12&\n" +
+	"\x0fblocked_by_fips\x18\x02 \x01(\x05R\rblockedByFips\"\xce\x01\n" +
+	"\vDNSZoneInfo\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12!\n" +
+	"\fproject_uuid\x18\x02 \x01(\tR\vprojectUuid\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1b\n" +
+	"\tsoa_email\x18\x04 \x01(\tR\bsoaEmail\x12\x10\n" +
+	"\x03ttl\x18\x05 \x01(\x05R\x03ttl\x12\x18\n" +
+	"\arecords\x18\x06 \x01(\x05R\arecords\x12+\n" +
+	"\x12created_at_unix_ns\x18\a \x01(\x03R\x0fcreatedAtUnixNs\"d\n" +
+	"\x13ListDNSZonesRequest\x12\x18\n" +
+	"\aproject\x18\x01 \x01(\tR\aproject\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"j\n" +
+	"\x14ListDNSZonesResponse\x12*\n" +
+	"\x05zones\x18\x01 \x03(\v2\x14.weft.v1.DNSZoneInfoR\x05zones\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\";\n" +
+	"\x11GetDNSZoneRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\">\n" +
+	"\x12GetDNSZoneResponse\x12(\n" +
+	"\x04zone\x18\x01 \x01(\v2\x14.weft.v1.DNSZoneInfoR\x04zone\"s\n" +
+	"\x14CreateDNSZoneRequest\x12\x18\n" +
+	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
+	"\tsoa_email\x18\x03 \x01(\tR\bsoaEmail\x12\x10\n" +
+	"\x03ttl\x18\x04 \x01(\x05R\x03ttl\"[\n" +
+	"\x15CreateDNSZoneResponse\x12(\n" +
+	"\x04zone\x18\x01 \x01(\v2\x14.weft.v1.DNSZoneInfoR\x04zone\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"Y\n" +
+	"\x14UpdateDNSZoneRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1b\n" +
+	"\tsoa_email\x18\x02 \x01(\tR\bsoaEmail\x12\x10\n" +
+	"\x03ttl\x18\x03 \x01(\x05R\x03ttl\"A\n" +
+	"\x15UpdateDNSZoneResponse\x12(\n" +
+	"\x04zone\x18\x01 \x01(\v2\x14.weft.v1.DNSZoneInfoR\x04zone\"*\n" +
+	"\x14DeleteDNSZoneRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\"h\n" +
+	"\x15DeleteDNSZoneResponse\x12!\n" +
+	"\fdeleted_uuid\x18\x01 \x01(\tR\vdeletedUuid\x12,\n" +
+	"\x12blocked_by_records\x18\x02 \x01(\x05R\x10blockedByRecords\"\xd9\x01\n" +
+	"\rDNSRecordInfo\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1b\n" +
+	"\tzone_uuid\x18\x02 \x01(\tR\bzoneUuid\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x04 \x01(\tR\x04type\x12\x14\n" +
+	"\x05value\x18\x05 \x01(\tR\x05value\x12\x10\n" +
+	"\x03ttl\x18\x06 \x01(\x05R\x03ttl\x12\x1a\n" +
+	"\bpriority\x18\a \x01(\x05R\bpriority\x12+\n" +
+	"\x12created_at_unix_ns\x18\b \x01(\x03R\x0fcreatedAtUnixNs\"i\n" +
+	"\x15ListDNSRecordsRequest\x12\x1b\n" +
+	"\tzone_uuid\x18\x01 \x01(\tR\bzoneUuid\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"r\n" +
+	"\x16ListDNSRecordsResponse\x120\n" +
+	"\arecords\x18\x01 \x03(\v2\x16.weft.v1.DNSRecordInfoR\arecords\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xa1\x01\n" +
+	"\x16CreateDNSRecordRequest\x12\x1b\n" +
+	"\tzone_uuid\x18\x01 \x01(\tR\bzoneUuid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12\x14\n" +
+	"\x05value\x18\x04 \x01(\tR\x05value\x12\x10\n" +
+	"\x03ttl\x18\x05 \x01(\x05R\x03ttl\x12\x1a\n" +
+	"\bpriority\x18\x06 \x01(\x05R\bpriority\"c\n" +
+	"\x17CreateDNSRecordResponse\x12.\n" +
+	"\x06record\x18\x01 \x01(\v2\x16.weft.v1.DNSRecordInfoR\x06record\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"p\n" +
+	"\x16UpdateDNSRecordRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\x12\x10\n" +
+	"\x03ttl\x18\x03 \x01(\x05R\x03ttl\x12\x1a\n" +
+	"\bpriority\x18\x04 \x01(\x05R\bpriority\"I\n" +
+	"\x17UpdateDNSRecordResponse\x12.\n" +
+	"\x06record\x18\x01 \x01(\v2\x16.weft.v1.DNSRecordInfoR\x06record\",\n" +
+	"\x16DeleteDNSRecordRequest\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\tR\x04uuid\"<\n" +
+	"\x17DeleteDNSRecordResponse\x12!\n" +
+	"\fdeleted_uuid\x18\x01 \x01(\tR\vdeletedUuid*}\n" +
 	"\aVMState\x12\x18\n" +
 	"\x14VM_STATE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14VM_STATE_NOT_CREATED\x10\x01\x12\x14\n" +
 	"\x10VM_STATE_STOPPED\x10\x02\x12\x14\n" +
 	"\x10VM_STATE_RUNNING\x10\x03\x12\x12\n" +
-	"\x0eVM_STATE_ERROR\x10\x042\x83J\n" +
+	"\x0eVM_STATE_ERROR\x10\x042\x8eW\n" +
 	"\tWeftAgent\x12<\n" +
 	"\aListVMs\x12\x17.weft.v1.ListVMsRequest\x1a\x18.weft.v1.ListVMsResponse\x12?\n" +
 	"\bVMStatus\x12\x18.weft.v1.VMStatusRequest\x1a\x19.weft.v1.VMStatusResponse\x12<\n" +
@@ -17715,7 +20515,28 @@ const file_weft_proto_rawDesc = "" +
 	"\x13ListFederationPeers\x12#.weft.v1.ListFederationPeersRequest\x1a$.weft.v1.ListFederationPeersResponse\x12`\n" +
 	"\x13ListPluginCatalogue\x12#.weft.v1.ListPluginCatalogueRequest\x1a$.weft.v1.ListPluginCatalogueResponse\x12c\n" +
 	"\x14ListInstalledPlugins\x12$.weft.v1.ListInstalledPluginsRequest\x1a%.weft.v1.ListInstalledPluginsResponse\x12N\n" +
-	"\rInstallPlugin\x12\x1d.weft.v1.InstallPluginRequest\x1a\x1e.weft.v1.InstallPluginResponse2N\n" +
+	"\rInstallPlugin\x12\x1d.weft.v1.InstallPluginRequest\x1a\x1e.weft.v1.InstallPluginResponse\x12H\n" +
+	"\vListSubnets\x12\x1b.weft.v1.ListSubnetsRequest\x1a\x1c.weft.v1.ListSubnetsResponse\x12B\n" +
+	"\tGetSubnet\x12\x19.weft.v1.GetSubnetRequest\x1a\x1a.weft.v1.GetSubnetResponse\x12K\n" +
+	"\fCreateSubnet\x12\x1c.weft.v1.CreateSubnetRequest\x1a\x1d.weft.v1.CreateSubnetResponse\x12K\n" +
+	"\fUpdateSubnet\x12\x1c.weft.v1.UpdateSubnetRequest\x1a\x1d.weft.v1.UpdateSubnetResponse\x12K\n" +
+	"\fDeleteSubnet\x12\x1c.weft.v1.DeleteSubnetRequest\x1a\x1d.weft.v1.DeleteSubnetResponse\x12Z\n" +
+	"\x11ListLoadBalancers\x12!.weft.v1.ListLoadBalancersRequest\x1a\".weft.v1.ListLoadBalancersResponse\x12T\n" +
+	"\x0fGetLoadBalancer\x12\x1f.weft.v1.GetLoadBalancerRequest\x1a .weft.v1.GetLoadBalancerResponse\x12]\n" +
+	"\x12CreateLoadBalancer\x12\".weft.v1.CreateLoadBalancerRequest\x1a#.weft.v1.CreateLoadBalancerResponse\x12]\n" +
+	"\x12UpdateLoadBalancer\x12\".weft.v1.UpdateLoadBalancerRequest\x1a#.weft.v1.UpdateLoadBalancerResponse\x12l\n" +
+	"\x17SetLoadBalancerBackends\x12'.weft.v1.SetLoadBalancerBackendsRequest\x1a(.weft.v1.SetLoadBalancerBackendsResponse\x12]\n" +
+	"\x12DeleteLoadBalancer\x12\".weft.v1.DeleteLoadBalancerRequest\x1a#.weft.v1.DeleteLoadBalancerResponse\x12K\n" +
+	"\fListDNSZones\x12\x1c.weft.v1.ListDNSZonesRequest\x1a\x1d.weft.v1.ListDNSZonesResponse\x12E\n" +
+	"\n" +
+	"GetDNSZone\x12\x1a.weft.v1.GetDNSZoneRequest\x1a\x1b.weft.v1.GetDNSZoneResponse\x12N\n" +
+	"\rCreateDNSZone\x12\x1d.weft.v1.CreateDNSZoneRequest\x1a\x1e.weft.v1.CreateDNSZoneResponse\x12N\n" +
+	"\rUpdateDNSZone\x12\x1d.weft.v1.UpdateDNSZoneRequest\x1a\x1e.weft.v1.UpdateDNSZoneResponse\x12N\n" +
+	"\rDeleteDNSZone\x12\x1d.weft.v1.DeleteDNSZoneRequest\x1a\x1e.weft.v1.DeleteDNSZoneResponse\x12Q\n" +
+	"\x0eListDNSRecords\x12\x1e.weft.v1.ListDNSRecordsRequest\x1a\x1f.weft.v1.ListDNSRecordsResponse\x12T\n" +
+	"\x0fCreateDNSRecord\x12\x1f.weft.v1.CreateDNSRecordRequest\x1a .weft.v1.CreateDNSRecordResponse\x12T\n" +
+	"\x0fUpdateDNSRecord\x12\x1f.weft.v1.UpdateDNSRecordRequest\x1a .weft.v1.UpdateDNSRecordResponse\x12T\n" +
+	"\x0fDeleteDNSRecord\x12\x1f.weft.v1.DeleteDNSRecordRequest\x1a .weft.v1.DeleteDNSRecordResponse2N\n" +
 	"\rAgentDispatch\x12=\n" +
 	"\aConnect\x12\x15.weft.v1.AgentMessage\x1a\x17.weft.v1.ControlMessage(\x010\x01B'Z%github.com/openweft/weft-proto;weftv1b\x06proto3"
 
@@ -17732,7 +20553,7 @@ func file_weft_proto_rawDescGZIP() []byte {
 }
 
 var file_weft_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_weft_proto_msgTypes = make([]protoimpl.MessageInfo, 295)
+var file_weft_proto_msgTypes = make([]protoimpl.MessageInfo, 340)
 var file_weft_proto_goTypes = []any{
 	(VMState)(0),                                    // 0: weft.v1.VMState
 	(*VMInfo)(nil),                                  // 1: weft.v1.VMInfo
@@ -18024,12 +20845,57 @@ var file_weft_proto_goTypes = []any{
 	(*AddVMSSHKeyResponse)(nil),                     // 287: weft.v1.AddVMSSHKeyResponse
 	(*RemoveVMSSHKeyRequest)(nil),                   // 288: weft.v1.RemoveVMSSHKeyRequest
 	(*RemoveVMSSHKeyResponse)(nil),                  // 289: weft.v1.RemoveVMSSHKeyResponse
-	nil,                                             // 290: weft.v1.TimingEvent.MetaEntry
-	nil,                                             // 291: weft.v1.PlatformEvent.MetaEntry
-	nil,                                             // 292: weft.v1.InstallPluginRequest.InputsEntry
-	nil,                                             // 293: weft.v1.HostInfo.LabelsEntry
-	nil,                                             // 294: weft.v1.RegisterHostRequest.LabelsEntry
-	nil,                                             // 295: weft.v1.SetHostLabelsRequest.LabelsEntry
+	(*SubnetInfo)(nil),                              // 290: weft.v1.SubnetInfo
+	(*ListSubnetsRequest)(nil),                      // 291: weft.v1.ListSubnetsRequest
+	(*ListSubnetsResponse)(nil),                     // 292: weft.v1.ListSubnetsResponse
+	(*GetSubnetRequest)(nil),                        // 293: weft.v1.GetSubnetRequest
+	(*GetSubnetResponse)(nil),                       // 294: weft.v1.GetSubnetResponse
+	(*CreateSubnetRequest)(nil),                     // 295: weft.v1.CreateSubnetRequest
+	(*CreateSubnetResponse)(nil),                    // 296: weft.v1.CreateSubnetResponse
+	(*UpdateSubnetRequest)(nil),                     // 297: weft.v1.UpdateSubnetRequest
+	(*UpdateSubnetResponse)(nil),                    // 298: weft.v1.UpdateSubnetResponse
+	(*DeleteSubnetRequest)(nil),                     // 299: weft.v1.DeleteSubnetRequest
+	(*DeleteSubnetResponse)(nil),                    // 300: weft.v1.DeleteSubnetResponse
+	(*LBBackend)(nil),                               // 301: weft.v1.LBBackend
+	(*LoadBalancerInfo)(nil),                        // 302: weft.v1.LoadBalancerInfo
+	(*ListLoadBalancersRequest)(nil),                // 303: weft.v1.ListLoadBalancersRequest
+	(*ListLoadBalancersResponse)(nil),               // 304: weft.v1.ListLoadBalancersResponse
+	(*GetLoadBalancerRequest)(nil),                  // 305: weft.v1.GetLoadBalancerRequest
+	(*GetLoadBalancerResponse)(nil),                 // 306: weft.v1.GetLoadBalancerResponse
+	(*CreateLoadBalancerRequest)(nil),               // 307: weft.v1.CreateLoadBalancerRequest
+	(*CreateLoadBalancerResponse)(nil),              // 308: weft.v1.CreateLoadBalancerResponse
+	(*UpdateLoadBalancerRequest)(nil),               // 309: weft.v1.UpdateLoadBalancerRequest
+	(*UpdateLoadBalancerResponse)(nil),              // 310: weft.v1.UpdateLoadBalancerResponse
+	(*SetLoadBalancerBackendsRequest)(nil),          // 311: weft.v1.SetLoadBalancerBackendsRequest
+	(*SetLoadBalancerBackendsResponse)(nil),         // 312: weft.v1.SetLoadBalancerBackendsResponse
+	(*DeleteLoadBalancerRequest)(nil),               // 313: weft.v1.DeleteLoadBalancerRequest
+	(*DeleteLoadBalancerResponse)(nil),              // 314: weft.v1.DeleteLoadBalancerResponse
+	(*DNSZoneInfo)(nil),                             // 315: weft.v1.DNSZoneInfo
+	(*ListDNSZonesRequest)(nil),                     // 316: weft.v1.ListDNSZonesRequest
+	(*ListDNSZonesResponse)(nil),                    // 317: weft.v1.ListDNSZonesResponse
+	(*GetDNSZoneRequest)(nil),                       // 318: weft.v1.GetDNSZoneRequest
+	(*GetDNSZoneResponse)(nil),                      // 319: weft.v1.GetDNSZoneResponse
+	(*CreateDNSZoneRequest)(nil),                    // 320: weft.v1.CreateDNSZoneRequest
+	(*CreateDNSZoneResponse)(nil),                   // 321: weft.v1.CreateDNSZoneResponse
+	(*UpdateDNSZoneRequest)(nil),                    // 322: weft.v1.UpdateDNSZoneRequest
+	(*UpdateDNSZoneResponse)(nil),                   // 323: weft.v1.UpdateDNSZoneResponse
+	(*DeleteDNSZoneRequest)(nil),                    // 324: weft.v1.DeleteDNSZoneRequest
+	(*DeleteDNSZoneResponse)(nil),                   // 325: weft.v1.DeleteDNSZoneResponse
+	(*DNSRecordInfo)(nil),                           // 326: weft.v1.DNSRecordInfo
+	(*ListDNSRecordsRequest)(nil),                   // 327: weft.v1.ListDNSRecordsRequest
+	(*ListDNSRecordsResponse)(nil),                  // 328: weft.v1.ListDNSRecordsResponse
+	(*CreateDNSRecordRequest)(nil),                  // 329: weft.v1.CreateDNSRecordRequest
+	(*CreateDNSRecordResponse)(nil),                 // 330: weft.v1.CreateDNSRecordResponse
+	(*UpdateDNSRecordRequest)(nil),                  // 331: weft.v1.UpdateDNSRecordRequest
+	(*UpdateDNSRecordResponse)(nil),                 // 332: weft.v1.UpdateDNSRecordResponse
+	(*DeleteDNSRecordRequest)(nil),                  // 333: weft.v1.DeleteDNSRecordRequest
+	(*DeleteDNSRecordResponse)(nil),                 // 334: weft.v1.DeleteDNSRecordResponse
+	nil,                                             // 335: weft.v1.TimingEvent.MetaEntry
+	nil,                                             // 336: weft.v1.PlatformEvent.MetaEntry
+	nil,                                             // 337: weft.v1.InstallPluginRequest.InputsEntry
+	nil,                                             // 338: weft.v1.HostInfo.LabelsEntry
+	nil,                                             // 339: weft.v1.RegisterHostRequest.LabelsEntry
+	nil,                                             // 340: weft.v1.SetHostLabelsRequest.LabelsEntry
 }
 var file_weft_proto_depIdxs = []int32{
 	0,   // 0: weft.v1.VMInfo.state:type_name -> weft.v1.VMState
@@ -18057,7 +20923,7 @@ var file_weft_proto_depIdxs = []int32{
 	48,  // 22: weft.v1.PatchImageRequest.delete_ops:type_name -> weft.v1.DiskDeleteOp
 	49,  // 23: weft.v1.PatchImageRequest.mod_ops:type_name -> weft.v1.DiskModOp
 	61,  // 24: weft.v1.ListImagesResponse.images:type_name -> weft.v1.ImageInfo
-	290, // 25: weft.v1.TimingEvent.meta:type_name -> weft.v1.TimingEvent.MetaEntry
+	335, // 25: weft.v1.TimingEvent.meta:type_name -> weft.v1.TimingEvent.MetaEntry
 	67,  // 26: weft.v1.VMTimingsResponse.events:type_name -> weft.v1.TimingEvent
 	78,  // 27: weft.v1.ListUsersResponse.users:type_name -> weft.v1.UserInfo
 	78,  // 28: weft.v1.GetUserResponse.user:type_name -> weft.v1.UserInfo
@@ -18088,7 +20954,7 @@ var file_weft_proto_depIdxs = []int32{
 	142, // 53: weft.v1.CreateVolumeBackupResponse.backup:type_name -> weft.v1.VolumeBackupInfo
 	142, // 54: weft.v1.ListVolumeBackupsResponse.backups:type_name -> weft.v1.VolumeBackupInfo
 	116, // 55: weft.v1.RestoreVolumeBackupResponse.volume:type_name -> weft.v1.VolumeInfo
-	291, // 56: weft.v1.PlatformEvent.meta:type_name -> weft.v1.PlatformEvent.MetaEntry
+	336, // 56: weft.v1.PlatformEvent.meta:type_name -> weft.v1.PlatformEvent.MetaEntry
 	155, // 57: weft.v1.RegisterMicroVMRequest.shares:type_name -> weft.v1.MicroVMShare
 	41,  // 58: weft.v1.RegisterMicroVMRequest.requested_gpus:type_name -> weft.v1.GPURequest
 	42,  // 59: weft.v1.RegisterMicroVMRequest.requested_pci:type_name -> weft.v1.PCIPassthroughRequest
@@ -18098,13 +20964,13 @@ var file_weft_proto_depIdxs = []int32{
 	165, // 63: weft.v1.PluginCatalogueEntry.inputs:type_name -> weft.v1.PluginInput
 	166, // 64: weft.v1.ListPluginCatalogueResponse.entries:type_name -> weft.v1.PluginCatalogueEntry
 	167, // 65: weft.v1.ListInstalledPluginsResponse.instances:type_name -> weft.v1.PluginInstance
-	292, // 66: weft.v1.InstallPluginRequest.inputs:type_name -> weft.v1.InstallPluginRequest.InputsEntry
-	293, // 67: weft.v1.HostInfo.labels:type_name -> weft.v1.HostInfo.LabelsEntry
-	294, // 68: weft.v1.RegisterHostRequest.labels:type_name -> weft.v1.RegisterHostRequest.LabelsEntry
+	337, // 66: weft.v1.InstallPluginRequest.inputs:type_name -> weft.v1.InstallPluginRequest.InputsEntry
+	338, // 67: weft.v1.HostInfo.labels:type_name -> weft.v1.HostInfo.LabelsEntry
+	339, // 68: weft.v1.RegisterHostRequest.labels:type_name -> weft.v1.RegisterHostRequest.LabelsEntry
 	174, // 69: weft.v1.RegisterHostResponse.host:type_name -> weft.v1.HostInfo
 	174, // 70: weft.v1.ListHostsResponse.hosts:type_name -> weft.v1.HostInfo
 	174, // 71: weft.v1.GetHostResponse.host:type_name -> weft.v1.HostInfo
-	295, // 72: weft.v1.SetHostLabelsRequest.labels:type_name -> weft.v1.SetHostLabelsRequest.LabelsEntry
+	340, // 72: weft.v1.SetHostLabelsRequest.labels:type_name -> weft.v1.SetHostLabelsRequest.LabelsEntry
 	193, // 73: weft.v1.AgentMessage.hello:type_name -> weft.v1.AgentHello
 	196, // 74: weft.v1.AgentMessage.pong:type_name -> weft.v1.AgentPong
 	198, // 75: weft.v1.AgentMessage.reply:type_name -> weft.v1.DriverReply
@@ -18162,249 +21028,308 @@ var file_weft_proto_depIdxs = []int32{
 	276, // 127: weft.v1.SetUEFIVarResponse.var:type_name -> weft.v1.UEFIVar
 	283, // 128: weft.v1.ListVMSSHKeysResponse.keys:type_name -> weft.v1.VMSSHKey
 	283, // 129: weft.v1.AddVMSSHKeyResponse.key:type_name -> weft.v1.VMSSHKey
-	33,  // 130: weft.v1.WeftAgent.ListVMs:input_type -> weft.v1.ListVMsRequest
-	39,  // 131: weft.v1.WeftAgent.VMStatus:input_type -> weft.v1.VMStatusRequest
-	35,  // 132: weft.v1.WeftAgent.StartVM:input_type -> weft.v1.StartVMRequest
-	37,  // 133: weft.v1.WeftAgent.StopVM:input_type -> weft.v1.StopVMRequest
-	43,  // 134: weft.v1.WeftAgent.CreateVM:input_type -> weft.v1.CreateVMRequest
-	45,  // 135: weft.v1.WeftAgent.DeleteVM:input_type -> weft.v1.DeleteVMRequest
-	50,  // 136: weft.v1.WeftAgent.ProvisionVM:input_type -> weft.v1.ProvisionVMRequest
-	52,  // 137: weft.v1.WeftAgent.DeprovisionVM:input_type -> weft.v1.DeprovisionVMRequest
-	54,  // 138: weft.v1.WeftAgent.PullImages:input_type -> weft.v1.PullImagesRequest
-	56,  // 139: weft.v1.WeftAgent.PullImage:input_type -> weft.v1.PullImageRequest
-	58,  // 140: weft.v1.WeftAgent.PatchImage:input_type -> weft.v1.PatchImageRequest
-	60,  // 141: weft.v1.WeftAgent.ListImages:input_type -> weft.v1.ListImagesRequest
-	63,  // 142: weft.v1.WeftAgent.CleanImages:input_type -> weft.v1.CleanImagesRequest
-	65,  // 143: weft.v1.WeftAgent.WaitVM:input_type -> weft.v1.WaitVMRequest
-	156, // 144: weft.v1.WeftAgent.RegisterMicroVM:input_type -> weft.v1.RegisterMicroVMRequest
-	68,  // 145: weft.v1.WeftAgent.VMTimings:input_type -> weft.v1.VMTimingsRequest
-	70,  // 146: weft.v1.WeftAgent.VMLogs:input_type -> weft.v1.VMLogsRequest
-	3,   // 147: weft.v1.WeftAgent.ListAZs:input_type -> weft.v1.ListAZsRequest
-	5,   // 148: weft.v1.WeftAgent.GetAZ:input_type -> weft.v1.GetAZRequest
-	7,   // 149: weft.v1.WeftAgent.CreateAZ:input_type -> weft.v1.CreateAZRequest
-	9,   // 150: weft.v1.WeftAgent.UpdateAZ:input_type -> weft.v1.UpdateAZRequest
-	11,  // 151: weft.v1.WeftAgent.DeleteAZ:input_type -> weft.v1.DeleteAZRequest
-	14,  // 152: weft.v1.WeftAgent.ListRacks:input_type -> weft.v1.ListRacksRequest
-	16,  // 153: weft.v1.WeftAgent.GetRack:input_type -> weft.v1.GetRackRequest
-	18,  // 154: weft.v1.WeftAgent.CreateRack:input_type -> weft.v1.CreateRackRequest
-	20,  // 155: weft.v1.WeftAgent.UpdateRack:input_type -> weft.v1.UpdateRackRequest
-	22,  // 156: weft.v1.WeftAgent.DeleteRack:input_type -> weft.v1.DeleteRackRequest
-	25,  // 157: weft.v1.WeftAgent.ListProjects:input_type -> weft.v1.ListProjectsRequest
-	27,  // 158: weft.v1.WeftAgent.CreateProject:input_type -> weft.v1.CreateProjectRequest
-	29,  // 159: weft.v1.WeftAgent.RenameProject:input_type -> weft.v1.RenameProjectRequest
-	31,  // 160: weft.v1.WeftAgent.DeleteProject:input_type -> weft.v1.DeleteProjectRequest
-	72,  // 161: weft.v1.WeftAgent.AddProjectMember:input_type -> weft.v1.AddProjectMemberRequest
-	74,  // 162: weft.v1.WeftAgent.RemoveProjectMember:input_type -> weft.v1.RemoveProjectMemberRequest
-	76,  // 163: weft.v1.WeftAgent.ListProjectMembers:input_type -> weft.v1.ListProjectMembersRequest
-	79,  // 164: weft.v1.WeftAgent.ListUsers:input_type -> weft.v1.ListUsersRequest
-	81,  // 165: weft.v1.WeftAgent.GetUser:input_type -> weft.v1.GetUserRequest
-	83,  // 166: weft.v1.WeftAgent.Me:input_type -> weft.v1.MeRequest
-	85,  // 167: weft.v1.WeftAgent.SetUserDisplayName:input_type -> weft.v1.SetUserDisplayNameRequest
-	87,  // 168: weft.v1.WeftAgent.DeleteUser:input_type -> weft.v1.DeleteUserRequest
-	90,  // 169: weft.v1.WeftAgent.ListNetworks:input_type -> weft.v1.ListNetworksRequest
-	92,  // 170: weft.v1.WeftAgent.CreateNetwork:input_type -> weft.v1.CreateNetworkRequest
-	94,  // 171: weft.v1.WeftAgent.RenameNetwork:input_type -> weft.v1.RenameNetworkRequest
-	96,  // 172: weft.v1.WeftAgent.SetNetworkDNS:input_type -> weft.v1.SetNetworkDNSRequest
-	98,  // 173: weft.v1.WeftAgent.DeleteNetwork:input_type -> weft.v1.DeleteNetworkRequest
-	100, // 174: weft.v1.WeftAgent.SetNetworkDefaultSecurityGroups:input_type -> weft.v1.SetNetworkDefaultSecurityGroupsRequest
-	104, // 175: weft.v1.WeftAgent.ListSecurityGroups:input_type -> weft.v1.ListSecurityGroupsRequest
-	106, // 176: weft.v1.WeftAgent.CreateSecurityGroup:input_type -> weft.v1.CreateSecurityGroupRequest
-	108, // 177: weft.v1.WeftAgent.RenameSecurityGroup:input_type -> weft.v1.RenameSecurityGroupRequest
-	110, // 178: weft.v1.WeftAgent.SetSecurityGroupDescription:input_type -> weft.v1.SetSecurityGroupDescriptionRequest
-	112, // 179: weft.v1.WeftAgent.SetSecurityGroupRules:input_type -> weft.v1.SetSecurityGroupRulesRequest
-	114, // 180: weft.v1.WeftAgent.DeleteSecurityGroup:input_type -> weft.v1.DeleteSecurityGroupRequest
-	117, // 181: weft.v1.WeftAgent.ListVolumes:input_type -> weft.v1.ListVolumesRequest
-	119, // 182: weft.v1.WeftAgent.CreateVolume:input_type -> weft.v1.CreateVolumeRequest
-	121, // 183: weft.v1.WeftAgent.RenameVolume:input_type -> weft.v1.RenameVolumeRequest
-	123, // 184: weft.v1.WeftAgent.ResizeVolume:input_type -> weft.v1.ResizeVolumeRequest
-	125, // 185: weft.v1.WeftAgent.AttachVolume:input_type -> weft.v1.AttachVolumeRequest
-	127, // 186: weft.v1.WeftAgent.DetachVolume:input_type -> weft.v1.DetachVolumeRequest
-	129, // 187: weft.v1.WeftAgent.DeleteVolume:input_type -> weft.v1.DeleteVolumeRequest
-	132, // 188: weft.v1.WeftAgent.CreateVolumeSnapshot:input_type -> weft.v1.CreateVolumeSnapshotRequest
-	134, // 189: weft.v1.WeftAgent.ListVolumeSnapshots:input_type -> weft.v1.ListVolumeSnapshotsRequest
-	136, // 190: weft.v1.WeftAgent.RestoreVolumeSnapshot:input_type -> weft.v1.RestoreVolumeSnapshotRequest
-	140, // 191: weft.v1.WeftAgent.RevertVolumeSnapshot:input_type -> weft.v1.RevertVolumeSnapshotRequest
-	138, // 192: weft.v1.WeftAgent.DeleteVolumeSnapshot:input_type -> weft.v1.DeleteVolumeSnapshotRequest
-	143, // 193: weft.v1.WeftAgent.CreateVolumeBackup:input_type -> weft.v1.CreateVolumeBackupRequest
-	145, // 194: weft.v1.WeftAgent.ListVolumeBackups:input_type -> weft.v1.ListVolumeBackupsRequest
-	147, // 195: weft.v1.WeftAgent.DeleteVolumeBackup:input_type -> weft.v1.DeleteVolumeBackupRequest
-	149, // 196: weft.v1.WeftAgent.RestoreVolumeBackup:input_type -> weft.v1.RestoreVolumeBackupRequest
-	152, // 197: weft.v1.WeftAgent.WatchEvents:input_type -> weft.v1.WatchEventsRequest
-	153, // 198: weft.v1.WeftAgent.RenderNATSAuthorization:input_type -> weft.v1.RenderNATSAuthorizationRequest
-	175, // 199: weft.v1.WeftAgent.RegisterHost:input_type -> weft.v1.RegisterHostRequest
-	177, // 200: weft.v1.WeftAgent.ListHosts:input_type -> weft.v1.ListHostsRequest
-	179, // 201: weft.v1.WeftAgent.GetHost:input_type -> weft.v1.GetHostRequest
-	181, // 202: weft.v1.WeftAgent.HeartbeatHost:input_type -> weft.v1.HeartbeatHostRequest
-	183, // 203: weft.v1.WeftAgent.SetHostState:input_type -> weft.v1.SetHostStateRequest
-	185, // 204: weft.v1.WeftAgent.SetHostLabels:input_type -> weft.v1.SetHostLabelsRequest
-	187, // 205: weft.v1.WeftAgent.SetHostCordoned:input_type -> weft.v1.SetHostCordonedRequest
-	189, // 206: weft.v1.WeftAgent.DeleteHost:input_type -> weft.v1.DeleteHostRequest
-	160, // 207: weft.v1.WeftAgent.PublishShareToProject:input_type -> weft.v1.PublishShareToProjectRequest
-	210, // 208: weft.v1.WeftAgent.ListTenants:input_type -> weft.v1.ListTenantsRequest
-	212, // 209: weft.v1.WeftAgent.CreateTenant:input_type -> weft.v1.CreateTenantRequest
-	214, // 210: weft.v1.WeftAgent.DeleteTenant:input_type -> weft.v1.DeleteTenantRequest
-	216, // 211: weft.v1.WeftAgent.AddTenantAdmin:input_type -> weft.v1.AddTenantAdminRequest
-	218, // 212: weft.v1.WeftAgent.RemoveTenantAdmin:input_type -> weft.v1.RemoveTenantAdminRequest
-	220, // 213: weft.v1.WeftAgent.AddTenantMember:input_type -> weft.v1.AddTenantMemberRequest
-	222, // 214: weft.v1.WeftAgent.RemoveTenantMember:input_type -> weft.v1.RemoveTenantMemberRequest
-	225, // 215: weft.v1.WeftAgent.GetTenantQuota:input_type -> weft.v1.GetTenantQuotaRequest
-	227, // 216: weft.v1.WeftAgent.SetTenantQuota:input_type -> weft.v1.SetTenantQuotaRequest
-	229, // 217: weft.v1.WeftAgent.GetProjectQuota:input_type -> weft.v1.GetProjectQuotaRequest
-	231, // 218: weft.v1.WeftAgent.SetProjectQuota:input_type -> weft.v1.SetProjectQuotaRequest
-	234, // 219: weft.v1.WeftAgent.ListShares:input_type -> weft.v1.ListSharesRequest
-	236, // 220: weft.v1.WeftAgent.CreateShare:input_type -> weft.v1.CreateShareRequest
-	238, // 221: weft.v1.WeftAgent.DeleteShare:input_type -> weft.v1.DeleteShareRequest
-	241, // 222: weft.v1.WeftAgent.ListFloatingIPs:input_type -> weft.v1.ListFloatingIPsRequest
-	243, // 223: weft.v1.WeftAgent.AllocateFloatingIP:input_type -> weft.v1.AllocateFloatingIPRequest
-	245, // 224: weft.v1.WeftAgent.ReleaseFloatingIP:input_type -> weft.v1.ReleaseFloatingIPRequest
-	247, // 225: weft.v1.WeftAgent.MapFloatingIP:input_type -> weft.v1.MapFloatingIPRequest
-	249, // 226: weft.v1.WeftAgent.UnmapFloatingIP:input_type -> weft.v1.UnmapFloatingIPRequest
-	252, // 227: weft.v1.WeftAgent.ListFlavors:input_type -> weft.v1.ListFlavorsRequest
-	254, // 228: weft.v1.WeftAgent.GetFlavor:input_type -> weft.v1.GetFlavorRequest
-	256, // 229: weft.v1.WeftAgent.SetFlavor:input_type -> weft.v1.SetFlavorRequest
-	258, // 230: weft.v1.WeftAgent.DeleteFlavor:input_type -> weft.v1.DeleteFlavorRequest
-	261, // 231: weft.v1.WeftAgent.ListScripts:input_type -> weft.v1.ListScriptsRequest
-	263, // 232: weft.v1.WeftAgent.GetScript:input_type -> weft.v1.GetScriptRequest
-	265, // 233: weft.v1.WeftAgent.SetScript:input_type -> weft.v1.SetScriptRequest
-	267, // 234: weft.v1.WeftAgent.DeleteScript:input_type -> weft.v1.DeleteScriptRequest
-	270, // 235: weft.v1.WeftAgent.ListVMProperties:input_type -> weft.v1.ListVMPropertiesRequest
-	272, // 236: weft.v1.WeftAgent.SetVMProperty:input_type -> weft.v1.SetVMPropertyRequest
-	274, // 237: weft.v1.WeftAgent.DeleteVMProperty:input_type -> weft.v1.DeleteVMPropertyRequest
-	277, // 238: weft.v1.WeftAgent.ListUEFIVars:input_type -> weft.v1.ListUEFIVarsRequest
-	279, // 239: weft.v1.WeftAgent.SetUEFIVar:input_type -> weft.v1.SetUEFIVarRequest
-	281, // 240: weft.v1.WeftAgent.DeleteUEFIVar:input_type -> weft.v1.DeleteUEFIVarRequest
-	284, // 241: weft.v1.WeftAgent.ListVMSSHKeys:input_type -> weft.v1.ListVMSSHKeysRequest
-	286, // 242: weft.v1.WeftAgent.AddVMSSHKey:input_type -> weft.v1.AddVMSSHKeyRequest
-	288, // 243: weft.v1.WeftAgent.RemoveVMSSHKey:input_type -> weft.v1.RemoveVMSSHKeyRequest
-	163, // 244: weft.v1.WeftAgent.ListFederationPeers:input_type -> weft.v1.ListFederationPeersRequest
-	168, // 245: weft.v1.WeftAgent.ListPluginCatalogue:input_type -> weft.v1.ListPluginCatalogueRequest
-	170, // 246: weft.v1.WeftAgent.ListInstalledPlugins:input_type -> weft.v1.ListInstalledPluginsRequest
-	172, // 247: weft.v1.WeftAgent.InstallPlugin:input_type -> weft.v1.InstallPluginRequest
-	191, // 248: weft.v1.AgentDispatch.Connect:input_type -> weft.v1.AgentMessage
-	34,  // 249: weft.v1.WeftAgent.ListVMs:output_type -> weft.v1.ListVMsResponse
-	40,  // 250: weft.v1.WeftAgent.VMStatus:output_type -> weft.v1.VMStatusResponse
-	36,  // 251: weft.v1.WeftAgent.StartVM:output_type -> weft.v1.StartVMResponse
-	38,  // 252: weft.v1.WeftAgent.StopVM:output_type -> weft.v1.StopVMResponse
-	44,  // 253: weft.v1.WeftAgent.CreateVM:output_type -> weft.v1.CreateVMResponse
-	46,  // 254: weft.v1.WeftAgent.DeleteVM:output_type -> weft.v1.DeleteVMResponse
-	51,  // 255: weft.v1.WeftAgent.ProvisionVM:output_type -> weft.v1.ProvisionVMResponse
-	53,  // 256: weft.v1.WeftAgent.DeprovisionVM:output_type -> weft.v1.DeprovisionVMResponse
-	55,  // 257: weft.v1.WeftAgent.PullImages:output_type -> weft.v1.PullImagesResponse
-	57,  // 258: weft.v1.WeftAgent.PullImage:output_type -> weft.v1.PullImageResponse
-	59,  // 259: weft.v1.WeftAgent.PatchImage:output_type -> weft.v1.PatchImageResponse
-	62,  // 260: weft.v1.WeftAgent.ListImages:output_type -> weft.v1.ListImagesResponse
-	64,  // 261: weft.v1.WeftAgent.CleanImages:output_type -> weft.v1.CleanImagesResponse
-	66,  // 262: weft.v1.WeftAgent.WaitVM:output_type -> weft.v1.WaitVMResponse
-	157, // 263: weft.v1.WeftAgent.RegisterMicroVM:output_type -> weft.v1.RegisterMicroVMResponse
-	69,  // 264: weft.v1.WeftAgent.VMTimings:output_type -> weft.v1.VMTimingsResponse
-	71,  // 265: weft.v1.WeftAgent.VMLogs:output_type -> weft.v1.VMLogsResponse
-	4,   // 266: weft.v1.WeftAgent.ListAZs:output_type -> weft.v1.ListAZsResponse
-	6,   // 267: weft.v1.WeftAgent.GetAZ:output_type -> weft.v1.GetAZResponse
-	8,   // 268: weft.v1.WeftAgent.CreateAZ:output_type -> weft.v1.CreateAZResponse
-	10,  // 269: weft.v1.WeftAgent.UpdateAZ:output_type -> weft.v1.UpdateAZResponse
-	12,  // 270: weft.v1.WeftAgent.DeleteAZ:output_type -> weft.v1.DeleteAZResponse
-	15,  // 271: weft.v1.WeftAgent.ListRacks:output_type -> weft.v1.ListRacksResponse
-	17,  // 272: weft.v1.WeftAgent.GetRack:output_type -> weft.v1.GetRackResponse
-	19,  // 273: weft.v1.WeftAgent.CreateRack:output_type -> weft.v1.CreateRackResponse
-	21,  // 274: weft.v1.WeftAgent.UpdateRack:output_type -> weft.v1.UpdateRackResponse
-	23,  // 275: weft.v1.WeftAgent.DeleteRack:output_type -> weft.v1.DeleteRackResponse
-	26,  // 276: weft.v1.WeftAgent.ListProjects:output_type -> weft.v1.ListProjectsResponse
-	28,  // 277: weft.v1.WeftAgent.CreateProject:output_type -> weft.v1.CreateProjectResponse
-	30,  // 278: weft.v1.WeftAgent.RenameProject:output_type -> weft.v1.RenameProjectResponse
-	32,  // 279: weft.v1.WeftAgent.DeleteProject:output_type -> weft.v1.DeleteProjectResponse
-	73,  // 280: weft.v1.WeftAgent.AddProjectMember:output_type -> weft.v1.AddProjectMemberResponse
-	75,  // 281: weft.v1.WeftAgent.RemoveProjectMember:output_type -> weft.v1.RemoveProjectMemberResponse
-	77,  // 282: weft.v1.WeftAgent.ListProjectMembers:output_type -> weft.v1.ListProjectMembersResponse
-	80,  // 283: weft.v1.WeftAgent.ListUsers:output_type -> weft.v1.ListUsersResponse
-	82,  // 284: weft.v1.WeftAgent.GetUser:output_type -> weft.v1.GetUserResponse
-	84,  // 285: weft.v1.WeftAgent.Me:output_type -> weft.v1.MeResponse
-	86,  // 286: weft.v1.WeftAgent.SetUserDisplayName:output_type -> weft.v1.SetUserDisplayNameResponse
-	88,  // 287: weft.v1.WeftAgent.DeleteUser:output_type -> weft.v1.DeleteUserResponse
-	91,  // 288: weft.v1.WeftAgent.ListNetworks:output_type -> weft.v1.ListNetworksResponse
-	93,  // 289: weft.v1.WeftAgent.CreateNetwork:output_type -> weft.v1.CreateNetworkResponse
-	95,  // 290: weft.v1.WeftAgent.RenameNetwork:output_type -> weft.v1.RenameNetworkResponse
-	97,  // 291: weft.v1.WeftAgent.SetNetworkDNS:output_type -> weft.v1.SetNetworkDNSResponse
-	99,  // 292: weft.v1.WeftAgent.DeleteNetwork:output_type -> weft.v1.DeleteNetworkResponse
-	101, // 293: weft.v1.WeftAgent.SetNetworkDefaultSecurityGroups:output_type -> weft.v1.SetNetworkDefaultSecurityGroupsResponse
-	105, // 294: weft.v1.WeftAgent.ListSecurityGroups:output_type -> weft.v1.ListSecurityGroupsResponse
-	107, // 295: weft.v1.WeftAgent.CreateSecurityGroup:output_type -> weft.v1.CreateSecurityGroupResponse
-	109, // 296: weft.v1.WeftAgent.RenameSecurityGroup:output_type -> weft.v1.RenameSecurityGroupResponse
-	111, // 297: weft.v1.WeftAgent.SetSecurityGroupDescription:output_type -> weft.v1.SetSecurityGroupDescriptionResponse
-	113, // 298: weft.v1.WeftAgent.SetSecurityGroupRules:output_type -> weft.v1.SetSecurityGroupRulesResponse
-	115, // 299: weft.v1.WeftAgent.DeleteSecurityGroup:output_type -> weft.v1.DeleteSecurityGroupResponse
-	118, // 300: weft.v1.WeftAgent.ListVolumes:output_type -> weft.v1.ListVolumesResponse
-	120, // 301: weft.v1.WeftAgent.CreateVolume:output_type -> weft.v1.CreateVolumeResponse
-	122, // 302: weft.v1.WeftAgent.RenameVolume:output_type -> weft.v1.RenameVolumeResponse
-	124, // 303: weft.v1.WeftAgent.ResizeVolume:output_type -> weft.v1.ResizeVolumeResponse
-	126, // 304: weft.v1.WeftAgent.AttachVolume:output_type -> weft.v1.AttachVolumeResponse
-	128, // 305: weft.v1.WeftAgent.DetachVolume:output_type -> weft.v1.DetachVolumeResponse
-	130, // 306: weft.v1.WeftAgent.DeleteVolume:output_type -> weft.v1.DeleteVolumeResponse
-	133, // 307: weft.v1.WeftAgent.CreateVolumeSnapshot:output_type -> weft.v1.CreateVolumeSnapshotResponse
-	135, // 308: weft.v1.WeftAgent.ListVolumeSnapshots:output_type -> weft.v1.ListVolumeSnapshotsResponse
-	137, // 309: weft.v1.WeftAgent.RestoreVolumeSnapshot:output_type -> weft.v1.RestoreVolumeSnapshotResponse
-	141, // 310: weft.v1.WeftAgent.RevertVolumeSnapshot:output_type -> weft.v1.RevertVolumeSnapshotResponse
-	139, // 311: weft.v1.WeftAgent.DeleteVolumeSnapshot:output_type -> weft.v1.DeleteVolumeSnapshotResponse
-	144, // 312: weft.v1.WeftAgent.CreateVolumeBackup:output_type -> weft.v1.CreateVolumeBackupResponse
-	146, // 313: weft.v1.WeftAgent.ListVolumeBackups:output_type -> weft.v1.ListVolumeBackupsResponse
-	148, // 314: weft.v1.WeftAgent.DeleteVolumeBackup:output_type -> weft.v1.DeleteVolumeBackupResponse
-	150, // 315: weft.v1.WeftAgent.RestoreVolumeBackup:output_type -> weft.v1.RestoreVolumeBackupResponse
-	151, // 316: weft.v1.WeftAgent.WatchEvents:output_type -> weft.v1.PlatformEvent
-	154, // 317: weft.v1.WeftAgent.RenderNATSAuthorization:output_type -> weft.v1.RenderNATSAuthorizationResponse
-	176, // 318: weft.v1.WeftAgent.RegisterHost:output_type -> weft.v1.RegisterHostResponse
-	178, // 319: weft.v1.WeftAgent.ListHosts:output_type -> weft.v1.ListHostsResponse
-	180, // 320: weft.v1.WeftAgent.GetHost:output_type -> weft.v1.GetHostResponse
-	182, // 321: weft.v1.WeftAgent.HeartbeatHost:output_type -> weft.v1.HeartbeatHostResponse
-	184, // 322: weft.v1.WeftAgent.SetHostState:output_type -> weft.v1.SetHostStateResponse
-	186, // 323: weft.v1.WeftAgent.SetHostLabels:output_type -> weft.v1.SetHostLabelsResponse
-	188, // 324: weft.v1.WeftAgent.SetHostCordoned:output_type -> weft.v1.SetHostCordonedResponse
-	190, // 325: weft.v1.WeftAgent.DeleteHost:output_type -> weft.v1.DeleteHostResponse
-	161, // 326: weft.v1.WeftAgent.PublishShareToProject:output_type -> weft.v1.PublishShareToProjectResponse
-	211, // 327: weft.v1.WeftAgent.ListTenants:output_type -> weft.v1.ListTenantsResponse
-	213, // 328: weft.v1.WeftAgent.CreateTenant:output_type -> weft.v1.CreateTenantResponse
-	215, // 329: weft.v1.WeftAgent.DeleteTenant:output_type -> weft.v1.DeleteTenantResponse
-	217, // 330: weft.v1.WeftAgent.AddTenantAdmin:output_type -> weft.v1.AddTenantAdminResponse
-	219, // 331: weft.v1.WeftAgent.RemoveTenantAdmin:output_type -> weft.v1.RemoveTenantAdminResponse
-	221, // 332: weft.v1.WeftAgent.AddTenantMember:output_type -> weft.v1.AddTenantMemberResponse
-	223, // 333: weft.v1.WeftAgent.RemoveTenantMember:output_type -> weft.v1.RemoveTenantMemberResponse
-	226, // 334: weft.v1.WeftAgent.GetTenantQuota:output_type -> weft.v1.GetTenantQuotaResponse
-	228, // 335: weft.v1.WeftAgent.SetTenantQuota:output_type -> weft.v1.SetTenantQuotaResponse
-	230, // 336: weft.v1.WeftAgent.GetProjectQuota:output_type -> weft.v1.GetProjectQuotaResponse
-	232, // 337: weft.v1.WeftAgent.SetProjectQuota:output_type -> weft.v1.SetProjectQuotaResponse
-	235, // 338: weft.v1.WeftAgent.ListShares:output_type -> weft.v1.ListSharesResponse
-	237, // 339: weft.v1.WeftAgent.CreateShare:output_type -> weft.v1.CreateShareResponse
-	239, // 340: weft.v1.WeftAgent.DeleteShare:output_type -> weft.v1.DeleteShareResponse
-	242, // 341: weft.v1.WeftAgent.ListFloatingIPs:output_type -> weft.v1.ListFloatingIPsResponse
-	244, // 342: weft.v1.WeftAgent.AllocateFloatingIP:output_type -> weft.v1.AllocateFloatingIPResponse
-	246, // 343: weft.v1.WeftAgent.ReleaseFloatingIP:output_type -> weft.v1.ReleaseFloatingIPResponse
-	248, // 344: weft.v1.WeftAgent.MapFloatingIP:output_type -> weft.v1.MapFloatingIPResponse
-	250, // 345: weft.v1.WeftAgent.UnmapFloatingIP:output_type -> weft.v1.UnmapFloatingIPResponse
-	253, // 346: weft.v1.WeftAgent.ListFlavors:output_type -> weft.v1.ListFlavorsResponse
-	255, // 347: weft.v1.WeftAgent.GetFlavor:output_type -> weft.v1.GetFlavorResponse
-	257, // 348: weft.v1.WeftAgent.SetFlavor:output_type -> weft.v1.SetFlavorResponse
-	259, // 349: weft.v1.WeftAgent.DeleteFlavor:output_type -> weft.v1.DeleteFlavorResponse
-	262, // 350: weft.v1.WeftAgent.ListScripts:output_type -> weft.v1.ListScriptsResponse
-	264, // 351: weft.v1.WeftAgent.GetScript:output_type -> weft.v1.GetScriptResponse
-	266, // 352: weft.v1.WeftAgent.SetScript:output_type -> weft.v1.SetScriptResponse
-	268, // 353: weft.v1.WeftAgent.DeleteScript:output_type -> weft.v1.DeleteScriptResponse
-	271, // 354: weft.v1.WeftAgent.ListVMProperties:output_type -> weft.v1.ListVMPropertiesResponse
-	273, // 355: weft.v1.WeftAgent.SetVMProperty:output_type -> weft.v1.SetVMPropertyResponse
-	275, // 356: weft.v1.WeftAgent.DeleteVMProperty:output_type -> weft.v1.DeleteVMPropertyResponse
-	278, // 357: weft.v1.WeftAgent.ListUEFIVars:output_type -> weft.v1.ListUEFIVarsResponse
-	280, // 358: weft.v1.WeftAgent.SetUEFIVar:output_type -> weft.v1.SetUEFIVarResponse
-	282, // 359: weft.v1.WeftAgent.DeleteUEFIVar:output_type -> weft.v1.DeleteUEFIVarResponse
-	285, // 360: weft.v1.WeftAgent.ListVMSSHKeys:output_type -> weft.v1.ListVMSSHKeysResponse
-	287, // 361: weft.v1.WeftAgent.AddVMSSHKey:output_type -> weft.v1.AddVMSSHKeyResponse
-	289, // 362: weft.v1.WeftAgent.RemoveVMSSHKey:output_type -> weft.v1.RemoveVMSSHKeyResponse
-	164, // 363: weft.v1.WeftAgent.ListFederationPeers:output_type -> weft.v1.ListFederationPeersResponse
-	169, // 364: weft.v1.WeftAgent.ListPluginCatalogue:output_type -> weft.v1.ListPluginCatalogueResponse
-	171, // 365: weft.v1.WeftAgent.ListInstalledPlugins:output_type -> weft.v1.ListInstalledPluginsResponse
-	173, // 366: weft.v1.WeftAgent.InstallPlugin:output_type -> weft.v1.InstallPluginResponse
-	192, // 367: weft.v1.AgentDispatch.Connect:output_type -> weft.v1.ControlMessage
-	249, // [249:368] is the sub-list for method output_type
-	130, // [130:249] is the sub-list for method input_type
-	130, // [130:130] is the sub-list for extension type_name
-	130, // [130:130] is the sub-list for extension extendee
-	0,   // [0:130] is the sub-list for field type_name
+	290, // 130: weft.v1.ListSubnetsResponse.subnets:type_name -> weft.v1.SubnetInfo
+	290, // 131: weft.v1.GetSubnetResponse.subnet:type_name -> weft.v1.SubnetInfo
+	290, // 132: weft.v1.CreateSubnetResponse.subnet:type_name -> weft.v1.SubnetInfo
+	290, // 133: weft.v1.UpdateSubnetResponse.subnet:type_name -> weft.v1.SubnetInfo
+	301, // 134: weft.v1.LoadBalancerInfo.backends:type_name -> weft.v1.LBBackend
+	302, // 135: weft.v1.ListLoadBalancersResponse.load_balancers:type_name -> weft.v1.LoadBalancerInfo
+	302, // 136: weft.v1.GetLoadBalancerResponse.load_balancer:type_name -> weft.v1.LoadBalancerInfo
+	301, // 137: weft.v1.CreateLoadBalancerRequest.backends:type_name -> weft.v1.LBBackend
+	302, // 138: weft.v1.CreateLoadBalancerResponse.load_balancer:type_name -> weft.v1.LoadBalancerInfo
+	302, // 139: weft.v1.UpdateLoadBalancerResponse.load_balancer:type_name -> weft.v1.LoadBalancerInfo
+	301, // 140: weft.v1.SetLoadBalancerBackendsRequest.backends:type_name -> weft.v1.LBBackend
+	302, // 141: weft.v1.SetLoadBalancerBackendsResponse.load_balancer:type_name -> weft.v1.LoadBalancerInfo
+	315, // 142: weft.v1.ListDNSZonesResponse.zones:type_name -> weft.v1.DNSZoneInfo
+	315, // 143: weft.v1.GetDNSZoneResponse.zone:type_name -> weft.v1.DNSZoneInfo
+	315, // 144: weft.v1.CreateDNSZoneResponse.zone:type_name -> weft.v1.DNSZoneInfo
+	315, // 145: weft.v1.UpdateDNSZoneResponse.zone:type_name -> weft.v1.DNSZoneInfo
+	326, // 146: weft.v1.ListDNSRecordsResponse.records:type_name -> weft.v1.DNSRecordInfo
+	326, // 147: weft.v1.CreateDNSRecordResponse.record:type_name -> weft.v1.DNSRecordInfo
+	326, // 148: weft.v1.UpdateDNSRecordResponse.record:type_name -> weft.v1.DNSRecordInfo
+	33,  // 149: weft.v1.WeftAgent.ListVMs:input_type -> weft.v1.ListVMsRequest
+	39,  // 150: weft.v1.WeftAgent.VMStatus:input_type -> weft.v1.VMStatusRequest
+	35,  // 151: weft.v1.WeftAgent.StartVM:input_type -> weft.v1.StartVMRequest
+	37,  // 152: weft.v1.WeftAgent.StopVM:input_type -> weft.v1.StopVMRequest
+	43,  // 153: weft.v1.WeftAgent.CreateVM:input_type -> weft.v1.CreateVMRequest
+	45,  // 154: weft.v1.WeftAgent.DeleteVM:input_type -> weft.v1.DeleteVMRequest
+	50,  // 155: weft.v1.WeftAgent.ProvisionVM:input_type -> weft.v1.ProvisionVMRequest
+	52,  // 156: weft.v1.WeftAgent.DeprovisionVM:input_type -> weft.v1.DeprovisionVMRequest
+	54,  // 157: weft.v1.WeftAgent.PullImages:input_type -> weft.v1.PullImagesRequest
+	56,  // 158: weft.v1.WeftAgent.PullImage:input_type -> weft.v1.PullImageRequest
+	58,  // 159: weft.v1.WeftAgent.PatchImage:input_type -> weft.v1.PatchImageRequest
+	60,  // 160: weft.v1.WeftAgent.ListImages:input_type -> weft.v1.ListImagesRequest
+	63,  // 161: weft.v1.WeftAgent.CleanImages:input_type -> weft.v1.CleanImagesRequest
+	65,  // 162: weft.v1.WeftAgent.WaitVM:input_type -> weft.v1.WaitVMRequest
+	156, // 163: weft.v1.WeftAgent.RegisterMicroVM:input_type -> weft.v1.RegisterMicroVMRequest
+	68,  // 164: weft.v1.WeftAgent.VMTimings:input_type -> weft.v1.VMTimingsRequest
+	70,  // 165: weft.v1.WeftAgent.VMLogs:input_type -> weft.v1.VMLogsRequest
+	3,   // 166: weft.v1.WeftAgent.ListAZs:input_type -> weft.v1.ListAZsRequest
+	5,   // 167: weft.v1.WeftAgent.GetAZ:input_type -> weft.v1.GetAZRequest
+	7,   // 168: weft.v1.WeftAgent.CreateAZ:input_type -> weft.v1.CreateAZRequest
+	9,   // 169: weft.v1.WeftAgent.UpdateAZ:input_type -> weft.v1.UpdateAZRequest
+	11,  // 170: weft.v1.WeftAgent.DeleteAZ:input_type -> weft.v1.DeleteAZRequest
+	14,  // 171: weft.v1.WeftAgent.ListRacks:input_type -> weft.v1.ListRacksRequest
+	16,  // 172: weft.v1.WeftAgent.GetRack:input_type -> weft.v1.GetRackRequest
+	18,  // 173: weft.v1.WeftAgent.CreateRack:input_type -> weft.v1.CreateRackRequest
+	20,  // 174: weft.v1.WeftAgent.UpdateRack:input_type -> weft.v1.UpdateRackRequest
+	22,  // 175: weft.v1.WeftAgent.DeleteRack:input_type -> weft.v1.DeleteRackRequest
+	25,  // 176: weft.v1.WeftAgent.ListProjects:input_type -> weft.v1.ListProjectsRequest
+	27,  // 177: weft.v1.WeftAgent.CreateProject:input_type -> weft.v1.CreateProjectRequest
+	29,  // 178: weft.v1.WeftAgent.RenameProject:input_type -> weft.v1.RenameProjectRequest
+	31,  // 179: weft.v1.WeftAgent.DeleteProject:input_type -> weft.v1.DeleteProjectRequest
+	72,  // 180: weft.v1.WeftAgent.AddProjectMember:input_type -> weft.v1.AddProjectMemberRequest
+	74,  // 181: weft.v1.WeftAgent.RemoveProjectMember:input_type -> weft.v1.RemoveProjectMemberRequest
+	76,  // 182: weft.v1.WeftAgent.ListProjectMembers:input_type -> weft.v1.ListProjectMembersRequest
+	79,  // 183: weft.v1.WeftAgent.ListUsers:input_type -> weft.v1.ListUsersRequest
+	81,  // 184: weft.v1.WeftAgent.GetUser:input_type -> weft.v1.GetUserRequest
+	83,  // 185: weft.v1.WeftAgent.Me:input_type -> weft.v1.MeRequest
+	85,  // 186: weft.v1.WeftAgent.SetUserDisplayName:input_type -> weft.v1.SetUserDisplayNameRequest
+	87,  // 187: weft.v1.WeftAgent.DeleteUser:input_type -> weft.v1.DeleteUserRequest
+	90,  // 188: weft.v1.WeftAgent.ListNetworks:input_type -> weft.v1.ListNetworksRequest
+	92,  // 189: weft.v1.WeftAgent.CreateNetwork:input_type -> weft.v1.CreateNetworkRequest
+	94,  // 190: weft.v1.WeftAgent.RenameNetwork:input_type -> weft.v1.RenameNetworkRequest
+	96,  // 191: weft.v1.WeftAgent.SetNetworkDNS:input_type -> weft.v1.SetNetworkDNSRequest
+	98,  // 192: weft.v1.WeftAgent.DeleteNetwork:input_type -> weft.v1.DeleteNetworkRequest
+	100, // 193: weft.v1.WeftAgent.SetNetworkDefaultSecurityGroups:input_type -> weft.v1.SetNetworkDefaultSecurityGroupsRequest
+	104, // 194: weft.v1.WeftAgent.ListSecurityGroups:input_type -> weft.v1.ListSecurityGroupsRequest
+	106, // 195: weft.v1.WeftAgent.CreateSecurityGroup:input_type -> weft.v1.CreateSecurityGroupRequest
+	108, // 196: weft.v1.WeftAgent.RenameSecurityGroup:input_type -> weft.v1.RenameSecurityGroupRequest
+	110, // 197: weft.v1.WeftAgent.SetSecurityGroupDescription:input_type -> weft.v1.SetSecurityGroupDescriptionRequest
+	112, // 198: weft.v1.WeftAgent.SetSecurityGroupRules:input_type -> weft.v1.SetSecurityGroupRulesRequest
+	114, // 199: weft.v1.WeftAgent.DeleteSecurityGroup:input_type -> weft.v1.DeleteSecurityGroupRequest
+	117, // 200: weft.v1.WeftAgent.ListVolumes:input_type -> weft.v1.ListVolumesRequest
+	119, // 201: weft.v1.WeftAgent.CreateVolume:input_type -> weft.v1.CreateVolumeRequest
+	121, // 202: weft.v1.WeftAgent.RenameVolume:input_type -> weft.v1.RenameVolumeRequest
+	123, // 203: weft.v1.WeftAgent.ResizeVolume:input_type -> weft.v1.ResizeVolumeRequest
+	125, // 204: weft.v1.WeftAgent.AttachVolume:input_type -> weft.v1.AttachVolumeRequest
+	127, // 205: weft.v1.WeftAgent.DetachVolume:input_type -> weft.v1.DetachVolumeRequest
+	129, // 206: weft.v1.WeftAgent.DeleteVolume:input_type -> weft.v1.DeleteVolumeRequest
+	132, // 207: weft.v1.WeftAgent.CreateVolumeSnapshot:input_type -> weft.v1.CreateVolumeSnapshotRequest
+	134, // 208: weft.v1.WeftAgent.ListVolumeSnapshots:input_type -> weft.v1.ListVolumeSnapshotsRequest
+	136, // 209: weft.v1.WeftAgent.RestoreVolumeSnapshot:input_type -> weft.v1.RestoreVolumeSnapshotRequest
+	140, // 210: weft.v1.WeftAgent.RevertVolumeSnapshot:input_type -> weft.v1.RevertVolumeSnapshotRequest
+	138, // 211: weft.v1.WeftAgent.DeleteVolumeSnapshot:input_type -> weft.v1.DeleteVolumeSnapshotRequest
+	143, // 212: weft.v1.WeftAgent.CreateVolumeBackup:input_type -> weft.v1.CreateVolumeBackupRequest
+	145, // 213: weft.v1.WeftAgent.ListVolumeBackups:input_type -> weft.v1.ListVolumeBackupsRequest
+	147, // 214: weft.v1.WeftAgent.DeleteVolumeBackup:input_type -> weft.v1.DeleteVolumeBackupRequest
+	149, // 215: weft.v1.WeftAgent.RestoreVolumeBackup:input_type -> weft.v1.RestoreVolumeBackupRequest
+	152, // 216: weft.v1.WeftAgent.WatchEvents:input_type -> weft.v1.WatchEventsRequest
+	153, // 217: weft.v1.WeftAgent.RenderNATSAuthorization:input_type -> weft.v1.RenderNATSAuthorizationRequest
+	175, // 218: weft.v1.WeftAgent.RegisterHost:input_type -> weft.v1.RegisterHostRequest
+	177, // 219: weft.v1.WeftAgent.ListHosts:input_type -> weft.v1.ListHostsRequest
+	179, // 220: weft.v1.WeftAgent.GetHost:input_type -> weft.v1.GetHostRequest
+	181, // 221: weft.v1.WeftAgent.HeartbeatHost:input_type -> weft.v1.HeartbeatHostRequest
+	183, // 222: weft.v1.WeftAgent.SetHostState:input_type -> weft.v1.SetHostStateRequest
+	185, // 223: weft.v1.WeftAgent.SetHostLabels:input_type -> weft.v1.SetHostLabelsRequest
+	187, // 224: weft.v1.WeftAgent.SetHostCordoned:input_type -> weft.v1.SetHostCordonedRequest
+	189, // 225: weft.v1.WeftAgent.DeleteHost:input_type -> weft.v1.DeleteHostRequest
+	160, // 226: weft.v1.WeftAgent.PublishShareToProject:input_type -> weft.v1.PublishShareToProjectRequest
+	210, // 227: weft.v1.WeftAgent.ListTenants:input_type -> weft.v1.ListTenantsRequest
+	212, // 228: weft.v1.WeftAgent.CreateTenant:input_type -> weft.v1.CreateTenantRequest
+	214, // 229: weft.v1.WeftAgent.DeleteTenant:input_type -> weft.v1.DeleteTenantRequest
+	216, // 230: weft.v1.WeftAgent.AddTenantAdmin:input_type -> weft.v1.AddTenantAdminRequest
+	218, // 231: weft.v1.WeftAgent.RemoveTenantAdmin:input_type -> weft.v1.RemoveTenantAdminRequest
+	220, // 232: weft.v1.WeftAgent.AddTenantMember:input_type -> weft.v1.AddTenantMemberRequest
+	222, // 233: weft.v1.WeftAgent.RemoveTenantMember:input_type -> weft.v1.RemoveTenantMemberRequest
+	225, // 234: weft.v1.WeftAgent.GetTenantQuota:input_type -> weft.v1.GetTenantQuotaRequest
+	227, // 235: weft.v1.WeftAgent.SetTenantQuota:input_type -> weft.v1.SetTenantQuotaRequest
+	229, // 236: weft.v1.WeftAgent.GetProjectQuota:input_type -> weft.v1.GetProjectQuotaRequest
+	231, // 237: weft.v1.WeftAgent.SetProjectQuota:input_type -> weft.v1.SetProjectQuotaRequest
+	234, // 238: weft.v1.WeftAgent.ListShares:input_type -> weft.v1.ListSharesRequest
+	236, // 239: weft.v1.WeftAgent.CreateShare:input_type -> weft.v1.CreateShareRequest
+	238, // 240: weft.v1.WeftAgent.DeleteShare:input_type -> weft.v1.DeleteShareRequest
+	241, // 241: weft.v1.WeftAgent.ListFloatingIPs:input_type -> weft.v1.ListFloatingIPsRequest
+	243, // 242: weft.v1.WeftAgent.AllocateFloatingIP:input_type -> weft.v1.AllocateFloatingIPRequest
+	245, // 243: weft.v1.WeftAgent.ReleaseFloatingIP:input_type -> weft.v1.ReleaseFloatingIPRequest
+	247, // 244: weft.v1.WeftAgent.MapFloatingIP:input_type -> weft.v1.MapFloatingIPRequest
+	249, // 245: weft.v1.WeftAgent.UnmapFloatingIP:input_type -> weft.v1.UnmapFloatingIPRequest
+	252, // 246: weft.v1.WeftAgent.ListFlavors:input_type -> weft.v1.ListFlavorsRequest
+	254, // 247: weft.v1.WeftAgent.GetFlavor:input_type -> weft.v1.GetFlavorRequest
+	256, // 248: weft.v1.WeftAgent.SetFlavor:input_type -> weft.v1.SetFlavorRequest
+	258, // 249: weft.v1.WeftAgent.DeleteFlavor:input_type -> weft.v1.DeleteFlavorRequest
+	261, // 250: weft.v1.WeftAgent.ListScripts:input_type -> weft.v1.ListScriptsRequest
+	263, // 251: weft.v1.WeftAgent.GetScript:input_type -> weft.v1.GetScriptRequest
+	265, // 252: weft.v1.WeftAgent.SetScript:input_type -> weft.v1.SetScriptRequest
+	267, // 253: weft.v1.WeftAgent.DeleteScript:input_type -> weft.v1.DeleteScriptRequest
+	270, // 254: weft.v1.WeftAgent.ListVMProperties:input_type -> weft.v1.ListVMPropertiesRequest
+	272, // 255: weft.v1.WeftAgent.SetVMProperty:input_type -> weft.v1.SetVMPropertyRequest
+	274, // 256: weft.v1.WeftAgent.DeleteVMProperty:input_type -> weft.v1.DeleteVMPropertyRequest
+	277, // 257: weft.v1.WeftAgent.ListUEFIVars:input_type -> weft.v1.ListUEFIVarsRequest
+	279, // 258: weft.v1.WeftAgent.SetUEFIVar:input_type -> weft.v1.SetUEFIVarRequest
+	281, // 259: weft.v1.WeftAgent.DeleteUEFIVar:input_type -> weft.v1.DeleteUEFIVarRequest
+	284, // 260: weft.v1.WeftAgent.ListVMSSHKeys:input_type -> weft.v1.ListVMSSHKeysRequest
+	286, // 261: weft.v1.WeftAgent.AddVMSSHKey:input_type -> weft.v1.AddVMSSHKeyRequest
+	288, // 262: weft.v1.WeftAgent.RemoveVMSSHKey:input_type -> weft.v1.RemoveVMSSHKeyRequest
+	163, // 263: weft.v1.WeftAgent.ListFederationPeers:input_type -> weft.v1.ListFederationPeersRequest
+	168, // 264: weft.v1.WeftAgent.ListPluginCatalogue:input_type -> weft.v1.ListPluginCatalogueRequest
+	170, // 265: weft.v1.WeftAgent.ListInstalledPlugins:input_type -> weft.v1.ListInstalledPluginsRequest
+	172, // 266: weft.v1.WeftAgent.InstallPlugin:input_type -> weft.v1.InstallPluginRequest
+	291, // 267: weft.v1.WeftAgent.ListSubnets:input_type -> weft.v1.ListSubnetsRequest
+	293, // 268: weft.v1.WeftAgent.GetSubnet:input_type -> weft.v1.GetSubnetRequest
+	295, // 269: weft.v1.WeftAgent.CreateSubnet:input_type -> weft.v1.CreateSubnetRequest
+	297, // 270: weft.v1.WeftAgent.UpdateSubnet:input_type -> weft.v1.UpdateSubnetRequest
+	299, // 271: weft.v1.WeftAgent.DeleteSubnet:input_type -> weft.v1.DeleteSubnetRequest
+	303, // 272: weft.v1.WeftAgent.ListLoadBalancers:input_type -> weft.v1.ListLoadBalancersRequest
+	305, // 273: weft.v1.WeftAgent.GetLoadBalancer:input_type -> weft.v1.GetLoadBalancerRequest
+	307, // 274: weft.v1.WeftAgent.CreateLoadBalancer:input_type -> weft.v1.CreateLoadBalancerRequest
+	309, // 275: weft.v1.WeftAgent.UpdateLoadBalancer:input_type -> weft.v1.UpdateLoadBalancerRequest
+	311, // 276: weft.v1.WeftAgent.SetLoadBalancerBackends:input_type -> weft.v1.SetLoadBalancerBackendsRequest
+	313, // 277: weft.v1.WeftAgent.DeleteLoadBalancer:input_type -> weft.v1.DeleteLoadBalancerRequest
+	316, // 278: weft.v1.WeftAgent.ListDNSZones:input_type -> weft.v1.ListDNSZonesRequest
+	318, // 279: weft.v1.WeftAgent.GetDNSZone:input_type -> weft.v1.GetDNSZoneRequest
+	320, // 280: weft.v1.WeftAgent.CreateDNSZone:input_type -> weft.v1.CreateDNSZoneRequest
+	322, // 281: weft.v1.WeftAgent.UpdateDNSZone:input_type -> weft.v1.UpdateDNSZoneRequest
+	324, // 282: weft.v1.WeftAgent.DeleteDNSZone:input_type -> weft.v1.DeleteDNSZoneRequest
+	327, // 283: weft.v1.WeftAgent.ListDNSRecords:input_type -> weft.v1.ListDNSRecordsRequest
+	329, // 284: weft.v1.WeftAgent.CreateDNSRecord:input_type -> weft.v1.CreateDNSRecordRequest
+	331, // 285: weft.v1.WeftAgent.UpdateDNSRecord:input_type -> weft.v1.UpdateDNSRecordRequest
+	333, // 286: weft.v1.WeftAgent.DeleteDNSRecord:input_type -> weft.v1.DeleteDNSRecordRequest
+	191, // 287: weft.v1.AgentDispatch.Connect:input_type -> weft.v1.AgentMessage
+	34,  // 288: weft.v1.WeftAgent.ListVMs:output_type -> weft.v1.ListVMsResponse
+	40,  // 289: weft.v1.WeftAgent.VMStatus:output_type -> weft.v1.VMStatusResponse
+	36,  // 290: weft.v1.WeftAgent.StartVM:output_type -> weft.v1.StartVMResponse
+	38,  // 291: weft.v1.WeftAgent.StopVM:output_type -> weft.v1.StopVMResponse
+	44,  // 292: weft.v1.WeftAgent.CreateVM:output_type -> weft.v1.CreateVMResponse
+	46,  // 293: weft.v1.WeftAgent.DeleteVM:output_type -> weft.v1.DeleteVMResponse
+	51,  // 294: weft.v1.WeftAgent.ProvisionVM:output_type -> weft.v1.ProvisionVMResponse
+	53,  // 295: weft.v1.WeftAgent.DeprovisionVM:output_type -> weft.v1.DeprovisionVMResponse
+	55,  // 296: weft.v1.WeftAgent.PullImages:output_type -> weft.v1.PullImagesResponse
+	57,  // 297: weft.v1.WeftAgent.PullImage:output_type -> weft.v1.PullImageResponse
+	59,  // 298: weft.v1.WeftAgent.PatchImage:output_type -> weft.v1.PatchImageResponse
+	62,  // 299: weft.v1.WeftAgent.ListImages:output_type -> weft.v1.ListImagesResponse
+	64,  // 300: weft.v1.WeftAgent.CleanImages:output_type -> weft.v1.CleanImagesResponse
+	66,  // 301: weft.v1.WeftAgent.WaitVM:output_type -> weft.v1.WaitVMResponse
+	157, // 302: weft.v1.WeftAgent.RegisterMicroVM:output_type -> weft.v1.RegisterMicroVMResponse
+	69,  // 303: weft.v1.WeftAgent.VMTimings:output_type -> weft.v1.VMTimingsResponse
+	71,  // 304: weft.v1.WeftAgent.VMLogs:output_type -> weft.v1.VMLogsResponse
+	4,   // 305: weft.v1.WeftAgent.ListAZs:output_type -> weft.v1.ListAZsResponse
+	6,   // 306: weft.v1.WeftAgent.GetAZ:output_type -> weft.v1.GetAZResponse
+	8,   // 307: weft.v1.WeftAgent.CreateAZ:output_type -> weft.v1.CreateAZResponse
+	10,  // 308: weft.v1.WeftAgent.UpdateAZ:output_type -> weft.v1.UpdateAZResponse
+	12,  // 309: weft.v1.WeftAgent.DeleteAZ:output_type -> weft.v1.DeleteAZResponse
+	15,  // 310: weft.v1.WeftAgent.ListRacks:output_type -> weft.v1.ListRacksResponse
+	17,  // 311: weft.v1.WeftAgent.GetRack:output_type -> weft.v1.GetRackResponse
+	19,  // 312: weft.v1.WeftAgent.CreateRack:output_type -> weft.v1.CreateRackResponse
+	21,  // 313: weft.v1.WeftAgent.UpdateRack:output_type -> weft.v1.UpdateRackResponse
+	23,  // 314: weft.v1.WeftAgent.DeleteRack:output_type -> weft.v1.DeleteRackResponse
+	26,  // 315: weft.v1.WeftAgent.ListProjects:output_type -> weft.v1.ListProjectsResponse
+	28,  // 316: weft.v1.WeftAgent.CreateProject:output_type -> weft.v1.CreateProjectResponse
+	30,  // 317: weft.v1.WeftAgent.RenameProject:output_type -> weft.v1.RenameProjectResponse
+	32,  // 318: weft.v1.WeftAgent.DeleteProject:output_type -> weft.v1.DeleteProjectResponse
+	73,  // 319: weft.v1.WeftAgent.AddProjectMember:output_type -> weft.v1.AddProjectMemberResponse
+	75,  // 320: weft.v1.WeftAgent.RemoveProjectMember:output_type -> weft.v1.RemoveProjectMemberResponse
+	77,  // 321: weft.v1.WeftAgent.ListProjectMembers:output_type -> weft.v1.ListProjectMembersResponse
+	80,  // 322: weft.v1.WeftAgent.ListUsers:output_type -> weft.v1.ListUsersResponse
+	82,  // 323: weft.v1.WeftAgent.GetUser:output_type -> weft.v1.GetUserResponse
+	84,  // 324: weft.v1.WeftAgent.Me:output_type -> weft.v1.MeResponse
+	86,  // 325: weft.v1.WeftAgent.SetUserDisplayName:output_type -> weft.v1.SetUserDisplayNameResponse
+	88,  // 326: weft.v1.WeftAgent.DeleteUser:output_type -> weft.v1.DeleteUserResponse
+	91,  // 327: weft.v1.WeftAgent.ListNetworks:output_type -> weft.v1.ListNetworksResponse
+	93,  // 328: weft.v1.WeftAgent.CreateNetwork:output_type -> weft.v1.CreateNetworkResponse
+	95,  // 329: weft.v1.WeftAgent.RenameNetwork:output_type -> weft.v1.RenameNetworkResponse
+	97,  // 330: weft.v1.WeftAgent.SetNetworkDNS:output_type -> weft.v1.SetNetworkDNSResponse
+	99,  // 331: weft.v1.WeftAgent.DeleteNetwork:output_type -> weft.v1.DeleteNetworkResponse
+	101, // 332: weft.v1.WeftAgent.SetNetworkDefaultSecurityGroups:output_type -> weft.v1.SetNetworkDefaultSecurityGroupsResponse
+	105, // 333: weft.v1.WeftAgent.ListSecurityGroups:output_type -> weft.v1.ListSecurityGroupsResponse
+	107, // 334: weft.v1.WeftAgent.CreateSecurityGroup:output_type -> weft.v1.CreateSecurityGroupResponse
+	109, // 335: weft.v1.WeftAgent.RenameSecurityGroup:output_type -> weft.v1.RenameSecurityGroupResponse
+	111, // 336: weft.v1.WeftAgent.SetSecurityGroupDescription:output_type -> weft.v1.SetSecurityGroupDescriptionResponse
+	113, // 337: weft.v1.WeftAgent.SetSecurityGroupRules:output_type -> weft.v1.SetSecurityGroupRulesResponse
+	115, // 338: weft.v1.WeftAgent.DeleteSecurityGroup:output_type -> weft.v1.DeleteSecurityGroupResponse
+	118, // 339: weft.v1.WeftAgent.ListVolumes:output_type -> weft.v1.ListVolumesResponse
+	120, // 340: weft.v1.WeftAgent.CreateVolume:output_type -> weft.v1.CreateVolumeResponse
+	122, // 341: weft.v1.WeftAgent.RenameVolume:output_type -> weft.v1.RenameVolumeResponse
+	124, // 342: weft.v1.WeftAgent.ResizeVolume:output_type -> weft.v1.ResizeVolumeResponse
+	126, // 343: weft.v1.WeftAgent.AttachVolume:output_type -> weft.v1.AttachVolumeResponse
+	128, // 344: weft.v1.WeftAgent.DetachVolume:output_type -> weft.v1.DetachVolumeResponse
+	130, // 345: weft.v1.WeftAgent.DeleteVolume:output_type -> weft.v1.DeleteVolumeResponse
+	133, // 346: weft.v1.WeftAgent.CreateVolumeSnapshot:output_type -> weft.v1.CreateVolumeSnapshotResponse
+	135, // 347: weft.v1.WeftAgent.ListVolumeSnapshots:output_type -> weft.v1.ListVolumeSnapshotsResponse
+	137, // 348: weft.v1.WeftAgent.RestoreVolumeSnapshot:output_type -> weft.v1.RestoreVolumeSnapshotResponse
+	141, // 349: weft.v1.WeftAgent.RevertVolumeSnapshot:output_type -> weft.v1.RevertVolumeSnapshotResponse
+	139, // 350: weft.v1.WeftAgent.DeleteVolumeSnapshot:output_type -> weft.v1.DeleteVolumeSnapshotResponse
+	144, // 351: weft.v1.WeftAgent.CreateVolumeBackup:output_type -> weft.v1.CreateVolumeBackupResponse
+	146, // 352: weft.v1.WeftAgent.ListVolumeBackups:output_type -> weft.v1.ListVolumeBackupsResponse
+	148, // 353: weft.v1.WeftAgent.DeleteVolumeBackup:output_type -> weft.v1.DeleteVolumeBackupResponse
+	150, // 354: weft.v1.WeftAgent.RestoreVolumeBackup:output_type -> weft.v1.RestoreVolumeBackupResponse
+	151, // 355: weft.v1.WeftAgent.WatchEvents:output_type -> weft.v1.PlatformEvent
+	154, // 356: weft.v1.WeftAgent.RenderNATSAuthorization:output_type -> weft.v1.RenderNATSAuthorizationResponse
+	176, // 357: weft.v1.WeftAgent.RegisterHost:output_type -> weft.v1.RegisterHostResponse
+	178, // 358: weft.v1.WeftAgent.ListHosts:output_type -> weft.v1.ListHostsResponse
+	180, // 359: weft.v1.WeftAgent.GetHost:output_type -> weft.v1.GetHostResponse
+	182, // 360: weft.v1.WeftAgent.HeartbeatHost:output_type -> weft.v1.HeartbeatHostResponse
+	184, // 361: weft.v1.WeftAgent.SetHostState:output_type -> weft.v1.SetHostStateResponse
+	186, // 362: weft.v1.WeftAgent.SetHostLabels:output_type -> weft.v1.SetHostLabelsResponse
+	188, // 363: weft.v1.WeftAgent.SetHostCordoned:output_type -> weft.v1.SetHostCordonedResponse
+	190, // 364: weft.v1.WeftAgent.DeleteHost:output_type -> weft.v1.DeleteHostResponse
+	161, // 365: weft.v1.WeftAgent.PublishShareToProject:output_type -> weft.v1.PublishShareToProjectResponse
+	211, // 366: weft.v1.WeftAgent.ListTenants:output_type -> weft.v1.ListTenantsResponse
+	213, // 367: weft.v1.WeftAgent.CreateTenant:output_type -> weft.v1.CreateTenantResponse
+	215, // 368: weft.v1.WeftAgent.DeleteTenant:output_type -> weft.v1.DeleteTenantResponse
+	217, // 369: weft.v1.WeftAgent.AddTenantAdmin:output_type -> weft.v1.AddTenantAdminResponse
+	219, // 370: weft.v1.WeftAgent.RemoveTenantAdmin:output_type -> weft.v1.RemoveTenantAdminResponse
+	221, // 371: weft.v1.WeftAgent.AddTenantMember:output_type -> weft.v1.AddTenantMemberResponse
+	223, // 372: weft.v1.WeftAgent.RemoveTenantMember:output_type -> weft.v1.RemoveTenantMemberResponse
+	226, // 373: weft.v1.WeftAgent.GetTenantQuota:output_type -> weft.v1.GetTenantQuotaResponse
+	228, // 374: weft.v1.WeftAgent.SetTenantQuota:output_type -> weft.v1.SetTenantQuotaResponse
+	230, // 375: weft.v1.WeftAgent.GetProjectQuota:output_type -> weft.v1.GetProjectQuotaResponse
+	232, // 376: weft.v1.WeftAgent.SetProjectQuota:output_type -> weft.v1.SetProjectQuotaResponse
+	235, // 377: weft.v1.WeftAgent.ListShares:output_type -> weft.v1.ListSharesResponse
+	237, // 378: weft.v1.WeftAgent.CreateShare:output_type -> weft.v1.CreateShareResponse
+	239, // 379: weft.v1.WeftAgent.DeleteShare:output_type -> weft.v1.DeleteShareResponse
+	242, // 380: weft.v1.WeftAgent.ListFloatingIPs:output_type -> weft.v1.ListFloatingIPsResponse
+	244, // 381: weft.v1.WeftAgent.AllocateFloatingIP:output_type -> weft.v1.AllocateFloatingIPResponse
+	246, // 382: weft.v1.WeftAgent.ReleaseFloatingIP:output_type -> weft.v1.ReleaseFloatingIPResponse
+	248, // 383: weft.v1.WeftAgent.MapFloatingIP:output_type -> weft.v1.MapFloatingIPResponse
+	250, // 384: weft.v1.WeftAgent.UnmapFloatingIP:output_type -> weft.v1.UnmapFloatingIPResponse
+	253, // 385: weft.v1.WeftAgent.ListFlavors:output_type -> weft.v1.ListFlavorsResponse
+	255, // 386: weft.v1.WeftAgent.GetFlavor:output_type -> weft.v1.GetFlavorResponse
+	257, // 387: weft.v1.WeftAgent.SetFlavor:output_type -> weft.v1.SetFlavorResponse
+	259, // 388: weft.v1.WeftAgent.DeleteFlavor:output_type -> weft.v1.DeleteFlavorResponse
+	262, // 389: weft.v1.WeftAgent.ListScripts:output_type -> weft.v1.ListScriptsResponse
+	264, // 390: weft.v1.WeftAgent.GetScript:output_type -> weft.v1.GetScriptResponse
+	266, // 391: weft.v1.WeftAgent.SetScript:output_type -> weft.v1.SetScriptResponse
+	268, // 392: weft.v1.WeftAgent.DeleteScript:output_type -> weft.v1.DeleteScriptResponse
+	271, // 393: weft.v1.WeftAgent.ListVMProperties:output_type -> weft.v1.ListVMPropertiesResponse
+	273, // 394: weft.v1.WeftAgent.SetVMProperty:output_type -> weft.v1.SetVMPropertyResponse
+	275, // 395: weft.v1.WeftAgent.DeleteVMProperty:output_type -> weft.v1.DeleteVMPropertyResponse
+	278, // 396: weft.v1.WeftAgent.ListUEFIVars:output_type -> weft.v1.ListUEFIVarsResponse
+	280, // 397: weft.v1.WeftAgent.SetUEFIVar:output_type -> weft.v1.SetUEFIVarResponse
+	282, // 398: weft.v1.WeftAgent.DeleteUEFIVar:output_type -> weft.v1.DeleteUEFIVarResponse
+	285, // 399: weft.v1.WeftAgent.ListVMSSHKeys:output_type -> weft.v1.ListVMSSHKeysResponse
+	287, // 400: weft.v1.WeftAgent.AddVMSSHKey:output_type -> weft.v1.AddVMSSHKeyResponse
+	289, // 401: weft.v1.WeftAgent.RemoveVMSSHKey:output_type -> weft.v1.RemoveVMSSHKeyResponse
+	164, // 402: weft.v1.WeftAgent.ListFederationPeers:output_type -> weft.v1.ListFederationPeersResponse
+	169, // 403: weft.v1.WeftAgent.ListPluginCatalogue:output_type -> weft.v1.ListPluginCatalogueResponse
+	171, // 404: weft.v1.WeftAgent.ListInstalledPlugins:output_type -> weft.v1.ListInstalledPluginsResponse
+	173, // 405: weft.v1.WeftAgent.InstallPlugin:output_type -> weft.v1.InstallPluginResponse
+	292, // 406: weft.v1.WeftAgent.ListSubnets:output_type -> weft.v1.ListSubnetsResponse
+	294, // 407: weft.v1.WeftAgent.GetSubnet:output_type -> weft.v1.GetSubnetResponse
+	296, // 408: weft.v1.WeftAgent.CreateSubnet:output_type -> weft.v1.CreateSubnetResponse
+	298, // 409: weft.v1.WeftAgent.UpdateSubnet:output_type -> weft.v1.UpdateSubnetResponse
+	300, // 410: weft.v1.WeftAgent.DeleteSubnet:output_type -> weft.v1.DeleteSubnetResponse
+	304, // 411: weft.v1.WeftAgent.ListLoadBalancers:output_type -> weft.v1.ListLoadBalancersResponse
+	306, // 412: weft.v1.WeftAgent.GetLoadBalancer:output_type -> weft.v1.GetLoadBalancerResponse
+	308, // 413: weft.v1.WeftAgent.CreateLoadBalancer:output_type -> weft.v1.CreateLoadBalancerResponse
+	310, // 414: weft.v1.WeftAgent.UpdateLoadBalancer:output_type -> weft.v1.UpdateLoadBalancerResponse
+	312, // 415: weft.v1.WeftAgent.SetLoadBalancerBackends:output_type -> weft.v1.SetLoadBalancerBackendsResponse
+	314, // 416: weft.v1.WeftAgent.DeleteLoadBalancer:output_type -> weft.v1.DeleteLoadBalancerResponse
+	317, // 417: weft.v1.WeftAgent.ListDNSZones:output_type -> weft.v1.ListDNSZonesResponse
+	319, // 418: weft.v1.WeftAgent.GetDNSZone:output_type -> weft.v1.GetDNSZoneResponse
+	321, // 419: weft.v1.WeftAgent.CreateDNSZone:output_type -> weft.v1.CreateDNSZoneResponse
+	323, // 420: weft.v1.WeftAgent.UpdateDNSZone:output_type -> weft.v1.UpdateDNSZoneResponse
+	325, // 421: weft.v1.WeftAgent.DeleteDNSZone:output_type -> weft.v1.DeleteDNSZoneResponse
+	328, // 422: weft.v1.WeftAgent.ListDNSRecords:output_type -> weft.v1.ListDNSRecordsResponse
+	330, // 423: weft.v1.WeftAgent.CreateDNSRecord:output_type -> weft.v1.CreateDNSRecordResponse
+	332, // 424: weft.v1.WeftAgent.UpdateDNSRecord:output_type -> weft.v1.UpdateDNSRecordResponse
+	334, // 425: weft.v1.WeftAgent.DeleteDNSRecord:output_type -> weft.v1.DeleteDNSRecordResponse
+	192, // 426: weft.v1.AgentDispatch.Connect:output_type -> weft.v1.ControlMessage
+	288, // [288:427] is the sub-list for method output_type
+	149, // [149:288] is the sub-list for method input_type
+	149, // [149:149] is the sub-list for extension type_name
+	149, // [149:149] is the sub-list for extension extendee
+	0,   // [0:149] is the sub-list for field type_name
 }
 
 func init() { file_weft_proto_init() }
@@ -18442,7 +21367,7 @@ func file_weft_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_weft_proto_rawDesc), len(file_weft_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   295,
+			NumMessages:   340,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

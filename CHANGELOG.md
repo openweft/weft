@@ -9,6 +9,48 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ### Added
 
+- **CLI : `weft subnet` + `weft loadbalancer` + `weft dns-zone` +
+  `weft dns-record`** — closes the last 17 verbs of the Tier-3
+  CLI parity gap on top of weft-proto v0.8.0. Four new noun
+  groups, ~19 verbs, cascade-aware delete error surfaces.
+  - `weft subnet {ls,show,create,update,rm}` — per-network IP
+    scopes. `update` accepts `--clear-dns` to drop the inherited
+    list (the proto's `clear_dns_servers` bool disambiguates
+    "keep" from "clear" at the wire).
+  - `weft loadbalancer {ls,show,create,update,set-backends,rm}`
+    (alias `lb`) — project-scoped VIPs. `--backends` parses
+    `addr@weight,addr@weight,...` strings ; `set-backends`
+    replaces the pool atomically (`SetLoadBalancerBackends`).
+    Delete surfaces `blocked_by_fips` when a FIP still maps.
+  - `weft dns-zone {ls,show,create,update,rm}` — per-project
+    authoritative apex. `show` accepts either UUID or FQDN.
+    Delete surfaces `blocked_by_records` so the operator drains
+    in one pass.
+  - `weft dns-record {ls,create,update,rm}` — zone children. TTL
+    and Priority both use `-1` as the "keep current" sentinel
+    on update (proto3 int32 has no nil).
+
+  Each package mirrors `weft az` / `weft rack` for table +
+  `--format=json` rendering.
+
+- **Server : Subnet + LoadBalancer + DNSZone + DNSRecord registries**
+  — 4 new files (`subnets.go`, `loadbalancers.go`, `dnszones.go`,
+  `dnsrecords.go`) + `network_plane_adapter.go` for the cascade
+  helpers. JSON-document persistence via the Storage interface,
+  same pattern as `azs.go` / `racks.go`. Wired through
+  `initNetworkPlane` in `Adapter.NewWithStorage`. Adapter
+  publishes `subnet.*` / `loadbalancer.*` / `dnszone.*` /
+  `dnsrecord.*` events on every mutation.
+
+- **gRPC handlers** for the 20 new RPCs in `cmd/weft/main.go`.
+  All write paths gated by `RequireAdmin` ; read paths open to
+  any authenticated caller. `resolveProjectUUID` helper shared
+  across LB + DNS handlers so the wire `project` field accepts
+  either UUID or display name.
+
+- **proto v0.8.0 consumed** : `go.mod` bumped from `v0.7.0` ;
+  vendor refreshed via `GOWORK=off go mod tidy && go mod vendor`.
+
 - **CLI : `weft floating-ip` package** — Tier 3 of the webui-vs-CLI
   parity audit. Wires the five FloatingIP RPCs that already shipped
   in the proto (no proto bump) into a dedicated cobra group, alias
