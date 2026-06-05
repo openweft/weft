@@ -33,6 +33,7 @@ func toVolumeInfo(v weft.Volume) *weftv1.VolumeInfo {
 		Name:            v.Name,
 		SizeGib:         int64(v.SizeGiB),
 		Format:          string(v.Format),
+		Backend:         string(v.Backend),
 		AttachedToUuid:  v.AttachedTo,
 		CreatedAtUnixNs: v.CreatedAt.UnixNano(),
 	}

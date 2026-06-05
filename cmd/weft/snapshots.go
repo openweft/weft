@@ -198,3 +198,18 @@ func (s *weftServer) DeleteVolumeSnapshot(ctx context.Context, req *weftv1.Delet
 	logger.Printf("DeleteVolumeSnapshot uuid=%s", req.Uuid)
 	return &weftv1.DeleteVolumeSnapshotResponse{}, nil
 }
+
+// RevertVolumeSnapshot rolls the snapshot's parent volume back to
+// the captured state. Only supported on block-backend volumes ;
+// file-backend parents surface FailedPrecondition. Unknown UUIDs
+// surface as PermissionDenied (same existence-leak guard).
+func (s *weftServer) RevertVolumeSnapshot(ctx context.Context, req *weftv1.RevertVolumeSnapshotRequest) (*weftv1.RevertVolumeSnapshotResponse, error) {
+	if _, err := s.authSnapshot(ctx, req.Uuid); err != nil {
+		return nil, err
+	}
+	if err := s.adp.RevertVolumeSnapshotByUUID(ctx, req.Uuid); err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "revert snapshot: %v", err)
+	}
+	logger.Printf("RevertVolumeSnapshot uuid=%s", req.Uuid)
+	return &weftv1.RevertVolumeSnapshotResponse{}, nil
+}

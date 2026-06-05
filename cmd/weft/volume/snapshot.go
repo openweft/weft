@@ -39,8 +39,36 @@ func snapshotCommand(socket, sshSocket, sshKey *string) *cobra.Command {
 		snapshotCreateCmd(socket, sshSocket, sshKey),
 		snapshotListCmd(socket, sshSocket, sshKey),
 		snapshotRestoreCmd(socket, sshSocket, sshKey),
+		snapshotRevertCmd(socket, sshSocket, sshKey),
 		snapshotDeleteCmd(socket, sshSocket, sshKey),
 	)
+	return cmd
+}
+
+// snapshotRevertCmd rolls a block-backend parent volume back to the
+// snapshot's state. File-backend snapshots reject with a clear
+// "only supported on block" error from the server.
+func snapshotRevertCmd(socket, sshSocket, sshKey *string) *cobra.Command {
+	var uuid string
+	cmd := &cobra.Command{
+		Use:   "revert",
+		Short: "Revert a block-backend parent volume to the snapshot's state (volume must be detached)",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			if _, err := c.RevertVolumeSnapshot(context.Background(), &weftv1.RevertVolumeSnapshotRequest{Uuid: uuid}); err != nil {
+				return err
+			}
+			fmt.Println(uuid)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&uuid, "uuid", "", "Snapshot UUID to revert to (required)")
+	_ = cmd.MarkFlagRequired("uuid")
 	return cmd
 }
 

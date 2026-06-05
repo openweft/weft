@@ -414,16 +414,16 @@ func (a *Adapter) RegisterVolumeSnapshot(ctx context.Context, parentVolumeUUID, 
 	if err := a.snapshotReg.createRow(s); err != nil {
 		return VolumeSnapshot{}, err
 	}
-	// Row persisted ; now materialise the blob. On clone failure
-	// we roll the row back so the operator doesn't see a phantom
-	// snapshot — the registry-first ordering is meant for crashes,
-	// not for an immediate Create-time failure.
-	dst := a.snapshotPath(s.UUID)
-	if err := a.snapshotStoreOrDefault().Create(ctx, a.volumePath(parent.UUID), dst); err != nil {
+	// Row persisted ; now materialise the snapshot. Dispatch on
+	// parent.Backend : file → existing reflink path, block →
+	// driver-side controller snapshot via weft-block. Either way
+	// a failure rolls the row back so the operator doesn't see a
+	// phantom snapshot.
+	if err := a.createVolumeSnapshotArtifact(ctx, parent, s); err != nil {
 		if _, rbErr := a.snapshotReg.deleteRow(s.UUID); rbErr != nil {
-			return VolumeSnapshot{}, fmt.Errorf("clone snapshot: %w (rollback also failed: %v)", err, rbErr)
+			return VolumeSnapshot{}, fmt.Errorf("create snapshot artifact: %w (rollback also failed: %v)", err, rbErr)
 		}
-		return VolumeSnapshot{}, fmt.Errorf("clone snapshot: %w", err)
+		return VolumeSnapshot{}, fmt.Errorf("create snapshot artifact: %w", err)
 	}
 	a.bus.Publish(PlatformEvent{
 		Kind:        "volume_snapshot.created",
@@ -488,23 +488,35 @@ func (a *Adapter) RestoreVolumeSnapshot(ctx context.Context, snapshotUUID, newVo
 }
 
 // DeleteVolumeSnapshotByUUID is the snapshot-delete entry point :
-// drop the row first, then unlink the blob. The unlink is
-// idempotent so a half-failed prior call can be replayed.
+// drop the row first, then delete the underlying artifact. The
+// driver call is idempotent so a half-failed prior call can be
+// replayed.
 func (a *Adapter) DeleteVolumeSnapshotByUUID(ctx context.Context, uuid string) error {
 	if uuid == "" {
 		return fmt.Errorf("empty snapshot uuid")
+	}
+	// Read the parent volume's Backend BEFORE dropping the row —
+	// we need to know which dispatch path to take. If the parent
+	// has already been deleted from the registry we fall back to
+	// "file" (no driver call ; just unlink the blob if it exists).
+	var (
+		parent    Volume
+		hadParent bool
+	)
+	if preReg, hadRow := a.snapshotReg.lookupByUUID(uuid); hadRow {
+		parent, hadParent = a.VolumeByUUID(preReg.VolumeUUID)
 	}
 	s, err := a.snapshotReg.deleteRow(uuid)
 	if err != nil {
 		return err
 	}
-	if err := a.snapshotStoreOrDefault().Delete(ctx, a.snapshotPath(uuid)); err != nil {
+	if err := a.deleteVolumeSnapshotArtifact(ctx, s, hadParent, parent); err != nil {
 		// Best-effort : the row is gone, so the operator can
 		// re-run a cleanup via the snapshot path manually. Don't
 		// rehydrate the row — that would defeat the registry-first
-		// ordering's point (leaked blob, recoverable ; phantom
-		// row pointing at a missing file, not).
-		return fmt.Errorf("unlink snapshot blob: %w", err)
+		// ordering's point (leaked blob/snapshot, recoverable ;
+		// phantom row pointing at a missing artifact, not).
+		return fmt.Errorf("delete snapshot artifact: %w", err)
 	}
 	a.bus.Publish(PlatformEvent{
 		Kind:        "volume_snapshot.deleted",
@@ -512,6 +524,89 @@ func (a *Adapter) DeleteVolumeSnapshotByUUID(ctx context.Context, uuid string) e
 		ProjectUUID: s.ProjectUUID,
 	})
 	return nil
+}
+
+// RevertVolumeSnapshotByUUID rolls the parent volume back to the
+// snapshot's state. Only meaningful for block-backend volumes —
+// file-backend revert would mean overwriting the volume image in
+// place, which conflicts with attached VMs and isn't yet wired.
+// Returns ErrUnsupported-shaped when the parent isn't block-backed.
+//
+// The parent volume must be detached at the driver layer ; the
+// weft-block engine enforces this with ErrInUse so we don't pre-
+// check here (a TOCTOU window is worse than the driver's hard NO).
+func (a *Adapter) RevertVolumeSnapshotByUUID(ctx context.Context, uuid string) error {
+	if uuid == "" {
+		return fmt.Errorf("empty snapshot uuid")
+	}
+	s, ok := a.snapshotReg.lookupByUUID(uuid)
+	if !ok {
+		return fmt.Errorf("snapshot %q not found", uuid)
+	}
+	parent, ok := a.VolumeByUUID(s.VolumeUUID)
+	if !ok {
+		return fmt.Errorf("parent volume %q not found", s.VolumeUUID)
+	}
+	if parent.Backend != VolumeBackendBlock {
+		return fmt.Errorf("revert is only supported on block-backend volumes (volume %s is %q)", parent.UUID, parent.Backend)
+	}
+	if err := a.revertBlockSnapshot(ctx, parent.UUID, snapshotDriverName(s)); err != nil {
+		return err
+	}
+	a.bus.Publish(PlatformEvent{
+		Kind:        "volume_snapshot.reverted",
+		Subject:     uuid,
+		ProjectUUID: s.ProjectUUID,
+		Meta: map[string]string{
+			"volume_uuid": parent.UUID,
+			"name":        s.Name,
+		},
+	})
+	return nil
+}
+
+// createVolumeSnapshotArtifact materialises the on-disk / driver-side
+// snapshot artifact for a freshly-persisted snapshot row. Dispatches
+// on parent.Backend ; the registry row is owned by the caller.
+func (a *Adapter) createVolumeSnapshotArtifact(ctx context.Context, parent Volume, s VolumeSnapshot) error {
+	switch parent.Backend {
+	case "", VolumeBackendFile:
+		dst := a.snapshotPath(s.UUID)
+		return a.snapshotStoreOrDefault().Create(ctx, a.volumePath(parent.UUID), dst)
+	case VolumeBackendBlock:
+		return a.createBlockSnapshot(ctx, parent.UUID, snapshotDriverName(s))
+	default:
+		return fmt.Errorf("unsupported volume backend %q", parent.Backend)
+	}
+}
+
+// deleteVolumeSnapshotArtifact tears down a snapshot's artifact.
+// Idempotent — both branches treat missing artifacts as success.
+// `hadParent` lets us handle "snapshot survived its parent's
+// deletion" gracefully : default to file-backend cleanup (the
+// only path that doesn't need a live driver dispatch).
+func (a *Adapter) deleteVolumeSnapshotArtifact(ctx context.Context, s VolumeSnapshot, hadParent bool, parent Volume) error {
+	backend := VolumeBackendFile
+	if hadParent && parent.Backend != "" {
+		backend = parent.Backend
+	}
+	switch backend {
+	case VolumeBackendFile:
+		return a.snapshotStoreOrDefault().Delete(ctx, a.snapshotPath(s.UUID))
+	case VolumeBackendBlock:
+		return a.deleteBlockSnapshot(ctx, s.VolumeUUID, snapshotDriverName(s))
+	default:
+		return fmt.Errorf("unsupported volume backend %q", backend)
+	}
+}
+
+// snapshotDriverName resolves the snapshot name the driver keys by.
+// We use the registry UUID rather than the human Name because the
+// driver namespace is per-volume but the human name may collide with
+// other snapshots that the registry already disambiguates by UUID.
+// Empty-Name snapshots also fall back to the UUID cleanly.
+func snapshotDriverName(s VolumeSnapshot) string {
+	return s.UUID
 }
 
 // snapshotStoreOrDefault returns the configured SnapshotStore,

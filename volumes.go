@@ -52,17 +52,33 @@ const (
 	VolumeFormatQCOW2 VolumeFormat = "qcow2" // copy-on-write snapshots
 )
 
+// VolumeBackend picks the storage driver that owns a volume's
+// blocks. Default (empty / "file") = host-local reflink-aware files
+// (the existing weft path). "block" = replicated block storage via
+// the weft-block driver (Longhorn-style controller+replicas behind
+// our [[project_driver_plugins]] go-plugin contract). Snapshot,
+// backup, and revert operations dispatch on this field — file
+// volumes use [[project_cow_clone]] reflink, block volumes round-
+// trip through the driver's gRPC surface.
+type VolumeBackend string
+
+const (
+	VolumeBackendFile  VolumeBackend = "file"  // default — host-local reflink-aware files
+	VolumeBackendBlock VolumeBackend = "block" // replicated block storage via weft-block
+)
+
 // Volume is one entry in the volume registry. UUID, ProjectUUID,
-// Format, and CreatedAt are immutable; Name, SizeGiB, and
+// Format, Backend, and CreatedAt are immutable; Name, SizeGiB, and
 // AttachedTo are mutable via the dedicated setters.
 type Volume struct {
-	UUID        string       `json:"uuid"`
-	ProjectUUID string       `json:"project_uuid"`
-	Name        string       `json:"name"`
-	SizeGiB     int          `json:"size_gib"`
-	Format      VolumeFormat `json:"format"`
-	AttachedTo  string       `json:"attached_to,omitempty"` // empty = detached
-	CreatedAt   time.Time    `json:"created_at"`
+	UUID        string        `json:"uuid"`
+	ProjectUUID string        `json:"project_uuid"`
+	Name        string        `json:"name"`
+	SizeGiB     int           `json:"size_gib"`
+	Format      VolumeFormat  `json:"format"`
+	Backend     VolumeBackend `json:"backend"`
+	AttachedTo  string        `json:"attached_to,omitempty"` // empty = detached
+	CreatedAt   time.Time     `json:"created_at"`
 }
 
 // volumesDoc is the top-level HCL schema for the registry blob.
@@ -77,6 +93,7 @@ type volumeBlock struct {
 	Name        string `hcl:"name"`
 	SizeGiB     int    `hcl:"size_gib"`
 	Format      string `hcl:"format,optional"`
+	Backend     string `hcl:"backend,optional"`
 	AttachedTo  string `hcl:"attached_to,optional"`
 	CreatedAt   string `hcl:"created_at"`
 }
@@ -118,12 +135,17 @@ func loadVolumeRegistry(ctx context.Context, storage Storage) (*volumeRegistry, 
 		if format == "" {
 			format = VolumeFormatRaw
 		}
+		backend := VolumeBackend(b.Backend)
+		if backend == "" {
+			backend = VolumeBackendFile
+		}
 		v := Volume{
 			UUID:        b.UUID,
 			ProjectUUID: b.ProjectUUID,
 			Name:        b.Name,
 			SizeGiB:     b.SizeGiB,
 			Format:      format,
+			Backend:     backend,
 			AttachedTo:  b.AttachedTo,
 			CreatedAt:   created,
 		}
@@ -171,6 +193,11 @@ func (r *volumeRegistry) saveLocked() error {
 		if v.Format != "" {
 			bb.SetAttributeValue("format", cty.StringVal(string(v.Format)))
 		}
+		// Backend is emitted only when non-default. Older
+		// registries (pre-Backend field) round-trip unchanged.
+		if v.Backend != "" && v.Backend != VolumeBackendFile {
+			bb.SetAttributeValue("backend", cty.StringVal(string(v.Backend)))
+		}
 		if v.AttachedTo != "" {
 			bb.SetAttributeValue("attached_to", cty.StringVal(v.AttachedTo))
 		}
@@ -188,6 +215,17 @@ func validateVolumeFormat(f VolumeFormat) error {
 		return nil
 	default:
 		return fmt.Errorf("unknown volume format %q (want raw or qcow2)", f)
+	}
+}
+
+// validateVolumeBackend refuses unknown VolumeBackend values. Empty
+// is allowed (defaults to file at create time).
+func validateVolumeBackend(b VolumeBackend) error {
+	switch b {
+	case "", VolumeBackendFile, VolumeBackendBlock:
+		return nil
+	default:
+		return fmt.Errorf("unknown volume backend %q (want file or block)", b)
 	}
 }
 
@@ -254,6 +292,7 @@ type CreateVolumeSpec struct {
 	Name        string
 	SizeGiB     int
 	Format      VolumeFormat
+	Backend     VolumeBackend // empty → file (host-local reflink)
 }
 
 // create registers a new Volume. Refuses name collisions within
@@ -271,6 +310,9 @@ func (r *volumeRegistry) create(spec CreateVolumeSpec) (Volume, error) {
 	if err := validateVolumeFormat(spec.Format); err != nil {
 		return Volume{}, err
 	}
+	if err := validateVolumeBackend(spec.Backend); err != nil {
+		return Volume{}, err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	key := volumeNameKey(spec.ProjectUUID, spec.Name)
@@ -281,12 +323,17 @@ func (r *volumeRegistry) create(spec CreateVolumeSpec) (Volume, error) {
 	if format == "" {
 		format = VolumeFormatRaw
 	}
+	backend := spec.Backend
+	if backend == "" {
+		backend = VolumeBackendFile
+	}
 	v := Volume{
 		UUID:        newUUID(),
 		ProjectUUID: spec.ProjectUUID,
 		Name:        spec.Name,
 		SizeGiB:     spec.SizeGiB,
 		Format:      format,
+		Backend:     backend,
 		CreatedAt:   time.Now().UTC(),
 	}
 	r.byUUID[v.UUID] = v
