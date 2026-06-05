@@ -91,26 +91,51 @@ func (g *grpcControlPlane) RegisterHost(ctx context.Context, reg HostRegistratio
 	return resp.Host.Uuid, nil
 }
 
-// AttachDrivers is a placeholder until the bidirectional
-// stream is wired. Logged once per call so the operator sees
-// the deferred work in the agent's log stream.
+// AttachDrivers is the gRPC client-side acknowledgement of the
+// in-process driver-handle attach. Driver HANDLES are in-process
+// pointers — they can't cross the gRPC boundary. What the server
+// actually needs (the per-host capability list, the dispatch path
+// for RPCs) is already covered by two other wire surfaces :
+//
+//   1. RegisterHost.Drivers — carries the full per-kind capability
+//      matrix (Kind + Arches), so the scheduler can match
+//      arch → driver without seeing the handles themselves.
+//   2. AgentDispatch.Connect — bidirectional stream the server uses
+//      to send DriverRequest to the agent ; the agent's local
+//      DriverHandler routes the op to the right in-process handle.
+//
+// So AttachDrivers over gRPC is correctly a local-side no-op for
+// the wire : the server already has the capability list, and the
+// dispatch will travel over the AgentDispatch stream. We accept
+// the call and return nil so the agent sees a clean attach.
 func (g *grpcControlPlane) AttachDrivers(_ context.Context, hostUUID string, _ DriverHandles) error {
 	if g.logger != nil {
-		g.logger.Printf("grpc control-plane: AttachDrivers(%s) is a no-op until the bidirectional driver-dispatch stream is wired ; this host is visible to the scheduler but VM dispatch will land on the control-plane-local host until then", hostUUID)
+		g.logger.Printf("grpc control-plane: AttachDrivers(%s) accepted (dispatch flows over AgentDispatch stream ; capabilities advertised via RegisterHost.Drivers)", hostUUID)
 	}
 	return nil
 }
 
-// AttachDriverSet returns ErrAttachSetUnsupported : the gRPC wire
-// can't transport the per-kind handle set yet (same blocker as
-// AttachDrivers — needs the bidirectional dispatch stream). The
-// agent falls back to AttachDrivers with the primary entry, so the
-// host still registers in single-plugin-dispatch mode.
-func (g *grpcControlPlane) AttachDriverSet(_ context.Context, hostUUID string, _ map[string]DriverHandles) error {
+// AttachDriverSet is the multi-plugin variant of AttachDrivers. The
+// per-kind handle map is local to the agent process ; the wire-side
+// per-kind capability matrix already travelled via RegisterHost.Drivers,
+// and per-kind dispatch routing already lives on the agent side
+// (DriverHandler picks the right handle for each incoming
+// DriverRequest's Kind). So like AttachDrivers, this returns nil :
+// the multi-plugin host is fully registered + dispatchable.
+//
+// We log the kinds the agent surfaced so the operator can correlate
+// the registration with what's running locally — useful for the
+// Apple-Silicon dual vz+qemu setup where one agent advertises two
+// driver kinds.
+func (g *grpcControlPlane) AttachDriverSet(_ context.Context, hostUUID string, set map[string]DriverHandles) error {
 	if g.logger != nil {
-		g.logger.Printf("grpc control-plane: AttachDriverSet(%s) is not yet wired ; falling back to single-handle AttachDrivers", hostUUID)
+		kinds := make([]string, 0, len(set))
+		for k := range set {
+			kinds = append(kinds, k)
+		}
+		g.logger.Printf("grpc control-plane: AttachDriverSet(%s) accepted ; %d driver kinds wired (%v) ; dispatch flows over AgentDispatch", hostUUID, len(kinds), kinds)
 	}
-	return ErrAttachSetUnsupported
+	return nil
 }
 
 // Heartbeat calls the server-side `HeartbeatHost` RPC. Errors

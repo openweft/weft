@@ -121,14 +121,45 @@ func TestGRPCControlPlane_Heartbeat_ErrorBubblesUp(t *testing.T) {
 	}
 }
 
-// TestGRPCControlPlane_AttachDrivers_NoOp pins the deferred
-// behaviour : AttachDrivers returns nil today (no error) but
-// also doesn't actually attach anything. When the
-// bidirectional stream lands, this test flips to assert real
-// behaviour.
-func TestGRPCControlPlane_AttachDrivers_NoOp(t *testing.T) {
+// TestGRPCControlPlane_AttachDrivers_AcceptsWireSide pins the
+// production semantics : AttachDrivers over gRPC accepts the call
+// and returns nil because the wire-side advertisement happens via
+// RegisterHost.Drivers and dispatch flows over AgentDispatch ; the
+// handles themselves are local in-process pointers that can't and
+// don't cross the boundary.
+func TestGRPCControlPlane_AttachDrivers_AcceptsWireSide(t *testing.T) {
 	cp := NewGRPCControlPlane(&fakeGRPCClient{}, nil)
 	if err := cp.AttachDrivers(context.Background(), "h-abc", DriverHandles{}); err != nil {
-		t.Errorf("AttachDrivers should be a no-op until the bidirectional stream lands, got: %v", err)
+		t.Errorf("AttachDrivers should accept the call, got: %v", err)
+	}
+}
+
+// TestGRPCControlPlane_AttachDriverSet_AcceptsMultiKind pins the
+// multi-plugin variant : the per-kind handle map is local
+// metadata, so the wire layer accepts it and returns nil. The
+// previous ErrAttachSetUnsupported path was a scaffold that forced
+// the agent to fall back to AttachDrivers ; now that we
+// acknowledge per-kind is already covered by RegisterHost.Drivers
+// + AgentDispatch, the fallback is unnecessary.
+func TestGRPCControlPlane_AttachDriverSet_AcceptsMultiKind(t *testing.T) {
+	cp := NewGRPCControlPlane(&fakeGRPCClient{}, nil)
+	set := map[string]DriverHandles{
+		"vz":   {},
+		"qemu": {},
+	}
+	if err := cp.AttachDriverSet(context.Background(), "h-multi", set); err != nil {
+		t.Errorf("AttachDriverSet should accept the multi-kind call, got: %v", err)
+	}
+}
+
+// TestGRPCControlPlane_AttachDriverSet_EmptyMap covers the
+// boundary case : an agent with zero driver plugins (rare ; means
+// the operator misconfigured the cluster). We still return nil —
+// the host registers itself as having no driver kinds, the
+// scheduler simply won't dispatch anything to it.
+func TestGRPCControlPlane_AttachDriverSet_EmptyMap(t *testing.T) {
+	cp := NewGRPCControlPlane(&fakeGRPCClient{}, nil)
+	if err := cp.AttachDriverSet(context.Background(), "h-empty", map[string]DriverHandles{}); err != nil {
+		t.Errorf("AttachDriverSet should tolerate an empty map, got: %v", err)
 	}
 }
