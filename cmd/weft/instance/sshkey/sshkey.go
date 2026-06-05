@@ -2,19 +2,22 @@
 // per-VM authorised SSH-key management via WeftAgent's
 // {List,Add,Remove}VMSSHKey RPCs.
 //
-//	weft instance sshkey ls   <vm>                              list keys
-//	weft instance sshkey add  <vm> --file <path>                add from file
-//	weft instance sshkey add  <vm> --file -                     add from stdin
-//	weft instance sshkey add  <vm> --key '<openssh line>'       add inline
-//	weft instance sshkey rm   <vm> <fingerprint>                delete by fp
+//	weft instance sshkey ls     <vm>                              list keys
+//	weft instance sshkey add    <vm> --file <path>                add from file
+//	weft instance sshkey add    <vm> --file -                     add from stdin
+//	weft instance sshkey add    <vm> --key '<openssh line>'       add inline
+//	weft instance sshkey import <vm> --file <authorized_keys>     bulk add (one per line)
+//	weft instance sshkey rm     <vm> <fingerprint>                delete by fp
 //
 // The fingerprint (SHA256:<base64-no-pad>) is the stable identity
 // for `rm` — operators don't URL-encode 400 bytes of base64. The
 // server parses the OpenSSH public-key line, computes the
-// fingerprint, and stores ; re-adding the same key is idempotent.
+// fingerprint, and stores ; re-adding the same key is idempotent
+// (which is what makes `import` safe to re-run).
 package sshkey
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,6 +41,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	cmd.AddCommand(
 		lsCmd(socket, sshSocket, sshKey),
 		addCmd(socket, sshSocket, sshKey),
+		importCmd(socket, sshSocket, sshKey),
 		rmCmd(socket, sshSocket, sshKey),
 	)
 	return cmd
@@ -124,6 +128,52 @@ func addCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	return cmd
 }
 
+// importCmd reads an authorized_keys-style file (one OpenSSH public-key
+// line per line, blank lines and "#"-prefixed comments skipped) and
+// AddVMSSHKey-s each entry. The server's idempotent-on-fingerprint
+// contract makes re-import a safe no-op for already-known keys.
+func importCmd(socket, sshSocket, sshKey *string) *cobra.Command {
+	var (
+		project string
+		file    string
+	)
+	cmd := &cobra.Command{
+		Use:   "import <vm>",
+		Short: "Bulk-add keys from an authorized_keys-style file (one per line ; idempotent on fingerprint)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			lines, err := readAuthorizedKeys(file)
+			if err != nil {
+				return err
+			}
+			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			added, skipped := 0, 0
+			for _, line := range lines {
+				resp, err := c.AddVMSSHKey(context.Background(), &weftv1.AddVMSSHKeyRequest{
+					VmName: args[0], Project: project, PublicKey: line,
+				})
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "skip\t%s\t: %v\n", oneLineSummary(line), err)
+					skipped++
+					continue
+				}
+				fmt.Printf("added\t%s\t%s\t%s\n", args[0], resp.Key.Fingerprint, resp.Key.Type)
+				added++
+			}
+			fmt.Printf("imported\t%s\tadded=%d\tskipped=%d\n", args[0], added, skipped)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "Narrow to a project namespace")
+	cmd.Flags().StringVar(&file, "file", "", `Path to authorized_keys-style file ("-" = stdin) (required)`)
+	_ = cmd.MarkFlagRequired("file")
+	return cmd
+}
+
 func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var project string
 	cmd := &cobra.Command{
@@ -147,6 +197,47 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&project, "project", "", "Narrow to a project namespace")
 	return cmd
+}
+
+// readAuthorizedKeys returns the trimmed non-empty, non-comment lines
+// from an authorized_keys-style file. Used by `import`. Accepts "-"
+// for stdin to match `add --file -`.
+func readAuthorizedKeys(path string) ([]string, error) {
+	var r io.Reader
+	if path == "-" {
+		r = os.Stdin
+	} else {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", path, err)
+		}
+		defer f.Close()
+		r = f
+	}
+	var out []string
+	s := bufio.NewScanner(r)
+	s.Buffer(make([]byte, 64*1024), 1024*1024)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	if err := s.Err(); err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	return out, nil
+}
+
+// oneLineSummary truncates a public-key line for terse error logs ;
+// 60 chars is enough to recognise the comment + start of the b64 blob
+// without flooding stderr on a multi-line import gone wrong.
+func oneLineSummary(line string) string {
+	if len(line) > 60 {
+		return line[:60] + "…"
+	}
+	return line
 }
 
 // readKey returns the file contents (trimmed of trailing newlines —
