@@ -1308,6 +1308,55 @@ service WeftAgent {
   rpc CreateDNSRecord (CreateDNSRecordRequest) returns (CreateDNSRecordResponse);
   rpc UpdateDNSRecord (UpdateDNSRecordRequest) returns (UpdateDNSRecordResponse);
   rpc DeleteDNSRecord (DeleteDNSRecordRequest) returns (DeleteDNSRecordResponse);
+
+  // --- Per-volume properties (mirror of VMProperty for block volumes) ---
+  rpc GetVolumeProperty    (GetVolumePropertyRequest)    returns (GetVolumePropertyResponse);
+  rpc SetVolumeProperty    (SetVolumePropertyRequest)    returns (SetVolumePropertyResponse);
+  rpc DeleteVolumeProperty (DeleteVolumePropertyRequest) returns (DeleteVolumePropertyResponse);
+
+  // --- Share registry extensions (v0.9.0) ---
+  // GetShare + ResizeShare close the parity gap left by v0.8.0 ;
+  // ListShares / CreateShare / DeleteShare already live in v0.8.
+  rpc GetShare    (GetShareRequest)    returns (GetShareResponse);
+  rpc ResizeShare (ResizeShareRequest) returns (ResizeShareResponse);
+
+  // --- S3 Bucket registry ---
+  // openweft-side catalogue of S3 buckets ; bucket data lives on the
+  // S3 endpoint (versitygw / CubeFS objectnode). The registry tracks
+  // credentials + a mutable policy JSON the operator can rotate.
+  rpc ListBuckets      (ListBucketsRequest)      returns (ListBucketsResponse);
+  rpc GetBucket        (GetBucketRequest)        returns (GetBucketResponse);
+  rpc CreateBucket     (CreateBucketRequest)     returns (CreateBucketResponse);
+  rpc DeleteBucket     (DeleteBucketRequest)     returns (DeleteBucketResponse);
+  rpc GetBucketPolicy  (GetBucketPolicyRequest)  returns (GetBucketPolicyResponse);
+  rpc SetBucketPolicy  (SetBucketPolicyRequest)  returns (SetBucketPolicyResponse);
+
+  // --- SSH key catalogue (cluster-wide) ---
+  // Distinct from the per-VM weft instance sshkey surface ; the
+  // cluster catalogue lets VMs reference named keys (e.g. "ci-runner-1")
+  // by name instead of pasting the public-key blob at every CreateVM.
+  rpc ListSSHKeyCatalogue   (ListSSHKeyCatalogueRequest)   returns (ListSSHKeyCatalogueResponse);
+  rpc AddSSHKeyCatalogue    (AddSSHKeyCatalogueRequest)    returns (AddSSHKeyCatalogueResponse);
+  rpc RemoveSSHKeyCatalogue (RemoveSSHKeyCatalogueRequest) returns (RemoveSSHKeyCatalogueResponse);
+  rpc ImportSSHKeyCatalogue (ImportSSHKeyCatalogueRequest) returns (ImportSSHKeyCatalogueResponse);
+
+  // --- Scheduling rules (nominal bindings for placement) ---
+  // Per [[openweft_nominal_binding]] : a rule carries a label selector
+  // + target_count, the scheduler reconciles toward target_count VMs
+  // matching the selector (or pinned by nominal binding).
+  rpc ListSchedulingRules  (ListSchedulingRulesRequest)  returns (ListSchedulingRulesResponse);
+  rpc CreateSchedulingRule (CreateSchedulingRuleRequest) returns (CreateSchedulingRuleResponse);
+  rpc UpdateSchedulingRule (UpdateSchedulingRuleRequest) returns (UpdateSchedulingRuleResponse);
+  rpc DeleteSchedulingRule (DeleteSchedulingRuleRequest) returns (DeleteSchedulingRuleResponse);
+
+  // --- Registry remote (alias → endpoint catalogue) ---
+  // Operator-managed list of upstream OCI registries (ghcr.io,
+  // mirror.example.com, …). Used by the OCI puller to resolve
+  // catalogue references to a credential bundle + endpoint.
+  rpc ListRegistryRemotes  (ListRegistryRemotesRequest)  returns (ListRegistryRemotesResponse);
+  rpc SetRegistryRemote    (SetRegistryRemoteRequest)    returns (SetRegistryRemoteResponse);   // upsert
+  rpc DeleteRegistryRemote (DeleteRegistryRemoteRequest) returns (DeleteRegistryRemoteResponse);
+  rpc SearchRegistryRemote (SearchRegistryRemoteRequest) returns (SearchRegistryRemoteResponse);
 }
 
 // --- Hosts -------------------------------------------------------
@@ -2258,3 +2307,249 @@ message UpdateDNSRecordResponse { DNSRecordInfo record = 1; }
 
 message DeleteDNSRecordRequest  { string uuid = 1; }
 message DeleteDNSRecordResponse { string deleted_uuid = 1; }
+
+// --- Volume properties (v0.9.0) ---------------------------------
+//
+// Mirror of VMProperty for block volumes : a per-volume KV map the
+// operator sets host-side (replication factor, backup-policy alias,
+// arbitrary tags). Distinct from VMProperty because the addressing
+// key is `volume_uuid` (not `name + project`).
+
+message VolumePropertyInfo {
+  string volume_uuid        = 1;
+  string key                = 2;
+  string value              = 3;
+  int64  updated_at_unix_ns = 4;
+}
+
+message GetVolumePropertyRequest  { string volume_uuid = 1; string key = 2; }
+message GetVolumePropertyResponse { VolumePropertyInfo property = 1; }
+
+message SetVolumePropertyRequest {
+  string volume_uuid = 1;
+  string key         = 2;
+  string value       = 3;
+}
+message SetVolumePropertyResponse { VolumePropertyInfo property = 1; }
+
+message DeleteVolumePropertyRequest  { string volume_uuid = 1; string key = 2; }
+message DeleteVolumePropertyResponse {}
+
+// --- Share extensions (v0.9.0) ----------------------------------
+//
+// ListShares / CreateShare / DeleteShare already live in v0.8.
+// v0.9 adds GetShare for single-row read + ResizeShare for in-place
+// quota mutation. Resize is the only mutable field shipped today ;
+// rename / readonly toggle remain follow-ups.
+
+message GetShareRequest  { string uuid = 1; }
+message GetShareResponse { ShareInfo share = 1; }
+
+message ResizeShareRequest  {
+  string uuid        = 1;
+  int64  new_size_gb = 2;  // hard quota in GB ; must be > current
+}
+message ResizeShareResponse { ShareInfo share = 1; }
+
+// --- S3 Bucket registry -----------------------------------------
+//
+// openweft tracks buckets as a control-plane catalogue ; the actual
+// object data lives on the S3 endpoint (versitygw or CubeFS objectnode).
+// `policy` is a free-form JSON blob ; the agent stores it verbatim and
+// hands it to the S3 backend's policy API on Set.
+
+message BucketInfo {
+  string uuid               = 1;
+  string project_uuid       = 2;
+  string name               = 3;  // unique within the project
+  string endpoint           = 4;  // e.g. "https://s3.example.com"
+  string region             = 5;  // e.g. "us-east-1"
+  string access_key_id      = 6;
+  // secret_access_key is omitted from list responses ; only GetBucket
+  // returns it (and only to admins). Field tag reserved so the wire
+  // stays stable when a future redaction policy lands.
+  string secret_access_key  = 7;
+  // policy JSON ; mutable via SetBucketPolicy. List responses omit it
+  // to keep the list lightweight ; GetBucket + Get/SetBucketPolicy
+  // round-trip the full blob.
+  string policy             = 8;
+  int64  created_at_unix_ns = 9;
+}
+
+message ListBucketsRequest  {
+  string project    = 1;  // optional ; empty = caller's accessible set
+  int32  limit      = 2;
+  string page_token = 3;
+}
+message ListBucketsResponse {
+  repeated BucketInfo buckets = 1;
+  string next_page_token      = 2;
+}
+
+message GetBucketRequest  { string uuid = 1; }
+message GetBucketResponse { BucketInfo bucket = 1; }
+
+message CreateBucketRequest {
+  string project           = 1;
+  string name              = 2;
+  string endpoint          = 3;
+  string region            = 4;
+  string access_key_id     = 5;
+  string secret_access_key = 6;
+}
+message CreateBucketResponse { BucketInfo bucket = 1; bool created = 2; }
+
+message DeleteBucketRequest  { string uuid = 1; }
+message DeleteBucketResponse { string deleted_uuid = 1; }
+
+message GetBucketPolicyRequest  { string uuid = 1; }
+message GetBucketPolicyResponse { string policy = 1; }
+
+message SetBucketPolicyRequest  { string uuid = 1; string policy = 2; }
+message SetBucketPolicyResponse { BucketInfo bucket = 1; }
+
+// --- SSH key catalogue (cluster-wide) ---------------------------
+//
+// Each entry pairs a human-friendly `name` (unique cluster-wide) with
+// a public-key blob + computed fingerprint. VMs reference entries by
+// name at CreateVM time (planned ; today's wiring is consumer-side
+// in `weft instance`).
+
+message SSHKeyCatalogueEntry {
+  string uuid              = 1;
+  string name              = 2;  // unique cluster-wide, e.g. "alice@laptop"
+  string public_key        = 3;  // OpenSSH single-line format
+  string fingerprint       = 4;  // SHA256 :…
+  string comment           = 5;  // optional
+  int64  added_at_unix_ns  = 6;
+}
+
+message ListSSHKeyCatalogueRequest  {
+  int32  limit      = 1;
+  string page_token = 2;
+}
+message ListSSHKeyCatalogueResponse {
+  repeated SSHKeyCatalogueEntry keys = 1;
+  string next_page_token             = 2;
+}
+
+message AddSSHKeyCatalogueRequest  {
+  string name       = 1;
+  string public_key = 2;
+  string comment    = 3;
+}
+message AddSSHKeyCatalogueResponse { SSHKeyCatalogueEntry key = 1; bool added = 2; }
+
+message RemoveSSHKeyCatalogueRequest  { string uuid = 1; string name = 2; }  // either lookup
+message RemoveSSHKeyCatalogueResponse { string deleted_uuid = 1; }
+
+// ImportSSHKeyCatalogue ingests an authorized_keys blob in one shot
+// (one entry per non-comment, non-empty line). `name_prefix` provides
+// the unique-name seed ; the server appends an index per imported
+// line ("alice-1", "alice-2", …). Idempotent on fingerprint.
+message ImportSSHKeyCatalogueRequest  {
+  string name_prefix = 1;
+  string blob        = 2;
+  string comment     = 3;
+}
+message ImportSSHKeyCatalogueResponse {
+  repeated SSHKeyCatalogueEntry imported = 1;
+  int32 skipped_duplicates = 2;
+}
+
+// --- Scheduling rules -------------------------------------------
+//
+// A rule binds a label selector (e.g. "az=DC-A,gpu=true") to a
+// target_count ; the scheduler maintains that count of running VMs
+// matching the selector. Anti-affinity controls the granularity of
+// the spread (host / az / rack).
+
+message SchedulingRuleInfo {
+  string uuid               = 1;
+  string name               = 2;
+  string selector           = 3;  // comma-separated "k=v" pairs
+  int32  target_count       = 4;
+  string anti_affinity      = 5;  // "host" | "az" | "rack" | ""
+  int64  created_at_unix_ns = 6;
+}
+
+message ListSchedulingRulesRequest  {
+  int32  limit      = 1;
+  string page_token = 2;
+}
+message ListSchedulingRulesResponse {
+  repeated SchedulingRuleInfo rules = 1;
+  string next_page_token            = 2;
+}
+
+message CreateSchedulingRuleRequest  {
+  string name          = 1;
+  string selector      = 2;
+  int32  target_count  = 3;
+  string anti_affinity = 4;
+}
+message CreateSchedulingRuleResponse { SchedulingRuleInfo rule = 1; bool created = 2; }
+
+message UpdateSchedulingRuleRequest  {
+  string uuid          = 1;
+  string selector      = 2;  // empty = keep current
+  int32  target_count  = 3;  // -1 = keep current
+  string anti_affinity = 4;  // empty = keep current
+}
+message UpdateSchedulingRuleResponse { SchedulingRuleInfo rule = 1; }
+
+message DeleteSchedulingRuleRequest  { string uuid = 1; }
+message DeleteSchedulingRuleResponse { string deleted_uuid = 1; }
+
+// --- Registry remote (OCI registry catalogue) -------------------
+//
+// One entry per upstream OCI registry the puller knows about. `name`
+// is the operator-facing alias ("ghcr", "mirror"). `credential_secret_ref`
+// points at a secret in the secret store (path / key) so the registry
+// row never carries the raw token on the wire.
+
+message RegistryRemoteInfo {
+  string uuid                  = 1;
+  string name                  = 2;  // alias, unique cluster-wide
+  string endpoint              = 3;  // e.g. "ghcr.io" or "https://mirror.example.com"
+  bool   insecure              = 4;  // allow http:// + skip TLS verify
+  string credential_secret_ref = 5;  // ref into the secret store ; empty = anonymous
+  int64  created_at_unix_ns    = 6;
+}
+
+message ListRegistryRemotesRequest  {
+  int32  limit      = 1;
+  string page_token = 2;
+}
+message ListRegistryRemotesResponse {
+  repeated RegistryRemoteInfo remotes = 1;
+  string next_page_token              = 2;
+}
+
+// SetRegistryRemote upserts on `name`. Empty endpoint = keep current
+// (partial PATCH on an existing alias).
+message SetRegistryRemoteRequest  {
+  string name                  = 1;
+  string endpoint              = 2;
+  bool   insecure              = 3;
+  string credential_secret_ref = 4;
+}
+message SetRegistryRemoteResponse { RegistryRemoteInfo remote = 1; bool created = 2; }
+
+message DeleteRegistryRemoteRequest  { string uuid = 1; string name = 2; }  // either lookup
+message DeleteRegistryRemoteResponse { string deleted_uuid = 1; }
+
+// SearchRegistryRemote queries the upstream registry's catalogue endpoint
+// for repositories matching `query`. The server proxies to the registry's
+// /v2/_catalog (or equivalent search API) ; absent the catalogue endpoint
+// the response is empty (not an error — some registries disable it).
+message SearchRegistryRemoteRequest  {
+  string uuid  = 1;   // or name
+  string name  = 2;
+  string query = 3;
+  int32  limit = 4;
+}
+message SearchRegistryRemoteResponse {
+  repeated string repositories = 1;
+  string registry_name         = 2;
+}

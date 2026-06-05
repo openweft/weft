@@ -7,6 +7,44 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [v0.9.0] — 2026-06-05
+
+### Added
+
+- **VolumeProperty + Share extensions + Bucket + SSHKeyCatalogue +
+  SchedulingRule + RegistryRemote** — closes the Tier 4-6 CLI-vs-webui
+  parity gap, six new noun families on `WeftAgent` :
+
+  - `VolumePropertyInfo` + 3 RPCs (`GetVolumeProperty` /
+    `SetVolumeProperty` / `DeleteVolumeProperty`) — mirror of
+    VMProperty addressed by `volume_uuid` for block volumes.
+  - `ShareInfo` extensions : `GetShare` + `ResizeShare` close
+    the v0.8 gap (list/create/delete already shipped).
+  - `BucketInfo` + 6 RPCs (`ListBuckets` / `GetBucket` /
+    `CreateBucket` / `DeleteBucket` / `GetBucketPolicy` /
+    `SetBucketPolicy`) — S3 bucket catalogue ; data lives on the
+    S3 endpoint (versitygw / CubeFS objectnode), the agent
+    tracks credentials + mutable policy JSON.
+  - `SSHKeyCatalogueEntry` + 4 RPCs (`ListSSHKeyCatalogue` /
+    `AddSSHKeyCatalogue` / `RemoveSSHKeyCatalogue` /
+    `ImportSSHKeyCatalogue`) — cluster-wide named SSH keys VMs
+    reference at CreateVM time. Distinct from per-VM
+    `weft instance sshkey`.
+  - `SchedulingRuleInfo` + 4 RPCs (`ListSchedulingRules` /
+    `CreateSchedulingRule` / `UpdateSchedulingRule` /
+    `DeleteSchedulingRule`) — per [[openweft_nominal_binding]],
+    rules carry selector + target_count + anti_affinity, the
+    scheduler reconciles toward target_count.
+  - `RegistryRemoteInfo` + 4 RPCs (`ListRegistryRemotes` /
+    `SetRegistryRemote` (upsert) / `DeleteRegistryRemote` /
+    `SearchRegistryRemote`) — OCI registry alias catalogue ;
+    `credential_secret_ref` points at the secret store so the
+    row never carries the raw token on the wire.
+
+  22 new RPCs total. Mirror the existing inventory-noun pattern
+  (UUID-keyed, partial-PATCH updates, cascade refusal surfaces
+  blocking counts on the response when relevant).
+
 ## [v0.8.0] — 2026-06-05
 
 ### Added

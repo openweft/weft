@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
+	"github.com/openweft/weft/cmd/weft/volumeproperty"
 	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
@@ -45,6 +46,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		rmCmd(socket, sshSocket, sshKey),
 		snapshotCommand(socket, sshSocket, sshKey),
 		backupCommand(socket, sshSocket, sshKey),
+		volumeproperty.Command(socket, sshSocket, sshKey),
 	)
 	return cmd
 }

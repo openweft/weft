@@ -38,10 +38,40 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		lsCmd(socket, sshSocket, sshKey),
 		showCmd(socket, sshSocket, sshKey),
 		createCmd(socket, sshSocket, sshKey),
+		resizeCmd(socket, sshSocket, sshKey),
 		rmCmd(socket, sshSocket, sshKey),
 		attachCmd(socket, sshSocket, sshKey),
 		detachCmd(socket, sshSocket, sshKey),
 	)
+	return cmd
+}
+
+func resizeCmd(socket, sshSocket, sshKey *string) *cobra.Command {
+	var newSizeGB int64
+	cmd := &cobra.Command{
+		Use:   "resize <uuid>",
+		Short: "Bump a share's size quota (admin-only ; monotonic up)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			cl, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := cl.ResizeShare(context.Background(), &weftv1.ResizeShareRequest{
+				Uuid:      args[0],
+				NewSizeGb: newSizeGB,
+			})
+			if err != nil {
+				return err
+			}
+			s := resp.Share
+			fmt.Printf("resized\t%s\t%s\t%d GB\n", s.Uuid, s.Name, s.SizeGb)
+			return nil
+		},
+	}
+	cmd.Flags().Int64Var(&newSizeGB, "new-size-gb", 0, "New quota in GB (must be > current)")
+	_ = cmd.MarkFlagRequired("new-size-gb")
 	return cmd
 }
 
@@ -76,7 +106,7 @@ func showCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
-		Short: "Show one share by UUID (client-side filter over ListShares ; no GetShare RPC yet)",
+		Short: "Show one share by UUID (uses GetShare RPC)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			cl, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
@@ -84,19 +114,14 @@ func showCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := cl.ListShares(context.Background(), &weftv1.ListSharesRequest{})
+			resp, err := cl.GetShare(context.Background(), &weftv1.GetShareRequest{Uuid: args[0]})
 			if err != nil {
 				return err
 			}
-			for _, s := range resp.Shares {
-				if s.Uuid == args[0] {
-					if format == "json" {
-						return dumpJSON([]*weftv1.ShareInfo{s})
-					}
-					return renderTable([]*weftv1.ShareInfo{s})
-				}
+			if format == "json" {
+				return dumpJSON([]*weftv1.ShareInfo{resp.Share})
 			}
-			return fmt.Errorf("no share with uuid %q", args[0])
+			return renderTable([]*weftv1.ShareInfo{resp.Share})
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "", "Output format (json)")

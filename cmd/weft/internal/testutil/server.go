@@ -116,7 +116,30 @@ type Server struct {
 	ListSharesFn                      func(context.Context, *weftv1.ListSharesRequest) (*weftv1.ListSharesResponse, error)
 	CreateShareFn                     func(context.Context, *weftv1.CreateShareRequest) (*weftv1.CreateShareResponse, error)
 	DeleteShareFn                     func(context.Context, *weftv1.DeleteShareRequest) (*weftv1.DeleteShareResponse, error)
+	GetShareFn                        func(context.Context, *weftv1.GetShareRequest) (*weftv1.GetShareResponse, error)
+	ResizeShareFn                     func(context.Context, *weftv1.ResizeShareRequest) (*weftv1.ResizeShareResponse, error)
 	PublishShareToProjectFn           func(context.Context, *weftv1.PublishShareToProjectRequest) (*weftv1.PublishShareToProjectResponse, error)
+	GetVolumePropertyFn               func(context.Context, *weftv1.GetVolumePropertyRequest) (*weftv1.GetVolumePropertyResponse, error)
+	SetVolumePropertyFn               func(context.Context, *weftv1.SetVolumePropertyRequest) (*weftv1.SetVolumePropertyResponse, error)
+	DeleteVolumePropertyFn            func(context.Context, *weftv1.DeleteVolumePropertyRequest) (*weftv1.DeleteVolumePropertyResponse, error)
+	ListBucketsFn                     func(context.Context, *weftv1.ListBucketsRequest) (*weftv1.ListBucketsResponse, error)
+	GetBucketFn                       func(context.Context, *weftv1.GetBucketRequest) (*weftv1.GetBucketResponse, error)
+	CreateBucketFn                    func(context.Context, *weftv1.CreateBucketRequest) (*weftv1.CreateBucketResponse, error)
+	DeleteBucketFn                    func(context.Context, *weftv1.DeleteBucketRequest) (*weftv1.DeleteBucketResponse, error)
+	GetBucketPolicyFn                 func(context.Context, *weftv1.GetBucketPolicyRequest) (*weftv1.GetBucketPolicyResponse, error)
+	SetBucketPolicyFn                 func(context.Context, *weftv1.SetBucketPolicyRequest) (*weftv1.SetBucketPolicyResponse, error)
+	ListSSHKeyCatalogueFn             func(context.Context, *weftv1.ListSSHKeyCatalogueRequest) (*weftv1.ListSSHKeyCatalogueResponse, error)
+	AddSSHKeyCatalogueFn              func(context.Context, *weftv1.AddSSHKeyCatalogueRequest) (*weftv1.AddSSHKeyCatalogueResponse, error)
+	RemoveSSHKeyCatalogueFn           func(context.Context, *weftv1.RemoveSSHKeyCatalogueRequest) (*weftv1.RemoveSSHKeyCatalogueResponse, error)
+	ImportSSHKeyCatalogueFn           func(context.Context, *weftv1.ImportSSHKeyCatalogueRequest) (*weftv1.ImportSSHKeyCatalogueResponse, error)
+	ListSchedulingRulesFn             func(context.Context, *weftv1.ListSchedulingRulesRequest) (*weftv1.ListSchedulingRulesResponse, error)
+	CreateSchedulingRuleFn            func(context.Context, *weftv1.CreateSchedulingRuleRequest) (*weftv1.CreateSchedulingRuleResponse, error)
+	UpdateSchedulingRuleFn            func(context.Context, *weftv1.UpdateSchedulingRuleRequest) (*weftv1.UpdateSchedulingRuleResponse, error)
+	DeleteSchedulingRuleFn            func(context.Context, *weftv1.DeleteSchedulingRuleRequest) (*weftv1.DeleteSchedulingRuleResponse, error)
+	ListRegistryRemotesFn             func(context.Context, *weftv1.ListRegistryRemotesRequest) (*weftv1.ListRegistryRemotesResponse, error)
+	SetRegistryRemoteFn               func(context.Context, *weftv1.SetRegistryRemoteRequest) (*weftv1.SetRegistryRemoteResponse, error)
+	DeleteRegistryRemoteFn            func(context.Context, *weftv1.DeleteRegistryRemoteRequest) (*weftv1.DeleteRegistryRemoteResponse, error)
+	SearchRegistryRemoteFn            func(context.Context, *weftv1.SearchRegistryRemoteRequest) (*weftv1.SearchRegistryRemoteResponse, error)
 }
 
 // NewServer stands up a grpc.Server on a unix socket and registers
@@ -737,6 +760,167 @@ func (s *Server) PublishShareToProject(ctx context.Context, in *weftv1.PublishSh
 		return s.PublishShareToProjectFn(ctx, in)
 	}
 	return &weftv1.PublishShareToProjectResponse{}, nil
+}
+
+func (s *Server) GetShare(ctx context.Context, in *weftv1.GetShareRequest) (*weftv1.GetShareResponse, error) {
+	if s.GetShareFn != nil {
+		return s.GetShareFn(ctx, in)
+	}
+	return &weftv1.GetShareResponse{Share: &weftv1.ShareInfo{Uuid: in.Uuid}}, nil
+}
+
+func (s *Server) ResizeShare(ctx context.Context, in *weftv1.ResizeShareRequest) (*weftv1.ResizeShareResponse, error) {
+	if s.ResizeShareFn != nil {
+		return s.ResizeShareFn(ctx, in)
+	}
+	return &weftv1.ResizeShareResponse{Share: &weftv1.ShareInfo{Uuid: in.Uuid, SizeGb: in.NewSizeGb}}, nil
+}
+
+func (s *Server) GetVolumeProperty(ctx context.Context, in *weftv1.GetVolumePropertyRequest) (*weftv1.GetVolumePropertyResponse, error) {
+	if s.GetVolumePropertyFn != nil {
+		return s.GetVolumePropertyFn(ctx, in)
+	}
+	return &weftv1.GetVolumePropertyResponse{Property: &weftv1.VolumePropertyInfo{VolumeUuid: in.VolumeUuid, Key: in.Key}}, nil
+}
+
+func (s *Server) SetVolumeProperty(ctx context.Context, in *weftv1.SetVolumePropertyRequest) (*weftv1.SetVolumePropertyResponse, error) {
+	if s.SetVolumePropertyFn != nil {
+		return s.SetVolumePropertyFn(ctx, in)
+	}
+	return &weftv1.SetVolumePropertyResponse{Property: &weftv1.VolumePropertyInfo{VolumeUuid: in.VolumeUuid, Key: in.Key, Value: in.Value}}, nil
+}
+
+func (s *Server) DeleteVolumeProperty(ctx context.Context, in *weftv1.DeleteVolumePropertyRequest) (*weftv1.DeleteVolumePropertyResponse, error) {
+	if s.DeleteVolumePropertyFn != nil {
+		return s.DeleteVolumePropertyFn(ctx, in)
+	}
+	return &weftv1.DeleteVolumePropertyResponse{}, nil
+}
+
+func (s *Server) ListBuckets(ctx context.Context, in *weftv1.ListBucketsRequest) (*weftv1.ListBucketsResponse, error) {
+	if s.ListBucketsFn != nil {
+		return s.ListBucketsFn(ctx, in)
+	}
+	return &weftv1.ListBucketsResponse{}, nil
+}
+
+func (s *Server) GetBucket(ctx context.Context, in *weftv1.GetBucketRequest) (*weftv1.GetBucketResponse, error) {
+	if s.GetBucketFn != nil {
+		return s.GetBucketFn(ctx, in)
+	}
+	return &weftv1.GetBucketResponse{Bucket: &weftv1.BucketInfo{Uuid: in.Uuid}}, nil
+}
+
+func (s *Server) CreateBucket(ctx context.Context, in *weftv1.CreateBucketRequest) (*weftv1.CreateBucketResponse, error) {
+	if s.CreateBucketFn != nil {
+		return s.CreateBucketFn(ctx, in)
+	}
+	return &weftv1.CreateBucketResponse{Bucket: &weftv1.BucketInfo{Name: in.Name, Endpoint: in.Endpoint}, Created: true}, nil
+}
+
+func (s *Server) DeleteBucket(ctx context.Context, in *weftv1.DeleteBucketRequest) (*weftv1.DeleteBucketResponse, error) {
+	if s.DeleteBucketFn != nil {
+		return s.DeleteBucketFn(ctx, in)
+	}
+	return &weftv1.DeleteBucketResponse{DeletedUuid: in.Uuid}, nil
+}
+
+func (s *Server) GetBucketPolicy(ctx context.Context, in *weftv1.GetBucketPolicyRequest) (*weftv1.GetBucketPolicyResponse, error) {
+	if s.GetBucketPolicyFn != nil {
+		return s.GetBucketPolicyFn(ctx, in)
+	}
+	return &weftv1.GetBucketPolicyResponse{}, nil
+}
+
+func (s *Server) SetBucketPolicy(ctx context.Context, in *weftv1.SetBucketPolicyRequest) (*weftv1.SetBucketPolicyResponse, error) {
+	if s.SetBucketPolicyFn != nil {
+		return s.SetBucketPolicyFn(ctx, in)
+	}
+	return &weftv1.SetBucketPolicyResponse{Bucket: &weftv1.BucketInfo{Uuid: in.Uuid, Policy: in.Policy}}, nil
+}
+
+func (s *Server) ListSSHKeyCatalogue(ctx context.Context, in *weftv1.ListSSHKeyCatalogueRequest) (*weftv1.ListSSHKeyCatalogueResponse, error) {
+	if s.ListSSHKeyCatalogueFn != nil {
+		return s.ListSSHKeyCatalogueFn(ctx, in)
+	}
+	return &weftv1.ListSSHKeyCatalogueResponse{}, nil
+}
+
+func (s *Server) AddSSHKeyCatalogue(ctx context.Context, in *weftv1.AddSSHKeyCatalogueRequest) (*weftv1.AddSSHKeyCatalogueResponse, error) {
+	if s.AddSSHKeyCatalogueFn != nil {
+		return s.AddSSHKeyCatalogueFn(ctx, in)
+	}
+	return &weftv1.AddSSHKeyCatalogueResponse{Key: &weftv1.SSHKeyCatalogueEntry{Name: in.Name, PublicKey: in.PublicKey}, Added: true}, nil
+}
+
+func (s *Server) RemoveSSHKeyCatalogue(ctx context.Context, in *weftv1.RemoveSSHKeyCatalogueRequest) (*weftv1.RemoveSSHKeyCatalogueResponse, error) {
+	if s.RemoveSSHKeyCatalogueFn != nil {
+		return s.RemoveSSHKeyCatalogueFn(ctx, in)
+	}
+	return &weftv1.RemoveSSHKeyCatalogueResponse{DeletedUuid: in.Uuid}, nil
+}
+
+func (s *Server) ImportSSHKeyCatalogue(ctx context.Context, in *weftv1.ImportSSHKeyCatalogueRequest) (*weftv1.ImportSSHKeyCatalogueResponse, error) {
+	if s.ImportSSHKeyCatalogueFn != nil {
+		return s.ImportSSHKeyCatalogueFn(ctx, in)
+	}
+	return &weftv1.ImportSSHKeyCatalogueResponse{}, nil
+}
+
+func (s *Server) ListSchedulingRules(ctx context.Context, in *weftv1.ListSchedulingRulesRequest) (*weftv1.ListSchedulingRulesResponse, error) {
+	if s.ListSchedulingRulesFn != nil {
+		return s.ListSchedulingRulesFn(ctx, in)
+	}
+	return &weftv1.ListSchedulingRulesResponse{}, nil
+}
+
+func (s *Server) CreateSchedulingRule(ctx context.Context, in *weftv1.CreateSchedulingRuleRequest) (*weftv1.CreateSchedulingRuleResponse, error) {
+	if s.CreateSchedulingRuleFn != nil {
+		return s.CreateSchedulingRuleFn(ctx, in)
+	}
+	return &weftv1.CreateSchedulingRuleResponse{Rule: &weftv1.SchedulingRuleInfo{Name: in.Name, Selector: in.Selector, TargetCount: in.TargetCount}, Created: true}, nil
+}
+
+func (s *Server) UpdateSchedulingRule(ctx context.Context, in *weftv1.UpdateSchedulingRuleRequest) (*weftv1.UpdateSchedulingRuleResponse, error) {
+	if s.UpdateSchedulingRuleFn != nil {
+		return s.UpdateSchedulingRuleFn(ctx, in)
+	}
+	return &weftv1.UpdateSchedulingRuleResponse{Rule: &weftv1.SchedulingRuleInfo{Uuid: in.Uuid}}, nil
+}
+
+func (s *Server) DeleteSchedulingRule(ctx context.Context, in *weftv1.DeleteSchedulingRuleRequest) (*weftv1.DeleteSchedulingRuleResponse, error) {
+	if s.DeleteSchedulingRuleFn != nil {
+		return s.DeleteSchedulingRuleFn(ctx, in)
+	}
+	return &weftv1.DeleteSchedulingRuleResponse{DeletedUuid: in.Uuid}, nil
+}
+
+func (s *Server) ListRegistryRemotes(ctx context.Context, in *weftv1.ListRegistryRemotesRequest) (*weftv1.ListRegistryRemotesResponse, error) {
+	if s.ListRegistryRemotesFn != nil {
+		return s.ListRegistryRemotesFn(ctx, in)
+	}
+	return &weftv1.ListRegistryRemotesResponse{}, nil
+}
+
+func (s *Server) SetRegistryRemote(ctx context.Context, in *weftv1.SetRegistryRemoteRequest) (*weftv1.SetRegistryRemoteResponse, error) {
+	if s.SetRegistryRemoteFn != nil {
+		return s.SetRegistryRemoteFn(ctx, in)
+	}
+	return &weftv1.SetRegistryRemoteResponse{Remote: &weftv1.RegistryRemoteInfo{Name: in.Name, Endpoint: in.Endpoint}, Created: true}, nil
+}
+
+func (s *Server) DeleteRegistryRemote(ctx context.Context, in *weftv1.DeleteRegistryRemoteRequest) (*weftv1.DeleteRegistryRemoteResponse, error) {
+	if s.DeleteRegistryRemoteFn != nil {
+		return s.DeleteRegistryRemoteFn(ctx, in)
+	}
+	return &weftv1.DeleteRegistryRemoteResponse{DeletedUuid: in.Uuid}, nil
+}
+
+func (s *Server) SearchRegistryRemote(ctx context.Context, in *weftv1.SearchRegistryRemoteRequest) (*weftv1.SearchRegistryRemoteResponse, error) {
+	if s.SearchRegistryRemoteFn != nil {
+		return s.SearchRegistryRemoteFn(ctx, in)
+	}
+	return &weftv1.SearchRegistryRemoteResponse{RegistryName: in.Name}, nil
 }
 
 // randomSuffix returns a per-test unique-ish suffix (test name +
