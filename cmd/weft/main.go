@@ -33,6 +33,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/completion"
 	"github.com/openweft/weft/cmd/weft/events"
 	"github.com/openweft/weft/cmd/weft/flavor"
+	"github.com/openweft/weft/cmd/weft/floatingip"
 	"github.com/openweft/weft/cmd/weft/host"
 	"github.com/openweft/weft/cmd/weft/image"
 	"github.com/openweft/weft/cmd/weft/instance"
@@ -145,6 +146,7 @@ running agent.`,
 		host.Command(&socketPath, &sshSocket, &sshKey),
 		az.Command(&socketPath, &sshSocket, &sshKey),
 		rack.Command(&socketPath, &sshSocket, &sshKey),
+		floatingip.Command(&socketPath, &sshSocket, &sshKey),
 		tenant.Command(&socketPath, &sshSocket, &sshKey),
 		quota.Command(&socketPath, &sshSocket, &sshKey),
 		admin.Command(&socketPath, &sshSocket, &sshKey),

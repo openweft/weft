@@ -9,6 +9,39 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ### Added
 
+- **CLI : `weft floating-ip` package** — Tier 3 of the webui-vs-CLI
+  parity audit. Wires the five FloatingIP RPCs that already shipped
+  in the proto (no proto bump) into a dedicated cobra group, alias
+  `fip`.
+  - `weft floating-ip ls [--project=<name|uuid>] [--format=json]` →
+    `ListFloatingIPs`.
+  - `weft floating-ip show <uuid|address>` — client-side filter on
+    `ListFloatingIPs` (the proto has no `GetFloatingIP` RPC ; fine
+    for an operator CLI, the webui keeps its scoped query path).
+  - `weft floating-ip allocate --network=<name|uuid> [--project=<...>]`
+    → `AllocateFloatingIP`.
+  - `weft floating-ip release <uuid>` → `ReleaseFloatingIP`.
+  - `weft floating-ip map <uuid> --target=<name> [--kind=vm|lb]`
+    → `MapFloatingIP`. `--kind` defaults to `vm`.
+  - `weft floating-ip unmap <uuid>` → `UnmapFloatingIP`.
+
+  **Skipped (no RPC in v0.7.0, future proto bump)** :
+  - `weft subnet {create, update, delete, ls}` — no
+    `{Create,Update,Delete,List}Subnet` RPCs. Subnets currently
+    live as fields of `NetworkInfo` ; promoting them to first-class
+    requires a `Subnet` message + four RPCs.
+  - `weft loadbalancer {create, delete, set-backends, ls, show}` —
+    no `{Create,Delete,SetBackends,List,Get}LoadBalancer` RPCs.
+    The data-plane note in `MapFloatingIP` references LB targets,
+    but the LB registry itself is not yet on the wire.
+  - `weft dns-zone {create, update, delete, ls}` — no
+    `{Create,Update,Delete,List}DNSZone` RPCs. Only
+    `SetNetworkDNS` exists today (resolver config on a network ;
+    not authoritative-zone management).
+  - `weft dns-record {create, update, delete, ls}` — no
+    `{Create,Update,Delete,List}DNSRecord` RPCs ; same gap as
+    dns-zone.
+
 - **Inventory hierarchy elevated to the control plane (weft-proto v0.7.0)**.
   AZs and racks are no longer webui-local persistence — they live in
   the same UUID-keyed registry shape as projects + hosts, with their
