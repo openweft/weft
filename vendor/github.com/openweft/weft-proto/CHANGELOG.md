@@ -7,6 +7,52 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [v0.8.0] — 2026-06-05
+
+### Added
+
+- **Subnet + LoadBalancer + DNSZone + DNSRecord registries on `WeftAgent`**
+  — closes the last Tier-3 CLI-vs-webui parity gap by exposing four
+  network-plane noun families that were previously webui-only :
+
+  - `SubnetInfo` + 5 RPCs (`ListSubnets` / `GetSubnet` /
+    `CreateSubnet` / `UpdateSubnet` / `DeleteSubnet`) — per-network
+    IP scopes, parent is `network_uuid`, immutable CIDR, mutable
+    gateway + dns_servers. Update carries a `clear_dns_servers`
+    bool to disambiguate "keep" vs "clear" on the wire.
+  - `LoadBalancerInfo` + 6 RPCs (`ListLoadBalancers` /
+    `GetLoadBalancer` / `CreateLoadBalancer` / `UpdateLoadBalancer`
+    / `SetLoadBalancerBackends` / `DeleteLoadBalancer`) — project-
+    scoped VIPs with `protocol` ∈ {`l4_tcp`, `l4_udp`, `l7_http`,
+    `l7_https`} and a `LBBackend{address, weight}` repeated list.
+    `SetLoadBalancerBackends` replaces the list atomically (clients
+    GET-modify-PUT for single-entry adds/removes). `DeleteLoadBalancer`
+    refuses while a FloatingIP still maps to the VIP and surfaces
+    `blocked_by_fips` so the operator unmaps it first.
+  - `DNSZoneInfo` + 5 RPCs (`ListDNSZones` / `GetDNSZone` /
+    `CreateDNSZone` / `UpdateDNSZone` / `DeleteDNSZone`) —
+    authoritative apex per project. SOA email + default TTL are
+    mutable ; the zone's `records` count is server-derived.
+    `DeleteDNSZone` refuses while records still attach and surfaces
+    `blocked_by_records`.
+  - `DNSRecordInfo` + 4 RPCs (`ListDNSRecords` / `CreateDNSRecord`
+    / `UpdateDNSRecord` / `DeleteDNSRecord`) — zone children with
+    `type` ∈ {`A`, `AAAA`, `CNAME`, `MX`, `TXT`, `SRV`}, optional
+    per-record TTL, MX/SRV priority.
+
+  20 new RPCs total. Mirror the existing inventory-noun pattern
+  (UUID-keyed, partial-PATCH updates, cascade refusal surfaces
+  blocking counts on the response).
+
+  Why proto and not webui-only : the parity audit identified these
+  four ressources as Tier 3 because the CLI couldn't drive
+  end-to-end network plumbing without them. With the registry in
+  the control plane, `weft subnet create`, `weft loadbalancer
+  set-backends`, `weft dns-zone create`, `weft dns-record create`
+  all flow through the same Unix socket as every other `weft <noun>
+  <verb>` ; the webui can either continue holding its local view or
+  migrate onto the live RPC at its own pace.
+
 ## [v0.7.0] — 2026-06-05
 
 ### Added

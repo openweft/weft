@@ -43,12 +43,16 @@ import (
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/plugin"
 	"github.com/openweft/weft/cmd/weft/az"
+	"github.com/openweft/weft/cmd/weft/dnsrecord"
+	"github.com/openweft/weft/cmd/weft/dnszone"
+	"github.com/openweft/weft/cmd/weft/loadbalancer"
 	"github.com/openweft/weft/cmd/weft/project"
 	"github.com/openweft/weft/cmd/weft/quota"
 	"github.com/openweft/weft/cmd/weft/rack"
 	"github.com/openweft/weft/cmd/weft/script"
 	"github.com/openweft/weft/cmd/weft/securitygroup"
 	"github.com/openweft/weft/cmd/weft/share"
+	"github.com/openweft/weft/cmd/weft/subnet"
 	"github.com/openweft/weft/cmd/weft/tenant"
 	"github.com/openweft/weft/cmd/weft/user"
 	"github.com/openweft/weft/cmd/weft/volume"
@@ -147,6 +151,10 @@ running agent.`,
 		az.Command(&socketPath, &sshSocket, &sshKey),
 		rack.Command(&socketPath, &sshSocket, &sshKey),
 		floatingip.Command(&socketPath, &sshSocket, &sshKey),
+		subnet.Command(&socketPath, &sshSocket, &sshKey),
+		loadbalancer.Command(&socketPath, &sshSocket, &sshKey),
+		dnszone.Command(&socketPath, &sshSocket, &sshKey),
+		dnsrecord.Command(&socketPath, &sshSocket, &sshKey),
 		tenant.Command(&socketPath, &sshSocket, &sshKey),
 		quota.Command(&socketPath, &sshSocket, &sshKey),
 		admin.Command(&socketPath, &sshSocket, &sshKey),
@@ -1946,6 +1954,388 @@ func toRackInfo(adp weft.VZAdapter, r weft.Rack) *weftv1.RackInfo {
 		CreatedAtUnixNs: r.CreatedAt.UnixNano(),
 		Hosts:           adp.RackHostCount(r.UUID),
 	}
+}
+
+// ---- Subnets (proto v0.8.0) ---------------------------------------
+//
+// Subnets are per-network IP scopes. Parent is `network_uuid` ; the
+// project is denormalised from the parent at create time so the
+// proto's response carries it for ACL display. Read is open to any
+// caller ; mutations are admin-only (the Tier-3 noun set sits with
+// the network-plane build-out, no per-project ACL surface yet).
+
+func (s *weftServer) ListSubnets(_ context.Context, req *weftv1.ListSubnetsRequest) (*weftv1.ListSubnetsResponse, error) {
+	subnets := s.adp.Subnets(req.NetworkUuid)
+	out := make([]*weftv1.SubnetInfo, 0, len(subnets))
+	for _, sn := range subnets {
+		out = append(out, toSubnetInfo(sn))
+	}
+	return &weftv1.ListSubnetsResponse{Subnets: out}, nil
+}
+
+func (s *weftServer) GetSubnet(_ context.Context, req *weftv1.GetSubnetRequest) (*weftv1.GetSubnetResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	sn, ok := s.adp.SubnetByUUID(req.Uuid)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "subnet not found")
+	}
+	return &weftv1.GetSubnetResponse{Subnet: toSubnetInfo(sn)}, nil
+}
+
+func (s *weftServer) CreateSubnet(ctx context.Context, req *weftv1.CreateSubnetRequest) (*weftv1.CreateSubnetResponse, error) {
+	if req.NetworkUuid == "" || req.Cidr == "" {
+		return nil, status.Error(codes.InvalidArgument, "network_uuid and cidr are required")
+	}
+	if err := weft.RequireAdmin(ctx, "create subnet"); err != nil {
+		return nil, err
+	}
+	sn, created, err := s.adp.CreateSubnet(req.NetworkUuid, req.Name, req.Description, req.Cidr, req.Gateway, req.DnsServers)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "create subnet: %v", err)
+	}
+	logger.Printf("CreateSubnet network=%s cidr=%s uuid=%s created=%v", sn.NetworkUUID, sn.CIDR, sn.UUID, created)
+	return &weftv1.CreateSubnetResponse{Subnet: toSubnetInfo(sn), Created: created}, nil
+}
+
+func (s *weftServer) UpdateSubnet(ctx context.Context, req *weftv1.UpdateSubnetRequest) (*weftv1.UpdateSubnetResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "update subnet"); err != nil {
+		return nil, err
+	}
+	sn, err := s.adp.UpdateSubnet(req.Uuid, req.Name, req.Description, req.Gateway, req.ClearDnsServers, req.DnsServers)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "update subnet: %v", err)
+	}
+	logger.Printf("UpdateSubnet uuid=%s", sn.UUID)
+	return &weftv1.UpdateSubnetResponse{Subnet: toSubnetInfo(sn)}, nil
+}
+
+func (s *weftServer) DeleteSubnet(ctx context.Context, req *weftv1.DeleteSubnetRequest) (*weftv1.DeleteSubnetResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete subnet"); err != nil {
+		return nil, err
+	}
+	if err := s.adp.DeleteSubnet(req.Uuid); err != nil {
+		return nil, status.Errorf(codes.NotFound, "delete subnet: %v", err)
+	}
+	logger.Printf("DeleteSubnet uuid=%s", req.Uuid)
+	return &weftv1.DeleteSubnetResponse{DeletedUuid: req.Uuid}, nil
+}
+
+func toSubnetInfo(sn weft.Subnet) *weftv1.SubnetInfo {
+	return &weftv1.SubnetInfo{
+		Uuid:            sn.UUID,
+		NetworkUuid:     sn.NetworkUUID,
+		ProjectUuid:     sn.ProjectUUID,
+		Name:            sn.Name,
+		Description:     sn.Description,
+		Cidr:            sn.CIDR,
+		Gateway:         sn.Gateway,
+		DnsServers:      append([]string(nil), sn.DNSServers...),
+		CreatedAtUnixNs: sn.CreatedAt.UnixNano(),
+	}
+}
+
+// ---- LoadBalancers (proto v0.8.0) ---------------------------------
+//
+// Project-scoped VIPs. SetLoadBalancerBackends atomically replaces
+// the backend list ; DeleteLoadBalancer refuses while a FloatingIP
+// still maps to the VIP.
+
+func (s *weftServer) ListLoadBalancers(_ context.Context, req *weftv1.ListLoadBalancersRequest) (*weftv1.ListLoadBalancersResponse, error) {
+	projectUUID := s.resolveProjectUUID(req.Project)
+	lbs := s.adp.LoadBalancers(projectUUID)
+	out := make([]*weftv1.LoadBalancerInfo, 0, len(lbs))
+	for _, lb := range lbs {
+		out = append(out, toLBInfo(lb))
+	}
+	return &weftv1.ListLoadBalancersResponse{LoadBalancers: out}, nil
+}
+
+func (s *weftServer) GetLoadBalancer(_ context.Context, req *weftv1.GetLoadBalancerRequest) (*weftv1.GetLoadBalancerResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	lb, ok := s.adp.LoadBalancerByUUID(req.Uuid)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "loadbalancer not found")
+	}
+	return &weftv1.GetLoadBalancerResponse{LoadBalancer: toLBInfo(lb)}, nil
+}
+
+func (s *weftServer) CreateLoadBalancer(ctx context.Context, req *weftv1.CreateLoadBalancerRequest) (*weftv1.CreateLoadBalancerResponse, error) {
+	if req.Name == "" || req.ListenAddr == "" || req.Protocol == "" {
+		return nil, status.Error(codes.InvalidArgument, "name, listen_addr, protocol are required")
+	}
+	if err := weft.RequireAdmin(ctx, "create loadbalancer"); err != nil {
+		return nil, err
+	}
+	projectUUID := s.resolveProjectUUID(req.Project)
+	if projectUUID == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "project %q not found", req.Project)
+	}
+	backends := fromLBBackends(req.Backends)
+	lb, created, err := s.adp.CreateLoadBalancer(projectUUID, req.Name, req.ListenAddr, req.Protocol, backends)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "create loadbalancer: %v", err)
+	}
+	logger.Printf("CreateLoadBalancer project=%s name=%s uuid=%s created=%v", lb.ProjectUUID, lb.Name, lb.UUID, created)
+	return &weftv1.CreateLoadBalancerResponse{LoadBalancer: toLBInfo(lb), Created: created}, nil
+}
+
+func (s *weftServer) UpdateLoadBalancer(ctx context.Context, req *weftv1.UpdateLoadBalancerRequest) (*weftv1.UpdateLoadBalancerResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "update loadbalancer"); err != nil {
+		return nil, err
+	}
+	lb, err := s.adp.UpdateLoadBalancer(req.Uuid, req.Name, req.ListenAddr, req.Protocol)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "update loadbalancer: %v", err)
+	}
+	logger.Printf("UpdateLoadBalancer uuid=%s", lb.UUID)
+	return &weftv1.UpdateLoadBalancerResponse{LoadBalancer: toLBInfo(lb)}, nil
+}
+
+func (s *weftServer) SetLoadBalancerBackends(ctx context.Context, req *weftv1.SetLoadBalancerBackendsRequest) (*weftv1.SetLoadBalancerBackendsResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "set loadbalancer backends"); err != nil {
+		return nil, err
+	}
+	lb, err := s.adp.SetLoadBalancerBackends(req.Uuid, fromLBBackends(req.Backends))
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "set loadbalancer backends: %v", err)
+	}
+	logger.Printf("SetLoadBalancerBackends uuid=%s count=%d", lb.UUID, len(lb.Backends))
+	return &weftv1.SetLoadBalancerBackendsResponse{LoadBalancer: toLBInfo(lb)}, nil
+}
+
+func (s *weftServer) DeleteLoadBalancer(ctx context.Context, req *weftv1.DeleteLoadBalancerRequest) (*weftv1.DeleteLoadBalancerResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete loadbalancer"); err != nil {
+		return nil, err
+	}
+	blockedFIPs, err := s.adp.DeleteLoadBalancer(req.Uuid)
+	if err != nil {
+		return &weftv1.DeleteLoadBalancerResponse{BlockedByFips: blockedFIPs}, status.Errorf(codes.FailedPrecondition, "delete loadbalancer: %v", err)
+	}
+	logger.Printf("DeleteLoadBalancer uuid=%s", req.Uuid)
+	return &weftv1.DeleteLoadBalancerResponse{DeletedUuid: req.Uuid}, nil
+}
+
+func toLBInfo(lb weft.LoadBalancer) *weftv1.LoadBalancerInfo {
+	backends := make([]*weftv1.LBBackend, 0, len(lb.Backends))
+	for _, b := range lb.Backends {
+		backends = append(backends, &weftv1.LBBackend{Address: b.Address, Weight: b.Weight})
+	}
+	return &weftv1.LoadBalancerInfo{
+		Uuid:            lb.UUID,
+		ProjectUuid:     lb.ProjectUUID,
+		Name:            lb.Name,
+		ListenAddr:      lb.ListenAddr,
+		Protocol:        lb.Protocol,
+		Backends:        backends,
+		CreatedAtUnixNs: lb.CreatedAt.UnixNano(),
+	}
+}
+
+func fromLBBackends(in []*weftv1.LBBackend) []weft.LBBackend {
+	out := make([]weft.LBBackend, 0, len(in))
+	for _, b := range in {
+		if b == nil {
+			continue
+		}
+		out = append(out, weft.LBBackend{Address: b.Address, Weight: b.Weight})
+	}
+	return out
+}
+
+// ---- DNS Zones (proto v0.8.0) -------------------------------------
+
+func (s *weftServer) ListDNSZones(_ context.Context, req *weftv1.ListDNSZonesRequest) (*weftv1.ListDNSZonesResponse, error) {
+	projectUUID := s.resolveProjectUUID(req.Project)
+	zones := s.adp.DNSZones(projectUUID)
+	out := make([]*weftv1.DNSZoneInfo, 0, len(zones))
+	for _, z := range zones {
+		out = append(out, toDNSZoneInfo(s.adp, z))
+	}
+	return &weftv1.ListDNSZonesResponse{Zones: out}, nil
+}
+
+func (s *weftServer) GetDNSZone(_ context.Context, req *weftv1.GetDNSZoneRequest) (*weftv1.GetDNSZoneResponse, error) {
+	if req.Uuid == "" && req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid or name is required")
+	}
+	var (
+		z  weft.DNSZone
+		ok bool
+	)
+	if req.Uuid != "" {
+		z, ok = s.adp.DNSZoneByUUID(req.Uuid)
+	} else {
+		z, ok = s.adp.DNSZoneByName(req.Name)
+	}
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "dns zone not found")
+	}
+	return &weftv1.GetDNSZoneResponse{Zone: toDNSZoneInfo(s.adp, z)}, nil
+}
+
+func (s *weftServer) CreateDNSZone(ctx context.Context, req *weftv1.CreateDNSZoneRequest) (*weftv1.CreateDNSZoneResponse, error) {
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if err := weft.RequireAdmin(ctx, "create dns zone"); err != nil {
+		return nil, err
+	}
+	projectUUID := s.resolveProjectUUID(req.Project)
+	z, created, err := s.adp.CreateDNSZone(projectUUID, req.Name, req.SoaEmail, req.Ttl)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "create dns zone: %v", err)
+	}
+	logger.Printf("CreateDNSZone name=%s uuid=%s created=%v", z.Name, z.UUID, created)
+	return &weftv1.CreateDNSZoneResponse{Zone: toDNSZoneInfo(s.adp, z), Created: created}, nil
+}
+
+func (s *weftServer) UpdateDNSZone(ctx context.Context, req *weftv1.UpdateDNSZoneRequest) (*weftv1.UpdateDNSZoneResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "update dns zone"); err != nil {
+		return nil, err
+	}
+	z, err := s.adp.UpdateDNSZone(req.Uuid, req.SoaEmail, req.Ttl)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "update dns zone: %v", err)
+	}
+	logger.Printf("UpdateDNSZone uuid=%s", z.UUID)
+	return &weftv1.UpdateDNSZoneResponse{Zone: toDNSZoneInfo(s.adp, z)}, nil
+}
+
+func (s *weftServer) DeleteDNSZone(ctx context.Context, req *weftv1.DeleteDNSZoneRequest) (*weftv1.DeleteDNSZoneResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete dns zone"); err != nil {
+		return nil, err
+	}
+	blocked, err := s.adp.DeleteDNSZone(req.Uuid)
+	if err != nil {
+		return &weftv1.DeleteDNSZoneResponse{BlockedByRecords: blocked}, status.Errorf(codes.FailedPrecondition, "delete dns zone: %v", err)
+	}
+	logger.Printf("DeleteDNSZone uuid=%s", req.Uuid)
+	return &weftv1.DeleteDNSZoneResponse{DeletedUuid: req.Uuid}, nil
+}
+
+func toDNSZoneInfo(adp weft.VZAdapter, z weft.DNSZone) *weftv1.DNSZoneInfo {
+	return &weftv1.DNSZoneInfo{
+		Uuid:            z.UUID,
+		ProjectUuid:     z.ProjectUUID,
+		Name:            z.Name,
+		SoaEmail:        z.SOAEmail,
+		Ttl:             z.TTL,
+		Records:         adp.DNSZoneRecordCount(z.UUID),
+		CreatedAtUnixNs: z.CreatedAt.UnixNano(),
+	}
+}
+
+// ---- DNS Records (proto v0.8.0) -----------------------------------
+
+func (s *weftServer) ListDNSRecords(_ context.Context, req *weftv1.ListDNSRecordsRequest) (*weftv1.ListDNSRecordsResponse, error) {
+	if req.ZoneUuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "zone_uuid is required")
+	}
+	records := s.adp.DNSRecords(req.ZoneUuid)
+	out := make([]*weftv1.DNSRecordInfo, 0, len(records))
+	for _, rec := range records {
+		out = append(out, toDNSRecordInfo(rec))
+	}
+	return &weftv1.ListDNSRecordsResponse{Records: out}, nil
+}
+
+func (s *weftServer) CreateDNSRecord(ctx context.Context, req *weftv1.CreateDNSRecordRequest) (*weftv1.CreateDNSRecordResponse, error) {
+	if req.ZoneUuid == "" || req.Name == "" || req.Type == "" || req.Value == "" {
+		return nil, status.Error(codes.InvalidArgument, "zone_uuid, name, type, value are required")
+	}
+	if err := weft.RequireAdmin(ctx, "create dns record"); err != nil {
+		return nil, err
+	}
+	rec, created, err := s.adp.CreateDNSRecord(req.ZoneUuid, req.Name, req.Type, req.Value, req.Ttl, req.Priority)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "create dns record: %v", err)
+	}
+	logger.Printf("CreateDNSRecord zone=%s name=%s type=%s uuid=%s created=%v", rec.ZoneUUID, rec.Name, rec.Type, rec.UUID, created)
+	return &weftv1.CreateDNSRecordResponse{Record: toDNSRecordInfo(rec), Created: created}, nil
+}
+
+func (s *weftServer) UpdateDNSRecord(ctx context.Context, req *weftv1.UpdateDNSRecordRequest) (*weftv1.UpdateDNSRecordResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "update dns record"); err != nil {
+		return nil, err
+	}
+	rec, err := s.adp.UpdateDNSRecord(req.Uuid, req.Value, req.Ttl, req.Priority)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "update dns record: %v", err)
+	}
+	logger.Printf("UpdateDNSRecord uuid=%s", rec.UUID)
+	return &weftv1.UpdateDNSRecordResponse{Record: toDNSRecordInfo(rec)}, nil
+}
+
+func (s *weftServer) DeleteDNSRecord(ctx context.Context, req *weftv1.DeleteDNSRecordRequest) (*weftv1.DeleteDNSRecordResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete dns record"); err != nil {
+		return nil, err
+	}
+	if err := s.adp.DeleteDNSRecord(req.Uuid); err != nil {
+		return nil, status.Errorf(codes.NotFound, "delete dns record: %v", err)
+	}
+	logger.Printf("DeleteDNSRecord uuid=%s", req.Uuid)
+	return &weftv1.DeleteDNSRecordResponse{DeletedUuid: req.Uuid}, nil
+}
+
+func toDNSRecordInfo(rec weft.DNSRecord) *weftv1.DNSRecordInfo {
+	return &weftv1.DNSRecordInfo{
+		Uuid:            rec.UUID,
+		ZoneUuid:        rec.ZoneUUID,
+		Name:            rec.Name,
+		Type:            rec.Type,
+		Value:           rec.Value,
+		Ttl:             rec.TTL,
+		Priority:        rec.Priority,
+		CreatedAtUnixNs: rec.CreatedAt.UnixNano(),
+	}
+}
+
+// resolveProjectUUID resolves a `project` field (UUID or display
+// name) to its UUID. Empty returns "" (caller-scoped list).
+func (s *weftServer) resolveProjectUUID(project string) string {
+	if project == "" {
+		return ""
+	}
+	if _, ok := s.adp.ProjectByUUID(project); ok {
+		return project
+	}
+	for _, p := range s.adp.Projects() {
+		if p.Name == project {
+			return p.UUID
+		}
+	}
+	return ""
 }
 
 // ---- Flavors (compute-envelope catalogue) -------------------------

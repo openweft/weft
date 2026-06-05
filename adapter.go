@@ -106,6 +106,33 @@ type VZAdapter interface {
 	CreateRack(azUUID, code, name, status string, heightU int32) (Rack, bool, error)
 	UpdateRack(uuid, name, status string, heightU int32) (Rack, error)
 	DeleteRack(uuid string) (blockedHosts int32, err error)
+	// Network-plane registries (proto v0.8.0). Mirror the inventory
+	// pattern : UUID-keyed primary, project / parent-network filters
+	// on list, cascade safety in the Adapter wrapper.
+	Subnets(networkUUID string) []Subnet
+	SubnetByUUID(uuid string) (Subnet, bool)
+	CreateSubnet(networkUUID, name, description, cidr, gateway string, dnsServers []string) (Subnet, bool, error)
+	UpdateSubnet(uuid, name, description, gateway string, clearDNS bool, dnsServers []string) (Subnet, error)
+	DeleteSubnet(uuid string) error
+	LoadBalancers(projectUUID string) []LoadBalancer
+	LoadBalancerByUUID(uuid string) (LoadBalancer, bool)
+	LoadBalancerFIPCount(uuid string) int32
+	CreateLoadBalancer(projectUUID, name, listenAddr, protocol string, backends []LBBackend) (LoadBalancer, bool, error)
+	UpdateLoadBalancer(uuid, name, listenAddr, protocol string) (LoadBalancer, error)
+	SetLoadBalancerBackends(uuid string, backends []LBBackend) (LoadBalancer, error)
+	DeleteLoadBalancer(uuid string) (blockedByFIPs int32, err error)
+	DNSZones(projectUUID string) []DNSZone
+	DNSZoneByUUID(uuid string) (DNSZone, bool)
+	DNSZoneByName(name string) (DNSZone, bool)
+	DNSZoneRecordCount(uuid string) int32
+	CreateDNSZone(projectUUID, name, soaEmail string, ttl int32) (DNSZone, bool, error)
+	UpdateDNSZone(uuid, soaEmail string, ttl int32) (DNSZone, error)
+	DeleteDNSZone(uuid string) (blockedByRecords int32, err error)
+	DNSRecords(zoneUUID string) []DNSRecord
+	DNSRecordByUUID(uuid string) (DNSRecord, bool)
+	CreateDNSRecord(zoneUUID, name, recordType, value string, ttl, priority int32) (DNSRecord, bool, error)
+	UpdateDNSRecord(uuid, value string, ttl, priority int32) (DNSRecord, error)
+	DeleteDNSRecord(uuid string) error
 	// User registry surface — maps (OIDC issuer, subject) ↔ stable
 	// weft UUID. Volatile fields (email, groups, last_seen) refresh
 	// on every successful auth via RegisterUser. See users.go.
@@ -357,6 +384,16 @@ type Adapter struct {
 	// because only the Adapter has visibility on every registry.
 	azReg   *azRegistry
 	rackReg *rackRegistry
+	// Network-plane registries (proto v0.8.0). Subnets are scoped
+	// to a parent network ; LoadBalancers + DNSZones are scoped to
+	// a project ; DNSRecords are children of a zone. Cascade safety
+	// (LB delete refused while a FIP maps to it, DNSZone delete
+	// refused while records still attach) lives in the per-noun
+	// Adapter wrapper in network_plane_adapter.go.
+	subnetReg    *subnetRegistry
+	lbReg        *loadBalancerRegistry
+	dnsZoneReg   *dnsZoneRegistry
+	dnsRecordReg *dnsRecordRegistry
 	// vmReg holds the VM inventory — one entry per managed VM,
 	// each carrying its host_uuid for multi-host dispatch. See
 	// vms.go.
@@ -596,6 +633,7 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 	a.initInventory()
 	a.initUsers()
 	a.initNetworks()
+	a.initNetworkPlane()
 	a.initVolumes()
 	a.initVolumeSnapshots()
 	a.initSecurityGroups()
