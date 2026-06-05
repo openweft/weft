@@ -1,7 +1,7 @@
 # Loki HA — three Loki replicas in simple-scalable-mode, one per DC.
 #
 # Loki HA needs object storage for the chunk + index store, so this
-# plugin is BYO-S3 : point it at MinIO (catalogue/minio-ha gives you
+# plugin is BYO-S3 : point it at versitygw (catalogue/versitygw-ha gives you
 # a local one), Wasabi, R2, AWS S3, or any S3-compatible endpoint.
 # Each replica runs the all-in-one `loki -target=all` binary (also
 # called "simple scalable" when scaled out behind a load balancer) —
@@ -12,7 +12,7 @@
 # Image : upstream `grafana/loki:3.3` by default. No openweft fork.
 #
 # Operator pre-flight (see docs/catalogue/loki-ha.md):
-#   1. Provision an S3 bucket (MinIO works) + access/secret keys.
+#   1. Provision an S3 bucket (versitygw works) + access/secret keys.
 #   2. weft plugin install loki-ha \
 #        --project observability \
 #        --input s3_endpoint=http://minio.weft:9000 \
@@ -85,7 +85,7 @@ plugin "loki-ha" {
   input "s3_region" {
     type    = "string"
     default = "weft-1"
-    help    = "S3 region label. Sent in SigV4 signing ; arbitrary value works for MinIO."
+    help    = "S3 region label. Sent in SigV4 signing ; arbitrary value works for versitygw."
   }
 
   input "cache_volume_gib" {
@@ -171,7 +171,7 @@ plugin "loki-ha" {
       port_min    = 9000
       port_max    = 9000
       remote_cidr = "10.0.0.0/8"
-      description = "Plain S3 endpoint (MinIO on-cluster) — drop in production if all S3 traffic is HTTPS."
+      description = "Plain S3 endpoint (versitygw on-cluster) — drop in production if all S3 traffic is HTTPS."
     }
 
     rule "egress" {

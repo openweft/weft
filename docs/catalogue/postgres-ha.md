@@ -73,5 +73,5 @@ curl -X POST http://postgres-ha-<short>-postgres-0.weft:8008/failover
   primary. Patroni's REST API on 8008 reports it ; wire that into
   your app or a sidecar HAProxy.
 - **Backups**: no `pgbackrest` / `barman` ; the persistent volume is
-  the only line of defence. Plan to add a backup target (S3, MinIO)
+  the only line of defence. Plan to add a backup target (S3 (versitygw-ha))
   with a sidecar in v2.

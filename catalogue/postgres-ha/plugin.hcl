@@ -1,15 +1,25 @@
-# PostgreSQL HA — three Patroni-managed Postgres members in the
-# HA 3-DC layout. Patroni elects the leader, streams WAL to the two
-# followers, and republishes the topology via etcd (the embedded
-# instance the rest of weft already runs, per openweft_etcd_embedded).
+# PostgreSQL HA — three Postgres members managed by our own
+# `weft-ha-postgresql` agent (Go, openweft-built) sitting next to each
+# replica's Postgres instance. The agent does the HA reconcile :
 #
-# This plugin gives you a primary + two synchronous-capable replicas
-# with automatic failover. Logical replication, pgbouncer pooling, and
-# read-replica routing are NOT included — see docs for the seams.
+#   - etcd-backed leader election (concurrency.NewElection, lease-bound)
+#   - role API at :8008 (Caddy in weft-agent uses it as an active health
+#     check ; the upstream pool routes traffic to whichever replica
+#     returns 200 at /primary)
+#   - VMFencer : stops a fenced primary via the weft-agent gRPC StopVM
+#     RPC BEFORE the candidate promotes — never two writers
+#   - synchronous_standby_names recomputed every tick so RPO 0 across DCs
+#     is automatic when peers come and go
 #
-# Image : upstream `quay.io/patroni/patroni:3.3.x` by default. An
-# openweft-built `ghcr.io/openweft/postgres-ha:v0.1.0` is planned but
-# NOT YET PUBLISHED ; switch the `image` input once it lands.
+# This replaces the previous Patroni-based deployment (Patroni was the
+# placeholder for v0.1 ; v0.2 ships our native operator). The structural
+# advantage : our agent owns the substrate, so it can PROVE a fenced
+# primary is dead rather than rely on a cooperative watchdog inside the
+# guest — see weft-ha-postgresql/internal/fencing.
+#
+# Image : `ghcr.io/openweft/postgres-ha:v0.2.0` — pure Go agent + stock
+# Postgres in a single rootfs. Entrypoint runs Postgres + the agent ; the
+# agent's exit signal also drains Postgres.
 #
 # Operator pre-flight (see docs/catalogue/postgres-ha.md):
 #   1. Pick a superuser password + replication password and stash them
@@ -24,7 +34,7 @@
 plugin "postgres-ha" {
   version     = "v1"
   kind        = "database"
-  description = "Three-node Patroni-managed PostgreSQL cluster with one replica per DC"
+  description = "Three-member PostgreSQL cluster managed by weft-ha-postgresql (etcd DCS + VMFencer + Caddy routing). Replaces the Patroni layout."
   layout      = "ha-3dc"
 
   # -----------------------------------------------------------------
@@ -33,8 +43,8 @@ plugin "postgres-ha" {
 
   input "image" {
     type    = "string"
-    default = "quay.io/patroni/patroni:3.3.2"
-    help    = "Patroni+Postgres OCI image. Default tracks upstream until ghcr.io/openweft/postgres-ha:v0.1.0 is published."
+    default = "ghcr.io/openweft/postgres-ha:v0.2.0"
+    help    = "Postgres + weft-ha-postgresql agent OCI image. The Go agent + stock Postgres in one rootfs."
   }
 
   input "superuser_password" {
@@ -48,7 +58,7 @@ plugin "postgres-ha" {
     type     = "string"
     required = true
     secret   = true
-    help     = "Password used by Patroni replicas to stream WAL from the primary."
+    help     = "Password used by replicas to stream WAL from the primary."
   }
 
   input "database_name" {
@@ -66,13 +76,25 @@ plugin "postgres-ha" {
   input "synchronous_commit" {
     type    = "string"
     default = "on"
-    help    = "Postgres `synchronous_commit` setting. `on` = wait for one replica ack ; `off` = async (lower latency, possible data loss on primary crash)."
+    help    = "Postgres `synchronous_commit` setting. `on` = wait for one off-DC replica ack (RPO 0 on DC outage). `off` = async (lower latency, possible data loss)."
   }
 
   input "tenant_network_cidrs" {
     type    = "string"
     default = "10.0.0.0/8"
     help    = "Comma-free CIDR (single string) of tenant networks allowed to reach 5432/tcp. Default opens the RFC1918 10/8 superblock — narrow it for production."
+  }
+
+  input "fence_timeout_sec" {
+    type    = "int"
+    default = "30"
+    help    = "How long the agent waits for a confirmed-stopped state during fencing. Timeout MUST block promotion ; never invent 'probably stopped'."
+  }
+
+  input "etcd_session_ttl_sec" {
+    type    = "int"
+    default = "15"
+    help    = "etcd lease TTL. Lower bound on failover latency : a fenced primary's lease expires after this many seconds."
   }
 
   # -----------------------------------------------------------------
@@ -90,7 +112,7 @@ plugin "postgres-ha" {
   # -----------------------------------------------------------------
 
   security_group "postgres-db" {
-    description = "Patroni replicas — 5432/tcp from tenants, 8008/tcp Patroni REST inter-replica, DNS egress."
+    description = "Postgres replicas — 5432/tcp from tenants, 5432/tcp inter-replica for streaming replication, 8008/tcp role API for Caddy health checks."
     networks    = ["postgres"]
 
     rule "ingress" {
@@ -98,15 +120,7 @@ plugin "postgres-ha" {
       port_min    = 5432
       port_max    = 5432
       remote_cidr = "10.0.0.0/8"
-      description = "PostgreSQL wire protocol from tenant networks (narrow via tenant_network_cidrs input in v2)."
-    }
-
-    rule "ingress" {
-      protocol    = "tcp"
-      port_min    = 8008
-      port_max    = 8008
-      remote_cidr = "10.50.0.0/24"
-      description = "Patroni REST API — leader election + topology gossip between replicas."
+      description = "PostgreSQL wire protocol from tenant networks (narrow via tenant_network_cidrs input)."
     }
 
     rule "ingress" {
@@ -114,15 +128,15 @@ plugin "postgres-ha" {
       port_min    = 5432
       port_max    = 5432
       remote_cidr = "10.50.0.0/24"
-      description = "Replica → primary streaming replication on the same Postgres port."
+      description = "Replica → primary streaming replication."
     }
 
-    rule "egress" {
+    rule "ingress" {
       protocol    = "tcp"
       port_min    = 8008
       port_max    = 8008
-      remote_cidr = "10.50.0.0/24"
-      description = "Patroni REST API — outbound side of the gossip mesh."
+      remote_cidr = "10.0.0.0/8"
+      description = "Role API (/primary, /replica, /health) for the L7 Caddy in weft-agent's active health check."
     }
 
     rule "egress" {
@@ -143,12 +157,14 @@ plugin "postgres-ha" {
   }
 
   # -----------------------------------------------------------------
-  # VMs — three Patroni members. Patroni elects the leader at boot ;
-  # the framework does not pin a primary index.
+  # VMs — three members. The weft-ha-postgresql agent elects the leader
+  # at boot via etcd ; the framework does not pin a primary index. Caddy
+  # in weft-agent routes 5432 to whichever member's :8008/primary
+  # returns 200.
   # -----------------------------------------------------------------
 
   vm "postgres" {
-    image    = "quay.io/patroni/patroni:3.3.2"
+    image    = "ghcr.io/openweft/postgres-ha:v0.2.0"
     replicas = 3
     cpu      = 4
     mem_mb   = 8192
@@ -160,10 +176,12 @@ plugin "postgres-ha" {
       host = "different"
     }
 
-    env_from "superuser_password"   { env_name = "PATRONI_SUPERUSER_PASSWORD" }
-    env_from "replication_password" { env_name = "PATRONI_REPLICATION_PASSWORD" }
-    env_from "database_name"        { env_name = "PATRONI_POSTGRESQL_DATABASE" }
-    env_from "synchronous_commit"   { env_name = "PATRONI_POSTGRESQL_SYNCHRONOUS_COMMIT" }
+    env_from "superuser_password"   { env_name = "POSTGRES_SUPERUSER_PASSWORD" }
+    env_from "replication_password" { env_name = "POSTGRES_REPLICATION_PASSWORD" }
+    env_from "database_name"        { env_name = "POSTGRES_INITIAL_DATABASE" }
+    env_from "synchronous_commit"   { env_name = "POSTGRES_SYNCHRONOUS_COMMIT" }
+    env_from "fence_timeout_sec"    { env_name = "WEFT_HA_PG_FENCE_TIMEOUT_SEC" }
+    env_from "etcd_session_ttl_sec" { env_name = "WEFT_HA_PG_ETCD_TTL_SEC" }
 
     volume "data" {
       size_gib = 50

@@ -38,7 +38,7 @@ blast radius, and upgrade cadence for the external traffic plane.
 ## Operator pre-flight
 
 1. **Host the Caddy config** somewhere all three replicas can reach
-   over HTTPS (internal `minio-ha` bucket, presigned S3 URL, raw
+   over HTTPS (internal `versitygw-ha` bucket, presigned S3 URL, raw
    GitHub blob, your CDN). Caddyfile or JSON, auto-detected.
 
 2. **Plan the public IP.** Three replicas → three private addresses.

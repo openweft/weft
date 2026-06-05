@@ -532,35 +532,39 @@ func TestInstall_VMCountMultipliesBlocks(t *testing.T) {
 	}
 }
 
-// ── Catalogue : minio-ha drives expand correctly ─────────────────
+// ── Catalogue : versitygw-ha drives expand correctly ─────────────
+//
+// Same shape as the dropped minio-ha test : 3 replicas × N drives
+// proves the catalogue's `count = input.volumes_per_node` expansion
+// works. versitygw-ha is the canonical block-backed HA plugin after
+// the no-AGPL scrub (minio-ha removed 2026-06).
 
-func TestInstall_MinioHAVolumesPerNodeMaterialisesDrives(t *testing.T) {
+func TestInstall_VersitygwHAVolumesPerNodeMaterialisesDrives(t *testing.T) {
 	root := findCatalogueRoot(t)
 	cat, err := LoadCatalogue(root)
 	if err != nil {
 		t.Fatalf("load catalogue: %v", err)
 	}
-	minio, ok := cat["minio-ha"]
+	vw, ok := cat["versitygw-ha"]
 	if !ok {
-		t.Fatal("minio-ha not in catalogue")
+		t.Fatal("versitygw-ha not in catalogue")
 	}
 	c := &fakeClient{}
 	mgr := NewManager(c, NewMemStore())
-	_, err = mgr.Install(context.Background(), minio, "storage", map[string]any{
-		"root_user":     "admin",
-		"root_password": "longpassword",
+	_, err = mgr.Install(context.Background(), vw, "storage", map[string]any{
+		"root_access_key": "AKIATEST",
+		"root_secret_key": "longsecretkey",
 	})
 	if err != nil {
-		t.Fatalf("install minio-ha: %v", err)
+		t.Fatalf("install versitygw-ha: %v", err)
 	}
-	// 4 replicas × volumes_per_node (default 4) = 16 CreateVolume
+	// 3 replicas × volumes_per_node (default 4) = 12 CreateVolume
 	// calls — the entire point of the count attribute landing in
 	// the catalogue.
-	if got := len(c.createVols); got != 16 {
-		t.Errorf("expected 16 CreateVolume calls (4 nodes × 4 drives), got %d", got)
+	if got := len(c.createVols); got != 12 {
+		t.Errorf("expected 12 CreateVolume calls (3 nodes × 4 drives), got %d", got)
 	}
-	// Every drive name must follow the drive-0..drive-3 pattern,
-	// proving the count expansion is in effect.
+	// Every drive name must follow the drive-0..drive-3 pattern.
 	suffixes := map[string]int{}
 	for _, v := range c.createVols {
 		for i := 0; i < 4; i++ {
@@ -572,8 +576,8 @@ func TestInstall_MinioHAVolumesPerNodeMaterialisesDrives(t *testing.T) {
 	}
 	for i := 0; i < 4; i++ {
 		s := fmt.Sprintf("-drive-%d", i)
-		if suffixes[s] != 4 {
-			t.Errorf("expected 4 volumes with suffix %q (one per node), got %d", s, suffixes[s])
+		if suffixes[s] != 3 {
+			t.Errorf("expected 3 volumes with suffix %q (one per replica), got %d", s, suffixes[s])
 		}
 	}
 }

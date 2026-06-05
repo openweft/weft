@@ -27,7 +27,7 @@ A plugin is a directory under `catalogue/<name>/` containing a single
   positive integer literal (`count = "4"`) or an input reference
   (`count = input.volumes_per_node`) — that materialises N copies
   named `<base>-0`..`<base>-(N-1)` at install time (default 1, no
-  suffix). `minio-ha` wires `volumes_per_node` this way.
+  suffix). `versitygw-ha` wires `volumes_per_node` this way.
 
 Resource names are mangled with the per-install **instance UUID** so
 multiple installs of the same plugin in different projects don't
@@ -63,9 +63,9 @@ Grouped by `kind`. All `ha-3dc`.
 | Runner farm     | `github-runners-ha`   | runner-farm     | Three self-hosted GitHub Actions runners             |
 | Runner farm     | `forgejo-runners-ha`  | runner-farm     | Three Forgejo `act_runner` replicas                  |
 | Portal          | `jupyterhub-ha`       | portal          | Per-user notebook portal ([doc](jupyterhub-ha.md))   |
-| Database        | `postgres-ha`         | database        | Three Patroni-managed Postgres members with failover |
+| Database        | `postgres-ha`         | database        | Three Postgres members managed by `weft-ha-postgresql` (etcd DCS + VMFencer + Caddy routing) |
 | Cache           | `redis-ha`            | cache           | Three Redis + Sentinel replicas, one per DC          |
-| Object storage  | `minio-ha`            | object-storage  | Four-node erasure-coded MinIO (EC:8+8, survives a DC)|
+| Object storage  | `versitygw-ha`        | object-storage  | Three-node versitygw S3 gateway (Apache-2.0) over weft-block-replicated volumes |
 | Secrets         | `vault-ha`            | secrets         | Three Vault members, Raft HA, KMS auto-unseal        |
 | Edge proxy      | `caddy-edge`          | edge-proxy      | Three Caddy replicas at network edge, ACME TLS       |
 | Observability   | `prometheus-ha`       | metrics         | Three federated Prometheus replicas ([doc](prometheus-ha.md)) |
