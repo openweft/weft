@@ -9,6 +9,58 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ### Added
 
+- **CLI : `weft share` CRUD verbs + `weft instance sshkey import`** —
+  Tier-4 parity follow-up. The `share` group grew `ls`, `show`,
+  `create`, `rm` on top of the existing `attach`/`detach` ; each new
+  verb threads the proto-declared `ListShares` / `CreateShare` /
+  `DeleteShare` RPCs. `instance sshkey import` reads an
+  `authorized_keys`-style file (one OpenSSH line per line, `#`
+  comments + blank lines skipped) and `AddVMSSHKey`s each entry —
+  the server's idempotent-on-fingerprint contract makes re-import a
+  safe no-op for known keys.
+  - **testutil** : stubs added for `ListShares`, `CreateShare`,
+    `DeleteShare`, `PublishShareToProject` so the new tests can mock
+    the wire without standing up a real server.
+  - **gap** : `Share` registry handlers are still server-side
+    Unimplemented (proto declares them since v0.8.0, no server
+    glue). The CLI lands now so it has a stable target ; runtime
+    `Unimplemented` until the server handlers ship.
+
+### Tier 4-6 parity gap — deferred to weft-proto v0.9.0
+
+Reconnaissance for the Tier 4-6 audit (Volume metadata/property,
+Share NFS resize/show, Bucket S3, SSH-key catalogue, Scheduling-rule,
+Plugin enable/disable, Registry remote) found that most of these need
+both a proto bump AND server-side registries. Per-VM property /
+sshkey / UEFI are already wired under `weft instance {property,
+sshkey, uefi}` and don't need a sibling top-level. Remaining gaps,
+each requiring weft-proto v0.9.0 :
+
+- **Volume metadata/property** — distinct from VM property ; needs
+  `ListVolumeProperties` / `SetVolumeProperty` / `DeleteVolumeProperty`.
+- **Share NFS resize/show** — `ResizeShare` + `GetShare` RPCs (proto
+  already has `ListShares` / `CreateShare` / `DeleteShare` ; the
+  catalog verbs landed in this drop).
+- **Bucket S3** — 7 RPCs (`ListBuckets`, `CreateBucket`,
+  `DeleteBucket`, `GetBucket`, `SetBucketPolicy`, `GetBucketPolicy`,
+  `ListBucketObjects`).
+- **SSH-key catalogue** — cluster-wide named key catalog (different
+  from per-VM `weft instance sshkey`). Needs
+  `{List,Set,Delete,Import}SSHKey`.
+- **Scheduling-rule** — `{Create,Update,Delete,List}SchedulingRule`
+  (not the host-cordon flag, which is a separate concern). Today
+  `SchedulingRule` only exists as a label on VM placement.
+- **Plugin enable/disable** — semantic alias for
+  `InstallPlugin` / uninstall ; can land without a proto bump as a
+  CLI alias once the verbs are finalised.
+- **Registry remote** — `{List,Set,Delete,Search}RegistryRemote` for
+  pull-secret + mirror configuration.
+
+Total : ~22 new RPCs across 5 resources. Held back from this drop
+because the surface is large enough to warrant its own proto bump
+window with cross-repo coordination (server registries, etcd
+schemas, webui surfaces).
+
 - **CLI : `weft subnet` + `weft loadbalancer` + `weft dns-zone` +
   `weft dns-record`** — closes the last 17 verbs of the Tier-3
   CLI parity gap on top of weft-proto v0.8.0. Four new noun

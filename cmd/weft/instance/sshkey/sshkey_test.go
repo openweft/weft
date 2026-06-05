@@ -42,7 +42,7 @@ func TestCommand_Structure(t *testing.T) {
 	if cmd.Use != "sshkey" {
 		t.Errorf("Use = %q", cmd.Use)
 	}
-	want := []string{"ls", "add", "rm"}
+	want := []string{"ls", "add", "import", "rm"}
 	got := map[string]bool{}
 	for _, c := range cmd.Commands() {
 		got[strings.SplitN(c.Use, " ", 2)[0]] = true
@@ -142,6 +142,50 @@ func TestAdd_RequiresFileOrKey(t *testing.T) {
 	cmd.SilenceErrors = true
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "one of --file or --key") {
 		t.Errorf("expected one-of error, got %v", err)
+	}
+}
+
+func TestImport_MultiLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "authorized_keys")
+	const body = `# leading comment
+ssh-ed25519 AAAA alice
+# spacer
+
+ssh-rsa BBBB bob
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := testutil.NewServer(t)
+	calls := 0
+	srv.AddVMSSHKeyFn = func(_ context.Context, _ *weftv1.AddVMSSHKeyRequest) (*weftv1.AddVMSSHKeyResponse, error) {
+		calls++
+		return &weftv1.AddVMSSHKeyResponse{Key: &weftv1.VMSSHKey{Fingerprint: "SHA256:f", Type: "ssh-x"}}, nil
+	}
+	out := captureStdout(t, func() {
+		cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
+		cmd.SetArgs([]string{"import", "web-1", "--file", path})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+	})
+	if calls != 2 {
+		t.Errorf("Add calls: got %d, want 2 (skipped comments + blank)", calls)
+	}
+	if !strings.Contains(out, "added=2") {
+		t.Errorf("expected 'added=2' summary in :\n%s", out)
+	}
+}
+
+func TestImport_RequiresFile(t *testing.T) {
+	srv := testutil.NewServer(t)
+	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
+	cmd.SetArgs([]string{"import", "web-1"})
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected missing --file error")
 	}
 }
 

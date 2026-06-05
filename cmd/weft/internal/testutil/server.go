@@ -113,6 +113,10 @@ type Server struct {
 	ListVMSSHKeysFn                   func(context.Context, *weftv1.ListVMSSHKeysRequest) (*weftv1.ListVMSSHKeysResponse, error)
 	AddVMSSHKeyFn                     func(context.Context, *weftv1.AddVMSSHKeyRequest) (*weftv1.AddVMSSHKeyResponse, error)
 	RemoveVMSSHKeyFn                  func(context.Context, *weftv1.RemoveVMSSHKeyRequest) (*weftv1.RemoveVMSSHKeyResponse, error)
+	ListSharesFn                      func(context.Context, *weftv1.ListSharesRequest) (*weftv1.ListSharesResponse, error)
+	CreateShareFn                     func(context.Context, *weftv1.CreateShareRequest) (*weftv1.CreateShareResponse, error)
+	DeleteShareFn                     func(context.Context, *weftv1.DeleteShareRequest) (*weftv1.DeleteShareResponse, error)
+	PublishShareToProjectFn           func(context.Context, *weftv1.PublishShareToProjectRequest) (*weftv1.PublishShareToProjectResponse, error)
 }
 
 // NewServer stands up a grpc.Server on a unix socket and registers
@@ -705,6 +709,34 @@ func (s *Server) RemoveVMSSHKey(ctx context.Context, in *weftv1.RemoveVMSSHKeyRe
 		return s.RemoveVMSSHKeyFn(ctx, in)
 	}
 	return &weftv1.RemoveVMSSHKeyResponse{}, nil
+}
+
+func (s *Server) ListShares(ctx context.Context, in *weftv1.ListSharesRequest) (*weftv1.ListSharesResponse, error) {
+	if s.ListSharesFn != nil {
+		return s.ListSharesFn(ctx, in)
+	}
+	return &weftv1.ListSharesResponse{}, nil
+}
+
+func (s *Server) CreateShare(ctx context.Context, in *weftv1.CreateShareRequest) (*weftv1.CreateShareResponse, error) {
+	if s.CreateShareFn != nil {
+		return s.CreateShareFn(ctx, in)
+	}
+	return &weftv1.CreateShareResponse{Share: &weftv1.ShareInfo{Name: in.Name, ProjectUuid: in.Project, SizeGb: in.SizeGb, Readonly: in.Readonly, Backend: in.Backend, Status: "provisioning"}}, nil
+}
+
+func (s *Server) DeleteShare(ctx context.Context, in *weftv1.DeleteShareRequest) (*weftv1.DeleteShareResponse, error) {
+	if s.DeleteShareFn != nil {
+		return s.DeleteShareFn(ctx, in)
+	}
+	return &weftv1.DeleteShareResponse{}, nil
+}
+
+func (s *Server) PublishShareToProject(ctx context.Context, in *weftv1.PublishShareToProjectRequest) (*weftv1.PublishShareToProjectResponse, error) {
+	if s.PublishShareToProjectFn != nil {
+		return s.PublishShareToProjectFn(ctx, in)
+	}
+	return &weftv1.PublishShareToProjectResponse{}, nil
 }
 
 // randomSuffix returns a per-test unique-ish suffix (test name +
