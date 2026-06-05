@@ -108,16 +108,22 @@ func (m *FederationManifest) FindMember(name string) *Cluster {
 	return nil
 }
 
-// Verifier checks a manifest's signature. v0.2 will plug in either a
-// cosign-keyless verifier (GitHub OIDC) or an admin-key verifier
-// behind this interface ; the zero value of DenyAllVerifier is the
-// safe default for code paths not yet wired.
+// Verifier checks a manifest's signature. Implementations :
+//   - DenyAllVerifier       : safe default, refuses every signature.
+//   - Ed25519Verifier       : single fixed ed25519 public key.
+//   - AdminKeyVerifier      : multi-key (ed25519 + RSA), rotation-friendly,
+//                             loadable from a PEM bundle. See adminkey.go.
+//
+// The cosign-keyless path (GitHub OIDC) is the next addition ;
+// the AdminKey path covers the air-gapped and SSH-key-rooted
+// deployments that don't have a public OIDC issuer.
 type Verifier interface {
 	Verify(m *FederationManifest, sig []byte) error
 }
 
 // DenyAllVerifier rejects every signature — failing closed beats
-// accidentally trusting unsigned manifests.
+// accidentally trusting unsigned manifests. Use this until an
+// AdminKeyVerifier is wired with at least one enrolled key.
 type DenyAllVerifier struct{}
 
 // Verify implements Verifier.
