@@ -1,9 +1,17 @@
 package wgtransport
 
+// device.go — userspace backend implementation.
+//
+// Builds a wireguard-go device backed by a gVisor netstack TUN; the
+// returned wgNet exposes ListenTCP / DialContext that route through the
+// in-process stack. Works on any OS, needs no privileges.
+
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"net/netip"
 	"strings"
 
@@ -14,27 +22,54 @@ import (
 
 const defaultMTU = 1420
 
-// bringUpDevice creates a userspace WireGuard device backed by an in-process
-// gVisor netstack TUN. The returned *netstack.Net exposes Dial/Listen methods
-// scoped to the overlay; the *device.Device must be closed by the caller.
-func bringUpDevice(
+// userspaceNet is the wgNet built on wireguard-go + netstack.
+type userspaceNet struct {
+	dev  *device.Device
+	tnet *netstack.Net
+}
+
+func (u *userspaceNet) ListenTCP(addr string) (net.Listener, error) {
+	tcpAddr, err := parseOverlayAddr(addr)
+	if err != nil {
+		return nil, err
+	}
+	return u.tnet.ListenTCP(tcpAddr)
+}
+
+func (u *userspaceNet) DialContext(ctx context.Context, addr string) (net.Conn, error) {
+	tcpAddr, err := parseOverlayAddr(addr)
+	if err != nil {
+		return nil, err
+	}
+	return u.tnet.DialContextTCP(ctx, tcpAddr)
+}
+
+func (u *userspaceNet) Close() error {
+	u.dev.Close()
+	return nil
+}
+
+// bringUpUserspace creates a userspace WireGuard device. Kept separate
+// from the kernel path so backend selection can branch cleanly without
+// either side importing the other's deps at runtime.
+func bringUpUserspace(
 	privateKey []byte,
 	localIP netip.Addr,
 	listenPort uint16,
 	peers []Peer,
 	mtu int,
 	logger *log.Logger,
-) (*device.Device, *netstack.Net, error) {
+) (wgNet, error) {
 	if mtu <= 0 {
 		mtu = defaultMTU
 	}
 	if !localIP.IsValid() {
-		return nil, nil, fmt.Errorf("localIP must be set")
+		return nil, fmt.Errorf("localIP must be set")
 	}
 
 	tunDev, tnet, err := netstack.CreateNetTUN([]netip.Addr{localIP}, nil, mtu)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create netstack tun: %w", err)
+		return nil, fmt.Errorf("create netstack tun: %w", err)
 	}
 
 	dev := device.NewDevice(tunDev, conn.NewDefaultBind(), newDeviceLogger(logger))
@@ -42,21 +77,21 @@ func bringUpDevice(
 	cfg, err := buildUAPIConfig(privateKey, listenPort, peers)
 	if err != nil {
 		dev.Close()
-		return nil, nil, err
+		return nil, err
 	}
 	if err := dev.IpcSet(cfg); err != nil {
 		dev.Close()
-		return nil, nil, fmt.Errorf("configure wireguard device: %w", err)
+		return nil, fmt.Errorf("configure wireguard device: %w", err)
 	}
 	if err := dev.Up(); err != nil {
 		dev.Close()
-		return nil, nil, fmt.Errorf("bring up wireguard device: %w", err)
+		return nil, fmt.Errorf("bring up wireguard device: %w", err)
 	}
-	return dev, tnet, nil
+	return &userspaceNet{dev: dev, tnet: tnet}, nil
 }
 
-// buildUAPIConfig renders a wireguard-go UAPI string from the given config.
-// Hex encoding is required by the UAPI protocol.
+// buildUAPIConfig renders a wireguard-go UAPI string from the given
+// config. Hex encoding is required by the UAPI protocol.
 func buildUAPIConfig(privateKey []byte, listenPort uint16, peers []Peer) (string, error) {
 	if len(privateKey) != 32 {
 		return "", fmt.Errorf("private key must be 32 bytes, got %d", len(privateKey))
@@ -87,8 +122,8 @@ func buildUAPIConfig(privateKey []byte, listenPort uint16, peers []Peer) (string
 
 func newDeviceLogger(logger *log.Logger) *device.Logger {
 	if logger == nil {
-		// Silent by default: WireGuard's per-routine chatter is noise unless
-		// the caller asked for it.
+		// Silent by default: WireGuard's per-routine chatter is noise
+		// unless the caller asked for it.
 		return &device.Logger{
 			Verbosef: func(string, ...any) {},
 			Errorf:   func(string, ...any) {},
@@ -101,5 +136,28 @@ func newDeviceLogger(logger *log.Logger) *device.Logger {
 		Errorf: func(format string, args ...any) {
 			logger.Printf("wgtransport: ERROR "+format, args...)
 		},
+	}
+}
+
+// bringUpDevice is the backend-aware constructor server.go and client.go
+// call. Branches on cfg.Backend; the kernel branch lives in a separate
+// file gated by the linux build tag.
+func bringUpDevice(
+	backend Backend,
+	ifname string,
+	privateKey []byte,
+	localIP netip.Addr,
+	listenPort uint16,
+	peers []Peer,
+	mtu int,
+	logger *log.Logger,
+) (wgNet, error) {
+	switch backend {
+	case BackendUserspace:
+		return bringUpUserspace(privateKey, localIP, listenPort, peers, mtu, logger)
+	case BackendKernel:
+		return bringUpKernel(ifname, privateKey, localIP, listenPort, peers, mtu, logger)
+	default:
+		return nil, fmt.Errorf("unknown backend: %v", backend)
 	}
 }

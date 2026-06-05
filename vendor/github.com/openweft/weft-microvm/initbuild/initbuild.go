@@ -40,9 +40,12 @@ type File struct {
 // root:root. This is how a pod-mode initramfs carries /init plus the
 // helper binaries (bin/crun, bin/cfs-client, bin/weft-microvm-agent) the guest
 // execs from $PATH.
+//
+// Both the cpio trailer and the gzip footer are flushed explicitly; a
+// close failure surfaces as the function's error rather than silently
+// producing a truncated archive a kernel cannot unpack.
 func PackFiles(files []File, out io.Writer) error {
 	gz := gzip.NewWriter(out)
-	defer gz.Close()
 	cw := cpio.NewWriter(gz)
 
 	// Emit every parent directory once, shallowest first, before any
@@ -56,6 +59,8 @@ func PackFiles(files []File, out io.Writer) error {
 			}
 			seen[d] = true
 			if err := cw.WriteDir(d, 0o755); err != nil {
+				_ = cw.Close()
+				_ = gz.Close()
 				return fmt.Errorf("write dir %s: %w", d, err)
 			}
 		}
@@ -64,6 +69,8 @@ func PackFiles(files []File, out io.Writer) error {
 	for _, f := range files {
 		b, err := os.ReadFile(f.Source)
 		if err != nil {
+			_ = cw.Close()
+			_ = gz.Close()
 			return fmt.Errorf("read %s: %w", f.Source, err)
 		}
 		mode := f.Mode
@@ -72,20 +79,35 @@ func PackFiles(files []File, out io.Writer) error {
 		}
 		// Mode = S_IFREG | perm.
 		if err := cw.WriteFile(cpio.Header{Name: f.Path, Mode: 0o100000 | mode}, b); err != nil {
+			_ = cw.Close()
+			_ = gz.Close()
 			return fmt.Errorf("write %s entry: %w", f.Path, err)
 		}
 	}
-	return cw.Close()
+	if err := cw.Close(); err != nil {
+		_ = gz.Close()
+		return fmt.Errorf("finalise cpio: %w", err)
+	}
+	if err := gz.Close(); err != nil {
+		return fmt.Errorf("finalise gzip: %w", err)
+	}
+	return nil
 }
 
 // PackFilesToFile is the convenience wrapper that opens dst (0644) and
-// hands it to PackFiles.
-func PackFilesToFile(files []File, dst string) error {
+// hands it to PackFiles. Close errors surface as the return value, so a
+// short write at flush time (disk full, quota) doesn't leave a truncated
+// initramfs on disk under the guise of success.
+func PackFilesToFile(files []File, dst string) (rerr error) {
 	f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", dst, err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && rerr == nil {
+			rerr = fmt.Errorf("close %s: %w", dst, cerr)
+		}
+	}()
 	return PackFiles(files, f)
 }
 
@@ -113,13 +135,18 @@ func Pack(initBinary string, out io.Writer) error {
 }
 
 // PackToFile is the convenience wrapper that opens dst (0644) and hands it
-// to Pack.
-func PackToFile(initBinary, dst string) error {
+// to Pack. Close errors surface as the return value so a short write at
+// flush time doesn't leave a truncated initramfs.
+func PackToFile(initBinary, dst string) (rerr error) {
 	f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", dst, err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && rerr == nil {
+			rerr = fmt.Errorf("close %s: %w", dst, cerr)
+		}
+	}()
 	return Pack(initBinary, f)
 }
 

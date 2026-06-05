@@ -387,6 +387,9 @@ func parseFromExpr(expr hclsyntax.Expression, evalCtx *hcl.EvalContext) string {
 		if sd.HasErrors() {
 			return ""
 		}
+		if sepVal.Type() != cty.String {
+			return ""
+		}
 		sep := sepVal.AsString()
 		if tuple, ok := fn.Args[1].(*hclsyntax.TupleConsExpr); ok {
 			parts := []string{}

@@ -19,12 +19,14 @@
 package microvm
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 
-	"github.com/openweft/weft-microvm/oci"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -36,18 +38,31 @@ const kernelLayerMediaType = "application/vnd.openweft.microvm.kernel.image"
 // PullKernel resolves the OCI artifact reference, downloads the kernel layer,
 // and atomically replaces $XDG_DATA_HOME/weft-microvm/kernel. Re-running with
 // the same ref is a (cheap) re-download — content-addressable dedup is left
-// to the underlying oci client; here we just always overwrite.
+// to the underlying transport; here we just always overwrite.
 func PullKernel(image string) error {
+	ctx := context.Background()
 	canonical := expandDockerHubShorthand(image)
-	ref, err := oci.ParseRef(canonical)
+	repo, err := newRepository(canonical)
 	if err != nil {
 		return fmt.Errorf("parse %q: %w", canonical, err)
 	}
 
-	c := oci.NewClient()
-	manifest, _, err := c.PullManifest(ref)
+	tag := repo.Reference.Reference
+	if tag == "" {
+		tag = "latest"
+	}
+	desc, err := repo.Resolve(ctx, tag)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", image, err)
+	}
+
+	manifestBytes, err := fetchAll(ctx, repo, desc)
 	if err != nil {
 		return fmt.Errorf("pull manifest: %w", err)
+	}
+	var manifest ocispec.Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return fmt.Errorf("decode manifest: %w", err)
 	}
 
 	// Pick the kernel layer by media type. The artifact may carry sibling
@@ -68,20 +83,27 @@ func PullKernel(image string) error {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dst), err)
 	}
 	tmp := dst + ".tmp"
-	// Tidy any leftover .tmp from an interrupted earlier run.
-	_ = os.Remove(tmp)
+	_ = os.Remove(tmp) // tidy any leftover .tmp from an interrupted earlier run
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", tmp, err)
 	}
 	log.Printf("weft-microvm pull-kernel: %s → %s (%d bytes expected)", image, dst, kernelLayer.Size)
-	n, err := c.PullBlob(ref, kernelLayer.Digest, f)
-	if cerr := f.Close(); cerr != nil && err == nil {
-		err = cerr
-	}
+
+	rc, err := repo.Fetch(ctx, *kernelLayer)
 	if err != nil {
+		f.Close()
 		_ = os.Remove(tmp)
 		return fmt.Errorf("pull blob: %w", err)
+	}
+	n, copyErr := io.Copy(f, rc)
+	_ = rc.Close()
+	if cerr := f.Close(); cerr != nil && copyErr == nil {
+		copyErr = cerr
+	}
+	if copyErr != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("write blob: %w", copyErr)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)

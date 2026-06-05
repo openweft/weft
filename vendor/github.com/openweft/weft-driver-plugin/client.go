@@ -178,6 +178,66 @@ func (v *volumeClient) DetachVolume(ctx context.Context, volumeUUID, hostUUID st
 	return decodeErr(err)
 }
 
+func (v *volumeClient) CreateSnapshot(ctx context.Context, spec drivers.SnapshotSpec) (drivers.Snapshot, error) {
+	resp, err := v.c.CreateSnapshot(ctx, &driverpb.CreateSnapshotRequest{Spec: snapshotSpecToPB(spec)})
+	if err != nil {
+		return drivers.Snapshot{}, decodeErr(err)
+	}
+	return snapshotFromPB(resp.Snapshot), nil
+}
+
+func (v *volumeClient) ListSnapshots(ctx context.Context, volumeUUID string) ([]drivers.Snapshot, error) {
+	resp, err := v.c.ListSnapshots(ctx, &driverpb.ListSnapshotsRequest{VolumeUuid: volumeUUID})
+	if err != nil {
+		return nil, decodeErr(err)
+	}
+	out := make([]drivers.Snapshot, 0, len(resp.Snapshots))
+	for _, s := range resp.Snapshots {
+		out = append(out, snapshotFromPB(s))
+	}
+	return out, nil
+}
+
+func (v *volumeClient) DeleteSnapshot(ctx context.Context, volumeUUID, snapshotName string) error {
+	_, err := v.c.DeleteSnapshot(ctx, &driverpb.DeleteSnapshotRequest{VolumeUuid: volumeUUID, SnapshotName: snapshotName})
+	return decodeErr(err)
+}
+
+func (v *volumeClient) RevertSnapshot(ctx context.Context, volumeUUID, snapshotName string) error {
+	_, err := v.c.RevertSnapshot(ctx, &driverpb.RevertSnapshotRequest{VolumeUuid: volumeUUID, SnapshotName: snapshotName})
+	return decodeErr(err)
+}
+
+func (v *volumeClient) CreateBackup(ctx context.Context, spec drivers.BackupSpec) (drivers.Backup, error) {
+	resp, err := v.c.CreateBackup(ctx, &driverpb.CreateBackupRequest{Spec: backupSpecToPB(spec)})
+	if err != nil {
+		return drivers.Backup{}, decodeErr(err)
+	}
+	return backupFromPB(resp.Backup), nil
+}
+
+func (v *volumeClient) ListBackups(ctx context.Context, target, volumeUUID string) ([]drivers.Backup, error) {
+	resp, err := v.c.ListBackups(ctx, &driverpb.ListBackupsRequest{Target: target, VolumeUuid: volumeUUID})
+	if err != nil {
+		return nil, decodeErr(err)
+	}
+	out := make([]drivers.Backup, 0, len(resp.Backups))
+	for _, b := range resp.Backups {
+		out = append(out, backupFromPB(b))
+	}
+	return out, nil
+}
+
+func (v *volumeClient) DeleteBackup(ctx context.Context, backupURL string) error {
+	_, err := v.c.DeleteBackup(ctx, &driverpb.DeleteBackupRequest{BackupUrl: backupURL})
+	return decodeErr(err)
+}
+
+func (v *volumeClient) RestoreBackup(ctx context.Context, backupURL string, spec drivers.VolumeSpec) error {
+	_, err := v.c.RestoreBackup(ctx, &driverpb.RestoreBackupRequest{BackupUrl: backupURL, Spec: volumeSpecToPB(spec)})
+	return decodeErr(err)
+}
+
 // ----- Image -----
 
 type imageClient struct{ c driverpb.ImageClient }

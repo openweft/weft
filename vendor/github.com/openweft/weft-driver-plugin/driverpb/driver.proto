@@ -90,6 +90,40 @@ message AttachedVolume {
   bool read_only = 2;
 }
 
+message SnapshotSpec {
+  string volume_uuid = 1;
+  string name = 2;
+  map<string, string> labels = 3;
+}
+
+message Snapshot {
+  string volume_uuid = 1;
+  string name = 2;
+  string parent = 3;
+  int64 size_bytes = 4;
+  int64 created_at_unix_ns = 5;
+  map<string, string> labels = 6;
+  bool user_created = 7;
+}
+
+message BackupSpec {
+  string volume_uuid = 1;
+  string snapshot_name = 2;
+  string target = 3;
+  map<string, string> labels = 4;
+}
+
+message Backup {
+  string volume_uuid = 1;
+  string snapshot_name = 2;
+  string url = 3;
+  int64 size_bytes = 4;
+  int64 created_at_unix_ns = 5;
+  map<string, string> labels = 6;
+  string state = 7;
+  string error = 8;
+}
+
 // ===== Hypervisor =====
 
 message CreateVMRequest { VMSpec spec = 1; }
@@ -139,6 +173,20 @@ message AttachVolumeRequest { string volume_uuid = 1; string host_uuid = 2; }
 message AttachVolumeResponse { AttachedVolume volume = 1; }
 message DetachVolumeRequest { string volume_uuid = 1; string host_uuid = 2; }
 
+message CreateSnapshotRequest { SnapshotSpec spec = 1; }
+message CreateSnapshotResponse { Snapshot snapshot = 1; }
+message ListSnapshotsRequest { string volume_uuid = 1; }
+message ListSnapshotsResponse { repeated Snapshot snapshots = 1; }
+message DeleteSnapshotRequest { string volume_uuid = 1; string snapshot_name = 2; }
+message RevertSnapshotRequest { string volume_uuid = 1; string snapshot_name = 2; }
+
+message CreateBackupRequest { BackupSpec spec = 1; }
+message CreateBackupResponse { Backup backup = 1; }
+message ListBackupsRequest { string target = 1; string volume_uuid = 2; }
+message ListBackupsResponse { repeated Backup backups = 1; }
+message DeleteBackupRequest { string backup_url = 1; }
+message RestoreBackupRequest { string backup_url = 1; VolumeSpec spec = 2; }
+
 service Volume {
   rpc Name(google.protobuf.Empty) returns (NameResponse);
   rpc Local(google.protobuf.Empty) returns (LocalResponse);
@@ -147,6 +195,14 @@ service Volume {
   rpc DestroyVolume(DestroyVolumeRequest) returns (google.protobuf.Empty);
   rpc AttachVolume(AttachVolumeRequest) returns (AttachVolumeResponse);
   rpc DetachVolume(DetachVolumeRequest) returns (google.protobuf.Empty);
+  rpc CreateSnapshot(CreateSnapshotRequest) returns (CreateSnapshotResponse);
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (google.protobuf.Empty);
+  rpc RevertSnapshot(RevertSnapshotRequest) returns (google.protobuf.Empty);
+  rpc CreateBackup(CreateBackupRequest) returns (CreateBackupResponse);
+  rpc ListBackups(ListBackupsRequest) returns (ListBackupsResponse);
+  rpc DeleteBackup(DeleteBackupRequest) returns (google.protobuf.Empty);
+  rpc RestoreBackup(RestoreBackupRequest) returns (google.protobuf.Empty);
 }
 
 // ===== Image =====

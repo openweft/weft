@@ -17,8 +17,17 @@ type ServerConfig struct {
 	// start if the file does not exist.
 	HostKeyPath string
 	// AuthorizedKeysPath is the path to a file in authorized_keys format.
-	// When empty, all public-key authentication is rejected.
+	// When empty, public-key file-based auth is skipped — AuthCallback (if
+	// set) is then the only auth path.
 	AuthorizedKeysPath string
+	// AuthCallback, when non-nil, is consulted BEFORE AuthorizedKeysPath.
+	// If it returns a non-nil *ssh.Permissions and a nil error, the client
+	// is authorised and no fallback is attempted. If it returns an error,
+	// the server falls back to AuthorizedKeysPath. Useful for plugging in
+	// non-file-based verifiers — OpenPubkey, FIDO2/WebAuthn, sigstore, an
+	// internal cert authority — without forking the module. See README for
+	// an OpenPubkey integration sketch.
+	AuthCallback func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error)
 	// Logger is used for connection-level messages. Defaults to log.Default().
 	Logger *log.Logger
 }
@@ -43,6 +52,16 @@ func ListenSSH(addr string, cfg ServerConfig) (net.Listener, error) {
 
 	sshCfg := &ssh.ServerConfig{
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			// 1. Try the user-supplied verifier first (OpenPubkey / FIDO2 / …).
+			//    A nil error wins outright; a non-nil error falls through to
+			//    the file-based check so a misconfigured callback can't lock
+			//    out operators with a legit authorized_keys entry.
+			if cfg.AuthCallback != nil {
+				if perms, err := cfg.AuthCallback(conn, key); err == nil && perms != nil {
+					return perms, nil
+				}
+			}
+			// 2. authorized_keys file (the classic SSH path).
 			if isAuthorized(key, authorized) {
 				return &ssh.Permissions{
 					Extensions: map[string]string{"pubkey-fp": ssh.FingerprintSHA256(key)},
