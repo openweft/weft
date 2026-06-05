@@ -144,6 +144,62 @@ func (s *volumeServer) DetachVolume(ctx context.Context, r *driverpb.DetachVolum
 	return empty, encodeErr(s.impl.DetachVolume(ctx, r.VolumeUuid, r.HostUuid))
 }
 
+func (s *volumeServer) CreateSnapshot(ctx context.Context, r *driverpb.CreateSnapshotRequest) (*driverpb.CreateSnapshotResponse, error) {
+	snap, err := s.impl.CreateSnapshot(ctx, snapshotSpecFromPB(r.Spec))
+	if err != nil {
+		return nil, encodeErr(err)
+	}
+	return &driverpb.CreateSnapshotResponse{Snapshot: snapshotToPB(snap)}, nil
+}
+
+func (s *volumeServer) ListSnapshots(ctx context.Context, r *driverpb.ListSnapshotsRequest) (*driverpb.ListSnapshotsResponse, error) {
+	snaps, err := s.impl.ListSnapshots(ctx, r.VolumeUuid)
+	if err != nil {
+		return nil, encodeErr(err)
+	}
+	out := make([]*driverpb.Snapshot, 0, len(snaps))
+	for _, sn := range snaps {
+		out = append(out, snapshotToPB(sn))
+	}
+	return &driverpb.ListSnapshotsResponse{Snapshots: out}, nil
+}
+
+func (s *volumeServer) DeleteSnapshot(ctx context.Context, r *driverpb.DeleteSnapshotRequest) (*emptypb.Empty, error) {
+	return empty, encodeErr(s.impl.DeleteSnapshot(ctx, r.VolumeUuid, r.SnapshotName))
+}
+
+func (s *volumeServer) RevertSnapshot(ctx context.Context, r *driverpb.RevertSnapshotRequest) (*emptypb.Empty, error) {
+	return empty, encodeErr(s.impl.RevertSnapshot(ctx, r.VolumeUuid, r.SnapshotName))
+}
+
+func (s *volumeServer) CreateBackup(ctx context.Context, r *driverpb.CreateBackupRequest) (*driverpb.CreateBackupResponse, error) {
+	bk, err := s.impl.CreateBackup(ctx, backupSpecFromPB(r.Spec))
+	if err != nil {
+		return nil, encodeErr(err)
+	}
+	return &driverpb.CreateBackupResponse{Backup: backupToPB(bk)}, nil
+}
+
+func (s *volumeServer) ListBackups(ctx context.Context, r *driverpb.ListBackupsRequest) (*driverpb.ListBackupsResponse, error) {
+	backups, err := s.impl.ListBackups(ctx, r.Target, r.VolumeUuid)
+	if err != nil {
+		return nil, encodeErr(err)
+	}
+	out := make([]*driverpb.Backup, 0, len(backups))
+	for _, b := range backups {
+		out = append(out, backupToPB(b))
+	}
+	return &driverpb.ListBackupsResponse{Backups: out}, nil
+}
+
+func (s *volumeServer) DeleteBackup(ctx context.Context, r *driverpb.DeleteBackupRequest) (*emptypb.Empty, error) {
+	return empty, encodeErr(s.impl.DeleteBackup(ctx, r.BackupUrl))
+}
+
+func (s *volumeServer) RestoreBackup(ctx context.Context, r *driverpb.RestoreBackupRequest) (*emptypb.Empty, error) {
+	return empty, encodeErr(s.impl.RestoreBackup(ctx, r.BackupUrl, volumeSpecFromPB(r.Spec)))
+}
+
 // ----- Image -----
 
 type imageServer struct {

@@ -310,6 +310,12 @@ func (d *Device) Sync() error { return d.f.Sync() }
 // Size returns the virtual size of the QCOW2 image.
 func (d *Device) Size() (int64, error) { return d.virtualSize, nil }
 
+// Fd returns the underlying file descriptor. Useful for callers that need to
+// pass the QCOW2 container to syscall- or sparse-tools-flavoured APIs (note
+// the fd is the container, not the virtual disk — random reads via the fd
+// yield QCOW2-format bytes, not raw guest data; use ReadAt for the latter).
+func (d *Device) Fd() uintptr { return d.f.Fd() }
+
 // Truncate is not supported; the virtual size is fixed at image creation.
 func (d *Device) Truncate(size int64) error {
 	return fmt.Errorf("qcow2: Truncate not supported (virtual size is fixed)")

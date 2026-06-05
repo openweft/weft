@@ -5,13 +5,21 @@ import (
 	"log"
 	"net"
 	"net/netip"
-
-	"golang.zx2c4.com/wireguard/device"
 )
 
 // ServerConfig holds the WireGuard server configuration.
 type ServerConfig struct {
-	// PrivateKeyPath is the path to a base64-encoded Curve25519 private key
+	// Backend selects the WireGuard implementation. Default is
+	// BackendUserspace (works on any OS, no privileges). Set
+	// BackendKernel inside a Linux microVM with CONFIG_WIREGUARD to
+	// drive the kernel module via wgctrl + netlink (faster, visible
+	// to host tools, requires CAP_NET_ADMIN).
+	Backend Backend
+	// InterfaceName, when Backend=BackendKernel, names the wg* netdev
+	// the bring-up creates (or reuses if already present). Empty →
+	// auto-generated "wg-<random>". Ignored for BackendUserspace.
+	InterfaceName string
+	// PrivateKey is the path to a base64-encoded Curve25519 private key
 	// (32 bytes, one line). Generated on first start if the file does not
 	// exist.
 	PrivateKeyPath string
@@ -30,52 +38,73 @@ type ServerConfig struct {
 	Logger *log.Logger
 }
 
-// ListenWireGuard brings up a userspace WireGuard device, listens for TCP
-// connections on addr (an "ip:port" on the overlay), and returns a
-// net.Listener suitable for grpc.Server.Serve. Closing the returned listener
-// also tears down the WireGuard device.
-func ListenWireGuard(addr string, cfg ServerConfig) (net.Listener, error) {
+// BringUp brings up a WireGuard device per ServerConfig (key + peers + addr
+// + interface), but stops short of opening a TCP listener — useful for
+// guests (microVM init, weft-microvm-agent) that only need the data path:
+// the kernel wg* netdev plumbed for the rest of the OS to consume directly.
+// The returned Closer tears the device back down on Close().
+//
+// Implementation note: this is the public seam ListenWireGuard, the guest
+// init's network.ApplyWireGuard, and any future "interface-only" caller
+// share. ListenWireGuard builds on top by adding a TCP listener; the guest
+// stops here.
+func BringUp(cfg ServerConfig) (Closer, error) {
+	_, c, err := bringUpFromServerConfig(cfg)
+	return c, err
+}
+
+// bringUpFromServerConfig is the shared internal — returns both the wgNet
+// (for ListenWireGuard to chain a TCP listener onto) and the public Closer
+// view of it (for BringUp).
+func bringUpFromServerConfig(cfg ServerConfig) (wgNet, Closer, error) {
 	priv, err := loadOrCreatePrivateKey(cfg.PrivateKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("private key: %w", err)
+		return nil, nil, fmt.Errorf("private key: %w", err)
 	}
 
 	peers := cfg.Peers
 	if cfg.PeersPath != "" {
 		extra, err := loadPeersFile(cfg.PeersPath)
 		if err != nil {
-			return nil, fmt.Errorf("peers file: %w", err)
+			return nil, nil, fmt.Errorf("peers file: %w", err)
 		}
 		peers = append(peers, extra...)
 	}
 
-	dev, tnet, err := bringUpDevice(priv, cfg.LocalIP, cfg.ListenPort, peers, cfg.MTU, cfg.Logger)
+	wgnet, err := bringUpDevice(cfg.Backend, cfg.InterfaceName, priv, cfg.LocalIP, cfg.ListenPort, peers, cfg.MTU, cfg.Logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-
-	tcpAddr, err := parseOverlayAddr(addr)
-	if err != nil {
-		dev.Close()
-		return nil, err
-	}
-	lis, err := tnet.ListenTCP(tcpAddr)
-	if err != nil {
-		dev.Close()
-		return nil, fmt.Errorf("listen overlay %s: %w", addr, err)
-	}
-	return &wgListener{Listener: lis, dev: dev}, nil
+	return wgnet, wgnet, nil
 }
 
-// wgListener wraps a netstack TCP listener so closing it also tears down the
+// ListenWireGuard brings up a WireGuard device (per ServerConfig.Backend),
+// listens for TCP connections on addr (an "ip:port" on the overlay), and
+// returns a net.Listener suitable for grpc.Server.Serve. Closing the
+// returned listener also tears down the WireGuard device.
+func ListenWireGuard(addr string, cfg ServerConfig) (net.Listener, error) {
+	wgnet, _, err := bringUpFromServerConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	lis, err := wgnet.ListenTCP(addr)
+	if err != nil {
+		wgnet.Close()
+		return nil, fmt.Errorf("listen overlay %s: %w", addr, err)
+	}
+	return &wgListener{Listener: lis, net: wgnet}, nil
+}
+
+// wgListener wraps a backend listener so closing it also tears down the
 // underlying WireGuard device.
 type wgListener struct {
 	net.Listener
-	dev *device.Device
+	net wgNet
 }
 
 func (l *wgListener) Close() error {
 	err := l.Listener.Close()
-	l.dev.Close()
+	l.net.Close()
 	return err
 }

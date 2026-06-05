@@ -729,13 +729,21 @@ var Network_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	Volume_Name_FullMethodName          = "/weft.driver.v1.Volume/Name"
-	Volume_Local_FullMethodName         = "/weft.driver.v1.Volume/Local"
-	Volume_HostInfo_FullMethodName      = "/weft.driver.v1.Volume/HostInfo"
-	Volume_EnsureVolume_FullMethodName  = "/weft.driver.v1.Volume/EnsureVolume"
-	Volume_DestroyVolume_FullMethodName = "/weft.driver.v1.Volume/DestroyVolume"
-	Volume_AttachVolume_FullMethodName  = "/weft.driver.v1.Volume/AttachVolume"
-	Volume_DetachVolume_FullMethodName  = "/weft.driver.v1.Volume/DetachVolume"
+	Volume_Name_FullMethodName           = "/weft.driver.v1.Volume/Name"
+	Volume_Local_FullMethodName          = "/weft.driver.v1.Volume/Local"
+	Volume_HostInfo_FullMethodName       = "/weft.driver.v1.Volume/HostInfo"
+	Volume_EnsureVolume_FullMethodName   = "/weft.driver.v1.Volume/EnsureVolume"
+	Volume_DestroyVolume_FullMethodName  = "/weft.driver.v1.Volume/DestroyVolume"
+	Volume_AttachVolume_FullMethodName   = "/weft.driver.v1.Volume/AttachVolume"
+	Volume_DetachVolume_FullMethodName   = "/weft.driver.v1.Volume/DetachVolume"
+	Volume_CreateSnapshot_FullMethodName = "/weft.driver.v1.Volume/CreateSnapshot"
+	Volume_ListSnapshots_FullMethodName  = "/weft.driver.v1.Volume/ListSnapshots"
+	Volume_DeleteSnapshot_FullMethodName = "/weft.driver.v1.Volume/DeleteSnapshot"
+	Volume_RevertSnapshot_FullMethodName = "/weft.driver.v1.Volume/RevertSnapshot"
+	Volume_CreateBackup_FullMethodName   = "/weft.driver.v1.Volume/CreateBackup"
+	Volume_ListBackups_FullMethodName    = "/weft.driver.v1.Volume/ListBackups"
+	Volume_DeleteBackup_FullMethodName   = "/weft.driver.v1.Volume/DeleteBackup"
+	Volume_RestoreBackup_FullMethodName  = "/weft.driver.v1.Volume/RestoreBackup"
 )
 
 // VolumeClient is the client API for Volume service.
@@ -749,6 +757,14 @@ type VolumeClient interface {
 	DestroyVolume(ctx context.Context, in *DestroyVolumeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	AttachVolume(ctx context.Context, in *AttachVolumeRequest, opts ...grpc.CallOption) (*AttachVolumeResponse, error)
 	DetachVolume(ctx context.Context, in *DetachVolumeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	CreateSnapshot(ctx context.Context, in *CreateSnapshotRequest, opts ...grpc.CallOption) (*CreateSnapshotResponse, error)
+	ListSnapshots(ctx context.Context, in *ListSnapshotsRequest, opts ...grpc.CallOption) (*ListSnapshotsResponse, error)
+	DeleteSnapshot(ctx context.Context, in *DeleteSnapshotRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	RevertSnapshot(ctx context.Context, in *RevertSnapshotRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	CreateBackup(ctx context.Context, in *CreateBackupRequest, opts ...grpc.CallOption) (*CreateBackupResponse, error)
+	ListBackups(ctx context.Context, in *ListBackupsRequest, opts ...grpc.CallOption) (*ListBackupsResponse, error)
+	DeleteBackup(ctx context.Context, in *DeleteBackupRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	RestoreBackup(ctx context.Context, in *RestoreBackupRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type volumeClient struct {
@@ -829,6 +845,86 @@ func (c *volumeClient) DetachVolume(ctx context.Context, in *DetachVolumeRequest
 	return out, nil
 }
 
+func (c *volumeClient) CreateSnapshot(ctx context.Context, in *CreateSnapshotRequest, opts ...grpc.CallOption) (*CreateSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateSnapshotResponse)
+	err := c.cc.Invoke(ctx, Volume_CreateSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *volumeClient) ListSnapshots(ctx context.Context, in *ListSnapshotsRequest, opts ...grpc.CallOption) (*ListSnapshotsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSnapshotsResponse)
+	err := c.cc.Invoke(ctx, Volume_ListSnapshots_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *volumeClient) DeleteSnapshot(ctx context.Context, in *DeleteSnapshotRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Volume_DeleteSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *volumeClient) RevertSnapshot(ctx context.Context, in *RevertSnapshotRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Volume_RevertSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *volumeClient) CreateBackup(ctx context.Context, in *CreateBackupRequest, opts ...grpc.CallOption) (*CreateBackupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateBackupResponse)
+	err := c.cc.Invoke(ctx, Volume_CreateBackup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *volumeClient) ListBackups(ctx context.Context, in *ListBackupsRequest, opts ...grpc.CallOption) (*ListBackupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBackupsResponse)
+	err := c.cc.Invoke(ctx, Volume_ListBackups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *volumeClient) DeleteBackup(ctx context.Context, in *DeleteBackupRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Volume_DeleteBackup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *volumeClient) RestoreBackup(ctx context.Context, in *RestoreBackupRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Volume_RestoreBackup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // VolumeServer is the server API for Volume service.
 // All implementations must embed UnimplementedVolumeServer
 // for forward compatibility.
@@ -840,6 +936,14 @@ type VolumeServer interface {
 	DestroyVolume(context.Context, *DestroyVolumeRequest) (*emptypb.Empty, error)
 	AttachVolume(context.Context, *AttachVolumeRequest) (*AttachVolumeResponse, error)
 	DetachVolume(context.Context, *DetachVolumeRequest) (*emptypb.Empty, error)
+	CreateSnapshot(context.Context, *CreateSnapshotRequest) (*CreateSnapshotResponse, error)
+	ListSnapshots(context.Context, *ListSnapshotsRequest) (*ListSnapshotsResponse, error)
+	DeleteSnapshot(context.Context, *DeleteSnapshotRequest) (*emptypb.Empty, error)
+	RevertSnapshot(context.Context, *RevertSnapshotRequest) (*emptypb.Empty, error)
+	CreateBackup(context.Context, *CreateBackupRequest) (*CreateBackupResponse, error)
+	ListBackups(context.Context, *ListBackupsRequest) (*ListBackupsResponse, error)
+	DeleteBackup(context.Context, *DeleteBackupRequest) (*emptypb.Empty, error)
+	RestoreBackup(context.Context, *RestoreBackupRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedVolumeServer()
 }
 
@@ -870,6 +974,30 @@ func (UnimplementedVolumeServer) AttachVolume(context.Context, *AttachVolumeRequ
 }
 func (UnimplementedVolumeServer) DetachVolume(context.Context, *DetachVolumeRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DetachVolume not implemented")
+}
+func (UnimplementedVolumeServer) CreateSnapshot(context.Context, *CreateSnapshotRequest) (*CreateSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSnapshot not implemented")
+}
+func (UnimplementedVolumeServer) ListSnapshots(context.Context, *ListSnapshotsRequest) (*ListSnapshotsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSnapshots not implemented")
+}
+func (UnimplementedVolumeServer) DeleteSnapshot(context.Context, *DeleteSnapshotRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSnapshot not implemented")
+}
+func (UnimplementedVolumeServer) RevertSnapshot(context.Context, *RevertSnapshotRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevertSnapshot not implemented")
+}
+func (UnimplementedVolumeServer) CreateBackup(context.Context, *CreateBackupRequest) (*CreateBackupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateBackup not implemented")
+}
+func (UnimplementedVolumeServer) ListBackups(context.Context, *ListBackupsRequest) (*ListBackupsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBackups not implemented")
+}
+func (UnimplementedVolumeServer) DeleteBackup(context.Context, *DeleteBackupRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteBackup not implemented")
+}
+func (UnimplementedVolumeServer) RestoreBackup(context.Context, *RestoreBackupRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreBackup not implemented")
 }
 func (UnimplementedVolumeServer) mustEmbedUnimplementedVolumeServer() {}
 func (UnimplementedVolumeServer) testEmbeddedByValue()                {}
@@ -1018,6 +1146,150 @@ func _Volume_DetachVolume_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Volume_CreateSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeServer).CreateSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Volume_CreateSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeServer).CreateSnapshot(ctx, req.(*CreateSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Volume_ListSnapshots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSnapshotsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeServer).ListSnapshots(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Volume_ListSnapshots_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeServer).ListSnapshots(ctx, req.(*ListSnapshotsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Volume_DeleteSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeServer).DeleteSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Volume_DeleteSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeServer).DeleteSnapshot(ctx, req.(*DeleteSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Volume_RevertSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevertSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeServer).RevertSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Volume_RevertSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeServer).RevertSnapshot(ctx, req.(*RevertSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Volume_CreateBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeServer).CreateBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Volume_CreateBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeServer).CreateBackup(ctx, req.(*CreateBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Volume_ListBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBackupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeServer).ListBackups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Volume_ListBackups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeServer).ListBackups(ctx, req.(*ListBackupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Volume_DeleteBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeServer).DeleteBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Volume_DeleteBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeServer).DeleteBackup(ctx, req.(*DeleteBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Volume_RestoreBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeServer).RestoreBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Volume_RestoreBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeServer).RestoreBackup(ctx, req.(*RestoreBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Volume_ServiceDesc is the grpc.ServiceDesc for Volume service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1052,6 +1324,38 @@ var Volume_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DetachVolume",
 			Handler:    _Volume_DetachVolume_Handler,
+		},
+		{
+			MethodName: "CreateSnapshot",
+			Handler:    _Volume_CreateSnapshot_Handler,
+		},
+		{
+			MethodName: "ListSnapshots",
+			Handler:    _Volume_ListSnapshots_Handler,
+		},
+		{
+			MethodName: "DeleteSnapshot",
+			Handler:    _Volume_DeleteSnapshot_Handler,
+		},
+		{
+			MethodName: "RevertSnapshot",
+			Handler:    _Volume_RevertSnapshot_Handler,
+		},
+		{
+			MethodName: "CreateBackup",
+			Handler:    _Volume_CreateBackup_Handler,
+		},
+		{
+			MethodName: "ListBackups",
+			Handler:    _Volume_ListBackups_Handler,
+		},
+		{
+			MethodName: "DeleteBackup",
+			Handler:    _Volume_DeleteBackup_Handler,
+		},
+		{
+			MethodName: "RestoreBackup",
+			Handler:    _Volume_RestoreBackup_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

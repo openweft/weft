@@ -257,3 +257,103 @@ func attachedVolumeFromPB(p *driverpb.AttachedVolume) drivers.AttachedVolume {
 	}
 	return drivers.AttachedVolume{BackingPath: p.BackingPath, ReadOnly: p.ReadOnly}
 }
+
+// ----- Snapshot -----
+
+func snapshotSpecToPB(s drivers.SnapshotSpec) *driverpb.SnapshotSpec {
+	return &driverpb.SnapshotSpec{
+		VolumeUuid: s.VolumeUUID,
+		Name:       s.Name,
+		Labels:     s.Labels,
+	}
+}
+
+func snapshotSpecFromPB(p *driverpb.SnapshotSpec) drivers.SnapshotSpec {
+	if p == nil {
+		return drivers.SnapshotSpec{}
+	}
+	return drivers.SnapshotSpec{
+		VolumeUUID: p.VolumeUuid,
+		Name:       p.Name,
+		Labels:     p.Labels,
+	}
+}
+
+func snapshotToPB(s drivers.Snapshot) *driverpb.Snapshot {
+	return &driverpb.Snapshot{
+		VolumeUuid:      s.VolumeUUID,
+		Name:            s.Name,
+		Parent:          s.Parent,
+		SizeBytes:       s.SizeBytes,
+		CreatedAtUnixNs: s.CreatedAtUnixNs,
+		Labels:          s.Labels,
+		UserCreated:     s.UserCreated,
+	}
+}
+
+func snapshotFromPB(p *driverpb.Snapshot) drivers.Snapshot {
+	if p == nil {
+		return drivers.Snapshot{}
+	}
+	return drivers.Snapshot{
+		VolumeUUID:      p.VolumeUuid,
+		Name:            p.Name,
+		Parent:          p.Parent,
+		SizeBytes:       p.SizeBytes,
+		CreatedAtUnixNs: p.CreatedAtUnixNs,
+		Labels:          p.Labels,
+		UserCreated:     p.UserCreated,
+	}
+}
+
+// ----- Backup -----
+
+func backupSpecToPB(s drivers.BackupSpec) *driverpb.BackupSpec {
+	return &driverpb.BackupSpec{
+		VolumeUuid:   s.VolumeUUID,
+		SnapshotName: s.SnapshotName,
+		Target:       s.Target,
+		Labels:       s.Labels,
+	}
+}
+
+func backupSpecFromPB(p *driverpb.BackupSpec) drivers.BackupSpec {
+	if p == nil {
+		return drivers.BackupSpec{}
+	}
+	return drivers.BackupSpec{
+		VolumeUUID:   p.VolumeUuid,
+		SnapshotName: p.SnapshotName,
+		Target:       p.Target,
+		Labels:       p.Labels,
+	}
+}
+
+func backupToPB(b drivers.Backup) *driverpb.Backup {
+	return &driverpb.Backup{
+		VolumeUuid:      b.VolumeUUID,
+		SnapshotName:    b.SnapshotName,
+		Url:             b.URL,
+		SizeBytes:       b.SizeBytes,
+		CreatedAtUnixNs: b.CreatedAtUnixNs,
+		Labels:          b.Labels,
+		State:           b.State,
+		Error:           b.Error,
+	}
+}
+
+func backupFromPB(p *driverpb.Backup) drivers.Backup {
+	if p == nil {
+		return drivers.Backup{}
+	}
+	return drivers.Backup{
+		VolumeUUID:      p.VolumeUuid,
+		SnapshotName:    p.SnapshotName,
+		URL:             p.Url,
+		SizeBytes:       p.SizeBytes,
+		CreatedAtUnixNs: p.CreatedAtUnixNs,
+		Labels:          p.Labels,
+		State:           p.State,
+		Error:           p.Error,
+	}
+}
