@@ -24,7 +24,7 @@ ref globs that zot pulls eagerly on a schedule.
 | Backend | Where | Use case |
 | --- | --- | --- |
 | local-fs | per-VM volume (`/var/lib/zot`, 256 GiB) | dev, single-host, air-gapped lab |
-| S3-compatible | object store (MinIO / AWS S3 / GCS / Ceph RGW) | production at scale |
+| S3-compatible | object store (versitygw / AWS S3 / GCS / Ceph RGW) | production at scale |
 
 The plan ships local-fs by default for simplicity. Production
 deploys override at `weft infra deploy zot --storage=s3

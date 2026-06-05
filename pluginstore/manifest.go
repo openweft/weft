@@ -216,7 +216,7 @@ type VolumeSpec struct {
 	// mounted at "<Mount>-0", ..., "<Mount>-(N-1)". Same grammar as
 	// VMSpec.Count : integer literal or `input.<name>`.
 	//
-	// This is the mechanism that wires e.g. minio-ha's
+	// This is the mechanism that wires e.g. versitygw-ha's
 	// `volumes_per_node` input to the drive layout — one
 	// `volume "drive" { count = input.volumes_per_node }` block
 	// replaces N hard-pinned drive-* blocks.

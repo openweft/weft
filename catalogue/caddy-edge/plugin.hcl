@@ -14,7 +14,7 @@
 #
 # Operator pre-flight (see docs/catalogue/caddy-edge.md):
 #   1. Host the Caddyfile / JSON config somewhere the edge VMs can
-#      fetch (S3 + presigned URL, internal MinIO bucket, raw GitHub
+#      fetch (S3 + presigned URL, internal versitygw bucket, raw GitHub
 #      blob — anything HTTPS).
 #   2. Point your cloud LB / DNS / anycast IP at the three replica
 #      addresses (returned by `weft plugin status caddy-edge`).

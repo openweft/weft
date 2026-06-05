@@ -186,7 +186,7 @@ hot path.
 
 - HA platform : [postgres-ha](../catalogue/postgres-ha.md),
   [redis-ha](../catalogue/redis-ha.md),
-  [minio-ha](../catalogue/minio-ha.md),
+  [versitygw-ha](../catalogue/versitygw-ha.md),
   [vault-ha](../catalogue/vault-ha.md),
   [caddy-edge](../catalogue/caddy-edge.md).
 - HA observability : [grafana-ha](../catalogue/grafana-ha.md),

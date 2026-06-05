@@ -33,17 +33,17 @@ This plugin picks simple-scalable ; fork it and split into
 | `image`                | no       | no     | `grafana/loki:3.3`     | Upstream `grafana/loki` ; no openweft fork         |
 | `retention_days`       | no       | no     | `30`                   | Compactor retention window                         |
 | `replication_factor`   | no       | no     | `3`                    | Loki ingester RF. **MUST be ≤ 3** (VM count)       |
-| `s3_endpoint`          | yes      | no     | —                      | e.g. `http://minio.weft:9000`                      |
+| `s3_endpoint`          | yes      | no     | —                      | e.g. `http://minio.weft:7070`                      |
 | `s3_bucket`            | yes      | no     | —                      | Pre-create ; Loki won't auto-provision             |
 | `s3_access_key`        | yes      | yes    | —                      | S3 access key id                                   |
 | `s3_secret_key`        | yes      | yes    | —                      | S3 secret access key                               |
-| `s3_region`            | no       | no     | `weft-1`               | Arbitrary value works for MinIO                    |
+| `s3_region`            | no       | no     | `weft-1`               | Arbitrary value works for versitygw                    |
 | `cache_volume_gib`     | no       | no     | `50`                   | Per-replica `/var/loki`                            |
 | `tenant_network_cidrs` | no       | no     | `10.0.0.0/8`           | Narrow 3100 ingress in production                  |
 
 ## Operator pre-flight
 
-1. Provision S3 (use `catalogue/minio-ha` if you don't have one) :
+1. Provision S3 (use `catalogue/versitygw-ha` if you don't have one) :
    ```
    mc mb weft/loki-chunks
    mc admin user svcacct add weft admin --access-key=loki --secret-key=$SK
@@ -53,7 +53,7 @@ This plugin picks simple-scalable ; fork it and split into
 
    ```
    weft plugin install loki-ha --project observability \
-     --input s3_endpoint=http://minio-ha-<short>-minio-0.weft:9000 \
+     --input s3_endpoint=http://versitygw-ha-<short>-versitygw-0.weft:7070 \
      --input s3_bucket=loki-chunks \
      --input s3_access_key=loki --input s3_secret_key=$SK
    ```

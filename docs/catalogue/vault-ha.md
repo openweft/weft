@@ -77,4 +77,4 @@ vault operator raft list-peers     # 3 voter peers, one per DC
   mounted ; do that via `vault secrets enable` after init.
 - **Agent sidecars / auto-renew**: clients must use Vault Agent or
   the SDK's token-renew helper.
-- **Raft snapshot backup**: schedule `vault operator raft snapshot save` to MinIO or your backup target ; not automated here.
+- **Raft snapshot backup**: schedule `vault operator raft snapshot save` to versitygw-ha or your backup target ; not automated here.
