@@ -157,6 +157,29 @@ const (
 	WeftAgent_CreateDNSRecord_FullMethodName                 = "/weft.v1.WeftAgent/CreateDNSRecord"
 	WeftAgent_UpdateDNSRecord_FullMethodName                 = "/weft.v1.WeftAgent/UpdateDNSRecord"
 	WeftAgent_DeleteDNSRecord_FullMethodName                 = "/weft.v1.WeftAgent/DeleteDNSRecord"
+	WeftAgent_GetVolumeProperty_FullMethodName               = "/weft.v1.WeftAgent/GetVolumeProperty"
+	WeftAgent_SetVolumeProperty_FullMethodName               = "/weft.v1.WeftAgent/SetVolumeProperty"
+	WeftAgent_DeleteVolumeProperty_FullMethodName            = "/weft.v1.WeftAgent/DeleteVolumeProperty"
+	WeftAgent_GetShare_FullMethodName                        = "/weft.v1.WeftAgent/GetShare"
+	WeftAgent_ResizeShare_FullMethodName                     = "/weft.v1.WeftAgent/ResizeShare"
+	WeftAgent_ListBuckets_FullMethodName                     = "/weft.v1.WeftAgent/ListBuckets"
+	WeftAgent_GetBucket_FullMethodName                       = "/weft.v1.WeftAgent/GetBucket"
+	WeftAgent_CreateBucket_FullMethodName                    = "/weft.v1.WeftAgent/CreateBucket"
+	WeftAgent_DeleteBucket_FullMethodName                    = "/weft.v1.WeftAgent/DeleteBucket"
+	WeftAgent_GetBucketPolicy_FullMethodName                 = "/weft.v1.WeftAgent/GetBucketPolicy"
+	WeftAgent_SetBucketPolicy_FullMethodName                 = "/weft.v1.WeftAgent/SetBucketPolicy"
+	WeftAgent_ListSSHKeyCatalogue_FullMethodName             = "/weft.v1.WeftAgent/ListSSHKeyCatalogue"
+	WeftAgent_AddSSHKeyCatalogue_FullMethodName              = "/weft.v1.WeftAgent/AddSSHKeyCatalogue"
+	WeftAgent_RemoveSSHKeyCatalogue_FullMethodName           = "/weft.v1.WeftAgent/RemoveSSHKeyCatalogue"
+	WeftAgent_ImportSSHKeyCatalogue_FullMethodName           = "/weft.v1.WeftAgent/ImportSSHKeyCatalogue"
+	WeftAgent_ListSchedulingRules_FullMethodName             = "/weft.v1.WeftAgent/ListSchedulingRules"
+	WeftAgent_CreateSchedulingRule_FullMethodName            = "/weft.v1.WeftAgent/CreateSchedulingRule"
+	WeftAgent_UpdateSchedulingRule_FullMethodName            = "/weft.v1.WeftAgent/UpdateSchedulingRule"
+	WeftAgent_DeleteSchedulingRule_FullMethodName            = "/weft.v1.WeftAgent/DeleteSchedulingRule"
+	WeftAgent_ListRegistryRemotes_FullMethodName             = "/weft.v1.WeftAgent/ListRegistryRemotes"
+	WeftAgent_SetRegistryRemote_FullMethodName               = "/weft.v1.WeftAgent/SetRegistryRemote"
+	WeftAgent_DeleteRegistryRemote_FullMethodName            = "/weft.v1.WeftAgent/DeleteRegistryRemote"
+	WeftAgent_SearchRegistryRemote_FullMethodName            = "/weft.v1.WeftAgent/SearchRegistryRemote"
 )
 
 // WeftAgentClient is the client API for WeftAgent service.
@@ -396,6 +419,49 @@ type WeftAgentClient interface {
 	CreateDNSRecord(ctx context.Context, in *CreateDNSRecordRequest, opts ...grpc.CallOption) (*CreateDNSRecordResponse, error)
 	UpdateDNSRecord(ctx context.Context, in *UpdateDNSRecordRequest, opts ...grpc.CallOption) (*UpdateDNSRecordResponse, error)
 	DeleteDNSRecord(ctx context.Context, in *DeleteDNSRecordRequest, opts ...grpc.CallOption) (*DeleteDNSRecordResponse, error)
+	// --- Per-volume properties (mirror of VMProperty for block volumes) ---
+	GetVolumeProperty(ctx context.Context, in *GetVolumePropertyRequest, opts ...grpc.CallOption) (*GetVolumePropertyResponse, error)
+	SetVolumeProperty(ctx context.Context, in *SetVolumePropertyRequest, opts ...grpc.CallOption) (*SetVolumePropertyResponse, error)
+	DeleteVolumeProperty(ctx context.Context, in *DeleteVolumePropertyRequest, opts ...grpc.CallOption) (*DeleteVolumePropertyResponse, error)
+	// --- Share registry extensions (v0.9.0) ---
+	// GetShare + ResizeShare close the parity gap left by v0.8.0 ;
+	// ListShares / CreateShare / DeleteShare already live in v0.8.
+	GetShare(ctx context.Context, in *GetShareRequest, opts ...grpc.CallOption) (*GetShareResponse, error)
+	ResizeShare(ctx context.Context, in *ResizeShareRequest, opts ...grpc.CallOption) (*ResizeShareResponse, error)
+	// --- S3 Bucket registry ---
+	// openweft-side catalogue of S3 buckets ; bucket data lives on the
+	// S3 endpoint (versitygw / CubeFS objectnode). The registry tracks
+	// credentials + a mutable policy JSON the operator can rotate.
+	ListBuckets(ctx context.Context, in *ListBucketsRequest, opts ...grpc.CallOption) (*ListBucketsResponse, error)
+	GetBucket(ctx context.Context, in *GetBucketRequest, opts ...grpc.CallOption) (*GetBucketResponse, error)
+	CreateBucket(ctx context.Context, in *CreateBucketRequest, opts ...grpc.CallOption) (*CreateBucketResponse, error)
+	DeleteBucket(ctx context.Context, in *DeleteBucketRequest, opts ...grpc.CallOption) (*DeleteBucketResponse, error)
+	GetBucketPolicy(ctx context.Context, in *GetBucketPolicyRequest, opts ...grpc.CallOption) (*GetBucketPolicyResponse, error)
+	SetBucketPolicy(ctx context.Context, in *SetBucketPolicyRequest, opts ...grpc.CallOption) (*SetBucketPolicyResponse, error)
+	// --- SSH key catalogue (cluster-wide) ---
+	// Distinct from the per-VM weft instance sshkey surface ; the
+	// cluster catalogue lets VMs reference named keys (e.g. "ci-runner-1")
+	// by name instead of pasting the public-key blob at every CreateVM.
+	ListSSHKeyCatalogue(ctx context.Context, in *ListSSHKeyCatalogueRequest, opts ...grpc.CallOption) (*ListSSHKeyCatalogueResponse, error)
+	AddSSHKeyCatalogue(ctx context.Context, in *AddSSHKeyCatalogueRequest, opts ...grpc.CallOption) (*AddSSHKeyCatalogueResponse, error)
+	RemoveSSHKeyCatalogue(ctx context.Context, in *RemoveSSHKeyCatalogueRequest, opts ...grpc.CallOption) (*RemoveSSHKeyCatalogueResponse, error)
+	ImportSSHKeyCatalogue(ctx context.Context, in *ImportSSHKeyCatalogueRequest, opts ...grpc.CallOption) (*ImportSSHKeyCatalogueResponse, error)
+	// --- Scheduling rules (nominal bindings for placement) ---
+	// Per [[openweft_nominal_binding]] : a rule carries a label selector
+	// + target_count, the scheduler reconciles toward target_count VMs
+	// matching the selector (or pinned by nominal binding).
+	ListSchedulingRules(ctx context.Context, in *ListSchedulingRulesRequest, opts ...grpc.CallOption) (*ListSchedulingRulesResponse, error)
+	CreateSchedulingRule(ctx context.Context, in *CreateSchedulingRuleRequest, opts ...grpc.CallOption) (*CreateSchedulingRuleResponse, error)
+	UpdateSchedulingRule(ctx context.Context, in *UpdateSchedulingRuleRequest, opts ...grpc.CallOption) (*UpdateSchedulingRuleResponse, error)
+	DeleteSchedulingRule(ctx context.Context, in *DeleteSchedulingRuleRequest, opts ...grpc.CallOption) (*DeleteSchedulingRuleResponse, error)
+	// --- Registry remote (alias → endpoint catalogue) ---
+	// Operator-managed list of upstream OCI registries (ghcr.io,
+	// mirror.example.com, …). Used by the OCI puller to resolve
+	// catalogue references to a credential bundle + endpoint.
+	ListRegistryRemotes(ctx context.Context, in *ListRegistryRemotesRequest, opts ...grpc.CallOption) (*ListRegistryRemotesResponse, error)
+	SetRegistryRemote(ctx context.Context, in *SetRegistryRemoteRequest, opts ...grpc.CallOption) (*SetRegistryRemoteResponse, error)
+	DeleteRegistryRemote(ctx context.Context, in *DeleteRegistryRemoteRequest, opts ...grpc.CallOption) (*DeleteRegistryRemoteResponse, error)
+	SearchRegistryRemote(ctx context.Context, in *SearchRegistryRemoteRequest, opts ...grpc.CallOption) (*SearchRegistryRemoteResponse, error)
 }
 
 type weftAgentClient struct {
@@ -1795,6 +1861,236 @@ func (c *weftAgentClient) DeleteDNSRecord(ctx context.Context, in *DeleteDNSReco
 	return out, nil
 }
 
+func (c *weftAgentClient) GetVolumeProperty(ctx context.Context, in *GetVolumePropertyRequest, opts ...grpc.CallOption) (*GetVolumePropertyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetVolumePropertyResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetVolumeProperty_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) SetVolumeProperty(ctx context.Context, in *SetVolumePropertyRequest, opts ...grpc.CallOption) (*SetVolumePropertyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetVolumePropertyResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetVolumeProperty_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteVolumeProperty(ctx context.Context, in *DeleteVolumePropertyRequest, opts ...grpc.CallOption) (*DeleteVolumePropertyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteVolumePropertyResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteVolumeProperty_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetShare(ctx context.Context, in *GetShareRequest, opts ...grpc.CallOption) (*GetShareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetShareResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetShare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ResizeShare(ctx context.Context, in *ResizeShareRequest, opts ...grpc.CallOption) (*ResizeShareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResizeShareResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ResizeShare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListBuckets(ctx context.Context, in *ListBucketsRequest, opts ...grpc.CallOption) (*ListBucketsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBucketsResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListBuckets_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetBucket(ctx context.Context, in *GetBucketRequest, opts ...grpc.CallOption) (*GetBucketResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetBucketResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetBucket_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) CreateBucket(ctx context.Context, in *CreateBucketRequest, opts ...grpc.CallOption) (*CreateBucketResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateBucketResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_CreateBucket_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteBucket(ctx context.Context, in *DeleteBucketRequest, opts ...grpc.CallOption) (*DeleteBucketResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteBucketResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteBucket_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetBucketPolicy(ctx context.Context, in *GetBucketPolicyRequest, opts ...grpc.CallOption) (*GetBucketPolicyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetBucketPolicyResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetBucketPolicy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) SetBucketPolicy(ctx context.Context, in *SetBucketPolicyRequest, opts ...grpc.CallOption) (*SetBucketPolicyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetBucketPolicyResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetBucketPolicy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListSSHKeyCatalogue(ctx context.Context, in *ListSSHKeyCatalogueRequest, opts ...grpc.CallOption) (*ListSSHKeyCatalogueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSSHKeyCatalogueResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListSSHKeyCatalogue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) AddSSHKeyCatalogue(ctx context.Context, in *AddSSHKeyCatalogueRequest, opts ...grpc.CallOption) (*AddSSHKeyCatalogueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddSSHKeyCatalogueResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_AddSSHKeyCatalogue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) RemoveSSHKeyCatalogue(ctx context.Context, in *RemoveSSHKeyCatalogueRequest, opts ...grpc.CallOption) (*RemoveSSHKeyCatalogueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveSSHKeyCatalogueResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_RemoveSSHKeyCatalogue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ImportSSHKeyCatalogue(ctx context.Context, in *ImportSSHKeyCatalogueRequest, opts ...grpc.CallOption) (*ImportSSHKeyCatalogueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ImportSSHKeyCatalogueResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ImportSSHKeyCatalogue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListSchedulingRules(ctx context.Context, in *ListSchedulingRulesRequest, opts ...grpc.CallOption) (*ListSchedulingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSchedulingRulesResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListSchedulingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) CreateSchedulingRule(ctx context.Context, in *CreateSchedulingRuleRequest, opts ...grpc.CallOption) (*CreateSchedulingRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateSchedulingRuleResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_CreateSchedulingRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) UpdateSchedulingRule(ctx context.Context, in *UpdateSchedulingRuleRequest, opts ...grpc.CallOption) (*UpdateSchedulingRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateSchedulingRuleResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_UpdateSchedulingRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteSchedulingRule(ctx context.Context, in *DeleteSchedulingRuleRequest, opts ...grpc.CallOption) (*DeleteSchedulingRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteSchedulingRuleResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteSchedulingRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) ListRegistryRemotes(ctx context.Context, in *ListRegistryRemotesRequest, opts ...grpc.CallOption) (*ListRegistryRemotesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRegistryRemotesResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_ListRegistryRemotes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) SetRegistryRemote(ctx context.Context, in *SetRegistryRemoteRequest, opts ...grpc.CallOption) (*SetRegistryRemoteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetRegistryRemoteResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetRegistryRemote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) DeleteRegistryRemote(ctx context.Context, in *DeleteRegistryRemoteRequest, opts ...grpc.CallOption) (*DeleteRegistryRemoteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteRegistryRemoteResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_DeleteRegistryRemote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) SearchRegistryRemote(ctx context.Context, in *SearchRegistryRemoteRequest, opts ...grpc.CallOption) (*SearchRegistryRemoteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchRegistryRemoteResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SearchRegistryRemote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeftAgentServer is the server API for WeftAgent service.
 // All implementations must embed UnimplementedWeftAgentServer
 // for forward compatibility.
@@ -2032,6 +2328,49 @@ type WeftAgentServer interface {
 	CreateDNSRecord(context.Context, *CreateDNSRecordRequest) (*CreateDNSRecordResponse, error)
 	UpdateDNSRecord(context.Context, *UpdateDNSRecordRequest) (*UpdateDNSRecordResponse, error)
 	DeleteDNSRecord(context.Context, *DeleteDNSRecordRequest) (*DeleteDNSRecordResponse, error)
+	// --- Per-volume properties (mirror of VMProperty for block volumes) ---
+	GetVolumeProperty(context.Context, *GetVolumePropertyRequest) (*GetVolumePropertyResponse, error)
+	SetVolumeProperty(context.Context, *SetVolumePropertyRequest) (*SetVolumePropertyResponse, error)
+	DeleteVolumeProperty(context.Context, *DeleteVolumePropertyRequest) (*DeleteVolumePropertyResponse, error)
+	// --- Share registry extensions (v0.9.0) ---
+	// GetShare + ResizeShare close the parity gap left by v0.8.0 ;
+	// ListShares / CreateShare / DeleteShare already live in v0.8.
+	GetShare(context.Context, *GetShareRequest) (*GetShareResponse, error)
+	ResizeShare(context.Context, *ResizeShareRequest) (*ResizeShareResponse, error)
+	// --- S3 Bucket registry ---
+	// openweft-side catalogue of S3 buckets ; bucket data lives on the
+	// S3 endpoint (versitygw / CubeFS objectnode). The registry tracks
+	// credentials + a mutable policy JSON the operator can rotate.
+	ListBuckets(context.Context, *ListBucketsRequest) (*ListBucketsResponse, error)
+	GetBucket(context.Context, *GetBucketRequest) (*GetBucketResponse, error)
+	CreateBucket(context.Context, *CreateBucketRequest) (*CreateBucketResponse, error)
+	DeleteBucket(context.Context, *DeleteBucketRequest) (*DeleteBucketResponse, error)
+	GetBucketPolicy(context.Context, *GetBucketPolicyRequest) (*GetBucketPolicyResponse, error)
+	SetBucketPolicy(context.Context, *SetBucketPolicyRequest) (*SetBucketPolicyResponse, error)
+	// --- SSH key catalogue (cluster-wide) ---
+	// Distinct from the per-VM weft instance sshkey surface ; the
+	// cluster catalogue lets VMs reference named keys (e.g. "ci-runner-1")
+	// by name instead of pasting the public-key blob at every CreateVM.
+	ListSSHKeyCatalogue(context.Context, *ListSSHKeyCatalogueRequest) (*ListSSHKeyCatalogueResponse, error)
+	AddSSHKeyCatalogue(context.Context, *AddSSHKeyCatalogueRequest) (*AddSSHKeyCatalogueResponse, error)
+	RemoveSSHKeyCatalogue(context.Context, *RemoveSSHKeyCatalogueRequest) (*RemoveSSHKeyCatalogueResponse, error)
+	ImportSSHKeyCatalogue(context.Context, *ImportSSHKeyCatalogueRequest) (*ImportSSHKeyCatalogueResponse, error)
+	// --- Scheduling rules (nominal bindings for placement) ---
+	// Per [[openweft_nominal_binding]] : a rule carries a label selector
+	// + target_count, the scheduler reconciles toward target_count VMs
+	// matching the selector (or pinned by nominal binding).
+	ListSchedulingRules(context.Context, *ListSchedulingRulesRequest) (*ListSchedulingRulesResponse, error)
+	CreateSchedulingRule(context.Context, *CreateSchedulingRuleRequest) (*CreateSchedulingRuleResponse, error)
+	UpdateSchedulingRule(context.Context, *UpdateSchedulingRuleRequest) (*UpdateSchedulingRuleResponse, error)
+	DeleteSchedulingRule(context.Context, *DeleteSchedulingRuleRequest) (*DeleteSchedulingRuleResponse, error)
+	// --- Registry remote (alias → endpoint catalogue) ---
+	// Operator-managed list of upstream OCI registries (ghcr.io,
+	// mirror.example.com, …). Used by the OCI puller to resolve
+	// catalogue references to a credential bundle + endpoint.
+	ListRegistryRemotes(context.Context, *ListRegistryRemotesRequest) (*ListRegistryRemotesResponse, error)
+	SetRegistryRemote(context.Context, *SetRegistryRemoteRequest) (*SetRegistryRemoteResponse, error)
+	DeleteRegistryRemote(context.Context, *DeleteRegistryRemoteRequest) (*DeleteRegistryRemoteResponse, error)
+	SearchRegistryRemote(context.Context, *SearchRegistryRemoteRequest) (*SearchRegistryRemoteResponse, error)
 	mustEmbedUnimplementedWeftAgentServer()
 }
 
@@ -2455,6 +2794,75 @@ func (UnimplementedWeftAgentServer) UpdateDNSRecord(context.Context, *UpdateDNSR
 }
 func (UnimplementedWeftAgentServer) DeleteDNSRecord(context.Context, *DeleteDNSRecordRequest) (*DeleteDNSRecordResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteDNSRecord not implemented")
+}
+func (UnimplementedWeftAgentServer) GetVolumeProperty(context.Context, *GetVolumePropertyRequest) (*GetVolumePropertyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetVolumeProperty not implemented")
+}
+func (UnimplementedWeftAgentServer) SetVolumeProperty(context.Context, *SetVolumePropertyRequest) (*SetVolumePropertyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetVolumeProperty not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteVolumeProperty(context.Context, *DeleteVolumePropertyRequest) (*DeleteVolumePropertyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteVolumeProperty not implemented")
+}
+func (UnimplementedWeftAgentServer) GetShare(context.Context, *GetShareRequest) (*GetShareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetShare not implemented")
+}
+func (UnimplementedWeftAgentServer) ResizeShare(context.Context, *ResizeShareRequest) (*ResizeShareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResizeShare not implemented")
+}
+func (UnimplementedWeftAgentServer) ListBuckets(context.Context, *ListBucketsRequest) (*ListBucketsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBuckets not implemented")
+}
+func (UnimplementedWeftAgentServer) GetBucket(context.Context, *GetBucketRequest) (*GetBucketResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetBucket not implemented")
+}
+func (UnimplementedWeftAgentServer) CreateBucket(context.Context, *CreateBucketRequest) (*CreateBucketResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateBucket not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteBucket(context.Context, *DeleteBucketRequest) (*DeleteBucketResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteBucket not implemented")
+}
+func (UnimplementedWeftAgentServer) GetBucketPolicy(context.Context, *GetBucketPolicyRequest) (*GetBucketPolicyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetBucketPolicy not implemented")
+}
+func (UnimplementedWeftAgentServer) SetBucketPolicy(context.Context, *SetBucketPolicyRequest) (*SetBucketPolicyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetBucketPolicy not implemented")
+}
+func (UnimplementedWeftAgentServer) ListSSHKeyCatalogue(context.Context, *ListSSHKeyCatalogueRequest) (*ListSSHKeyCatalogueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSSHKeyCatalogue not implemented")
+}
+func (UnimplementedWeftAgentServer) AddSSHKeyCatalogue(context.Context, *AddSSHKeyCatalogueRequest) (*AddSSHKeyCatalogueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AddSSHKeyCatalogue not implemented")
+}
+func (UnimplementedWeftAgentServer) RemoveSSHKeyCatalogue(context.Context, *RemoveSSHKeyCatalogueRequest) (*RemoveSSHKeyCatalogueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveSSHKeyCatalogue not implemented")
+}
+func (UnimplementedWeftAgentServer) ImportSSHKeyCatalogue(context.Context, *ImportSSHKeyCatalogueRequest) (*ImportSSHKeyCatalogueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ImportSSHKeyCatalogue not implemented")
+}
+func (UnimplementedWeftAgentServer) ListSchedulingRules(context.Context, *ListSchedulingRulesRequest) (*ListSchedulingRulesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSchedulingRules not implemented")
+}
+func (UnimplementedWeftAgentServer) CreateSchedulingRule(context.Context, *CreateSchedulingRuleRequest) (*CreateSchedulingRuleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSchedulingRule not implemented")
+}
+func (UnimplementedWeftAgentServer) UpdateSchedulingRule(context.Context, *UpdateSchedulingRuleRequest) (*UpdateSchedulingRuleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateSchedulingRule not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteSchedulingRule(context.Context, *DeleteSchedulingRuleRequest) (*DeleteSchedulingRuleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSchedulingRule not implemented")
+}
+func (UnimplementedWeftAgentServer) ListRegistryRemotes(context.Context, *ListRegistryRemotesRequest) (*ListRegistryRemotesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRegistryRemotes not implemented")
+}
+func (UnimplementedWeftAgentServer) SetRegistryRemote(context.Context, *SetRegistryRemoteRequest) (*SetRegistryRemoteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetRegistryRemote not implemented")
+}
+func (UnimplementedWeftAgentServer) DeleteRegistryRemote(context.Context, *DeleteRegistryRemoteRequest) (*DeleteRegistryRemoteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteRegistryRemote not implemented")
+}
+func (UnimplementedWeftAgentServer) SearchRegistryRemote(context.Context, *SearchRegistryRemoteRequest) (*SearchRegistryRemoteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SearchRegistryRemote not implemented")
 }
 func (UnimplementedWeftAgentServer) mustEmbedUnimplementedWeftAgentServer() {}
 func (UnimplementedWeftAgentServer) testEmbeddedByValue()                   {}
@@ -4954,6 +5362,420 @@ func _WeftAgent_DeleteDNSRecord_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WeftAgent_GetVolumeProperty_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetVolumePropertyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetVolumeProperty(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetVolumeProperty_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetVolumeProperty(ctx, req.(*GetVolumePropertyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_SetVolumeProperty_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetVolumePropertyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SetVolumeProperty(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SetVolumeProperty_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SetVolumeProperty(ctx, req.(*SetVolumePropertyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteVolumeProperty_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteVolumePropertyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteVolumeProperty(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteVolumeProperty_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteVolumeProperty(ctx, req.(*DeleteVolumePropertyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetShare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetShareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetShare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetShare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetShare(ctx, req.(*GetShareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ResizeShare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResizeShareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ResizeShare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ResizeShare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ResizeShare(ctx, req.(*ResizeShareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListBuckets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBucketsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListBuckets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListBuckets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListBuckets(ctx, req.(*ListBucketsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetBucket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBucketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetBucket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetBucket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetBucket(ctx, req.(*GetBucketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_CreateBucket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateBucketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).CreateBucket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_CreateBucket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).CreateBucket(ctx, req.(*CreateBucketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteBucket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteBucketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteBucket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteBucket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteBucket(ctx, req.(*DeleteBucketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetBucketPolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBucketPolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetBucketPolicy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetBucketPolicy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetBucketPolicy(ctx, req.(*GetBucketPolicyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_SetBucketPolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetBucketPolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SetBucketPolicy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SetBucketPolicy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SetBucketPolicy(ctx, req.(*SetBucketPolicyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListSSHKeyCatalogue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSSHKeyCatalogueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListSSHKeyCatalogue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListSSHKeyCatalogue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListSSHKeyCatalogue(ctx, req.(*ListSSHKeyCatalogueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_AddSSHKeyCatalogue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddSSHKeyCatalogueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).AddSSHKeyCatalogue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_AddSSHKeyCatalogue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).AddSSHKeyCatalogue(ctx, req.(*AddSSHKeyCatalogueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_RemoveSSHKeyCatalogue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveSSHKeyCatalogueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).RemoveSSHKeyCatalogue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_RemoveSSHKeyCatalogue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).RemoveSSHKeyCatalogue(ctx, req.(*RemoveSSHKeyCatalogueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ImportSSHKeyCatalogue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportSSHKeyCatalogueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ImportSSHKeyCatalogue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ImportSSHKeyCatalogue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ImportSSHKeyCatalogue(ctx, req.(*ImportSSHKeyCatalogueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListSchedulingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSchedulingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListSchedulingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListSchedulingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListSchedulingRules(ctx, req.(*ListSchedulingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_CreateSchedulingRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateSchedulingRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).CreateSchedulingRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_CreateSchedulingRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).CreateSchedulingRule(ctx, req.(*CreateSchedulingRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_UpdateSchedulingRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateSchedulingRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).UpdateSchedulingRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_UpdateSchedulingRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).UpdateSchedulingRule(ctx, req.(*UpdateSchedulingRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteSchedulingRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSchedulingRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteSchedulingRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteSchedulingRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteSchedulingRule(ctx, req.(*DeleteSchedulingRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_ListRegistryRemotes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRegistryRemotesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).ListRegistryRemotes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_ListRegistryRemotes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).ListRegistryRemotes(ctx, req.(*ListRegistryRemotesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_SetRegistryRemote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetRegistryRemoteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SetRegistryRemote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SetRegistryRemote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SetRegistryRemote(ctx, req.(*SetRegistryRemoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_DeleteRegistryRemote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRegistryRemoteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).DeleteRegistryRemote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_DeleteRegistryRemote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).DeleteRegistryRemote(ctx, req.(*DeleteRegistryRemoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_SearchRegistryRemote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchRegistryRemoteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SearchRegistryRemote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SearchRegistryRemote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SearchRegistryRemote(ctx, req.(*SearchRegistryRemoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WeftAgent_ServiceDesc is the grpc.ServiceDesc for WeftAgent service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -5508,6 +6330,98 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteDNSRecord",
 			Handler:    _WeftAgent_DeleteDNSRecord_Handler,
+		},
+		{
+			MethodName: "GetVolumeProperty",
+			Handler:    _WeftAgent_GetVolumeProperty_Handler,
+		},
+		{
+			MethodName: "SetVolumeProperty",
+			Handler:    _WeftAgent_SetVolumeProperty_Handler,
+		},
+		{
+			MethodName: "DeleteVolumeProperty",
+			Handler:    _WeftAgent_DeleteVolumeProperty_Handler,
+		},
+		{
+			MethodName: "GetShare",
+			Handler:    _WeftAgent_GetShare_Handler,
+		},
+		{
+			MethodName: "ResizeShare",
+			Handler:    _WeftAgent_ResizeShare_Handler,
+		},
+		{
+			MethodName: "ListBuckets",
+			Handler:    _WeftAgent_ListBuckets_Handler,
+		},
+		{
+			MethodName: "GetBucket",
+			Handler:    _WeftAgent_GetBucket_Handler,
+		},
+		{
+			MethodName: "CreateBucket",
+			Handler:    _WeftAgent_CreateBucket_Handler,
+		},
+		{
+			MethodName: "DeleteBucket",
+			Handler:    _WeftAgent_DeleteBucket_Handler,
+		},
+		{
+			MethodName: "GetBucketPolicy",
+			Handler:    _WeftAgent_GetBucketPolicy_Handler,
+		},
+		{
+			MethodName: "SetBucketPolicy",
+			Handler:    _WeftAgent_SetBucketPolicy_Handler,
+		},
+		{
+			MethodName: "ListSSHKeyCatalogue",
+			Handler:    _WeftAgent_ListSSHKeyCatalogue_Handler,
+		},
+		{
+			MethodName: "AddSSHKeyCatalogue",
+			Handler:    _WeftAgent_AddSSHKeyCatalogue_Handler,
+		},
+		{
+			MethodName: "RemoveSSHKeyCatalogue",
+			Handler:    _WeftAgent_RemoveSSHKeyCatalogue_Handler,
+		},
+		{
+			MethodName: "ImportSSHKeyCatalogue",
+			Handler:    _WeftAgent_ImportSSHKeyCatalogue_Handler,
+		},
+		{
+			MethodName: "ListSchedulingRules",
+			Handler:    _WeftAgent_ListSchedulingRules_Handler,
+		},
+		{
+			MethodName: "CreateSchedulingRule",
+			Handler:    _WeftAgent_CreateSchedulingRule_Handler,
+		},
+		{
+			MethodName: "UpdateSchedulingRule",
+			Handler:    _WeftAgent_UpdateSchedulingRule_Handler,
+		},
+		{
+			MethodName: "DeleteSchedulingRule",
+			Handler:    _WeftAgent_DeleteSchedulingRule_Handler,
+		},
+		{
+			MethodName: "ListRegistryRemotes",
+			Handler:    _WeftAgent_ListRegistryRemotes_Handler,
+		},
+		{
+			MethodName: "SetRegistryRemote",
+			Handler:    _WeftAgent_SetRegistryRemote_Handler,
+		},
+		{
+			MethodName: "DeleteRegistryRemote",
+			Handler:    _WeftAgent_DeleteRegistryRemote_Handler,
+		},
+		{
+			MethodName: "SearchRegistryRemote",
+			Handler:    _WeftAgent_SearchRegistryRemote_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

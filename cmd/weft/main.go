@@ -43,15 +43,19 @@ import (
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/plugin"
 	"github.com/openweft/weft/cmd/weft/az"
+	"github.com/openweft/weft/cmd/weft/bucket"
 	"github.com/openweft/weft/cmd/weft/dnsrecord"
 	"github.com/openweft/weft/cmd/weft/dnszone"
 	"github.com/openweft/weft/cmd/weft/loadbalancer"
 	"github.com/openweft/weft/cmd/weft/project"
 	"github.com/openweft/weft/cmd/weft/quota"
 	"github.com/openweft/weft/cmd/weft/rack"
+	"github.com/openweft/weft/cmd/weft/registry"
+	"github.com/openweft/weft/cmd/weft/schedulingrule"
 	"github.com/openweft/weft/cmd/weft/script"
 	"github.com/openweft/weft/cmd/weft/securitygroup"
 	"github.com/openweft/weft/cmd/weft/share"
+	"github.com/openweft/weft/cmd/weft/sshkeycatalogue"
 	"github.com/openweft/weft/cmd/weft/subnet"
 	"github.com/openweft/weft/cmd/weft/tenant"
 	"github.com/openweft/weft/cmd/weft/user"
@@ -155,6 +159,10 @@ running agent.`,
 		loadbalancer.Command(&socketPath, &sshSocket, &sshKey),
 		dnszone.Command(&socketPath, &sshSocket, &sshKey),
 		dnsrecord.Command(&socketPath, &sshSocket, &sshKey),
+		bucket.Command(&socketPath, &sshSocket, &sshKey),
+		sshkeycatalogue.Command(&socketPath, &sshSocket, &sshKey),
+		schedulingrule.Command(&socketPath, &sshSocket, &sshKey),
+		registry.Command(&socketPath, &sshSocket, &sshKey),
 		tenant.Command(&socketPath, &sshSocket, &sshKey),
 		quota.Command(&socketPath, &sshSocket, &sshKey),
 		admin.Command(&socketPath, &sshSocket, &sshKey),
@@ -2318,6 +2326,478 @@ func toDNSRecordInfo(rec weft.DNSRecord) *weftv1.DNSRecordInfo {
 		Ttl:             rec.TTL,
 		Priority:        rec.Priority,
 		CreatedAtUnixNs: rec.CreatedAt.UnixNano(),
+	}
+}
+
+// ---- Volume properties (v0.9.0) -----------------------------------
+
+func (s *weftServer) GetVolumeProperty(_ context.Context, req *weftv1.GetVolumePropertyRequest) (*weftv1.GetVolumePropertyResponse, error) {
+	if req.VolumeUuid == "" || req.Key == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume_uuid and key are required")
+	}
+	p, ok := s.adp.GetVolumeProperty(req.VolumeUuid, req.Key)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "volume property not found")
+	}
+	return &weftv1.GetVolumePropertyResponse{Property: toVolumePropertyInfo(p)}, nil
+}
+
+func (s *weftServer) SetVolumeProperty(ctx context.Context, req *weftv1.SetVolumePropertyRequest) (*weftv1.SetVolumePropertyResponse, error) {
+	if req.VolumeUuid == "" || req.Key == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume_uuid and key are required")
+	}
+	if err := weft.RequireAdmin(ctx, "set volume property"); err != nil {
+		return nil, err
+	}
+	p, err := s.adp.SetVolumeProperty(req.VolumeUuid, req.Key, req.Value)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "set volume property: %v", err)
+	}
+	return &weftv1.SetVolumePropertyResponse{Property: toVolumePropertyInfo(p)}, nil
+}
+
+func (s *weftServer) DeleteVolumeProperty(ctx context.Context, req *weftv1.DeleteVolumePropertyRequest) (*weftv1.DeleteVolumePropertyResponse, error) {
+	if req.VolumeUuid == "" || req.Key == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume_uuid and key are required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete volume property"); err != nil {
+		return nil, err
+	}
+	if err := s.adp.DeleteVolumeProperty(req.VolumeUuid, req.Key); err != nil {
+		return nil, status.Errorf(codes.Internal, "delete volume property: %v", err)
+	}
+	return &weftv1.DeleteVolumePropertyResponse{}, nil
+}
+
+func toVolumePropertyInfo(p weft.VolumeProperty) *weftv1.VolumePropertyInfo {
+	return &weftv1.VolumePropertyInfo{
+		VolumeUuid:      p.VolumeUUID,
+		Key:             p.Key,
+		Value:           p.Value,
+		UpdatedAtUnixNs: p.UpdatedAt.UnixNano(),
+	}
+}
+
+// ---- Shares (v0.8 list/create/delete + v0.9 get/resize) ----------
+
+func (s *weftServer) ListShares(_ context.Context, req *weftv1.ListSharesRequest) (*weftv1.ListSharesResponse, error) {
+	projUUID := s.resolveProjectUUID(req.Project)
+	shares := s.adp.Shares(projUUID)
+	out := make([]*weftv1.ShareInfo, 0, len(shares))
+	for _, sh := range shares {
+		out = append(out, toShareInfo(sh))
+	}
+	return &weftv1.ListSharesResponse{Shares: out}, nil
+}
+
+func (s *weftServer) GetShare(_ context.Context, req *weftv1.GetShareRequest) (*weftv1.GetShareResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	sh, ok := s.adp.ShareByUUID(req.Uuid)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "share not found")
+	}
+	return &weftv1.GetShareResponse{Share: toShareInfo(sh)}, nil
+}
+
+func (s *weftServer) CreateShare(ctx context.Context, req *weftv1.CreateShareRequest) (*weftv1.CreateShareResponse, error) {
+	if req.Name == "" || req.SizeGb <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "name and size_gb (>0) are required")
+	}
+	if err := weft.RequireAdmin(ctx, "create share"); err != nil {
+		return nil, err
+	}
+	projUUID := s.resolveProjectUUID(req.Project)
+	if projUUID == "" {
+		return nil, status.Error(codes.InvalidArgument, "project is required")
+	}
+	sh, created, err := s.adp.CreateShare(projUUID, req.Name, req.SizeGb, req.Readonly, req.Backend)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "create share: %v", err)
+	}
+	logger.Printf("CreateShare project=%s name=%s uuid=%s created=%v", sh.ProjectUUID, sh.Name, sh.UUID, created)
+	return &weftv1.CreateShareResponse{Share: toShareInfo(sh)}, nil
+}
+
+func (s *weftServer) ResizeShare(ctx context.Context, req *weftv1.ResizeShareRequest) (*weftv1.ResizeShareResponse, error) {
+	if req.Uuid == "" || req.NewSizeGb <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "uuid and new_size_gb (>0) are required")
+	}
+	if err := weft.RequireAdmin(ctx, "resize share"); err != nil {
+		return nil, err
+	}
+	sh, err := s.adp.ResizeShare(req.Uuid, req.NewSizeGb)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "resize share: %v", err)
+	}
+	logger.Printf("ResizeShare uuid=%s new_size_gb=%d", sh.UUID, sh.SizeGB)
+	return &weftv1.ResizeShareResponse{Share: toShareInfo(sh)}, nil
+}
+
+func (s *weftServer) DeleteShare(ctx context.Context, req *weftv1.DeleteShareRequest) (*weftv1.DeleteShareResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete share"); err != nil {
+		return nil, err
+	}
+	if err := s.adp.DeleteShare(req.Uuid); err != nil {
+		return nil, status.Errorf(codes.NotFound, "delete share: %v", err)
+	}
+	logger.Printf("DeleteShare uuid=%s", req.Uuid)
+	return &weftv1.DeleteShareResponse{}, nil
+}
+
+func toShareInfo(sh weft.Share) *weftv1.ShareInfo {
+	return &weftv1.ShareInfo{
+		Uuid:            sh.UUID,
+		Name:            sh.Name,
+		ProjectUuid:     sh.ProjectUUID,
+		Backend:         sh.Backend,
+		SizeGb:          sh.SizeGB,
+		Readonly:        sh.Readonly,
+		Status:          sh.Status,
+		CreatedAtUnixNs: sh.CreatedAt.UnixNano(),
+	}
+}
+
+// ---- Buckets (v0.9.0) ---------------------------------------------
+
+func (s *weftServer) ListBuckets(_ context.Context, req *weftv1.ListBucketsRequest) (*weftv1.ListBucketsResponse, error) {
+	projUUID := s.resolveProjectUUID(req.Project)
+	bks := s.adp.Buckets(projUUID)
+	out := make([]*weftv1.BucketInfo, 0, len(bks))
+	for _, b := range bks {
+		out = append(out, toBucketInfoListView(b))
+	}
+	return &weftv1.ListBucketsResponse{Buckets: out}, nil
+}
+
+func (s *weftServer) GetBucket(_ context.Context, req *weftv1.GetBucketRequest) (*weftv1.GetBucketResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	b, ok := s.adp.BucketByUUID(req.Uuid)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "bucket not found")
+	}
+	return &weftv1.GetBucketResponse{Bucket: toBucketInfoFull(b)}, nil
+}
+
+func (s *weftServer) CreateBucket(ctx context.Context, req *weftv1.CreateBucketRequest) (*weftv1.CreateBucketResponse, error) {
+	if req.Name == "" || req.Endpoint == "" {
+		return nil, status.Error(codes.InvalidArgument, "name and endpoint are required")
+	}
+	if err := weft.RequireAdmin(ctx, "create bucket"); err != nil {
+		return nil, err
+	}
+	projUUID := s.resolveProjectUUID(req.Project)
+	if projUUID == "" {
+		return nil, status.Error(codes.InvalidArgument, "project is required")
+	}
+	b, created, err := s.adp.CreateBucket(projUUID, req.Name, req.Endpoint, req.Region, req.AccessKeyId, req.SecretAccessKey)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "create bucket: %v", err)
+	}
+	logger.Printf("CreateBucket project=%s name=%s uuid=%s created=%v", b.ProjectUUID, b.Name, b.UUID, created)
+	return &weftv1.CreateBucketResponse{Bucket: toBucketInfoFull(b), Created: created}, nil
+}
+
+func (s *weftServer) DeleteBucket(ctx context.Context, req *weftv1.DeleteBucketRequest) (*weftv1.DeleteBucketResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete bucket"); err != nil {
+		return nil, err
+	}
+	if err := s.adp.DeleteBucket(req.Uuid); err != nil {
+		return nil, status.Errorf(codes.NotFound, "delete bucket: %v", err)
+	}
+	logger.Printf("DeleteBucket uuid=%s", req.Uuid)
+	return &weftv1.DeleteBucketResponse{DeletedUuid: req.Uuid}, nil
+}
+
+func (s *weftServer) GetBucketPolicy(_ context.Context, req *weftv1.GetBucketPolicyRequest) (*weftv1.GetBucketPolicyResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	b, ok := s.adp.BucketByUUID(req.Uuid)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "bucket not found")
+	}
+	return &weftv1.GetBucketPolicyResponse{Policy: b.Policy}, nil
+}
+
+func (s *weftServer) SetBucketPolicy(ctx context.Context, req *weftv1.SetBucketPolicyRequest) (*weftv1.SetBucketPolicyResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "set bucket policy"); err != nil {
+		return nil, err
+	}
+	b, err := s.adp.SetBucketPolicy(req.Uuid, req.Policy)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "set bucket policy: %v", err)
+	}
+	logger.Printf("SetBucketPolicy uuid=%s", b.UUID)
+	return &weftv1.SetBucketPolicyResponse{Bucket: toBucketInfoFull(b)}, nil
+}
+
+// toBucketInfoListView omits the secret_access_key + policy from
+// list responses (a bucket list of N rows shouldn't drag N policy
+// JSON blobs across the wire). GetBucket + Get/SetBucketPolicy
+// round-trip the full blob.
+func toBucketInfoListView(b weft.Bucket) *weftv1.BucketInfo {
+	return &weftv1.BucketInfo{
+		Uuid:            b.UUID,
+		ProjectUuid:     b.ProjectUUID,
+		Name:            b.Name,
+		Endpoint:        b.Endpoint,
+		Region:          b.Region,
+		AccessKeyId:     b.AccessKeyID,
+		CreatedAtUnixNs: b.CreatedAt.UnixNano(),
+	}
+}
+
+func toBucketInfoFull(b weft.Bucket) *weftv1.BucketInfo {
+	return &weftv1.BucketInfo{
+		Uuid:            b.UUID,
+		ProjectUuid:     b.ProjectUUID,
+		Name:            b.Name,
+		Endpoint:        b.Endpoint,
+		Region:          b.Region,
+		AccessKeyId:     b.AccessKeyID,
+		SecretAccessKey: b.SecretAccessKey,
+		Policy:          b.Policy,
+		CreatedAtUnixNs: b.CreatedAt.UnixNano(),
+	}
+}
+
+// ---- SSH key catalogue (v0.9.0) -----------------------------------
+
+func (s *weftServer) ListSSHKeyCatalogue(_ context.Context, _ *weftv1.ListSSHKeyCatalogueRequest) (*weftv1.ListSSHKeyCatalogueResponse, error) {
+	keys := s.adp.SSHKeyCatalogue()
+	out := make([]*weftv1.SSHKeyCatalogueEntry, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, toSSHKeyCatEntry(k))
+	}
+	return &weftv1.ListSSHKeyCatalogueResponse{Keys: out}, nil
+}
+
+func (s *weftServer) AddSSHKeyCatalogue(ctx context.Context, req *weftv1.AddSSHKeyCatalogueRequest) (*weftv1.AddSSHKeyCatalogueResponse, error) {
+	if req.Name == "" || req.PublicKey == "" {
+		return nil, status.Error(codes.InvalidArgument, "name and public_key are required")
+	}
+	if err := weft.RequireAdmin(ctx, "add sshkey catalogue"); err != nil {
+		return nil, err
+	}
+	k, added, err := s.adp.AddSSHKeyCatalogue(req.Name, req.PublicKey, req.Comment)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "add sshkey catalogue: %v", err)
+	}
+	logger.Printf("AddSSHKeyCatalogue name=%s uuid=%s added=%v", k.Name, k.UUID, added)
+	return &weftv1.AddSSHKeyCatalogueResponse{Key: toSSHKeyCatEntry(k), Added: added}, nil
+}
+
+func (s *weftServer) RemoveSSHKeyCatalogue(ctx context.Context, req *weftv1.RemoveSSHKeyCatalogueRequest) (*weftv1.RemoveSSHKeyCatalogueResponse, error) {
+	if req.Uuid == "" && req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid or name is required")
+	}
+	if err := weft.RequireAdmin(ctx, "remove sshkey catalogue"); err != nil {
+		return nil, err
+	}
+	uuid := req.Uuid
+	if uuid == "" {
+		k, ok := s.adp.SSHKeyCatalogueByName(req.Name)
+		if !ok {
+			return nil, status.Errorf(codes.NotFound, "sshkey %q not found", req.Name)
+		}
+		uuid = k.UUID
+	}
+	if err := s.adp.RemoveSSHKeyCatalogue(uuid); err != nil {
+		return nil, status.Errorf(codes.NotFound, "remove sshkey catalogue: %v", err)
+	}
+	logger.Printf("RemoveSSHKeyCatalogue uuid=%s", uuid)
+	return &weftv1.RemoveSSHKeyCatalogueResponse{DeletedUuid: uuid}, nil
+}
+
+func (s *weftServer) ImportSSHKeyCatalogue(ctx context.Context, req *weftv1.ImportSSHKeyCatalogueRequest) (*weftv1.ImportSSHKeyCatalogueResponse, error) {
+	if req.NamePrefix == "" || req.Blob == "" {
+		return nil, status.Error(codes.InvalidArgument, "name_prefix and blob are required")
+	}
+	if err := weft.RequireAdmin(ctx, "import sshkey catalogue"); err != nil {
+		return nil, err
+	}
+	imported, skipped, err := s.adp.ImportSSHKeyCatalogue(req.NamePrefix, req.Blob, req.Comment)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "import sshkey catalogue: %v", err)
+	}
+	out := make([]*weftv1.SSHKeyCatalogueEntry, 0, len(imported))
+	for _, k := range imported {
+		out = append(out, toSSHKeyCatEntry(k))
+	}
+	logger.Printf("ImportSSHKeyCatalogue prefix=%s imported=%d skipped=%d", req.NamePrefix, len(imported), skipped)
+	return &weftv1.ImportSSHKeyCatalogueResponse{Imported: out, SkippedDuplicates: skipped}, nil
+}
+
+func toSSHKeyCatEntry(k weft.SSHKeyCatalogueEntry) *weftv1.SSHKeyCatalogueEntry {
+	return &weftv1.SSHKeyCatalogueEntry{
+		Uuid:          k.UUID,
+		Name:          k.Name,
+		PublicKey:     k.PublicKey,
+		Fingerprint:   k.Fingerprint,
+		Comment:       k.Comment,
+		AddedAtUnixNs: k.AddedAt.UnixNano(),
+	}
+}
+
+// ---- Scheduling rules (v0.9.0) ------------------------------------
+
+func (s *weftServer) ListSchedulingRules(_ context.Context, _ *weftv1.ListSchedulingRulesRequest) (*weftv1.ListSchedulingRulesResponse, error) {
+	rules := s.adp.SchedulingRules()
+	out := make([]*weftv1.SchedulingRuleInfo, 0, len(rules))
+	for _, r := range rules {
+		out = append(out, toSchedulingRuleInfo(r))
+	}
+	return &weftv1.ListSchedulingRulesResponse{Rules: out}, nil
+}
+
+func (s *weftServer) CreateSchedulingRule(ctx context.Context, req *weftv1.CreateSchedulingRuleRequest) (*weftv1.CreateSchedulingRuleResponse, error) {
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if err := weft.RequireAdmin(ctx, "create scheduling rule"); err != nil {
+		return nil, err
+	}
+	r, created, err := s.adp.CreateSchedulingRule(req.Name, req.Selector, req.TargetCount, req.AntiAffinity)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "create scheduling rule: %v", err)
+	}
+	logger.Printf("CreateSchedulingRule name=%s uuid=%s created=%v", r.Name, r.UUID, created)
+	return &weftv1.CreateSchedulingRuleResponse{Rule: toSchedulingRuleInfo(r), Created: created}, nil
+}
+
+func (s *weftServer) UpdateSchedulingRule(ctx context.Context, req *weftv1.UpdateSchedulingRuleRequest) (*weftv1.UpdateSchedulingRuleResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "update scheduling rule"); err != nil {
+		return nil, err
+	}
+	r, err := s.adp.UpdateSchedulingRule(req.Uuid, req.Selector, req.TargetCount, req.AntiAffinity)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "update scheduling rule: %v", err)
+	}
+	logger.Printf("UpdateSchedulingRule uuid=%s", r.UUID)
+	return &weftv1.UpdateSchedulingRuleResponse{Rule: toSchedulingRuleInfo(r)}, nil
+}
+
+func (s *weftServer) DeleteSchedulingRule(ctx context.Context, req *weftv1.DeleteSchedulingRuleRequest) (*weftv1.DeleteSchedulingRuleResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete scheduling rule"); err != nil {
+		return nil, err
+	}
+	if err := s.adp.DeleteSchedulingRule(req.Uuid); err != nil {
+		return nil, status.Errorf(codes.NotFound, "delete scheduling rule: %v", err)
+	}
+	logger.Printf("DeleteSchedulingRule uuid=%s", req.Uuid)
+	return &weftv1.DeleteSchedulingRuleResponse{DeletedUuid: req.Uuid}, nil
+}
+
+func toSchedulingRuleInfo(r weft.SchedulingRuleEntry) *weftv1.SchedulingRuleInfo {
+	return &weftv1.SchedulingRuleInfo{
+		Uuid:            r.UUID,
+		Name:            r.Name,
+		Selector:        r.Selector,
+		TargetCount:     r.TargetCount,
+		AntiAffinity:    r.AntiAffinity,
+		CreatedAtUnixNs: r.CreatedAt.UnixNano(),
+	}
+}
+
+// ---- Registry remotes (v0.9.0) ------------------------------------
+
+func (s *weftServer) ListRegistryRemotes(_ context.Context, _ *weftv1.ListRegistryRemotesRequest) (*weftv1.ListRegistryRemotesResponse, error) {
+	remotes := s.adp.RegistryRemotes()
+	out := make([]*weftv1.RegistryRemoteInfo, 0, len(remotes))
+	for _, r := range remotes {
+		out = append(out, toRegistryRemoteInfo(r))
+	}
+	return &weftv1.ListRegistryRemotesResponse{Remotes: out}, nil
+}
+
+func (s *weftServer) SetRegistryRemote(ctx context.Context, req *weftv1.SetRegistryRemoteRequest) (*weftv1.SetRegistryRemoteResponse, error) {
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if err := weft.RequireAdmin(ctx, "set registry remote"); err != nil {
+		return nil, err
+	}
+	r, created, err := s.adp.SetRegistryRemote(req.Name, req.Endpoint, req.Insecure, req.CredentialSecretRef)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "set registry remote: %v", err)
+	}
+	logger.Printf("SetRegistryRemote name=%s uuid=%s created=%v", r.Name, r.UUID, created)
+	return &weftv1.SetRegistryRemoteResponse{Remote: toRegistryRemoteInfo(r), Created: created}, nil
+}
+
+func (s *weftServer) DeleteRegistryRemote(ctx context.Context, req *weftv1.DeleteRegistryRemoteRequest) (*weftv1.DeleteRegistryRemoteResponse, error) {
+	if req.Uuid == "" && req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid or name is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete registry remote"); err != nil {
+		return nil, err
+	}
+	uuid := req.Uuid
+	if uuid == "" {
+		r, ok := s.adp.RegistryRemoteByName(req.Name)
+		if !ok {
+			return nil, status.Errorf(codes.NotFound, "registry remote %q not found", req.Name)
+		}
+		uuid = r.UUID
+	}
+	if err := s.adp.DeleteRegistryRemote(uuid); err != nil {
+		return nil, status.Errorf(codes.NotFound, "delete registry remote: %v", err)
+	}
+	logger.Printf("DeleteRegistryRemote uuid=%s", uuid)
+	return &weftv1.DeleteRegistryRemoteResponse{DeletedUuid: uuid}, nil
+}
+
+// SearchRegistryRemote is a stub today : the server doesn't proxy
+// the upstream catalogue (no /v2/_catalog dialer in-tree yet).
+// Returns the registry name + empty repository list so clients can
+// distinguish "no matches" from "registry unknown". Wired when a
+// future commit adds the upstream walker.
+func (s *weftServer) SearchRegistryRemote(_ context.Context, req *weftv1.SearchRegistryRemoteRequest) (*weftv1.SearchRegistryRemoteResponse, error) {
+	if req.Uuid == "" && req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid or name is required")
+	}
+	var (
+		r  weft.RegistryRemote
+		ok bool
+	)
+	if req.Uuid != "" {
+		r, ok = s.adp.RegistryRemoteByUUID(req.Uuid)
+	} else {
+		r, ok = s.adp.RegistryRemoteByName(req.Name)
+	}
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "registry remote not found")
+	}
+	return &weftv1.SearchRegistryRemoteResponse{RegistryName: r.Name}, nil
+}
+
+func toRegistryRemoteInfo(r weft.RegistryRemote) *weftv1.RegistryRemoteInfo {
+	return &weftv1.RegistryRemoteInfo{
+		Uuid:                r.UUID,
+		Name:                r.Name,
+		Endpoint:            r.Endpoint,
+		Insecure:            r.Insecure,
+		CredentialSecretRef: r.CredentialSecretRef,
+		CreatedAtUnixNs:     r.CreatedAt.UnixNano(),
 	}
 }
 

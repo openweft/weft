@@ -133,6 +133,36 @@ type VZAdapter interface {
 	CreateDNSRecord(zoneUUID, name, recordType, value string, ttl, priority int32) (DNSRecord, bool, error)
 	UpdateDNSRecord(uuid, value string, ttl, priority int32) (DNSRecord, error)
 	DeleteDNSRecord(uuid string) error
+	// Resource registries (proto v0.9.0). See resources_adapter.go.
+	GetVolumeProperty(volumeUUID, key string) (VolumeProperty, bool)
+	SetVolumeProperty(volumeUUID, key, value string) (VolumeProperty, error)
+	DeleteVolumeProperty(volumeUUID, key string) error
+	Shares(projectUUID string) []Share
+	ShareByUUID(uuid string) (Share, bool)
+	CreateShare(projectUUID, name string, sizeGB int64, readonly bool, backend string) (Share, bool, error)
+	ResizeShare(uuid string, newSizeGB int64) (Share, error)
+	DeleteShare(uuid string) error
+	Buckets(projectUUID string) []Bucket
+	BucketByUUID(uuid string) (Bucket, bool)
+	CreateBucket(projectUUID, name, endpoint, region, accessKey, secretKey string) (Bucket, bool, error)
+	SetBucketPolicy(uuid, policy string) (Bucket, error)
+	DeleteBucket(uuid string) error
+	SSHKeyCatalogue() []SSHKeyCatalogueEntry
+	SSHKeyCatalogueByUUID(uuid string) (SSHKeyCatalogueEntry, bool)
+	SSHKeyCatalogueByName(name string) (SSHKeyCatalogueEntry, bool)
+	AddSSHKeyCatalogue(name, publicKey, comment string) (SSHKeyCatalogueEntry, bool, error)
+	RemoveSSHKeyCatalogue(uuid string) error
+	ImportSSHKeyCatalogue(namePrefix, blob, comment string) ([]SSHKeyCatalogueEntry, int32, error)
+	SchedulingRules() []SchedulingRuleEntry
+	SchedulingRuleByUUID(uuid string) (SchedulingRuleEntry, bool)
+	CreateSchedulingRule(name, selector string, targetCount int32, antiAffinity string) (SchedulingRuleEntry, bool, error)
+	UpdateSchedulingRule(uuid, selector string, targetCount int32, antiAffinity string) (SchedulingRuleEntry, error)
+	DeleteSchedulingRule(uuid string) error
+	RegistryRemotes() []RegistryRemote
+	RegistryRemoteByUUID(uuid string) (RegistryRemote, bool)
+	RegistryRemoteByName(name string) (RegistryRemote, bool)
+	SetRegistryRemote(name, endpoint string, insecure bool, credSecretRef string) (RegistryRemote, bool, error)
+	DeleteRegistryRemote(uuid string) error
 	// User registry surface — maps (OIDC issuer, subject) ↔ stable
 	// weft UUID. Volatile fields (email, groups, last_seen) refresh
 	// on every successful auth via RegisterUser. See users.go.
@@ -394,6 +424,19 @@ type Adapter struct {
 	lbReg        *loadBalancerRegistry
 	dnsZoneReg   *dnsZoneRegistry
 	dnsRecordReg *dnsRecordRegistry
+	// Resource registries (proto v0.9.0). Volume properties mirror
+	// VMProperty addressed by volume UUID ; shares are control-plane
+	// CubeFS share catalogue entries ; buckets are S3 catalogue
+	// entries ; sshKeyCat is the cluster-wide named-key catalogue ;
+	// schedRules carry selector + target_count for nominal binding ;
+	// registryRemotes is the OCI registry alias map. See
+	// resources_adapter.go.
+	volumePropReg   *volumePropertyRegistry
+	shareReg        *shareRegistry
+	bucketReg       *bucketRegistry
+	sshKeyCatReg    *sshKeyCatalogueRegistry
+	schedRuleReg    *schedulingRuleRegistry
+	registryRemReg  *registryRemoteRegistry
 	// vmReg holds the VM inventory — one entry per managed VM,
 	// each carrying its host_uuid for multi-host dispatch. See
 	// vms.go.
@@ -642,6 +685,7 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 	a.initHosts()
 	a.initVMs()
 	a.initTenantQuotas()
+	a.initResources()
 	a.scheduler = FirstFitScheduler{} // operator-overridable via SetScheduler
 	if err := a.selfRegisterHost(); err != nil {
 		// Non-fatal: weft still serves requests, but the registry

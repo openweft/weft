@@ -2,6 +2,7 @@ package share
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/openweft/weft/cmd/weft/internal/testutil"
@@ -18,7 +19,8 @@ func TestCommand_Structure(t *testing.T) {
 	want := map[string]bool{
 		"ls": false, "show <uuid>": false,
 		"create": false, "rm <uuid>": false,
-		"attach": false, "detach": false,
+		"resize <uuid>": false,
+		"attach":        false, "detach": false,
 	}
 	for _, sub := range root.Commands() {
 		want[sub.Use] = true
@@ -79,11 +81,11 @@ func TestRm_Success(t *testing.T) {
 
 func TestShow_Match(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListSharesFn = func(_ context.Context, _ *weftv1.ListSharesRequest) (*weftv1.ListSharesResponse, error) {
-		return &weftv1.ListSharesResponse{Shares: []*weftv1.ShareInfo{
-			{Uuid: "u1", Name: "n1"},
-			{Uuid: "u2", Name: "n2"},
-		}}, nil
+	srv.GetShareFn = func(_ context.Context, req *weftv1.GetShareRequest) (*weftv1.GetShareResponse, error) {
+		if req.Uuid != "u2" {
+			t.Errorf("uuid: %q", req.Uuid)
+		}
+		return &weftv1.GetShareResponse{Share: &weftv1.ShareInfo{Uuid: "u2", Name: "n2"}}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"show", "u2"})
@@ -94,8 +96,8 @@ func TestShow_Match(t *testing.T) {
 
 func TestShow_Miss(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.ListSharesFn = func(_ context.Context, _ *weftv1.ListSharesRequest) (*weftv1.ListSharesResponse, error) {
-		return &weftv1.ListSharesResponse{}, nil
+	srv.GetShareFn = func(_ context.Context, _ *weftv1.GetShareRequest) (*weftv1.GetShareResponse, error) {
+		return nil, fmt.Errorf("share not found")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
 	cmd.SetArgs([]string{"show", "absent"})
@@ -103,6 +105,21 @@ func TestShow_Miss(t *testing.T) {
 	cmd.SilenceUsage = true
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected miss error")
+	}
+}
+
+func TestResize_Success(t *testing.T) {
+	srv := testutil.NewServer(t)
+	srv.ResizeShareFn = func(_ context.Context, req *weftv1.ResizeShareRequest) (*weftv1.ResizeShareResponse, error) {
+		if req.Uuid != "u1" || req.NewSizeGb != 100 {
+			t.Errorf("resize req: %+v", req)
+		}
+		return &weftv1.ResizeShareResponse{Share: &weftv1.ShareInfo{Uuid: req.Uuid, SizeGb: req.NewSizeGb}}, nil
+	}
+	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
+	cmd.SetArgs([]string{"resize", "u1", "--new-size-gb", "100"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("resize: %v", err)
 	}
 }
 

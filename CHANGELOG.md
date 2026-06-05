@@ -9,6 +9,43 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ### Added
 
+- **Tier 4-6 parity wave : 6 resource families + 22 RPCs + 5 new CLI
+  packages** — closes the last CLI-vs-webui parity gap surfaced by
+  the audit. Bumps weft-proto consume to v0.9.0 ; server-side
+  registries + handlers + CLI all land in one commit.
+
+  - **VolumeProperty (3 RPCs)** — mirror of VMProperty addressed by
+    `volume_uuid`. Server : `volumeproperties.go` + adapter wrapper.
+    CLI : `weft volume property {set, get, delete}` (nested under
+    `weft volume`).
+  - **Share extensions (3 RPCs)** — closes the v0.8 gap : server
+    registry shipped (`shares.go` + `CreateShare` / `DeleteShare`
+    handlers, previously Unimplemented), plus `GetShare` +
+    `ResizeShare` added. CLI : new `weft share resize` + show
+    switched to `GetShare` RPC.
+  - **Bucket (6 RPCs)** — S3 bucket catalogue (data on versitygw /
+    CubeFS objectnode). Server : `buckets.go` + handlers. CLI :
+    `weft bucket {ls, show, create, rm, policy {get, set}}`.
+  - **SSH-key catalogue (4 RPCs)** — cluster-wide named keys
+    distinct from per-VM `weft instance sshkey`. Server :
+    `sshkeycatalogue.go` (SHA256 fingerprint + idempotent on
+    fingerprint). CLI : `weft sshkey-catalogue {ls, add, rm, import}`.
+  - **Scheduling rule (4 RPCs)** — per [[openweft_nominal_binding]],
+    nominal placement rules with selector + target_count +
+    anti_affinity. Server : `schedulingrules.go`. CLI :
+    `weft scheduling-rule {ls, create, update, rm}` (alias `sr`).
+  - **Registry remote (4 RPCs)** — OCI registry alias catalogue.
+    Server : `registryremotes.go` (upsert on name, partial PATCH
+    on endpoint). CLI : `weft registry {ls, set, rm, search}`.
+    `SearchRegistryRemote` server-side : stub returning the
+    registry name (upstream catalogue dialer is follow-up).
+
+  - **Adapter glue** : new fields on `Adapter` for the six
+    registries, `initResources()` wired into `NewWithStorage`,
+    `VZAdapter` interface methods extended.
+  - **testutil** : Fn surface + handler stubs added for every new
+    RPC so CLI tests mock the wire end-to-end.
+
 - **CLI : `weft share` CRUD verbs + `weft instance sshkey import`** —
   Tier-4 parity follow-up. The `share` group grew `ls`, `show`,
   `create`, `rm` on top of the existing `attach`/`detach` ; each new
