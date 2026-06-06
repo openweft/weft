@@ -62,6 +62,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/volume"
 	"github.com/openweft/weft/cmd/weft/wait"
 	"github.com/openweft/weft/federation"
+	"github.com/openweft/weft/registryclient"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -2846,12 +2847,22 @@ func (s *weftServer) DeleteRegistryRemote(ctx context.Context, req *weftv1.Delet
 	return &weftv1.DeleteRegistryRemoteResponse{DeletedUuid: uuid}, nil
 }
 
-// SearchRegistryRemote is a stub today : the server doesn't proxy
-// the upstream catalogue (no /v2/_catalog dialer in-tree yet).
-// Returns the registry name + empty repository list so clients can
-// distinguish "no matches" from "registry unknown". Wired when a
-// future commit adds the upstream walker.
-func (s *weftServer) SearchRegistryRemote(_ context.Context, req *weftv1.SearchRegistryRemoteRequest) (*weftv1.SearchRegistryRemoteResponse, error) {
+// SearchRegistryRemote queries the upstream OCI Distribution
+// `/v2/_catalog` endpoint of the enrolled RegistryRemote and returns
+// the repositories that match `req.Query` (case-insensitive substring).
+//
+// The dialer lives in github.com/openweft/weft/registryclient ; it
+// transparently handles a 401 + Bearer challenge by fetching a token
+// at the advertised realm and retrying once, follows the `Link: ... ;
+// rel="next"` pagination header, and honours the RegistryRemote's
+// Insecure flag for both scheme fallback (http) and TLS verification.
+//
+// Authenticated catalogue access (registry credentials stored under
+// CredentialSecretRef) is intentionally NOT plumbed yet — public
+// catalogues (Docker Hub, ghcr.io public namespaces, Harbor) work
+// today ; registries that require admin scope for `/v2/_catalog` will
+// surface an HTTP-status error verbatim so operators can react.
+func (s *weftServer) SearchRegistryRemote(ctx context.Context, req *weftv1.SearchRegistryRemoteRequest) (*weftv1.SearchRegistryRemoteResponse, error) {
 	if req.Uuid == "" && req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid or name is required")
 	}
@@ -2867,7 +2878,20 @@ func (s *weftServer) SearchRegistryRemote(_ context.Context, req *weftv1.SearchR
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "registry remote not found")
 	}
-	return &weftv1.SearchRegistryRemoteResponse{RegistryName: r.Name}, nil
+	client := &registryclient.CatalogClient{
+		Endpoint: r.Endpoint,
+		Insecure: r.Insecure,
+	}
+	limit := int(req.Limit)
+	repos, err := client.Catalog(ctx, req.Query, limit)
+	if err != nil {
+		logger.Printf("SearchRegistryRemote %s : %v", r.Name, err)
+		return nil, status.Errorf(codes.Unavailable, "catalogue query failed : %v", err)
+	}
+	return &weftv1.SearchRegistryRemoteResponse{
+		RegistryName: r.Name,
+		Repositories: repos,
+	}, nil
 }
 
 func toRegistryRemoteInfo(r weft.RegistryRemote) *weftv1.RegistryRemoteInfo {

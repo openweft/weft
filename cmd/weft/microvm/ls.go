@@ -24,9 +24,10 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 		project string
 	)
 	cmd := &cobra.Command{
-		Use:   "ls",
-		Short: "List microVMs",
-		Args:  cobra.NoArgs,
+		Use:     "ls",
+		Aliases: []string{"list"},
+		Short:   "List microVMs",
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {

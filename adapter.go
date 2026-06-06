@@ -84,6 +84,19 @@ type VZAdapter interface {
 	AddProjectMember(projectUUID, userUUID string) error
 	RemoveProjectMember(projectUUID, userUUID string) error
 	ProjectMembers(projectUUID string) ([]string, bool)
+	// Tenant registry surface — top-level multi-tenant boundary
+	// above projects. Persisted JSON via Storage, same shape as the
+	// AZ registry ; cascade today is trivial because Project does
+	// not yet carry a TenantUUID. See tenants.go.
+	Tenants() []Tenant
+	TenantByUUID(uuid string) (Tenant, bool)
+	TenantByName(name string) (Tenant, bool)
+	CreateTenant(name, domain string) (Tenant, bool, error)
+	DeleteTenant(uuid string) (blockedProjects int32, err error)
+	AddTenantAdmin(tenantUUID, email string) (Tenant, error)
+	RemoveTenantAdmin(tenantUUID, email string) (Tenant, error)
+	AddTenantMember(tenantUUID, email string, groups []string) (Tenant, error)
+	RemoveTenantMember(tenantUUID, email string) (Tenant, error)
 	// Inventory (AZ + Rack) registry surface — promoted from
 	// webui-local persistence to a first-class control-plane
 	// concern in proto v0.7.0. AZ/Rack registries persist via the
@@ -414,6 +427,10 @@ type Adapter struct {
 	// because only the Adapter has visibility on every registry.
 	azReg   *azRegistry
 	rackReg *rackRegistry
+	// tenantReg holds the top-level multi-tenant boundary. Distinct
+	// from tenantQuotas (per-project caps) — this is the tenant
+	// roster + admin/member grant lists. See tenants.go.
+	tenantReg *tenantRegistry
 	// Network-plane registries (proto v0.8.0). Subnets are scoped
 	// to a parent network ; LoadBalancers + DNSZones are scoped to
 	// a project ; DNSRecords are children of a zone. Cascade safety
@@ -674,6 +691,7 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 	}
 	a.initProjects()
 	a.initInventory()
+	a.initTenants()
 	a.initUsers()
 	a.initNetworks()
 	a.initNetworkPlane()
@@ -2066,6 +2084,168 @@ func (a *Adapter) ProjectMembers(projectUUID string) ([]string, bool) {
 		return nil, false
 	}
 	return a.projects.members(projectUUID)
+}
+
+// ── Tenant registry surface ──────────────────────────────────────
+//
+// Tenants live above projects in the multi-tenant hierarchy. The
+// registry is JSON-backed via Storage (same pattern as AZs). Mirrors
+// the CRUD shape of projects but with admins / members at the tenant
+// level rather than members on the project ; the proto distinguishes
+// them so the CLI surfaces both verbs separately.
+
+// initTenants loads the tenant registry via storageFactory. Failure
+// to load downgrades to an empty in-memory registry — same resilience
+// contract as initProjects / initInventory.
+func (a *Adapter) initTenants() {
+	storage := a.storageFactory(tenantRegistryFileName)
+	reg, err := loadTenantRegistry(context.Background(), storage)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weft: load tenant registry: %v\n", err)
+		reg = &tenantRegistry{
+			storage: storage,
+			byUUID:  make(map[string]Tenant),
+			nameIdx: make(map[string]string),
+		}
+	}
+	a.tenantReg = reg
+}
+
+// Tenants returns a snapshot of every registered tenant, sorted by
+// name (matches the AZ list-by-code convention).
+func (a *Adapter) Tenants() []Tenant {
+	if a.tenantReg == nil {
+		return nil
+	}
+	return a.tenantReg.list()
+}
+
+// TenantByUUID resolves a UUID.
+func (a *Adapter) TenantByUUID(uuid string) (Tenant, bool) {
+	if a.tenantReg == nil {
+		return Tenant{}, false
+	}
+	return a.tenantReg.lookupByUUID(uuid)
+}
+
+// TenantByName resolves a display name. Used by the CLI to support
+// `weft tenant rm <name>` without a separate ResolveTenantUUID
+// round-trip (the CLI does its own resolution via ListTenants — this
+// helper keeps the door open for future server-side lookups).
+func (a *Adapter) TenantByName(name string) (Tenant, bool) {
+	if a.tenantReg == nil {
+		return Tenant{}, false
+	}
+	return a.tenantReg.lookupByName(name)
+}
+
+// CreateTenant registers a new tenant. Returns (row, created, err)
+// where created=false means the name already existed (idempotent
+// insert, mirrors CreateProject / CreateAZ).
+func (a *Adapter) CreateTenant(name, domain string) (Tenant, bool, error) {
+	if a.tenantReg == nil {
+		return Tenant{}, false, fmt.Errorf("tenant registry not initialised")
+	}
+	t, created, err := a.tenantReg.create(name, domain)
+	if err == nil && created {
+		a.bus.Publish(PlatformEvent{
+			Kind:    "tenant.created",
+			Subject: t.UUID,
+			Meta:    map[string]string{"name": t.Name, "domain": t.Domain},
+		})
+	}
+	return t, created, err
+}
+
+// DeleteTenant drops a tenant. The blockedProjects count is always
+// zero today because Project does not carry a TenantUUID column —
+// the slot is preserved on the return so the matching gRPC response
+// can carry it verbatim once project ↔ tenant linkage lands.
+func (a *Adapter) DeleteTenant(uuid string) (int32, error) {
+	if a.tenantReg == nil {
+		return 0, fmt.Errorf("tenant registry not initialised")
+	}
+	// Future cascade : count projects whose TenantUUID matches uuid.
+	// Today : projects don't reference tenants, so always 0.
+	var blockedProjects int32 = 0
+	got, err := a.tenantReg.delete(uuid, blockedProjects)
+	if err != nil {
+		if got > 0 {
+			blockedProjects = got
+		}
+		return blockedProjects, err
+	}
+	a.bus.Publish(PlatformEvent{
+		Kind:    "tenant.deleted",
+		Subject: uuid,
+	})
+	return 0, nil
+}
+
+// AddTenantAdmin grants the tenant-admin role to the user identified
+// by email. Idempotent.
+func (a *Adapter) AddTenantAdmin(tenantUUID, email string) (Tenant, error) {
+	if a.tenantReg == nil {
+		return Tenant{}, fmt.Errorf("tenant registry not initialised")
+	}
+	t, err := a.tenantReg.addAdmin(tenantUUID, email)
+	if err == nil {
+		a.bus.Publish(PlatformEvent{
+			Kind:    "tenant.admin_added",
+			Subject: tenantUUID,
+			Meta:    map[string]string{"email": email},
+		})
+	}
+	return t, err
+}
+
+// RemoveTenantAdmin revokes the tenant-admin role. Idempotent.
+func (a *Adapter) RemoveTenantAdmin(tenantUUID, email string) (Tenant, error) {
+	if a.tenantReg == nil {
+		return Tenant{}, fmt.Errorf("tenant registry not initialised")
+	}
+	t, err := a.tenantReg.removeAdmin(tenantUUID, email)
+	if err == nil {
+		a.bus.Publish(PlatformEvent{
+			Kind:    "tenant.admin_removed",
+			Subject: tenantUUID,
+			Meta:    map[string]string{"email": email},
+		})
+	}
+	return t, err
+}
+
+// AddTenantMember inserts or updates a tenant member (email → groups).
+// Groups are merged into any existing entry for the same email.
+func (a *Adapter) AddTenantMember(tenantUUID, email string, groups []string) (Tenant, error) {
+	if a.tenantReg == nil {
+		return Tenant{}, fmt.Errorf("tenant registry not initialised")
+	}
+	t, err := a.tenantReg.addMember(tenantUUID, email, groups)
+	if err == nil {
+		a.bus.Publish(PlatformEvent{
+			Kind:    "tenant.member_added",
+			Subject: tenantUUID,
+			Meta:    map[string]string{"email": email},
+		})
+	}
+	return t, err
+}
+
+// RemoveTenantMember drops a tenant member by email. Idempotent.
+func (a *Adapter) RemoveTenantMember(tenantUUID, email string) (Tenant, error) {
+	if a.tenantReg == nil {
+		return Tenant{}, fmt.Errorf("tenant registry not initialised")
+	}
+	t, err := a.tenantReg.removeMember(tenantUUID, email)
+	if err == nil {
+		a.bus.Publish(PlatformEvent{
+			Kind:    "tenant.member_removed",
+			Subject: tenantUUID,
+			Meta:    map[string]string{"email": email},
+		})
+	}
+	return t, err
 }
 
 // ── User registry surface ────────────────────────────────────────
