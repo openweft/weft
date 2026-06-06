@@ -20,7 +20,7 @@
 
 service "zot" {
   description = "OCI Distribution registry — kernel/initrd/plans + signed artefacts"
-  oci_image   = "ghcr.io/project-zot/zot:v2.1.0"
+  oci_image   = "ghcr.io/openweft/weft-zot:v2.1.0"
 
   resources {
     cpu_count  = 1
