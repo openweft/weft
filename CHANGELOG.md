@@ -24,6 +24,22 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ### Added
 
+- **Server : tenant registry RPCs implemented** — `ListTenants`,
+  `CreateTenant`, `DeleteTenant`, `AddTenantAdmin`, `RemoveTenantAdmin`,
+  `AddTenantMember`, `RemoveTenantMember` were declared in
+  weft-proto v0.6+ and the `weft tenant ...` CLI already called them,
+  but no server-side implementation existed — every call returned
+  `rpc error: code = Unimplemented`. This commit lands the missing
+  pieces : `tenants.go` (JSON-backed registry mirroring `azs.go`),
+  `Adapter` helpers + `VZAdapter` interface extension, `initTenants`
+  wired into `NewWithStorage`, and seven gRPC handlers in
+  `cmd/weft/main.go` (all `RequireAdmin` — tenant management is a
+  platform-admin op). `DeleteTenant` is unconditional today because
+  the `Project` struct does not carry a `TenantUUID` field yet ;
+  cascade-refuse-on-blocking-count is plumbed through the registry's
+  `delete()` signature so the slot is ready for the linkage migration.
+  Live cluster test on the 3-DC bring-up surfaced the gap.
+
 - **Tier 4-6 parity wave : 6 resource families + 22 RPCs + 5 new CLI
   packages** — closes the last CLI-vs-webui parity gap surfaced by
   the audit. Bumps weft-proto consume to v0.9.0 ; server-side
