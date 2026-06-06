@@ -53,6 +53,13 @@ const (
 	// pulling its OCI artifact (cluster.Microvm.KernelRef). Emitted once
 	// per host that runs any microVM-backed service, before EnsureImage.
 	EnsureKernel ActionKind = "ensure-kernel"
+	// EnsureInitrd: stage the shared pod-mode initramfs (weft-init + crun)
+	// on a host by pulling its OCI artifact (cluster.Microvm.PodInitrdRef).
+	// Emitted once per host that runs any microVM-backed service, alongside
+	// EnsureKernel, before EnsureImage. Without it, pod-mode microVMs boot
+	// to a weft-init that can't exec crun and call poweroff inside a second
+	// (see project_weft_3dc_live_cluster bug 6).
+	EnsureInitrd ActionKind = "ensure-initrd"
 	// EnsureImage: pre-pull a service's OCI rootfs onto a host so the
 	// subsequent PlaceReplica `weft infra deploy` finds it in the local
 	// weft-microvm image cache. One action per distinct (host, image) pair,
@@ -91,6 +98,8 @@ func (a Action) String() string {
 		return fmt.Sprintf("mesh-sync     members=[%s]", strings.Join(a.Hosts, ","))
 	case EnsureKernel:
 		return fmt.Sprintf("ensure-kernel %s on %s", a.Image, a.Host)
+	case EnsureInitrd:
+		return fmt.Sprintf("ensure-initrd %s on %s", a.Image, a.Host)
 	case EnsureImage:
 		return fmt.Sprintf("ensure-image  %s on %s", a.Image, a.Host)
 	case PlaceReplica:
@@ -215,9 +224,11 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 	//    the per-VM directory.
 	pulled := map[string]bool{}        // "<host>|<image>" → EnsureImage already emitted
 	kernelOnHost := map[string]bool{}  // "<host>" → EnsureKernel already emitted
-	kernelRef := ""
+	initrdOnHost := map[string]bool{}  // "<host>" → EnsureInitrd already emitted
+	kernelRef, initrdRef := "", ""
 	if c.Microvm != nil {
 		kernelRef = c.Microvm.KernelRef
+		initrdRef = c.Microvm.PodInitrdRef
 	}
 	for _, plan := range infraOrder {
 		eff := effectiveReplicas(plan, hostCount)
@@ -231,6 +242,12 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 					Kind: EnsureKernel, Host: h.ID, Image: kernelRef,
 				})
 				kernelOnHost[h.ID] = true
+			}
+			if initrdRef != "" && !initrdOnHost[h.ID] {
+				p.Actions = append(p.Actions, Action{
+					Kind: EnsureInitrd, Host: h.ID, Image: initrdRef,
+				})
+				initrdOnHost[h.ID] = true
 			}
 			if plan.OCIImage != "" {
 				key := h.ID + "|" + plan.OCIImage
