@@ -1781,6 +1781,121 @@ func (s *weftServer) DeleteProject(ctx context.Context, req *weftv1.DeleteProjec
 	return &weftv1.DeleteProjectResponse{}, nil
 }
 
+// ---- Tenants (top-level multi-tenant boundary) --------------------
+//
+// Tenants are the optional umbrella above projects : a tenant owns
+// N projects, M members (humans), K admins. The webui drives a fresh
+// install through `weft tenant create` ; the CLI mirrors the same
+// surface so a fresh cluster can be brought up SSH-only.
+
+func (s *weftServer) ListTenants(_ context.Context, _ *weftv1.ListTenantsRequest) (*weftv1.ListTenantsResponse, error) {
+	tenants := s.adp.Tenants()
+	out := make([]*weftv1.TenantInfo, 0, len(tenants))
+	for _, t := range tenants {
+		out = append(out, toTenantInfo(t))
+	}
+	return &weftv1.ListTenantsResponse{Tenants: out}, nil
+}
+
+func (s *weftServer) CreateTenant(ctx context.Context, req *weftv1.CreateTenantRequest) (*weftv1.CreateTenantResponse, error) {
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if err := weft.RequireAdmin(ctx, "create tenant"); err != nil {
+		return nil, err
+	}
+	t, _, err := s.adp.CreateTenant(req.Name, req.Domain)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "create tenant: %v", err)
+	}
+	logger.Printf("CreateTenant name=%s uuid=%s", t.Name, t.UUID)
+	return &weftv1.CreateTenantResponse{Tenant: toTenantInfo(t)}, nil
+}
+
+func (s *weftServer) DeleteTenant(ctx context.Context, req *weftv1.DeleteTenantRequest) (*weftv1.DeleteTenantResponse, error) {
+	if req.Uuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := weft.RequireAdmin(ctx, "delete tenant"); err != nil {
+		return nil, err
+	}
+	if _, err := s.adp.DeleteTenant(req.Uuid); err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "delete tenant: %v", err)
+	}
+	logger.Printf("DeleteTenant uuid=%s", req.Uuid)
+	return &weftv1.DeleteTenantResponse{}, nil
+}
+
+func (s *weftServer) AddTenantAdmin(ctx context.Context, req *weftv1.AddTenantAdminRequest) (*weftv1.AddTenantAdminResponse, error) {
+	if req.TenantUuid == "" || req.Email == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_uuid + email required")
+	}
+	if err := weft.RequireAdmin(ctx, "add tenant admin"); err != nil {
+		return nil, err
+	}
+	if _, err := s.adp.AddTenantAdmin(req.TenantUuid, req.Email); err != nil {
+		return nil, status.Errorf(codes.NotFound, "add tenant admin: %v", err)
+	}
+	return &weftv1.AddTenantAdminResponse{}, nil
+}
+
+func (s *weftServer) RemoveTenantAdmin(ctx context.Context, req *weftv1.RemoveTenantAdminRequest) (*weftv1.RemoveTenantAdminResponse, error) {
+	if req.TenantUuid == "" || req.Email == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_uuid + email required")
+	}
+	if err := weft.RequireAdmin(ctx, "remove tenant admin"); err != nil {
+		return nil, err
+	}
+	if _, err := s.adp.RemoveTenantAdmin(req.TenantUuid, req.Email); err != nil {
+		return nil, status.Errorf(codes.NotFound, "remove tenant admin: %v", err)
+	}
+	return &weftv1.RemoveTenantAdminResponse{}, nil
+}
+
+func (s *weftServer) AddTenantMember(ctx context.Context, req *weftv1.AddTenantMemberRequest) (*weftv1.AddTenantMemberResponse, error) {
+	if req.TenantUuid == "" || req.Email == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_uuid + email required")
+	}
+	if err := weft.RequireAdmin(ctx, "add tenant member"); err != nil {
+		return nil, err
+	}
+	if _, err := s.adp.AddTenantMember(req.TenantUuid, req.Email, req.Groups); err != nil {
+		return nil, status.Errorf(codes.NotFound, "add tenant member: %v", err)
+	}
+	return &weftv1.AddTenantMemberResponse{}, nil
+}
+
+func (s *weftServer) RemoveTenantMember(ctx context.Context, req *weftv1.RemoveTenantMemberRequest) (*weftv1.RemoveTenantMemberResponse, error) {
+	if req.TenantUuid == "" || req.Email == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_uuid + email required")
+	}
+	if err := weft.RequireAdmin(ctx, "remove tenant member"); err != nil {
+		return nil, err
+	}
+	if _, err := s.adp.RemoveTenantMember(req.TenantUuid, req.Email); err != nil {
+		return nil, status.Errorf(codes.NotFound, "remove tenant member: %v", err)
+	}
+	return &weftv1.RemoveTenantMemberResponse{}, nil
+}
+
+// toTenantInfo projects a weft.Tenant onto the proto wire shape.
+// Projects count = 0 today : projects don't carry a TenantUUID column
+// yet, so we can't derive how many belong to a tenant. Slated for the
+// next schema iteration ; clients should treat 0 as "not yet populated"
+// rather than "no projects".
+func toTenantInfo(t weft.Tenant) *weftv1.TenantInfo {
+	return &weftv1.TenantInfo{
+		Uuid:            t.UUID,
+		Name:            t.Name,
+		Domain:          t.Domain,
+		Status:          t.Status,
+		CreatedAtUnixNs: t.CreatedAt.UnixNano(),
+		Projects:        0,
+		Members:         int32(len(t.Members)),
+		Admins:          int32(len(t.Admins)),
+	}
+}
+
 // ---- AvailabilityZones (inventory tier 1) -------------------------
 //
 // AZs are the top tier of the inventory hierarchy (AZ → Rack → Host).
