@@ -9,6 +9,9 @@
 // because the agent runs as user-mode (no /var/run/weft permission).
 
 cluster "openweft-live-3dc" {
+  microvm {
+    pod_initrd_ref = "ghcr.io/openweft/weft-microvm-pod-initrd:v0.2.1"
+  }
   overlay { subnet = "10.9.0.0/24" }
 
   agent_config {

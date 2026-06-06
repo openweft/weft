@@ -149,6 +149,25 @@ func TestRenderAction_EnsureKernelPullsOCIArtifact(t *testing.T) {
 	}
 }
 
+// TestRenderAction_EnsureInitrdPullsOCIArtifact: EnsureInitrd actions render
+// as `weft microvm pull-pod-initrd <ref>` so the shared cpio.gz lands in
+// $XDG_DATA_HOME/weft-microvm/pod-initrd before any PlaceReplica's pod-mode
+// boot path needs it (closes the manual scp dance from
+// feedback_initrd_with_crun_workflow).
+func TestRenderAction_EnsureInitrdPullsOCIArtifact(t *testing.T) {
+	c := threeHostCluster()
+	host, cmd := renderAction(c, Action{
+		Kind: EnsureInitrd, Host: c.Hosts[0].ID,
+		Image: "ghcr.io/openweft/weft-microvm-pod-initrd:v0.2.1",
+	})
+	if host != c.Hosts[0].ID {
+		t.Errorf("EnsureInitrd rendered host=%q, want %q", host, c.Hosts[0].ID)
+	}
+	if !strings.Contains(cmd, "weft microvm pull-pod-initrd ghcr.io/openweft/weft-microvm-pod-initrd:v0.2.1") {
+		t.Errorf("EnsureInitrd cmd missing pull-pod-initrd: %s", cmd)
+	}
+}
+
 // TestRenderAction_EnsureImagePullsOCIRootfs: EnsureImage actions render as
 // `weft microvm pull <ref>` on the target host so the rootfs lands in the
 // local weft-microvm cache before the subsequent PlaceReplica deploys.

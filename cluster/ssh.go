@@ -127,6 +127,11 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		// idempotency story as EnsureImage: weft microvm pull-kernel is
 		// standalone and the rename-into-place semantics are atomic.
 		return a.Host, fmt.Sprintf("weft microvm pull-kernel %s   # shared kernel into $XDG_DATA_HOME/weft-microvm/kernel", a.Image)
+	case EnsureInitrd:
+		// Same shape as EnsureKernel — atomic rename into
+		// $XDG_DATA_HOME/weft-microvm/pod-initrd so the next PlaceReplica's
+		// pod-mode boot path picks it up.
+		return a.Host, fmt.Sprintf("weft microvm pull-pod-initrd %s   # shared pod-initrd into $XDG_DATA_HOME/weft-microvm/pod-initrd", a.Image)
 	case EnsureImage:
 		// Pre-pull the OCI rootfs on the host. weft microvm pull is standalone
 		// (no agent socket needed). microvm.Pull isn't idempotent on an already-

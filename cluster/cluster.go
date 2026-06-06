@@ -44,6 +44,14 @@ type Microvm struct {
 	// EnsureKernel action per host that runs any microVM service, which
 	// renders as `weft microvm pull-kernel <ref>`.
 	KernelRef string `hcl:"kernel_ref,optional"`
+	// PodInitrdRef is the OCI artifact reference for the shared pod-mode
+	// initramfs (weft-init + crun), e.g.
+	// "ghcr.io/openweft/weft-microvm-pod-initrd:v0.2.1". weft up emits one
+	// EnsureInitrd action per host that runs any microVM service, which
+	// renders as `weft microvm pull-pod-initrd <ref>`. Nil/empty means the
+	// operator pre-staged the cpio.gz (manual `weft microvm pod-init-build`
+	// + scp pattern from feedback_initrd_with_crun_workflow).
+	PodInitrdRef string `hcl:"pod_initrd_ref,optional"`
 }
 
 // Drivers configures where weft obtains its hypervisor driver plugins
