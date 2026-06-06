@@ -6,7 +6,7 @@
 
 service "dex" {
   description = "OIDC identity provider — issues tokens for weft/weft-microvm/weft/zot"
-  oci_image   = "ghcr.io/dexidp/dex:v2.40.0"
+  oci_image   = "ghcr.io/openweft/weft-dex:v2.40.0"
 
   resources {
     cpu_count  = 1

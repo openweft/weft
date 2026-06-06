@@ -241,7 +241,11 @@ func Pull(image string) error {
 	if err := json.Unmarshal(cfgBytes, &img); err != nil {
 		return fmt.Errorf("decode image config: %w", err)
 	}
-	proc, err := processFromImageConfig(img.Config)
+	// Use the rootfs-aware variant so we can resolve named users
+	// (User = "nonroot", "nonroot:nonroot", "alice:1000", …) against
+	// the just-extracted /etc/passwd + /etc/group. Distroless +
+	// chainguard + alpine-minirootfs images all rely on this.
+	proc, err := processFromImageConfigWithRootfs(img.Config, rootfs)
 	if err != nil {
 		return err
 	}

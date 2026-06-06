@@ -13,8 +13,11 @@
 package microvm
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -49,6 +52,161 @@ type configFile struct {
 //
 // We mirror that semantic but don't apply the user-override here —
 // that's the caller's job (run.go reads args.Cmd if set).
+// processFromImageConfigWithRootfs is the rootfs-aware variant : it can
+// resolve named users (e.g. `User = "nonroot:nonroot"`) by reading
+// `<rootfs>/etc/passwd` + `<rootfs>/etc/group`. Pass rootfs = "" to
+// fall back to numeric-only parsing, which is what the legacy
+// processFromImageConfig does.
+func processFromImageConfigWithRootfs(c ocispec.ImageConfig, rootfs string) (processSpec, error) {
+	p, err := processFromImageConfig(c)
+	if err == nil || rootfs == "" {
+		return p, err
+	}
+	// Numeric parse failed. Try resolving against the extracted rootfs's
+	// /etc/passwd + /etc/group. Common in distroless / chainguard /
+	// alpine-minirootfs images that use "nonroot" / "65532" interchangeably.
+	if c.User == "" {
+		return p, err
+	}
+	uid, gid, lookupErr := resolveNamedUser(c.User, rootfs)
+	if lookupErr != nil {
+		// Surface the ORIGINAL error wrapping the resolution failure for
+		// context — both are useful for debugging.
+		return p, fmt.Errorf("image config User=%q: %w (rootfs lookup also failed : %v)", c.User, err, lookupErr)
+	}
+	p.User.UID = uid
+	p.User.GID = gid
+	return p, nil
+}
+
+// resolveNamedUser parses the OCI User field's named forms by reading
+// the extracted rootfs's identity databases. Supports :
+//
+//	"alice"        → /etc/passwd → uid, default gid
+//	"alice:group"  → /etc/passwd uid, /etc/group gid
+//	"alice:1000"   → /etc/passwd uid, numeric gid
+//	"1000:group"   → numeric uid, /etc/group gid
+//
+// Names that don't appear in the databases surface a clean error so
+// the caller can fall back to whatever its previous behaviour was.
+func resolveNamedUser(u, rootfs string) (uint32, uint32, error) {
+	left, right, hasGID := strings.Cut(u, ":")
+	uid, err := resolveUser(left, rootfs)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !hasGID {
+		// No explicit group : default to the user's primary GID from
+		// /etc/passwd. resolveUser already had it ; re-derive here for
+		// simplicity.
+		gid, err := primaryGIDFromPasswd(left, rootfs)
+		if err != nil {
+			return uid, 0, nil // fall back to gid=0
+		}
+		return uid, gid, nil
+	}
+	gid, err := resolveGroup(right, rootfs)
+	if err != nil {
+		return 0, 0, err
+	}
+	return uid, gid, nil
+}
+
+func resolveUser(name, rootfs string) (uint32, error) {
+	if n, err := strconv.ParseUint(name, 10, 32); err == nil {
+		return uint32(n), nil
+	}
+	uid, _, err := lookupPasswd(name, rootfs)
+	return uid, err
+}
+
+func resolveGroup(name, rootfs string) (uint32, error) {
+	if n, err := strconv.ParseUint(name, 10, 32); err == nil {
+		return uint32(n), nil
+	}
+	return lookupGroup(name, rootfs)
+}
+
+// primaryGIDFromPasswd reads /etc/passwd to find name's primary GID.
+// Distinct from resolveGroup because /etc/passwd carries (uid, gid)
+// tuples whereas /etc/group is keyed by group name.
+func primaryGIDFromPasswd(name, rootfs string) (uint32, error) {
+	_, gid, err := lookupPasswd(name, rootfs)
+	return gid, err
+}
+
+// lookupPasswd parses /etc/passwd line-by-line for an entry matching
+// `name`. Returns (uid, gid, nil) on hit ; an error wrapping
+// fs.ErrNotExist on miss or io errors.
+//
+// /etc/passwd format : `name:passwd:uid:gid:gecos:home:shell` — colon-
+// separated, '#' or empty lines ignored. We only need the first 4
+// fields ; the rest pass through.
+func lookupPasswd(name, rootfs string) (uint32, uint32, error) {
+	f, err := os.Open(filepath.Join(rootfs, "etc", "passwd"))
+	if err != nil {
+		return 0, 0, fmt.Errorf("open passwd: %w", err)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.SplitN(line, ":", 7)
+		if len(fields) < 4 {
+			continue
+		}
+		if fields[0] != name {
+			continue
+		}
+		uid64, err := strconv.ParseUint(fields[2], 10, 32)
+		if err != nil {
+			return 0, 0, fmt.Errorf("passwd : %s : malformed uid %q", name, fields[2])
+		}
+		gid64, err := strconv.ParseUint(fields[3], 10, 32)
+		if err != nil {
+			return 0, 0, fmt.Errorf("passwd : %s : malformed gid %q", name, fields[3])
+		}
+		return uint32(uid64), uint32(gid64), nil
+	}
+	if err := sc.Err(); err != nil {
+		return 0, 0, fmt.Errorf("read passwd: %w", err)
+	}
+	return 0, 0, fmt.Errorf("passwd : user %q not found", name)
+}
+
+// lookupGroup parses /etc/group for an entry matching `name`.
+// /etc/group format : `name:passwd:gid:members,…`.
+func lookupGroup(name, rootfs string) (uint32, error) {
+	f, err := os.Open(filepath.Join(rootfs, "etc", "group"))
+	if err != nil {
+		return 0, fmt.Errorf("open group: %w", err)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.SplitN(line, ":", 4)
+		if len(fields) < 3 || fields[0] != name {
+			continue
+		}
+		gid64, err := strconv.ParseUint(fields[2], 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("group : %s : malformed gid %q", name, fields[2])
+		}
+		return uint32(gid64), nil
+	}
+	if err := sc.Err(); err != nil {
+		return 0, fmt.Errorf("read group: %w", err)
+	}
+	return 0, fmt.Errorf("group : %q not found", name)
+}
+
 func processFromImageConfig(c ocispec.ImageConfig) (processSpec, error) {
 	var p processSpec
 	p.Args = append(p.Args, c.Entrypoint...)
