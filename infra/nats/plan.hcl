@@ -16,7 +16,7 @@
 
 service "nats" {
   description = "NATS event bus — 3-DC cluster + JetStream for weft PlatformEvents"
-  oci_image   = "docker.io/nats:2.11-alpine"
+  oci_image   = "ghcr.io/openweft/weft-nats:v2.11.0"
 
   resources {
     cpu_count  = 1
