@@ -861,11 +861,11 @@ sigs.k8s.io/yaml/goyaml.v2
 # github.com/go-bootloaders/systemd-boot => ../../go-bootloaders/systemd-boot
 # github.com/go-coff/peln => ../../go-coff/peln
 # github.com/go-compressions/lzfse => ../../go-compressions/lzfse
-# github.com/go-crypto/ccm => ../../go-crypto/ccm
-# github.com/go-crypto/zfscrypt => ../../go-crypto/zfscrypt
 # github.com/go-diskimages/diskimage => ../../go-diskimages/diskimage
 # github.com/go-diskimages/qcow2 => ../../go-diskimages/qcow2
 # github.com/go-diskimages/tart-oci => ../../go-diskimages/tart-oci
+# github.com/go-encryptions/ccm => ../../go-encryptions/ccm
+# github.com/go-encryptions/zfscrypt => ../../go-encryptions/zfscrypt
 # github.com/go-fde/luks => ../../go-fde/luks
 # github.com/go-filesystems/btrfs => ../../go-filesystems/btrfs
 # github.com/go-filesystems/ext4 => ../../go-filesystems/ext4

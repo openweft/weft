@@ -103,7 +103,19 @@ func applyEntry(tr io.Reader, hdr *tar.Header, dest string) error {
 		if err := os.MkdirAll(filepath.Dir(cleanName), 0o755); err != nil {
 			return err
 		}
-		f, err := os.OpenFile(cleanName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode)&os.ModePerm)
+		// Standard OCI layer-replace path : a later layer can replace a
+		// file dropped by an earlier one. If the existing file landed
+		// with mode 0444 / 0444 (read-only ; common on /etc/ssl/certs/
+		// ca-certificates.crt + many Debian config files), O_TRUNC fails
+		// with EACCES before we can truncate it. Remove-and-recreate is
+		// what Docker / podman / containerd extractors do — we mirror.
+		mode := os.FileMode(hdr.Mode) & os.ModePerm
+		f, err := os.OpenFile(cleanName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+		if err != nil && os.IsPermission(err) {
+			if rmErr := os.Remove(cleanName); rmErr == nil {
+				f, err = os.OpenFile(cleanName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			}
+		}
 		if err != nil {
 			return err
 		}
