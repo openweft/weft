@@ -18,7 +18,7 @@
 
 service "coredns" {
   description = "CoreDNS — cluster-internal name resolution (weft.internal zone, etcd-backed)"
-  oci_image   = "coredns/coredns:1.11.3"
+  oci_image   = "ghcr.io/openweft/weft-coredns:v1.11.3"
 
   # CoreDNS is light : tiny Go binary, ~30 MB RSS, IO-bound
   # rather than CPU-bound. The 256 MiB / 1 vCPU floor is more

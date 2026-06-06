@@ -10,7 +10,7 @@
 
 service "etcd" {
   description = "3-DC etcd cluster — the cloud platform control plane"
-  oci_image   = "quay.io/coreos/etcd:v3.6.0"
+  oci_image   = "ghcr.io/openweft/weft-etcd:v3.6.0"
 
   # Resources per VM (3 total).
   resources {
