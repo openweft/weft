@@ -2767,15 +2767,39 @@ func (a *Adapter) ListLocal() (map[string]map[string]interface{}, error) {
 					}
 				}
 			}
-			// Determine running state via vm.pid.
+			// Determine running state.
+			//
+			// exit.json takes precedence over the PID probe : the qemu
+			// driver's reaper goroutine (cmd.Wait) writes it the moment
+			// the qemu child exits, carrying pid + exit_code + the
+			// nanosecond timestamp. A subsequent PID probe might still
+			// see the recycled PID assigned to a different process and
+			// falsely report "running" — exit.json closes that race.
+			//
+			// When exit.json is absent we fall back to the pid probe,
+			// matching the pre-reaper behaviour for back-compat with
+			// drivers that haven't been updated yet.
 			props["State"] = "stopped"
-			pidFile := filepath.Join(vmDir, "vm.pid")
-			if data, err := os.ReadFile(pidFile); err == nil {
-				if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
-					if proc, err := os.FindProcess(pid); err == nil {
-						if proc.Signal(syscall.Signal(0)) == nil {
-							props["State"] = "running"
-							props["Running"] = true
+			vmExitFile := filepath.Join(vmDir, "exit.json")
+			if data, err := os.ReadFile(vmExitFile); err == nil {
+				var ex struct {
+					ExitCode   int   `json:"exit_code"`
+					ExitedAtNs int64 `json:"exited_at_ns"`
+				}
+				if json.Unmarshal(data, &ex) == nil {
+					props["State"] = "exited"
+					props["ExitCode"] = float64(ex.ExitCode)
+					props["ExitedAtUnixNs"] = float64(ex.ExitedAtNs)
+				}
+			} else {
+				pidFile := filepath.Join(vmDir, "vm.pid")
+				if data, err := os.ReadFile(pidFile); err == nil {
+					if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+						if proc, err := os.FindProcess(pid); err == nil {
+							if proc.Signal(syscall.Signal(0)) == nil {
+								props["State"] = "running"
+								props["Running"] = true
+							}
 						}
 					}
 				}
