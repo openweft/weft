@@ -273,9 +273,14 @@ func locatePodBoot() (kernel, initrd string, err error) {
 	if _, err := os.Stat(initrd); err != nil {
 		return "", "", fmt.Errorf(
 			"weft-init initramfs not found at %s (set $WEFT_POD_INITRD)\n"+
-				"build it:\n"+
-				"  GOOS=linux GOARCH=<arch> CGO_ENABLED=0 go build -o weft-init github.com/openweft/weft-microvm-init/cmd/weft-init\n"+
-				"  weft microvm pod-init-build --init weft-init [--crun … --cfs-client … --agent …] -o %s",
+				"build it (live-validated 2026-06-06) :\n"+
+				"  cd $GOPATH/src/github.com/openweft/weft-microvm-init\n"+
+				"  task fetch-crun                                # crun-build/dist/crun.linux.<arch>\n"+
+				"  GOOS=linux GOARCH=<arch> CGO_ENABLED=0 go build -o bin/weft-init-linux-<arch> ./cmd/weft-init\n"+
+				"  weft microvm pod-init-build --init bin/weft-init-linux-<arch> \\\n"+
+				"    --crun crun-build/dist/crun.linux.<arch> \\\n"+
+				"    [--cfs-client … --agent …] -o %s\n"+
+				"WITHOUT --crun, alpine/distroless guests crun-probe-fail then poweroff inside a second.",
 			initrd, initrd)
 	}
 	return kernel, initrd, nil
