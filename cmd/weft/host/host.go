@@ -193,6 +193,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var azFilter, format string
 	cmd := &cobra.Command{
 		Use:   "ls",
+		Aliases: []string{"list"},
 		Short: "List hosts (optionally filtered by --az)",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)

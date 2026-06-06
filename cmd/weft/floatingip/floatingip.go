@@ -51,6 +51,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var project, format string
 	cmd := &cobra.Command{
 		Use:   "ls",
+		Aliases: []string{"list"},
 		Short: "List floating IPs",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {

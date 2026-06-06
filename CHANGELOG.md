@@ -7,6 +7,21 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Changed
+
+- **`SearchRegistryRemote` : implementation upgrades from server-side
+  stub (returns name only) to a real `/v2/_catalog` dialer** with
+  optional Bearer auth refresh, pagination via `Link` header, and
+  `InsecureSkipVerify` gating on the RegistryRemote's `insecure` flag.
+  New pure-Go package `registryclient/` (CGO=0) hosts the dialer ;
+  the handler in `cmd/weft/main.go` instantiates one `CatalogClient`
+  per call, applies a 10s per-request + 30s total timeout, and
+  surfaces upstream HTTP status verbatim on auth-gated catalogues
+  (ghcr.io private repos, Harbor with admin-only catalog).
+  Authenticated catalogue access via `credential_secret_ref` is
+  intentionally deferred ; public catalogues (Docker Hub, ghcr.io
+  public namespaces, public Harbor) work today.
+
 ### Added
 
 - **Tier 4-6 parity wave : 6 resource families + 22 RPCs + 5 new CLI

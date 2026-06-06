@@ -81,6 +81,58 @@ func expandDockerHubShorthand(image string) string {
 	return "registry-1.docker.io/library/" + image
 }
 
+// rewriteForMirror rewrites a canonical image reference to route through
+// a cluster-local OCI mirror when one is configured via the
+// WEFT_MICROVM_REGISTRY_MIRROR env var. The local mirror (typically the
+// in-cluster zot registry with `extensions.sync` + `onDemand=true`)
+// pulls each upstream image once and caches it ; every subsequent fetch
+// — any host, any DC, any replica — serves from local storage and never
+// crosses the cluster boundary.
+//
+// The env var carries either a bare host (e.g. "10.255.2.30:8080") or a
+// scheme-prefixed URL ("http://zot.weft.internal:8080"). The host is
+// substituted for the canonical registry host ; the namespace path
+// stays unchanged because zot's sync extension mirrors the upstream
+// tree 1:1 ("registry-1.docker.io/library/alpine" →
+// "<mirror>/library/alpine" on the mirror, served from the
+// docker.io/library/alpine cache).
+//
+// Empty env var → return image unchanged (callers fetch directly from
+// upstream, the pre-mirror behaviour). The "docker.io/" alias for the
+// dockerhub-as-marketing-site is treated specially : the mirror still
+// needs the library/ prefix expansion. Any other host gets a 1:1 swap.
+func rewriteForMirror(image string) string {
+	mirror := strings.TrimSpace(os.Getenv("WEFT_MICROVM_REGISTRY_MIRROR"))
+	if mirror == "" {
+		return image
+	}
+	// Strip scheme — newRepository handles plain-HTTP vs TLS later via
+	// the loopback rule, and the mirror host typically lives on the
+	// tenant-services subnet which speaks plain HTTP behind the L7
+	// Caddy edge.
+	if i := strings.Index(mirror, "://"); i >= 0 {
+		mirror = mirror[i+3:]
+	}
+	mirror = strings.Trim(mirror, "/")
+	if mirror == "" {
+		return image
+	}
+	slash := strings.Index(image, "/")
+	if slash < 0 {
+		// Bare name like "alpine" — already in docker.io/library/ form.
+		// expandDockerHubShorthand will canonicalize ; we only see
+		// post-canonical strings in practice but keep this path safe.
+		return mirror + "/library/" + image
+	}
+	host := image[:slash]
+	if host == mirror {
+		// Already mirror-bound — avoid double-prefixing.
+		return image
+	}
+	// Replace the upstream host with the mirror, keep the path verbatim.
+	return mirror + image[slash:]
+}
+
 // newRepository builds an oras-go remote.Repository, flipping PlainHTTP on for
 // loopback hosts. Real registries (ghcr.io, registry-1.docker.io, zot in
 // production) speak TLS; dev zots and the httptest servers our tests stand up
@@ -108,6 +160,10 @@ func newRepository(canonical string) (*remote.Repository, error) {
 func Pull(image string) error {
 	ctx := context.Background()
 	canonical := expandDockerHubShorthand(image)
+	// Route through the cluster-local OCI cache when one is wired.
+	// rewriteForMirror is a no-op when WEFT_MICROVM_REGISTRY_MIRROR is
+	// unset, preserving the pre-mirror behaviour for single-host dev.
+	canonical = rewriteForMirror(canonical)
 	repo, err := newRepository(canonical)
 	if err != nil {
 		return fmt.Errorf("parse %q: %w", canonical, err)

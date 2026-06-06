@@ -5,6 +5,18 @@
 # cloud_platform_direction.md "default to cloud-native"
 # preference); a local-fs override is provided for single-host
 # dev / air-gapped lab setups.
+#
+# Acts as the EGRESS CACHE/PROXY for every external OCI registry
+# the cluster pulls from (docker.io, ghcr.io, quay.io,
+# registry.k8s.io, public.ecr.aws). The `extensions.sync` block
+# below registers each upstream with `onDemand = true` : the
+# first pull for an image fetches from upstream and caches
+# inside zot ; every subsequent pull (any host, any DC, any
+# replica) serves from local storage and never crosses the
+# cluster boundary. This is the boundary every weft microvm
+# pull should hit first — see weft/imagestore + the
+# weft-microvm pull-path that routes through the local zot
+# IP triplet 10.255.2.30/31/32 before touching upstream.
 
 service "zot" {
   description = "OCI Distribution registry — kernel/initrd/plans + signed artefacts"
@@ -83,11 +95,52 @@ service "zot" {
         "extensions": {
           "sync": {
             "enable": true,
+            "credentialsFile": "/etc/zot/sync-credentials.json",
             "registries": [
               {
-                "urls":     ["https://upstream-zot.$PEER_DC.$BASE_DOMAIN"],
-                "onDemand": true,
-                "tlsVerify": true
+                "urls":      ["https://upstream-zot.$PEER_DC.$BASE_DOMAIN"],
+                "onDemand":  true,
+                "tlsVerify": true,
+                "content":   [{ "prefix": "**" }]
+              },
+              {
+                "urls":      ["https://registry-1.docker.io"],
+                "onDemand":  true,
+                "tlsVerify": true,
+                "content":   [
+                  { "prefix": "library/**" },
+                  { "prefix": "**", "destination": "/dockerhub" }
+                ]
+              },
+              {
+                "urls":      ["https://ghcr.io"],
+                "onDemand":  true,
+                "tlsVerify": true,
+                "content":   [{ "prefix": "**" }]
+              },
+              {
+                "urls":      ["https://quay.io"],
+                "onDemand":  true,
+                "tlsVerify": true,
+                "content":   [{ "prefix": "**" }]
+              },
+              {
+                "urls":      ["https://registry.k8s.io"],
+                "onDemand":  true,
+                "tlsVerify": true,
+                "content":   [{ "prefix": "**" }]
+              },
+              {
+                "urls":      ["https://public.ecr.aws"],
+                "onDemand":  true,
+                "tlsVerify": true,
+                "content":   [{ "prefix": "**" }]
+              },
+              {
+                "urls":      ["https://codeberg.org"],
+                "onDemand":  true,
+                "tlsVerify": true,
+                "content":   [{ "prefix": "forgejo/**" }]
               }
             ]
           },

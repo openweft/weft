@@ -44,6 +44,7 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var azArg, format string
 	cmd := &cobra.Command{
 		Use:   "ls",
+		Aliases: []string{"list"},
 		Short: "List racks (--az filters to one AZ)",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {

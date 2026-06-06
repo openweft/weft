@@ -41,6 +41,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
+		Aliases: []string{"list"},
 		Short: "List cluster catalogue entries",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
