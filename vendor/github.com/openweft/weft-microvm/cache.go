@@ -60,6 +60,12 @@ func rootfsPath(refsafe string) string {
 // path resolution rule the puller uses.
 func KernelPath() string { return filepath.Join(dataDir(), "kernel") }
 
+// PodInitrdPath is the on-disk location of the shared pod-mode initramfs —
+// $XDG_DATA_HOME/weft-microvm/pod-initrd — written by PullPodInitrd and
+// read by the agent (see weft-microvm/pod.go's locatePodBoot, which expects
+// this exact path unless $WEFT_POD_INITRD is set).
+func PodInitrdPath() string { return filepath.Join(dataDir(), "pod-initrd") }
+
 // refsafe converts an OCI reference like "alpine:3.21" or
 // "ghcr.io/owner/repo:v1.2.3" into a single safe directory name.
 // Slashes and colons become underscores; everything else passes
