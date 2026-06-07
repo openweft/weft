@@ -21,11 +21,11 @@ require (
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
-	github.com/openweft/cloud-init v0.1.0
-	github.com/openweft/hclconfig v0.1.0
+	github.com/openweft/weft-cidata v0.2.0
 	github.com/openweft/weft-client v0.0.0
 	github.com/openweft/weft-driver-plugin v0.0.0
 	github.com/openweft/weft-drivers v0.2.0
+	github.com/openweft/weft-hcl v0.2.0
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
 	github.com/openweft/weft-proto v0.9.0

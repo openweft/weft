@@ -262,12 +262,9 @@ github.com/opencontainers/go-digest
 ## explicit; go 1.18
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/openweft/cloud-init v0.1.0
+# github.com/openweft/weft-cidata v0.2.0
 ## explicit; go 1.25.0
-github.com/openweft/cloud-init
-# github.com/openweft/hclconfig v0.1.0
-## explicit; go 1.25.0
-github.com/openweft/hclconfig
+github.com/openweft/weft-cidata
 # github.com/openweft/weft-client v0.0.0 => ../weft-client
 ## explicit; go 1.25.0
 github.com/openweft/weft-client
@@ -278,6 +275,9 @@ github.com/openweft/weft-driver-plugin/driverpb
 # github.com/openweft/weft-drivers v0.2.0 => ../weft-drivers
 ## explicit; go 1.25.0
 github.com/openweft/weft-drivers
+# github.com/openweft/weft-hcl v0.2.0
+## explicit; go 1.25.0
+github.com/openweft/weft-hcl
 # github.com/openweft/weft-microvm v0.2.0 => ../weft-microvm
 ## explicit; go 1.25.1
 github.com/openweft/weft-microvm
