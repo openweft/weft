@@ -139,6 +139,10 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
+github.com/openweft/cloud-init v0.1.0 h1:M2gcU/EgBfYx43nbOL0ftJa8BnwCpJayAEcAD6hh5ek=
+github.com/openweft/cloud-init v0.1.0/go.mod h1:6MDPAE6Nh72n7xn+dxbNRFicFHnhrv5M2QrDNUplk+A=
+github.com/openweft/hclconfig v0.1.0 h1:GliLnbM9Gp6Zxp+NeyF1+DY10GDESB45V8YRFTU/1ug=
+github.com/openweft/hclconfig v0.1.0/go.mod h1:VuhsoBQWLhPCxggYY7en6GfSvLK2LopvYuKTtdZGYgo=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/prometheus/client_golang v1.20.5 h1:cxppBPuYhUnsO6yo/aoRol4L7q7UFfdm+bR9r+8l63Y=

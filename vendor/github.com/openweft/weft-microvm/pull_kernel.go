@@ -26,6 +26,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -39,9 +40,15 @@ const kernelLayerMediaType = "application/vnd.openweft.microvm.kernel.image"
 // and atomically replaces $XDG_DATA_HOME/weft-microvm/kernel. Re-running with
 // the same ref is a (cheap) re-download — content-addressable dedup is left
 // to the underlying transport; here we just always overwrite.
+//
+// Mirrors the Pull + PullPodInitrd transport setup : honours
+// WEFT_MICROVM_REGISTRY_MIRROR so a cluster-local zot serves the kernel
+// artifact, and descends one level of OCI index when the published tag
+// carries a multi-arch index (one manifest per arch).
 func PullKernel(image string) error {
 	ctx := context.Background()
 	canonical := expandDockerHubShorthand(image)
+	canonical = rewriteForMirror(canonical)
 	repo, err := newRepository(canonical)
 	if err != nil {
 		return fmt.Errorf("parse %q: %w", canonical, err)
@@ -54,6 +61,13 @@ func PullKernel(image string) error {
 	desc, err := repo.Resolve(ctx, tag)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", image, err)
+	}
+	// Descend a multi-platform index to the linux/<arch> entry, same as
+	// Pull. Non-index descriptors pass through unchanged so callers that
+	// publish a single-arch manifest see no behaviour change.
+	desc, err = resolvePlatform(ctx, repo, desc, "linux", runtime.GOARCH)
+	if err != nil {
+		return fmt.Errorf("resolve platform: %w", err)
 	}
 
 	manifestBytes, err := fetchAll(ctx, repo, desc)

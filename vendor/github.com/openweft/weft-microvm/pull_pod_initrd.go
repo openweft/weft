@@ -38,9 +38,15 @@ const podInitrdLayerMediaType = "application/vnd.openweft.microvm.pod-initrd.cpi
 // PullPodInitrd resolves the OCI artifact reference, picks the per-arch
 // manifest from its multi-arch index, downloads the cpio.gz layer, and
 // atomically replaces $XDG_DATA_HOME/weft-microvm/pod-initrd.
+//
+// Mirrors the Pull + PullKernel transport setup : honours
+// WEFT_MICROVM_REGISTRY_MIRROR so a cluster-local zot serves the
+// pod-initrd artifact, and uses the shared resolvePlatform helper to
+// descend a multi-arch OCI index (the published shape).
 func PullPodInitrd(image string) error {
 	ctx := context.Background()
 	canonical := expandDockerHubShorthand(image)
+	canonical = rewriteForMirror(canonical)
 	repo, err := newRepository(canonical)
 	if err != nil {
 		return fmt.Errorf("parse %q: %w", canonical, err)
@@ -54,35 +60,20 @@ func PullPodInitrd(image string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", image, err)
 	}
+	// Descend a multi-platform index to the linux/<arch> entry, same as
+	// Pull and PullKernel. Non-index descriptors pass through unchanged.
+	// The pod-initrd is Linux-only (it's a Linux initramfs), so pinning
+	// linux/<host arch> matches what the artifact actually contains.
+	desc, err = resolvePlatform(ctx, repo, desc, "linux", runtime.GOARCH)
+	if err != nil {
+		return fmt.Errorf("resolve platform: %w", err)
+	}
 
 	manifestBytes, err := fetchAll(ctx, repo, desc)
 	if err != nil {
 		return fmt.Errorf("pull manifest: %w", err)
 	}
-
-	// The resolved manifest may be a multi-arch OCI index — descend one
-	// level to the per-arch manifest matching runtime.GOARCH.
 	var manifest ocispec.Manifest
-	if desc.MediaType == ocispec.MediaTypeImageIndex || desc.MediaType == "application/vnd.docker.distribution.manifest.list.v2+json" {
-		var idx ocispec.Index
-		if err := json.Unmarshal(manifestBytes, &idx); err != nil {
-			return fmt.Errorf("decode index: %w", err)
-		}
-		var picked *ocispec.Descriptor
-		for i, m := range idx.Manifests {
-			if m.Platform != nil && m.Platform.Architecture == runtime.GOARCH {
-				picked = &idx.Manifests[i]
-				break
-			}
-		}
-		if picked == nil {
-			return fmt.Errorf("no manifest in %s for arch %s", image, runtime.GOARCH)
-		}
-		manifestBytes, err = fetchAll(ctx, repo, *picked)
-		if err != nil {
-			return fmt.Errorf("pull per-arch manifest: %w", err)
-		}
-	}
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return fmt.Errorf("decode manifest: %w", err)
 	}

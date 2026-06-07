@@ -21,12 +21,12 @@ require (
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
-	github.com/openweft/cloud-init v0.0.0
-	github.com/openweft/hclconfig v0.0.0
+	github.com/openweft/cloud-init v0.1.0
+	github.com/openweft/hclconfig v0.1.0
 	github.com/openweft/weft-client v0.0.0
 	github.com/openweft/weft-driver-plugin v0.0.0
-	github.com/openweft/weft-drivers v0.1.0
-	github.com/openweft/weft-microvm v0.0.0
+	github.com/openweft/weft-drivers v0.2.0
+	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
 	github.com/openweft/weft-proto v0.9.0
 	github.com/prometheus/client_golang v1.20.5
@@ -150,8 +150,6 @@ replace (
 	github.com/go-grub/grub => ../../go-grub/grub
 	github.com/grpc-transports/ssh => ../../grpc-transports/ssh
 	github.com/grpc-transports/wireguard => ../../grpc-transports/wireguard
-	github.com/openweft/cloud-init => ../cloud-init
-	github.com/openweft/hclconfig => ../hclconfig
 	github.com/openweft/weft-client => ../weft-client
 	github.com/openweft/weft-driver-plugin => ../weft-driver-plugin
 	github.com/openweft/weft-drivers => ../weft-drivers

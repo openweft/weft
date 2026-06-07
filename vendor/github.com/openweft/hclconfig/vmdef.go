@@ -89,9 +89,9 @@ type Row struct {
 	SSHPubKey string `json:"-"`
 }
 
-// ParseMockConfig parses a mock HCL config (directory or single file) in a
+// ParseVMs parses a mock HCL config (directory or single file) in a
 // tolerant way for tests.
-func ParseMockConfig(path string) ([]VMDef, string, string, error) {
+func ParseVMs(path string) ([]VMDef, string, string, error) {
 	if path == "" {
 		path = ".mock/hcl"
 	}
@@ -597,7 +597,7 @@ func BuildRowsFromConfig(configPath, prefix string, tartMap map[string]map[strin
 	if configPath == "" {
 		configPath = ".mock/hcl"
 	}
-	vms, _, mid, err := ParseMockConfig(configPath)
+	vms, _, mid, err := ParseVMs(configPath)
 	if err != nil {
 		return nil, err
 	}

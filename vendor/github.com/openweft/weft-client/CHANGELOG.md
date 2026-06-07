@@ -7,6 +7,10 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Changed
+
+- Bump `weft-proto` to v0.9.0 (catches up with the registry RPCs added in v0.6 — RevertVolumeSnapshot, VolumeBackup ×4 — v0.7 — AZ + Rack — v0.8 — Subnet + LoadBalancer + DNSZone + DNSRecord — and v0.9 — VolumeProperty + Share Get/Resize + Bucket + SSHKeyCatalogue + SchedulingRule + RegistryRemote). The client itself uses only the WeftAgent stub + VMState enum, so the bump is purely about keeping dependents on a single proto version.
+
 ## [v0.2.2] — 2026-06-02
 
 ### Changed

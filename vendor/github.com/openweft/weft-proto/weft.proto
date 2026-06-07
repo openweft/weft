@@ -1849,7 +1849,7 @@ message ReleaseFloatingIPResponse {}
 // MapFloatingIP attaches an allocated FIP to a target. `target_kind`
 // distinguishes "vm" (one VM's primary IP gets DNATed) from "lb"
 // (the VIP of a LoadBalancer entry) — the network controller
-// (weft-network) wires the NAT / Envoy listener accordingly.
+// (weft-network) wires the NAT / embedded-Caddy listener accordingly.
 message MapFloatingIPRequest {
   string uuid        = 1;
   string target_kind = 2; // "vm" | "lb"
