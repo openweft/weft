@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	imock "github.com/openweft/hclconfig"
+	imock "github.com/openweft/weft-hcl"
 )
 
 // ── rowToProto ────────────────────────────────────────────────────────────────
