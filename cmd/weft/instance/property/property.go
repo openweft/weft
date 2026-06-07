@@ -26,8 +26,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/openweft/weft/cmd/weft/shared"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -51,9 +51,10 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 		format  string
 	)
 	cmd := &cobra.Command{
-		Use:   "ls <vm>",
-		Short: "List a VM's properties",
-		Args:  cobra.ExactArgs(1),
+		Use:     "ls <vm>",
+		Aliases: []string{"list"},
+		Short:   "List a VM's properties",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {

@@ -9,10 +9,10 @@
 //	weft share attach --project P --id ... --mount-point ... --volume ... ...
 //	weft share detach --project P --id ... --mount-point ...
 //
-// The `show` verb is a client-side filter over ListShares ; there's no
-// GetShare RPC yet (follow-up). Attach/detach drive PublishShareToProject :
-// the daemon resolves the project's VMs and the in-VM agent applies the
-// mount idempotently.
+// The `show` verb dispatches the GetShare RPC (added in weft-proto
+// v0.9.0). Attach/detach drive PublishShareToProject : the daemon
+// resolves the project's VMs and the in-VM agent applies the mount
+// idempotently.
 package share
 
 import (
@@ -78,10 +78,10 @@ func resizeCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var project, format string
 	cmd := &cobra.Command{
-		Use:   "ls",
+		Use:     "ls",
 		Aliases: []string{"list"},
-		Short: "List shares (optionally scoped to one project)",
-		Args:  cobra.NoArgs,
+		Short:   "List shares (optionally scoped to one project)",
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cl, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
