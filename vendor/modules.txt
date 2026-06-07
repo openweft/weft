@@ -262,10 +262,10 @@ github.com/opencontainers/go-digest
 ## explicit; go 1.18
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/openweft/cloud-init v0.0.0 => ../cloud-init
+# github.com/openweft/cloud-init v0.1.0
 ## explicit; go 1.25.0
 github.com/openweft/cloud-init
-# github.com/openweft/hclconfig v0.0.0 => ../hclconfig
+# github.com/openweft/hclconfig v0.1.0
 ## explicit; go 1.25.0
 github.com/openweft/hclconfig
 # github.com/openweft/weft-client v0.0.0 => ../weft-client
@@ -275,16 +275,16 @@ github.com/openweft/weft-client
 ## explicit; go 1.25.0
 github.com/openweft/weft-driver-plugin
 github.com/openweft/weft-driver-plugin/driverpb
-# github.com/openweft/weft-drivers v0.1.0 => ../weft-drivers
+# github.com/openweft/weft-drivers v0.2.0 => ../weft-drivers
 ## explicit; go 1.25.0
 github.com/openweft/weft-drivers
-# github.com/openweft/weft-microvm v0.0.0 => ../weft-microvm
+# github.com/openweft/weft-microvm v0.2.0 => ../weft-microvm
 ## explicit; go 1.25.1
 github.com/openweft/weft-microvm
 github.com/openweft/weft-microvm/cpio
 github.com/openweft/weft-microvm/initbuild
 # github.com/openweft/weft-microvm-init v0.0.0 => ../weft-microvm-init
-## explicit; go 1.25.0
+## explicit; go 1.25.1
 github.com/openweft/weft-microvm-init/pkg/pod
 # github.com/openweft/weft-proto v0.9.0 => ../weft-proto
 ## explicit; go 1.25.0
@@ -875,8 +875,6 @@ sigs.k8s.io/yaml/goyaml.v2
 # github.com/go-grub/grub => ../../go-grub/grub
 # github.com/grpc-transports/ssh => ../../grpc-transports/ssh
 # github.com/grpc-transports/wireguard => ../../grpc-transports/wireguard
-# github.com/openweft/cloud-init => ../cloud-init
-# github.com/openweft/hclconfig => ../hclconfig
 # github.com/openweft/weft-client => ../weft-client
 # github.com/openweft/weft-driver-plugin => ../weft-driver-plugin
 # github.com/openweft/weft-drivers => ../weft-drivers

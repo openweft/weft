@@ -1,47 +1,62 @@
 # hclconfig
 
-Public façade over the internal HCL configuration loader. Re-exports types and functions from `internal/mock` so that external packages (`weft`, `terraform-provider-weft`, …) can import them without violating Go's internal-package visibility rules.
+Pure-Go HCL configuration parser for openweft. Owns the parser
+end-to-end : types, HCL syntax, OCI/HTTP reference resolution, and
+the row-building logic that feeds the daemon's VM inventory.
 
 ## Module
 
 ```
-github.com/configuration-management-tool/mock/pkg/hclconfig
+github.com/openweft/hclconfig
 ```
 
-Part of the root module — no separate `go.mod`.
-
-## API
+## API surface
 
 ```go
-// MockBlock holds daemon-level configuration (cache paths, SSH settings, timeouts …).
-type MockBlock = mock.MockBlock
-
-// Row holds per-VM display data (name, state, OS, CPU, memory, …).
-type Row = mock.Row
-
-// LoadMockBlock parses the HCL config directory and returns the daemon-level
-// configuration block.
+// Per-environment daemon settings parsed from the top-level `mock`
+// block (the keyword is historical ; the block holds cache paths,
+// SSH defaults, parallelism, timeouts).
+type MockBlock struct { ... }
 func LoadMockBlock(cfg string) MockBlock
 
-// BuildRowsFromConfig computes the table of VM rows from the HCL config
-// directory, a deployment prefix, a live VM state map, and an OCI image-URL map.
-func BuildRowsFromConfig(configPath, prefix string, vmMap map[string]map[string]interface{}, ociMap map[string]string) ([]Row, error)
+// VM table — one row per declared VM, used by webui + tfprovider.
+type Row     struct { ... }
+type VMDef   struct { ... }
+type DiskDef struct { ... }
 
-// LoadOCIFroms returns a map of VM-name → OCI image URL from the HCL config.
+// Reads + resolves the HCL config directory.
+func ReadVMs(configDir string) ([]Row, error)
+func BuildRowsFromConfig(configDir, prefix string, vmState map[string]map[string]interface{}, ociMap map[string]string) ([]Row, error)
 func LoadOCIFroms(cfg string) map[string]string
+
+// Tabular rendering of the Row slice.
+func RenderTableFromRows(rows []Row, w io.Writer)
+func MarshalRows(rows []Row) ([]byte, error)
 ```
 
 ## Usage
 
 ```go
-import "github.com/configuration-management-tool/mock/pkg/hclconfig"
+import "github.com/openweft/hclconfig"
 
-block := hclconfig.LoadMockBlock(".mock/hcl")
-rows, err := hclconfig.BuildRowsFromConfig(".mock/hcl", "dev", vmStateMap, ociMap)
+rows, err := hclconfig.ReadVMs(".mock/hcl")
 ```
 
-## Used by
+## Consumers
 
-- [`weft`](../weft) — reads daemon config and VM definitions
-- [`weft-webui`](../weft-webui) — populates the VM table (Svelte SPA + Go API)
-- [`terraform-provider-weft`](../terraform-provider-weft) — reads image URLs from HCL
+- [`weft`](https://github.com/openweft/weft) — reads daemon config + VM definitions
+- [`weft-webui`](https://github.com/openweft/weft-webui) — populates the VM table (Svelte SPA + Go API)
+- [`terraform-provider-weft`](https://github.com/openweft/terraform-provider-weft) — reads image URLs from HCL
+
+## Naming note
+
+The HCL daemon block keyword (`mock "<label>" { … }`), the `MockBlock`
+Go type, and the default config directory (`.mock/hcl`) are
+historical — early openweft was scaffolded as a "mock UI". The
+naming is slated for cleanup in a future cycle (the rename is a
+breaking change for live config files, so it ships behind a deliberate
+major-version bump rather than a patch).
+
+## License
+
+BSD 3-Clause — see LICENSE.

@@ -1,9 +1,17 @@
 package filesystem
 
 import (
+	"errors"
 	"os"
 	"time"
 )
+
+// ErrShrinkUnsupported is returned by Resizer.Resize when the driver
+// cannot shrink its on-disk format and the caller passed a newSize
+// smaller than the current size. Filesystems whose layout precludes
+// shrink entirely (e.g. XFS, ZFS) return this sentinel rather than
+// attempting a destructive resize.
+var ErrShrinkUnsupported = errors.New("filesystem: shrink not supported")
 
 // DirEntry describes a directory entry. Implementations must provide accessors
 // for the inode number, name and file type.
@@ -176,4 +184,29 @@ type Grower interface {
 	// require that the new size is strictly larger than the current
 	// size and/or aligned to a filesystem-specific boundary.
 	GrowTo(newSizeBytes int64) error
+}
+
+// Resizer is the optional, uniform resize capability implemented by
+// every driver that can change its on-disk size, in either direction.
+// It supersedes the older grow-only Grower split by giving callers a
+// single entry point and a clearly-typed sentinel for the one case
+// where the semantics genuinely diverge (shrink-unsupported formats).
+//
+//	if r, ok := fs.(filesystem.Resizer); ok {
+//	    if err := r.Resize(newSize); errors.Is(err, filesystem.ErrShrinkUnsupported) {
+//	        // driver only grows — caller decides how to handle
+//	    }
+//	}
+type Resizer interface {
+	// Resize changes the filesystem's underlying size in bytes. The newSize
+	// is the new total capacity of the on-disk image. Implementations may
+	// reject sizes that would lose data; semantics per driver:
+	//
+	//   - grow (always allowed where the on-disk format supports it)
+	//   - shrink (allowed only if the data fits in newSize; some FS forbid
+	//     shrink entirely — e.g. XFS, ZFS — and return ErrShrinkUnsupported)
+	//
+	// Returns ErrShrinkUnsupported when the driver doesn't implement shrink
+	// and newSize < current; returns wrapping I/O errors for failed grow.
+	Resize(newSize int64) error
 }

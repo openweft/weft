@@ -285,6 +285,13 @@ func pullAndExtractLayer(ctx context.Context, repo *remote.Repository, layer oci
 // resolvePlatform descends through a multi-platform index manifest, picking
 // the entry that matches (os, arch). Non-index descriptors pass through
 // unchanged so callers don't need to special-case the single-platform case.
+//
+// A Platform with empty OS is treated as matching any OS — single-OS
+// artifacts (the pod-initrd is Linux-only, the kernel is Linux-only)
+// sometimes declare only `architecture` in their per-arch entries, and
+// rejecting them on a strict OS match would defeat the descent entirely.
+// Architecture must match exactly — that's the cross-arch axis we care
+// about (arm64 vs amd64 vs riscv64 vs loong64).
 func resolvePlatform(ctx context.Context, repo *remote.Repository, desc ocispec.Descriptor, os, arch string) (ocispec.Descriptor, error) {
 	switch desc.MediaType {
 	case ocispec.MediaTypeImageIndex,
@@ -298,9 +305,13 @@ func resolvePlatform(ctx context.Context, repo *remote.Repository, desc ocispec.
 			return desc, fmt.Errorf("decode index: %w", err)
 		}
 		for _, m := range idx.Manifests {
-			if m.Platform != nil && m.Platform.OS == os && m.Platform.Architecture == arch {
-				return m, nil
+			if m.Platform == nil || m.Platform.Architecture != arch {
+				continue
 			}
+			if m.Platform.OS != "" && m.Platform.OS != os {
+				continue
+			}
+			return m, nil
 		}
 		return desc, fmt.Errorf("no manifest matches %s/%s", os, arch)
 	}
