@@ -340,11 +340,11 @@ func (a *Adapter) SchedulingRuleByUUID(uuid string) (SchedulingRuleEntry, bool) 
 	return a.schedRuleReg.lookupByUUID(uuid)
 }
 
-func (a *Adapter) CreateSchedulingRule(name, selector string, targetCount int32, antiAffinity string) (SchedulingRuleEntry, bool, error) {
+func (a *Adapter) CreateSchedulingRule(name, selector string, targetCount int32, antiAffinity string, respawn *RespawnPolicyJSON) (SchedulingRuleEntry, bool, error) {
 	if a.schedRuleReg == nil {
 		return SchedulingRuleEntry{}, false, fmt.Errorf("scheduling rule registry not initialised")
 	}
-	sr, created, err := a.schedRuleReg.create(name, selector, targetCount, antiAffinity)
+	sr, created, err := a.schedRuleReg.create(name, selector, targetCount, antiAffinity, respawn)
 	if err == nil && created {
 		a.bus.Publish(PlatformEvent{
 			Kind:    "schedulingrule.created",
@@ -355,11 +355,11 @@ func (a *Adapter) CreateSchedulingRule(name, selector string, targetCount int32,
 	return sr, created, err
 }
 
-func (a *Adapter) UpdateSchedulingRule(uuid, selector string, targetCount int32, antiAffinity string) (SchedulingRuleEntry, error) {
+func (a *Adapter) UpdateSchedulingRule(uuid, selector string, targetCount int32, antiAffinity string, respawn *RespawnPolicyJSON, clearRespawn bool) (SchedulingRuleEntry, error) {
 	if a.schedRuleReg == nil {
 		return SchedulingRuleEntry{}, fmt.Errorf("scheduling rule registry not initialised")
 	}
-	sr, err := a.schedRuleReg.update(uuid, selector, targetCount, antiAffinity)
+	sr, err := a.schedRuleReg.update(uuid, selector, targetCount, antiAffinity, respawn, clearRespawn)
 	if err == nil {
 		a.bus.Publish(PlatformEvent{Kind: "schedulingrule.updated", Subject: uuid})
 	}

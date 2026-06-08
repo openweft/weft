@@ -2877,7 +2877,7 @@ func (s *weftServer) CreateSchedulingRule(ctx context.Context, req *weftv1.Creat
 	if err := weft.RequireAdmin(ctx, "create scheduling rule"); err != nil {
 		return nil, err
 	}
-	r, created, err := s.adp.CreateSchedulingRule(req.Name, req.Selector, req.TargetCount, req.AntiAffinity)
+	r, created, err := s.adp.CreateSchedulingRule(req.Name, req.Selector, req.TargetCount, req.AntiAffinity, respawnFromProto(req.Respawn))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create scheduling rule: %v", err)
 	}
@@ -2892,7 +2892,7 @@ func (s *weftServer) UpdateSchedulingRule(ctx context.Context, req *weftv1.Updat
 	if err := weft.RequireAdmin(ctx, "update scheduling rule"); err != nil {
 		return nil, err
 	}
-	r, err := s.adp.UpdateSchedulingRule(req.Uuid, req.Selector, req.TargetCount, req.AntiAffinity)
+	r, err := s.adp.UpdateSchedulingRule(req.Uuid, req.Selector, req.TargetCount, req.AntiAffinity, respawnFromProto(req.Respawn), req.ClearRespawn)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "update scheduling rule: %v", err)
 	}
@@ -2921,8 +2921,104 @@ func toSchedulingRuleInfo(r weft.SchedulingRuleEntry) *weftv1.SchedulingRuleInfo
 		Selector:        r.Selector,
 		TargetCount:     r.TargetCount,
 		AntiAffinity:    r.AntiAffinity,
+		Respawn:         respawnToProto(r.Respawn),
 		CreatedAtUnixNs: r.CreatedAt.UnixNano(),
 	}
+}
+
+// respawnFromProto / respawnToProto are the gRPC ↔ persistence
+// converters for RespawnPolicy + HealthProbe. The persisted form
+// (RespawnPolicyJSON) stays plain Go so the registry doesn't pull
+// the proto runtime into JSON marshalling.
+
+func respawnFromProto(p *weftv1.RespawnPolicy) *weft.RespawnPolicyJSON {
+	if p == nil {
+		return nil
+	}
+	return &weft.RespawnPolicyJSON{
+		Enabled:        p.GetEnabled(),
+		GracePeriodMs:  p.GetGracePeriodMs(),
+		MaxRestarts:    p.GetMaxRestarts(),
+		WindowMs:       p.GetWindowMs(),
+		Backoff:        p.GetBackoff(),
+		InitialDelayMs: p.GetInitialDelayMs(),
+		Liveness:       healthProbeFromProto(p.GetLiveness()),
+		Readiness:      healthProbeFromProto(p.GetReadiness()),
+	}
+}
+
+func respawnToProto(p *weft.RespawnPolicyJSON) *weftv1.RespawnPolicy {
+	if p == nil {
+		return nil
+	}
+	return &weftv1.RespawnPolicy{
+		Enabled:        p.Enabled,
+		GracePeriodMs:  p.GracePeriodMs,
+		MaxRestarts:    p.MaxRestarts,
+		WindowMs:       p.WindowMs,
+		Backoff:        p.Backoff,
+		InitialDelayMs: p.InitialDelayMs,
+		Liveness:       healthProbeToProto(p.Liveness),
+		Readiness:      healthProbeToProto(p.Readiness),
+	}
+}
+
+func healthProbeFromProto(p *weftv1.HealthProbe) *weft.HealthProbeJSON {
+	if p == nil || p.GetType() == weftv1.HealthProbe_NONE {
+		return nil
+	}
+	out := &weft.HealthProbeJSON{
+		HttpPath:         p.GetHttpPath(),
+		HttpPort:         p.GetHttpPort(),
+		HttpMethod:       p.GetHttpMethod(),
+		HttpStatusOK:     append([]int32(nil), p.GetHttpStatusOk()...),
+		TcpPort:          p.GetTcpPort(),
+		ExecCommand:      append([]string(nil), p.GetExecCommand()...),
+		InitialDelayMs:   p.GetInitialDelayMs(),
+		PeriodMs:         p.GetPeriodMs(),
+		TimeoutMs:        p.GetTimeoutMs(),
+		FailureThreshold: p.GetFailureThreshold(),
+		SuccessThreshold: p.GetSuccessThreshold(),
+	}
+	switch p.GetType() {
+	case weftv1.HealthProbe_HTTP:
+		out.Type = "http"
+	case weftv1.HealthProbe_TCP:
+		out.Type = "tcp"
+	case weftv1.HealthProbe_EXEC:
+		out.Type = "exec"
+	}
+	return out
+}
+
+func healthProbeToProto(p *weft.HealthProbeJSON) *weftv1.HealthProbe {
+	if p == nil {
+		return nil
+	}
+	out := &weftv1.HealthProbe{
+		HttpPath:         p.HttpPath,
+		HttpPort:         p.HttpPort,
+		HttpMethod:       p.HttpMethod,
+		HttpStatusOk:     append([]int32(nil), p.HttpStatusOK...),
+		TcpPort:          p.TcpPort,
+		ExecCommand:      append([]string(nil), p.ExecCommand...),
+		InitialDelayMs:   p.InitialDelayMs,
+		PeriodMs:         p.PeriodMs,
+		TimeoutMs:        p.TimeoutMs,
+		FailureThreshold: p.FailureThreshold,
+		SuccessThreshold: p.SuccessThreshold,
+	}
+	switch p.Type {
+	case "http":
+		out.Type = weftv1.HealthProbe_HTTP
+	case "tcp":
+		out.Type = weftv1.HealthProbe_TCP
+	case "exec":
+		out.Type = weftv1.HealthProbe_EXEC
+	default:
+		out.Type = weftv1.HealthProbe_NONE
+	}
+	return out
 }
 
 // ---- Registry remotes (v0.9.0) ------------------------------------
