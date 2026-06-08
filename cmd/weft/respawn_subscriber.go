@@ -38,8 +38,12 @@ import (
 // logs + returns a no-op so the daemon shutdown path stays simple.
 func startRespawnSubscriber(adp weft.VZAdapter, bus weft.EventBus, etcdCli *clientv3.Client, logger *log.Logger) func() {
 	actions := &respawnActions{adp: adp}
+	// Pass slog.Default() (NATS-fan-out + stderr per weft-slognats) so
+	// the failover plan / claim / election lines land in the same
+	// stream as the rest of the agent's structured logs. nil here
+	// would drop them all into a discard handler.
 	sub := agentrespawn.
-		New(bus, respawnRules{adp: adp}, actions, nil).
+		New(bus, respawnRules{adp: adp}, actions, slog.Default()).
 		WithStatusReader(respawnStatus{adp: adp})
 
 	ctx, cancel := context.WithCancel(context.Background())
