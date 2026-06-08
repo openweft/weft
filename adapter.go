@@ -2991,14 +2991,41 @@ type MicroVMBoot struct {
 // dir is wired for by inspecting which files are present.
 //
 // Idempotent on re-registration: if a VM with the same (project, name)
-// already exists, the call succeeds silently rather than clobbering — the
-// existing spec is left untouched. This keeps `weft up --apply` and
-// `weft infra deploy` repeatable across re-runs. To force a fresh
-// registration the operator deletes the VM first (DeleteVM).
+// already exists, the call claims local ownership (flips host_uuid to
+// the calling agent's host UUID) so subsequent StartVM lands on the
+// driver bundle this agent owns — fixes [[etcd-vm-host-pinning]].
+// Without the claim, a VM record cached in shared etcd from an
+// earlier registration on another DC would route every dispatch back
+// to that DC's driver, even when the operator clearly ran the
+// command on a different agent. The spec (image, cpu, mem, shares)
+// is left untouched.
+//
+// To force a full re-registration (re-copy boot artefacts) the
+// operator deletes the VM first (DeleteVM).
 func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare) error {
 	if a.VMExistsIn(project, name) {
-		fmt.Fprintf(os.Stderr, "weft: register-microvm: vm %q already in project %s — idempotent skip\n",
-			name, a.ResolveProjectUUID(project))
+		projUUID := a.ResolveProjectUUID(project)
+		local := a.LocalHostUUID()
+		existing, _ := a.vmReg.lookupByName(projUUID, name)
+		if local != "" && existing.UUID != "" && existing.HostUUID != local {
+			if err := a.vmReg.setHost(existing.UUID, local); err != nil {
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: claim local ownership of %q failed: %v\n", name, err)
+			} else {
+				a.bus.Publish(PlatformEvent{
+					Kind:        "vm.migrated",
+					Subject:     existing.UUID,
+					ProjectUUID: projUUID,
+					Meta: map[string]string{
+						"old_host": existing.HostUUID, "new_host": local, "reason": "register-microvm-claim",
+					},
+				})
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: vm %q already in project %s — claimed local ownership (%s → %s)\n",
+					name, projUUID, existing.HostUUID, local)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "weft: register-microvm: vm %q already in project %s — idempotent skip\n",
+				name, projUUID)
+		}
 		return nil
 	}
 	if boot.BootISO == "" && boot.Kernel == "" {
