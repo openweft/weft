@@ -376,6 +376,32 @@ func (a *Adapter) LookupKindForVM(name string) string {
 // new VMs go through the registry.
 func (a *Adapter) hypervisorForVM(name string) (drivers.HypervisorDriver, error) {
 	if a.vmReg != nil {
+		// When several projects carry a VM record with the same name
+		// (the operator ran `weft microvm run` in multiple project
+		// namespaces, mostly during day-0 bring-up), the
+		// filesystem-scan picks one arbitrarily. Prefer a record
+		// pinned to LocalHostUUID() so the dispatch lands on the
+		// local driver bundle — avoids the "VM record exists but on
+		// another host" failure mode the respawn loop hits.
+		local := a.LocalHostUUID()
+		if local != "" {
+			a.vmReg.mu.Lock()
+			var pick VM
+			for _, v := range a.vmReg.byUUID {
+				if v.Name == name && v.HostUUID == local {
+					pick = v
+					break
+				}
+			}
+			a.vmReg.mu.Unlock()
+			if pick.UUID != "" {
+				handle, err := a.HostHandleOnArch(pick.HostUUID, pick.Architecture)
+				if err != nil {
+					return nil, err
+				}
+				return handle.Hypervisor, nil
+			}
+		}
 		if project, _, ok := a.findVMByName(name); ok {
 			if vm, ok := a.vmReg.lookupByName(project, name); ok && vm.HostUUID != "" {
 				// VM.Architecture, when set, drives the per-kind
