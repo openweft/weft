@@ -37,6 +37,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/flavor"
 	"github.com/openweft/weft/cmd/weft/floatingip"
 	"github.com/openweft/weft/cmd/weft/host"
+	"github.com/openweft/weft/cmd/weft/monitor"
 	"github.com/openweft/weft/cmd/weft/image"
 	"github.com/openweft/weft/cmd/weft/instance"
 	"github.com/openweft/weft/cmd/weft/login"
@@ -156,6 +157,7 @@ running agent.`,
 		user.Command(&socketPath, &sshSocket, &sshKey),
 		events.Command(&socketPath, &sshSocket, &sshKey),
 		host.Command(&socketPath, &sshSocket, &sshKey),
+		monitor.Command(),
 		az.Command(&socketPath, &sshSocket, &sshKey),
 		rack.Command(&socketPath, &sshSocket, &sshKey),
 		floatingip.Command(&socketPath, &sshSocket, &sshKey),
@@ -587,6 +589,11 @@ func run(t fileConfigTargets) error {
 			return fmt.Errorf("register weft_rpc_total: %w", mErr)
 		}
 		rpcByKind = rm
+		// Cluster-topology gauge : weft_monitors_live = count of
+		// etcd-coord liveness leases at /weft/coord/hosts/. Tracks the
+		// number of healthy agent monitors operators can fail over to.
+		// Refreshes every 5s. No-op when storage backend isn't etcd.
+		defer startMonitorsGauge(reg, sf.etcdClient)()
 		defer func() { _ = metricsCloser() }()
 	}
 
