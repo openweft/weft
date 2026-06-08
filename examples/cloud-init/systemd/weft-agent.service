@@ -5,17 +5,34 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+# Type=notify : the agent calls sd_notify("READY=1") once its gRPC
+# listener is up and pings WATCHDOG=1 every 10s. systemd kills + restarts
+# the agent if the watchdog isn't pinged within WatchdogSec — covers the
+# "process is alive but wedged" failure mode that Restart=on-failure
+# alone misses. See cmd/weft/sdnotify.go for the inline implementation.
+Type=notify
+NotifyAccess=main
+WatchdogSec=30s
 User=weft
 Group=weft
 ExecStart=/usr/local/bin/weft agent
-Restart=on-failure
+Restart=always
 RestartSec=2s
+# Cap restart attempts in a rolling window so a wedged binary doesn't
+# burn the host's PIDs. systemd's default StartLimit gives 5 starts /
+# 10s ; widen it for the watchdog cadence so legitimate restarts
+# (config reload, transient etcd flap) don't tip the limiter.
+StartLimitBurst=10
+StartLimitIntervalSec=120
 # CAP_NET_ADMIN: required by the kernel WireGuard backend the agent
 # programs for the overlay mesh (wg-quick / netlink rtnl).
 AmbientCapabilities=CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_ADMIN
 NoNewPrivileges=true
+# Generous file-descriptor + task limits so the agent doesn't choke
+# when it's tracking many VMs + many bus subscribers + many etcd watches.
+LimitNOFILE=65536
+TasksMax=infinity
 StandardOutput=journal
 StandardError=journal
 
