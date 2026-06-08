@@ -499,6 +499,16 @@ func run(t fileConfigTargets) error {
 	// remote agent land here without a process restart.
 	defer startProjectRegistryWatcher(a, logger)()
 
+	// Host registry hot-reload : same pattern for the host inventory.
+	// Critical for the cross-host failover loop which reads
+	// ListVMsForHost to enumerate orphans on a HostDown event.
+	defer startHostRegistryWatcher(a, logger)()
+
+	// Scheduling-rule registry hot-reload : keeps the respawn
+	// subscriber's selector cache fresh when an operator on another
+	// DC creates / updates / deletes a rule without a process restart.
+	defer startSchedulingRuleRegistryWatcher(a, logger)()
+
 	// Respawn reconciler (per [[openweft_nominal_binding]] V0.1) :
 	// subscribes to vm.state_changed + schedulingrule.* events and
 	// drives weft/respawn's state machine for every VM bound by a

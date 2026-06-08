@@ -1331,6 +1331,21 @@ func (a *Adapter) UnregisterVM(uuid string) error {
 // initHosts loads the host registry via storageFactory.
 func (a *Adapter) initHosts() {
 	storage := a.storageFactory("hosts")
+	if a.kvStorageFactory != nil {
+		kv := a.kvStorageFactory("hosts")
+		reg, err := loadHostRegistryKV(context.Background(), kv, storage)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "weft: load host registry (kv): %v\n", err)
+			reg = &hostRegistry{
+				storage: storage,
+				kv:      kv,
+				byUUID:  make(map[string]Host),
+				nameIdx: make(map[string]string),
+			}
+		}
+		a.hostReg = reg
+		return
+	}
 	reg, err := loadHostRegistry(context.Background(), storage)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "weft: load host registry: %v\n", err)
@@ -1341,6 +1356,22 @@ func (a *Adapter) initHosts() {
 		}
 	}
 	a.hostReg = reg
+}
+
+// WatchHostRegistry mirrors WatchVMRegistry for host inventory : KV
+// mode consumes per-record events into applyKVEvent. No-op on blob
+// backends.
+func (a *Adapter) WatchHostRegistry(ctx context.Context) {
+	if a.hostReg == nil || a.hostReg.kv == nil {
+		return
+	}
+	ch := a.hostReg.kv.WatchKeys(ctx)
+	go func() {
+		for ev := range ch {
+			a.hostReg.applyKVEvent(ev)
+			a.bus.Publish(PlatformEvent{Kind: "host.registry_reloaded"})
+		}
+	}()
 }
 
 // ── Host registry surface ────────────────────────────────────────
