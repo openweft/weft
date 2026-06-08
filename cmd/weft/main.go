@@ -493,6 +493,12 @@ func run(t fileConfigTargets) error {
 	// was just flipped to a now-dead DC by a remote agent.
 	defer startVMRegistryWatcher(a, logger)()
 
+	// Project registry hot-reload : per-record V0.1.4 KV path
+	// applies cross-DC Put/Delete events surgically to the in-
+	// memory byUUID/nameIdx so renames + member changes on a
+	// remote agent land here without a process restart.
+	defer startProjectRegistryWatcher(a, logger)()
+
 	// Respawn reconciler (per [[openweft_nominal_binding]] V0.1) :
 	// subscribes to vm.state_changed + schedulingrule.* events and
 	// drives weft/respawn's state machine for every VM bound by a
