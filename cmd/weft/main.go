@@ -738,6 +738,14 @@ func run(t fileConfigTargets) error {
 		logger.Printf("SSH gRPC listening on %s", t.sshSocket)
 	}
 
+	// systemd integration : tell the unit we're ready (Type=notify
+	// kept us in `activating` until now) and start the watchdog
+	// ticker. Both no-op when $NOTIFY_SOCKET is unset (dev / off-
+	// systemd hosts). See cmd/weft/sdnotify.go for the inline
+	// sd_notify implementation.
+	sdNotifyReady()
+	startWatchdog(ctx, logger)
+
 	// Block until a termination signal lands. The deferred
 	// proxyCloser + sf.close() then run LIFO : watcher cancelled
 	// → Caddy stopped → etcd client closed. Pre-proxy code path
