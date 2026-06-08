@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	sshtransport "github.com/grpc-transports/ssh"
 	cloudinit "github.com/openweft/weft-cidata"
 	imock "github.com/openweft/weft-hcl"
+	weftslognats "github.com/openweft/weft-slognats"
 	"github.com/openweft/weft"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
 	weftv1 "github.com/openweft/weft-proto"
@@ -433,6 +435,14 @@ func run(t fileConfigTargets) error {
 	}
 	a := weft.NewWithStorage(filepath.Dir(t.configDir), sf.new)
 	a.SetPaths(mc.CachePath, mc.VMsPath)
+
+	// Fan-out slog records to NATS as well as stderr so weft-doctor
+	// can pick up WARN+ERROR events. WEFT_NATS_URL env unset → stderr-
+	// only, no error. localHostUUID(a) is what the rest of the
+	// daemon uses to identify itself ; same string in the subject.
+	slogLogger, slogCloser := weftslognats.SetupFromEnv("weft.agent." + localHostUUID(a) + ".log")
+	defer slogCloser.Close()
+	slog.SetDefault(slogLogger)
 
 	// Event bus backend (per [[weft-event-bus-nats]]). Default is
 	// LocalEventBus (in-process channels); "nats" connects to the
