@@ -45,18 +45,35 @@ type SchedulingRulesReader interface {
 	SchedulingRules() []weft.SchedulingRuleEntry
 }
 
+// VMStatusReader exposes the "is this VM currently running ?" query
+// the poller uses to detect deaths. The microVM hypervisor drivers
+// (qemu, vz) signal exit by writing <vmDir>/exit.json from a reaper
+// goroutine, but no bus event is emitted today — so the subscriber
+// polls this surface every few seconds and synthesises a Down signal
+// when a watched VM transitions running → not-running.
+//
+// Hosts that already publish vm.state_changed events (classic VM
+// lifecycle) ride the bus path ; the poller is the safety net for
+// microVMs whose hypervisor doesn't notify the agent on guest exit.
+type VMStatusReader interface {
+	IsVMRunning(name string) bool
+}
+
 // Subscriber owns the bus subscription + the Reconciler instance.
 // One Subscriber per agent ; Run blocks until ctx is cancelled.
 type Subscriber struct {
 	bus      weft.EventBus
 	rules    SchedulingRulesReader
+	status   VMStatusReader // optional ; nil = bus-only path (classic VMs)
 	rec      *respawn.Reconciler
 	log      *slog.Logger
 	rescanCh chan struct{}
+	pollEvery time.Duration
 
-	mu      sync.Mutex
-	ctx     context.Context  // populated by Run ; used by rescan to scope Reconciler.Watch
-	watched map[string]string // vmName → ruleUUID (the rule currently driving it)
+	mu       sync.Mutex
+	ctx      context.Context   // populated by Run ; used by rescan to scope Reconciler.Watch
+	watched  map[string]string // vmName → ruleUUID (the rule currently driving it)
+	lastSeen map[string]bool   // vmName → "was running on last poll"
 }
 
 // New wires the subscriber. The actions implement how StartVM /
@@ -67,13 +84,34 @@ func New(bus weft.EventBus, rules SchedulingRulesReader, actions respawn.VMActio
 		log = slog.New(slog.NewTextHandler(discard{}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
 	return &Subscriber{
-		bus:      bus,
-		rules:    rules,
-		rec:      respawn.New(actions, log.With("component", "respawn")),
-		log:      log,
-		rescanCh: make(chan struct{}, 1),
-		watched:  map[string]string{},
+		bus:       bus,
+		rules:     rules,
+		rec:       respawn.New(actions, log.With("component", "respawn")),
+		log:       log,
+		rescanCh:  make(chan struct{}, 1),
+		pollEvery: 2 * time.Second,
+		watched:   map[string]string{},
+		lastSeen:  map[string]bool{},
 	}
+}
+
+// WithStatusReader enables the polling fallback : every pollEvery
+// the subscriber asks the reader whether each watched VM is still
+// running, and synthesises a Down signal when a VM transitions
+// running → not-running. Required for microVM workloads whose
+// hypervisor driver doesn't emit vm.state_changed events on guest
+// exit. Safe no-op when reader is nil.
+func (s *Subscriber) WithStatusReader(reader VMStatusReader) *Subscriber {
+	s.status = reader
+	return s
+}
+
+// WithPollInterval overrides the default 2s poller period. Useful
+// for tests + very tight grace_period_ms windows. Zero or negative
+// disables the poller entirely.
+func (s *Subscriber) WithPollInterval(d time.Duration) *Subscriber {
+	s.pollEvery = d
+	return s
 }
 
 type discard struct{}
@@ -102,6 +140,17 @@ func (s *Subscriber) Run(ctx context.Context) error {
 	defer cancel()
 	// Initial scan to pick up rules that pre-exist this agent's boot.
 	s.rescan()
+
+	// Poller : ticks every s.pollEvery and emits Down/Up signals for
+	// watched microVMs whose hypervisor driver doesn't publish
+	// vm.state_changed events. Stops cleanly with the loop.
+	var pollC <-chan time.Time
+	if s.status != nil && s.pollEvery > 0 {
+		t := time.NewTicker(s.pollEvery)
+		defer t.Stop()
+		pollC = t.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -114,6 +163,47 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			s.dispatch(ev)
 		case <-s.rescanCh:
 			s.rescan()
+		case <-pollC:
+			s.pollWatchedVMs()
+		}
+	}
+}
+
+// pollWatchedVMs calls VMStatusReader.IsVMRunning for each watched VM
+// and synthesises Down/Up signals on transition. Pure side-effecting
+// against the Reconciler ; no bus interaction. Idempotent on stable
+// state — only emits when the boolean flips.
+func (s *Subscriber) pollWatchedVMs() {
+	if s.status == nil {
+		return
+	}
+	s.mu.Lock()
+	watched := make([]string, 0, len(s.watched))
+	for n := range s.watched {
+		watched = append(watched, n)
+	}
+	s.mu.Unlock()
+	for _, name := range watched {
+		running := s.status.IsVMRunning(name)
+		s.mu.Lock()
+		prev, seen := s.lastSeen[name]
+		s.lastSeen[name] = running
+		s.mu.Unlock()
+		if !seen {
+			// First observation : seed without emitting. Avoids
+			// firing a spurious Down when the agent boots into an
+			// already-stopped VM the operator wants left alone.
+			continue
+		}
+		if prev && !running {
+			s.log.Info("respawn poller : VM stopped", "vm", name)
+			s.rec.Send(respawn.Signal{
+				VMName: name, Kind: respawn.SignalDown, When: time.Now(),
+			})
+		} else if !prev && running {
+			s.rec.Send(respawn.Signal{
+				VMName: name, Kind: respawn.SignalUp, When: time.Now(),
+			})
 		}
 	}
 }
