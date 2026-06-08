@@ -83,16 +83,53 @@ func New(bus weft.EventBus, rules SchedulingRulesReader, actions respawn.VMActio
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(discard{}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
-	return &Subscriber{
+	s := &Subscriber{
 		bus:       bus,
 		rules:     rules,
-		rec:       respawn.New(actions, log.With("component", "respawn")),
 		log:       log,
 		rescanCh:  make(chan struct{}, 1),
 		pollEvery: 2 * time.Second,
 		watched:   map[string]string{},
 		lastSeen:  map[string]bool{},
 	}
+	// Wrap actions so we can capture "respawn just succeeded" and
+	// pin lastSeen=true synchronously. Without this, a rapid second
+	// kill that fires before the next poll cycle leaves lastSeen
+	// false (set when Down was emitted), so the next poll sees
+	// prev=false now=false and doesn't re-emit Down — the second
+	// death sits silent until a manual restart toggles lastSeen.
+	s.rec = respawn.New(&trackingActions{inner: actions, sub: s}, log.With("component", "respawn"))
+	return s
+}
+
+// trackingActions wraps the operator-supplied VMActions so the
+// subscriber's lastSeen map is kept in sync with successful
+// StartVM / StopVM calls. Fixes the race described in agentrespawn
+// V0.1 review : the 2s poll cadence isn't tight enough to catch a
+// kill that happens within milliseconds of a respawn.
+type trackingActions struct {
+	inner respawn.VMActions
+	sub   *Subscriber
+}
+
+func (t *trackingActions) StartVM(ctx context.Context, name string) error {
+	err := t.inner.StartVM(ctx, name)
+	if err == nil {
+		t.sub.mu.Lock()
+		t.sub.lastSeen[name] = true
+		t.sub.mu.Unlock()
+	}
+	return err
+}
+
+func (t *trackingActions) StopVM(ctx context.Context, name string) error {
+	err := t.inner.StopVM(ctx, name)
+	if err == nil {
+		t.sub.mu.Lock()
+		t.sub.lastSeen[name] = false
+		t.sub.mu.Unlock()
+	}
+	return err
 }
 
 // WithStatusReader enables the polling fallback : every pollEvery
