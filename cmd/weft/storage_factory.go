@@ -50,7 +50,14 @@ import (
 // living outside the storage stack) can do the same. nil for the
 // "file" backend — bootProxy treats that as "supervisor-only".
 type storageFactory struct {
-	new        func(name string) weft.Storage
+	new func(name string) weft.Storage
+	// newKV, when non-nil, returns a per-record KVStorage for the
+	// named registry — opt-in path the registries (vmRegistry today,
+	// others next) take when they want surgical per-record etcd
+	// semantics instead of the full-blob Put on every mutation. nil
+	// for the file backend ; constructed by newEtcdStorageFactory
+	// when storage.backend = etcd / embed-etcd.
+	newKV      func(name string) weft.KVStorage
 	close      func() error
 	etcdClient *clientv3.Client
 }
@@ -113,6 +120,12 @@ func newEtcdStorageFactory(endpoints []string, username, password, prefix string
 	return &storageFactory{
 		new: func(name string) weft.Storage {
 			return weft.NewEtcdStorageWithClient(cli, prefix, name)
+		},
+		newKV: func(name string) weft.KVStorage {
+			// Per-record prefix lives under <root-prefix><name>/ so
+			// the legacy blob key (e.g. "vms") and the per-record
+			// keys (e.g. "vms/<uuid>") never collide.
+			return weft.NewEtcdKVStorageWithClient(cli, prefix+name+"/")
 		},
 		close: func() error {
 			err := cli.Close()

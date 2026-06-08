@@ -435,7 +435,7 @@ func run(t fileConfigTargets) error {
 	if sf.close != nil {
 		defer func() { _ = sf.close() }()
 	}
-	a := weft.NewWithStorage(filepath.Dir(t.configDir), sf.new)
+	a := weft.NewWithKVStorage(filepath.Dir(t.configDir), sf.new, sf.newKV)
 	a.SetPaths(mc.CachePath, mc.VMsPath)
 
 	// Fan-out slog records to NATS as well as stderr so weft-doctor

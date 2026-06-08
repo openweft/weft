@@ -320,6 +320,187 @@ type WatchableStorage interface {
 	Watch(ctx context.Context) <-chan struct{}
 }
 
+// ----------------------------------------------------------------
+// KVStorage — per-record backend (V0.1.4).
+// ----------------------------------------------------------------
+
+// KVStorage is the per-record sibling of Storage : one etcd key per
+// record (e.g. /weft/vms/<uuid>) rather than the single blob a
+// blob-based Storage owns. Mutations Put/Delete a single record ;
+// readers watch the prefix and apply per-record diffs surgically
+// to their in-memory indices.
+//
+// Why we need it : the blob shape was fine while every mutation
+// fit in <100 records and the per-mutation Put + N-way Watch fanout
+// + full reload on every event were all sub-millisecond.  At the
+// scale weft now operates (10k+ VMs, multi-DC reload thrash) the
+// blob path does O(N × |blob|) work per mutation. KVStorage moves
+// that to O(1) per mutation with surgical index updates.
+//
+// Implementations :
+//   - EtcdKVStorage   (production : Put/Delete/Watch on a prefix)
+//   - FileKVStorage   (dev : one file per record under a dir)
+//   - MemKVStorage    (tests : an in-process map + watch channel)
+//
+// A registry whose Storage implements KVStorage opts into per-record
+// semantics ; one that doesn't keeps the blob path. Both contracts
+// satisfy the in-memory registry's read interface, so consumers
+// (gRPC handlers, schedulers, the bus) don't care which is wired.
+type KVStorage interface {
+	GetOne(ctx context.Context, key string) ([]byte, error)
+	PutOne(ctx context.Context, key string, blob []byte) error
+	DeleteOne(ctx context.Context, key string) error
+	List(ctx context.Context) (map[string][]byte, error)
+	WatchKeys(ctx context.Context) <-chan KVEvent
+	Prefix() string
+}
+
+// KVEvent is one observation about a single record. Kind = Put for
+// create/update, Delete for removal. Value is the new blob on Put,
+// nil on Delete (carry the previous value via PrevValue when the
+// caller needs to surface old fields like host_uuid in claim flows).
+type KVEvent struct {
+	Kind      KVEventKind
+	Key       string // full etcd key (registry-side strips the prefix to get the record id)
+	Value     []byte // populated on Put
+	PrevValue []byte // populated on Delete when WithPrevKV was requested
+}
+
+// KVEventKind discriminates a KVEvent.
+type KVEventKind int
+
+const (
+	KVPut    KVEventKind = iota // record created or updated
+	KVDelete                    // record removed
+)
+
+// ----------------------------------------------------------------
+// EtcdKVStorage — production per-record etcd backend.
+// ----------------------------------------------------------------
+
+// EtcdKVStorage is the per-record sibling of EtcdStorage. The prefix
+// is e.g. /weft/vms/ ; record keys land at <prefix><record-id>.
+//
+// Reuses an already-open clientv3.Client (NewEtcdKVStorageWithClient)
+// when several registries share one etcd cluster — same convention
+// as NewEtcdStorageWithClient.
+type EtcdKVStorage struct {
+	client *clientv3.Client
+	prefix string
+	owned  bool
+}
+
+// NewEtcdKVStorageWithClient binds a KVStorage onto an existing etcd
+// client. The Storage doesn't take ownership — Close() leaves the
+// client alive. prefix must end with '/' (the registry concatenates
+// the record id verbatim).
+func NewEtcdKVStorageWithClient(cli *clientv3.Client, prefix string) *EtcdKVStorage {
+	if prefix == "" || prefix[len(prefix)-1] != '/' {
+		prefix += "/"
+	}
+	return &EtcdKVStorage{client: cli, prefix: prefix, owned: false}
+}
+
+// Prefix returns the etcd key prefix all records share. Useful for
+// diagnostics + integration tests.
+func (s *EtcdKVStorage) Prefix() string { return s.prefix }
+
+// GetOne fetches a single record at <prefix><key>. Missing key
+// returns (nil, nil) — consumers treat that as "record doesn't
+// exist", same as Get on the blob backend.
+func (s *EtcdKVStorage) GetOne(ctx context.Context, key string) ([]byte, error) {
+	resp, err := s.client.Get(ctx, s.prefix+key)
+	if err != nil {
+		return nil, fmt.Errorf("etcd kv get %s: %w", s.prefix+key, err)
+	}
+	if resp.Count == 0 {
+		return nil, nil
+	}
+	return resp.Kvs[0].Value, nil
+}
+
+// PutOne writes a single record. etcd's Put is linearizable so
+// concurrent agents see consistent state.
+func (s *EtcdKVStorage) PutOne(ctx context.Context, key string, blob []byte) error {
+	if _, err := s.client.Put(ctx, s.prefix+key, string(blob)); err != nil {
+		return fmt.Errorf("etcd kv put %s: %w", s.prefix+key, err)
+	}
+	return nil
+}
+
+// DeleteOne removes a single record. Idempotent — deleting an
+// already-gone key is a no-op (matches the registry's UX).
+func (s *EtcdKVStorage) DeleteOne(ctx context.Context, key string) error {
+	if _, err := s.client.Delete(ctx, s.prefix+key); err != nil {
+		return fmt.Errorf("etcd kv delete %s: %w", s.prefix+key, err)
+	}
+	return nil
+}
+
+// List returns every record under the prefix as record-id → blob.
+// Used by the registry's load path on startup ; cheap enough for
+// inventories up to ~100k records (single etcd range request).
+// WithSerializable trades a small staleness window for the latency
+// win — the caller follows up with WatchKeys to catch up.
+func (s *EtcdKVStorage) List(ctx context.Context) (map[string][]byte, error) {
+	resp, err := s.client.Get(ctx, s.prefix, clientv3.WithPrefix(), clientv3.WithSerializable())
+	if err != nil {
+		return nil, fmt.Errorf("etcd kv list %s: %w", s.prefix, err)
+	}
+	out := make(map[string][]byte, resp.Count)
+	for _, kv := range resp.Kvs {
+		// Strip the prefix to recover the record id ; the registry
+		// uses it as the canonical key in its byUUID map.
+		k := string(kv.Key)
+		if len(k) > len(s.prefix) {
+			k = k[len(s.prefix):]
+		}
+		out[k] = kv.Value
+	}
+	return out, nil
+}
+
+// WatchKeys streams per-record events until ctx is cancelled. The
+// channel closes on cancellation. WithPrevKV is requested so
+// Delete events carry the previous value (the registry's claim path
+// needs the dead VM's host_uuid + project_uuid to update indices).
+func (s *EtcdKVStorage) WatchKeys(ctx context.Context) <-chan KVEvent {
+	out := make(chan KVEvent, 64)
+	go func() {
+		defer close(out)
+		ch := s.client.Watch(ctx, s.prefix, clientv3.WithPrefix(), clientv3.WithPrevKV())
+		for wr := range ch {
+			if wr.Err() != nil {
+				continue
+			}
+			for _, ev := range wr.Events {
+				kind := KVPut
+				if ev.Type.String() == "DELETE" {
+					kind = KVDelete
+				}
+				out <- KVEvent{
+					Kind:      kind,
+					Key:       string(ev.Kv.Key),
+					Value:     ev.Kv.Value,
+					PrevValue: prevKvValue(ev),
+				}
+			}
+		}
+	}()
+	return out
+}
+
+func prevKvValue(ev *clientv3event) []byte {
+	if ev == nil || ev.PrevKv == nil {
+		return nil
+	}
+	return ev.PrevKv.Value
+}
+
+// clientv3event aliases the v3 event type so the helper above stays
+// readable. (Imported with side-effect : just a type alias.)
+type clientv3event = clientv3.Event
+
 // Close releases the underlying etcd client when the Storage owns
 // it (i.e. created by NewEtcdStorage). Storage created via
 // NewEtcdStorageWithClient is a no-op — the caller owns the
