@@ -483,6 +483,14 @@ func run(t fileConfigTargets) error {
 	// touching the kernel).
 	defer startFloatingIPNATWatcher(a, bf.bus, logger)()
 
+	// VM registry hot-reload : the etcd-backed Storage broadcasts
+	// remote PUT/DELETE so this agent's in-memory hostIdx /
+	// projectIdx / byUUID stay current with claims + creates +
+	// deletes effected on other DCs. Without this, the cross-host
+	// failover loop in agentrespawn can't see VMs whose host_uuid
+	// was just flipped to a now-dead DC by a remote agent.
+	defer startVMRegistryWatcher(a, logger)()
+
 	// Respawn reconciler (per [[openweft_nominal_binding]] V0.1) :
 	// subscribes to vm.state_changed + schedulingrule.* events and
 	// drives weft/respawn's state machine for every VM bound by a
