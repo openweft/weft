@@ -113,7 +113,8 @@ type Subscriber struct {
 	coord       HostCoordinator
 	hostEvents  <-chan etcdcoord.HostEvent
 	etcdCli     *clientv3.Client
-	electionPfx string // defaults to "/weft/coord/elect/respawn"
+	electionPfx string                // defaults to "/weft/coord/elect/respawn"
+	electionPool *etcdcoord.ElectionPool // V0.1.6 : reuse sessions per rule
 
 	mu       sync.Mutex
 	ctx      context.Context   // populated by Run ; used by rescan to scope Reconciler.Watch
@@ -216,7 +217,26 @@ func (s *Subscriber) WithCoordinator(coord HostCoordinator, events <-chan etcdco
 		electionPrefix = "/weft/coord/elect/respawn"
 	}
 	s.electionPfx = electionPrefix
+	// V0.1.6 : one persistent election session per rule (reused
+	// across HostDown events) instead of granting+revoking on every
+	// claim. Cuts the burst lease churn from O(dead_hosts × rules)
+	// to O(rules).
+	if cli != nil {
+		s.electionPool = etcdcoord.NewElectionPool(cli, etcdcoord.PoolOptions{
+			TTLSec: 30, Logger: s.log,
+		})
+	}
 	return s
+}
+
+// Close releases any pooled etcd sessions. Call after the parent
+// ctx of Run() is cancelled to revoke the long-lived leases instead
+// of waiting for their TTL to expire.
+func (s *Subscriber) Close() error {
+	if s.electionPool != nil {
+		return s.electionPool.Close()
+	}
+	return nil
 }
 
 type discard struct{}
@@ -360,13 +380,25 @@ func (s *Subscriber) runClaimElection(ctx context.Context, rule weft.SchedulingR
 	}
 	identity := s.coord.LocalHostUUID()
 	key := s.electionPfx + "/" + rule.UUID
-	el, err := etcdcoord.NewElection(ctx, s.etcdCli, etcdcoord.ElectionOptions{
-		Key: key, Logger: s.log,
-	})
+	// Borrow a pooled session if the pool is wired (V0.1.6) ; falls
+	// back to a one-shot session otherwise.
+	var (
+		el  *etcdcoord.Election
+		err error
+	)
+	if s.electionPool != nil {
+		el, err = s.electionPool.Election(ctx, key)
+	} else {
+		el, err = etcdcoord.NewElection(ctx, s.etcdCli, etcdcoord.ElectionOptions{
+			Key: key, Logger: s.log,
+		})
+	}
 	if err != nil {
 		s.log.Error("respawn election : new session failed", "rule", rule.UUID, "err", err)
 		return
 	}
+	// el.Close() is a no-op for pooled sessions, full close for
+	// one-shot ; both safe under defer.
 	defer el.Close()
 
 	// 30s campaign deadline : a healthy cluster elects in <1s ;

@@ -314,3 +314,122 @@ func TestElection_ObserveStreamsLeaderTransitions(t *testing.T) {
 		t.Fatal("no leader observed in 3s")
 	}
 }
+
+func TestElectionPool_ReusesSessionAcrossElections(t *testing.T) {
+	cli := embeddedEtcd(t)
+	pool := NewElectionPool(cli, PoolOptions{TTLSec: 10})
+	defer pool.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	key := "/test/pool/rule-1"
+	e1, err := pool.Election(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// e1.Close() is a no-op : session belongs to pool.
+	if err := e1.Close(); err != nil {
+		t.Errorf("e1.Close() returned %v ; want nil (no-op)", err)
+	}
+	if got := pool.Stats().SessionCount; got != 1 {
+		t.Errorf("after e1.Close : SessionCount=%d ; want 1 (pool keeps it)", got)
+	}
+
+	// Second Election for the SAME key reuses the session.
+	e2, err := pool.Election(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e1.session != e2.session {
+		t.Error("Election#2 for same key got a different session ; pool didn't reuse")
+	}
+	if got := pool.Stats().SessionCount; got != 1 {
+		t.Errorf("after e2 : SessionCount=%d ; want 1 (still reused)", got)
+	}
+
+	// Election for a DIFFERENT key gets its own session.
+	e3, err := pool.Election(ctx, "/test/pool/rule-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e1.session == e3.session {
+		t.Error("different keys share a session ; want separate")
+	}
+	if got := pool.Stats().SessionCount; got != 2 {
+		t.Errorf("after rule-2 : SessionCount=%d ; want 2", got)
+	}
+}
+
+func TestElectionPool_CampaignAndResignWork(t *testing.T) {
+	cli := embeddedEtcd(t)
+	pool := NewElectionPool(cli, PoolOptions{TTLSec: 10})
+	defer pool.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	key := "/test/pool/elect-1"
+
+	e1, _ := pool.Election(ctx, key)
+	if err := e1.Campaign(ctx, "host-a"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A non-pool Election (= separate session) can't take it.
+	loser, _ := NewElection(ctx, cli, ElectionOptions{Key: key})
+	defer loser.Close()
+	cctx, ccancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer ccancel()
+	if err := loser.Campaign(cctx, "host-b"); err == nil {
+		t.Error("loser campaign returned nil ; want deadline-exceeded")
+	}
+
+	// Resign + the loser should now win.
+	if err := e1.Resign(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cctx2, ccancel2 := context.WithTimeout(ctx, 3*time.Second)
+	defer ccancel2()
+	if err := loser.Campaign(cctx2, "host-b"); err != nil {
+		t.Errorf("loser campaign after resign : %v", err)
+	}
+}
+
+func TestElectionPool_CloseRevokesAllSessions(t *testing.T) {
+	cli := embeddedEtcd(t)
+	pool := NewElectionPool(cli, PoolOptions{TTLSec: 30})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Grant 3 sessions.
+	for i := 0; i < 3; i++ {
+		_, err := pool.Election(ctx, fmt.Sprintf("/test/pool/key-%d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := pool.Stats().SessionCount; got != 3 {
+		t.Fatalf("SessionCount=%d ; want 3", got)
+	}
+	if err := pool.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := pool.Stats(); !got.Closed || got.SessionCount != 0 {
+		t.Errorf("Close didn't clear pool : %+v", got)
+	}
+	// Second Close is a no-op.
+	if err := pool.Close(); err != nil {
+		t.Errorf("second Close : %v", err)
+	}
+	// Election after Close returns error.
+	if _, err := pool.Election(ctx, "/test/pool/post-close"); err == nil {
+		t.Error("Election after Close should error")
+	}
+}
+
+func TestElectionPool_DefaultTTL(t *testing.T) {
+	cli := embeddedEtcd(t)
+	pool := NewElectionPool(cli, PoolOptions{}) // zero opts
+	defer pool.Close()
+	if got := pool.Stats().TTLSec; got != 30 {
+		t.Errorf("default TTLSec=%d ; want 30", got)
+	}
+}

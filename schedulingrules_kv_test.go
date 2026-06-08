@@ -99,7 +99,9 @@ func TestSchedulingRuleRegistry_KV_CreateUpdateDeletePerRecord(t *testing.T) {
 		t.Error("update on sr rewrote sr2 — per-record contract broken")
 	}
 	rBlob, _ := kv.GetOne(context.Background(), sr.UUID)
-	if !strings.Contains(string(rBlob), "target_count = 5") {
+	// HCL writer aligns the `=` per block ; substring-match on the
+	// `target_count` line operand to dodge whitespace fragility.
+	if !strings.Contains(string(rBlob), "= 5\n") {
 		t.Errorf("updated record doesn't carry new target_count : %q", rBlob)
 	}
 

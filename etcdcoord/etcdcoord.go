@@ -461,13 +461,156 @@ func (e *Election) Observe(ctx context.Context) <-chan string {
 }
 
 // Close releases the underlying session + lease. After Close(), the
-// election is unusable. Idempotent.
+// election is unusable. Idempotent. No-op when the Election was
+// borrowed from an ElectionPool (the pool owns the session lifetime).
 func (e *Election) Close() error {
 	if !e.owned || e.session == nil {
 		return nil
 	}
 	e.owned = false
 	return e.session.Close()
+}
+
+// ---- ElectionPool --------------------------------------------------
+
+// ElectionPool keeps one long-lived etcd session per election key,
+// avoiding the grant/revoke cycle the V0.1.2 agentrespawn path paid
+// on every HostDown × rule combination.
+//
+// Worst-case mitigated : 10 dead hosts × 50 rules = 500 lease grants
+// per minute under the old per-call NewElection pattern. With the
+// pool, the first encounter of a rule grants ; subsequent claims
+// reuse the same session until the agent shuts down.
+//
+// Session lease TTL defaults to 30 s ; etcd auto-revokes the lease
+// when the agent dies (so a crashed leader's grip on the key drops
+// within one TTL), and a healthy agent's session is kept alive by
+// the etcd-concurrency machinery without any work on our side.
+type ElectionPool struct {
+	cli     *clientv3.Client
+	ttlSec  int
+	log     *slog.Logger
+	mu      sync.Mutex
+	closed  bool
+	keyed   map[string]*concurrency.Session
+}
+
+// PoolOptions configures the pool. Zero values pick sensible
+// defaults : TTLSec=30, Logger=discard.
+type PoolOptions struct {
+	TTLSec int          // session lease TTL ; defaults to 30s
+	Logger *slog.Logger // defaults to a discard handler
+}
+
+// NewElectionPool builds a fresh pool. The pool owns no state until
+// the first Election call ; sessions are created lazily.
+func NewElectionPool(cli *clientv3.Client, opts PoolOptions) *ElectionPool {
+	ttl := opts.TTLSec
+	if ttl <= 0 {
+		ttl = 30
+	}
+	log := opts.Logger
+	if log == nil {
+		log = slog.New(slog.NewTextHandler(discardW{}, &slog.HandlerOptions{Level: slog.LevelError}))
+	}
+	return &ElectionPool{
+		cli:    cli,
+		ttlSec: ttl,
+		log:    log,
+		keyed:  make(map[string]*concurrency.Session),
+	}
+}
+
+// Election returns a non-owning Election bound to the pool's session
+// for `key`. On first call for a key, a session is granted ; on
+// subsequent calls, the same session is reused.
+//
+// The returned Election's Close() is a no-op — the pool keeps the
+// session alive. Use the regular Campaign / Resign methods ; both
+// are safe across reuse because etcd-concurrency keys the leader
+// election by (lease, value) and re-running Campaign with the same
+// session simply re-asserts leadership on the existing lease.
+func (p *ElectionPool) Election(ctx context.Context, key string) (*Election, error) {
+	if key == "" {
+		return nil, fmt.Errorf("etcdcoord: election key is required")
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil, fmt.Errorf("etcdcoord: pool is closed")
+	}
+	sess, ok := p.keyed[key]
+	p.mu.Unlock()
+
+	if !ok {
+		newSess, err := concurrency.NewSession(p.cli,
+			concurrency.WithTTL(p.ttlSec), concurrency.WithContext(ctx))
+		if err != nil {
+			return nil, fmt.Errorf("etcdcoord: new pooled session: %w", err)
+		}
+		p.mu.Lock()
+		// Re-check after lock : two concurrent Election() calls for
+		// the same key would otherwise race and grant two sessions.
+		if existing, raced := p.keyed[key]; raced {
+			p.mu.Unlock()
+			_ = newSess.Close() // discard our grant ; another routine won
+			sess = existing
+		} else {
+			p.keyed[key] = newSess
+			p.mu.Unlock()
+			sess = newSess
+		}
+	}
+
+	return &Election{
+		session:  sess,
+		election: concurrency.NewElection(sess, key),
+		owned:    false, // pool retains ownership
+		log:      p.log,
+		key:      key,
+	}, nil
+}
+
+// Close releases every pooled session. Safe to call multiple times.
+// Sessions revoke their leases ; any active leader's hold on its
+// key disappears immediately, freeing successors to elect.
+func (p *ElectionPool) Close() error {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil
+	}
+	p.closed = true
+	keyed := p.keyed
+	p.keyed = nil
+	p.mu.Unlock()
+	var rerr error
+	for _, s := range keyed {
+		if err := s.Close(); err != nil && rerr == nil {
+			rerr = err
+		}
+	}
+	return rerr
+}
+
+// Stats returns diagnostics about the pool — useful for tests +
+// /metrics surfacing. SessionCount is the number of long-lived
+// sessions currently held.
+func (p *ElectionPool) Stats() PoolStats {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return PoolStats{
+		SessionCount: len(p.keyed),
+		Closed:       p.closed,
+		TTLSec:       p.ttlSec,
+	}
+}
+
+// PoolStats is the read-only snapshot of an ElectionPool's state.
+type PoolStats struct {
+	SessionCount int
+	Closed       bool
+	TTLSec       int
 }
 
 // ---- helpers -------------------------------------------------------

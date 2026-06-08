@@ -56,6 +56,10 @@ func startRespawnSubscriber(adp weft.VZAdapter, bus weft.EventBus, etcdCli *clie
 	var hostLiveness *etcdcoord.HostLiveness
 	cancelAll := func() {
 		cancel()
+		// Revoke the long-lived election pool sessions first so any
+		// leader keys we hold drop immediately ; downstream pools
+		// continue holding their leases otherwise until TTL expiry.
+		_ = sub.Close()
 		if hostLiveness != nil {
 			// Use a fresh ctx — the parent is already cancelled.
 			revokeCtx, revokeCancel := context.WithTimeout(context.Background(), 5*time.Second)
