@@ -41,7 +41,79 @@ expires (process crash, network partition, kernel panic), surviving
 monitors observe the DOWN event and a leader election decides which
 one claims the dead host's VMs.`,
 	}
-	cmd.AddCommand(lsCmd(), watchCmd())
+	cmd.AddCommand(lsCmd(), watchCmd(), doctorCmd())
+	return cmd
+}
+
+func doctorCmd() *cobra.Command {
+	var endpoints []string
+	var expectedCount int
+	cmd := &cobra.Command{
+		Use:   "doctor",
+		Short: "Report HA failover topology health (live monitors vs expected + etcd quorum)",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			cli, err := dialEtcd(endpoints)
+			if err != nil {
+				return err
+			}
+			defer cli.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			monitors, err := fetchMonitors(ctx, cli)
+			if err != nil {
+				return err
+			}
+			members, _ := cli.MemberList(ctx)
+
+			// Compute health verdicts. "Expected" defaults to the etcd
+			// member count when operators don't pass --expected ; that
+			// matches the common 1-agent-per-etcd-peer dev topology.
+			if expectedCount <= 0 && members != nil {
+				expectedCount = len(members.Members)
+			}
+			liveCount := len(monitors)
+			fmt.Printf("monitors live  : %d\n", liveCount)
+			fmt.Printf("monitors expected : %d\n", expectedCount)
+			if members != nil {
+				fmt.Printf("etcd members    : %d\n", len(members.Members))
+			}
+			fmt.Println()
+
+			// Print per-monitor lease state for fast triage.
+			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "HOSTNAME\tHOST_UUID\tHYPERVISOR\tUPTIME")
+			now := time.Now()
+			for _, m := range monitors {
+				up := now.Sub(time.Unix(0, m.StartedAt)).Round(time.Second)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+					dashIf(m.Hostname), m.HostUUID, dashIf(m.Hypervisor), up)
+			}
+			tw.Flush()
+
+			fmt.Println()
+
+			// Health verdict. Quorum check uses ceil(expected/2) +1 as the
+			// floor : 3 monitors, floor=2 ; 5 monitors, floor=3.
+			quorumFloor := (expectedCount / 2) + 1
+			switch {
+			case expectedCount == 0:
+				fmt.Println("verdict : UNKNOWN (couldn't infer expected monitor count ; pass --expected)")
+				return nil
+			case liveCount >= expectedCount:
+				fmt.Println("verdict : OK — full HA capacity ; any single host can fail without losing monitor coverage.")
+			case liveCount >= quorumFloor:
+				missing := expectedCount - liveCount
+				fmt.Printf("verdict : DEGRADED — %d monitor(s) missing ; failover still possible but no head-room left.\n", missing)
+			default:
+				fmt.Printf("verdict : CRITICAL — only %d/%d monitors live, below quorum floor %d ; surviving monitors can't elect a leader for cross-host claim.\n",
+					liveCount, expectedCount, quorumFloor)
+			}
+			return nil
+		},
+	}
+	addEtcdFlags(cmd, &endpoints)
+	cmd.Flags().IntVar(&expectedCount, "expected", 0, "expected monitor count (defaults to etcd member count)")
 	return cmd
 }
 
