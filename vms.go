@@ -302,7 +302,9 @@ func (r *vmRegistry) unindexLocked(v VM) {
 }
 
 // saveLocked writes the registry via Storage. Caller holds mu.
-// HCL output is sorted by UUID for stable diffs.
+// HCL output is sorted by UUID for stable diffs ; the bytes live
+// inside an etcd value (`etcdctl get vms`) so HCL stays the
+// human-readable format we already have a parser for.
 func (r *vmRegistry) saveLocked() error {
 	f := hclwrite.NewEmptyFile()
 	body := f.Body()
@@ -338,12 +340,6 @@ func (r *vmRegistry) saveLocked() error {
 		if v.Architecture != "" {
 			bb.SetAttributeValue("architecture", cty.StringVal(v.Architecture))
 		}
-		// RequestedGPUs : one nested `requested_gpu "<vendor>:<model>" { … }`
-		// block per entry. Mirrors hosts.go's host-inventory `gpu` block
-		// shape — same encoding, opposite axis (request vs inventory).
-		// Nil/empty slice writes nothing : back-compat with VM blocks
-		// persisted before this field landed (load treats missing as
-		// "no GPU request").
 		for _, g := range v.RequestedGPUs {
 			label := g.Vendor + ":" + g.Model
 			gb := bb.AppendNewBlock("requested_gpu", []string{label}).Body()
@@ -358,10 +354,6 @@ func (r *vmRegistry) saveLocked() error {
 				gb.SetAttributeValue("mig_slice", cty.StringVal(g.MIGSlice))
 			}
 		}
-		// RequestedPCI : one nested `requested_pci "<vendor>:<device>" { … }`
-		// block per entry. Mirrors the requested_gpu pattern above —
-		// nil/empty slice writes nothing (back-compat with VM blocks
-		// persisted before this field landed).
 		for _, p := range v.RequestedPCI {
 			label := p.VendorID + ":" + p.DeviceID
 			pb := bb.AppendNewBlock("requested_pci", []string{label}).Body()
@@ -452,6 +444,91 @@ func (r *vmRegistry) listForHost(hostUUID string) []VM {
 		return out[i].Name < out[j].Name
 	})
 	return out
+}
+
+// reloadFromStorage re-reads the registry blob from Storage and
+// swaps the in-memory maps under the lock. Called by the agent's
+// etcd watcher loop when a remote agent (another DC) writes the
+// shared `vms` key — without this, the local hostIdx stays stuck
+// on the snapshot read at boot, and a cross-host failover claim
+// can't find orphan VMs whose host_uuid was just flipped to a
+// dead DC by RegisterMicroVM-claim.
+//
+// Errors here are logged by the caller but never crash the agent ;
+// a transient parse failure leaves the previous snapshot in place.
+func (r *vmRegistry) reloadFromStorage(ctx context.Context) error {
+	blob, err := r.storage.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("reload vm registry: %w", err)
+	}
+	byUUID := make(map[string]VM)
+	nameIdx := make(map[string]string)
+	projectIdx := make(map[string]map[string]struct{})
+	hostIdx := make(map[string]map[string]struct{})
+	if len(blob) > 0 {
+		var doc vmsDoc
+		if err := hclsimple.Decode("vm-registry.hcl", blob, nil, &doc); err != nil {
+			return fmt.Errorf("reload parse vm registry: %w", err)
+		}
+		for _, b := range doc.VMs {
+			created, _ := time.Parse(time.RFC3339Nano, b.CreatedAt)
+			var lastStart time.Time
+			if b.LastStartAt != "" {
+				lastStart, _ = time.Parse(time.RFC3339Nano, b.LastStartAt)
+			}
+			state := VMState(b.State)
+			if state == "" {
+				state = VMStateCreated
+			}
+			var reqGPUs []GPURequest
+			for _, rg := range b.RequestedGPU {
+				reqGPUs = append(reqGPUs, GPURequest{
+					Vendor: rg.Vendor, Model: rg.Model,
+					Count: rg.Count, MIGSlice: rg.MIGSlice,
+				})
+			}
+			var reqPCI []PCIRequest
+			for _, rp := range b.RequestedPCI {
+				reqPCI = append(reqPCI, PCIRequest{
+					VendorID: rp.VendorID, DeviceID: rp.DeviceID, Count: rp.Count,
+				})
+			}
+			v := VM{
+				UUID:          b.UUID,
+				ProjectUUID:   b.ProjectUUID,
+				Name:          b.Name,
+				HostUUID:      b.HostUUID,
+				Image:         b.Image,
+				CPUCount:      b.CPUCount,
+				MemoryMiB:     b.MemoryMiB,
+				Architecture:  b.Architecture,
+				RequestedGPUs: reqGPUs,
+				RequestedPCI:  reqPCI,
+				State:         state,
+				CreatedAt:     created,
+				LastStartAt:   lastStart,
+			}
+			byUUID[v.UUID] = v
+			nameIdx[vmNameKey(v.ProjectUUID, v.Name)] = v.UUID
+			if _, ok := projectIdx[v.ProjectUUID]; !ok {
+				projectIdx[v.ProjectUUID] = make(map[string]struct{})
+			}
+			projectIdx[v.ProjectUUID][v.UUID] = struct{}{}
+			if v.HostUUID != "" {
+				if _, ok := hostIdx[v.HostUUID]; !ok {
+					hostIdx[v.HostUUID] = make(map[string]struct{})
+				}
+				hostIdx[v.HostUUID][v.UUID] = struct{}{}
+			}
+		}
+	}
+	r.mu.Lock()
+	r.byUUID = byUUID
+	r.nameIdx = nameIdx
+	r.projectIdx = projectIdx
+	r.hostIdx = hostIdx
+	r.mu.Unlock()
+	return nil
 }
 
 // list returns every VM across all projects, sorted by

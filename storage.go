@@ -274,6 +274,52 @@ func (s *EtcdStorage) Save(ctx context.Context, blob []byte) error {
 	return nil
 }
 
+// Watch returns a channel that fires on every remote PUT/DELETE of
+// s.key — the multi-host hook the registries need so writes made
+// from other DCs (e.g. RegisterMicroVM's host_uuid claim on dc2)
+// invalidate the local in-memory index on dc1+dc3 promptly.
+//
+// The channel is closed when ctx is cancelled. The blob payload is
+// not delivered on the channel — receivers call Load() to fetch
+// the fresh snapshot. This keeps the Storage contract honest (one
+// Load = one consistent read) and avoids holding the etcd event in
+// the receiver's heap during a slow reload.
+//
+// Implementations that can't observe remote writes (FileStorage,
+// MemStorage) don't expose a Watch() method ; consumers do a type
+// assertion on the WatchableStorage interface to opt in.
+func (s *EtcdStorage) Watch(ctx context.Context) <-chan struct{} {
+	out := make(chan struct{}, 4)
+	go func() {
+		defer close(out)
+		ch := s.client.Watch(ctx, s.key)
+		for wr := range ch {
+			if wr.Err() != nil {
+				continue
+			}
+			if len(wr.Events) == 0 {
+				continue
+			}
+			select {
+			case out <- struct{}{}:
+			default:
+				// already a pending notification ; coalesce.
+			}
+		}
+	}()
+	return out
+}
+
+// WatchableStorage is the optional interface a Storage may implement
+// to deliver "remote write happened" notifications. EtcdStorage does ;
+// FileStorage and MemStorage don't (no cross-process semantics).
+// Consumers detect via type assertion :
+//
+//	if ws, ok := storage.(WatchableStorage); ok { go reload(ws.Watch(ctx)) }
+type WatchableStorage interface {
+	Watch(ctx context.Context) <-chan struct{}
+}
+
 // Close releases the underlying etcd client when the Storage owns
 // it (i.e. created by NewEtcdStorage). Storage created via
 // NewEtcdStorageWithClient is a no-op — the caller owns the

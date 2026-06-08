@@ -1050,6 +1050,38 @@ func (a *Adapter) initVMs() {
 	a.vmReg = reg
 }
 
+// WatchVMRegistry starts a background goroutine that reloads the
+// in-memory VM registry whenever the shared etcd key receives a
+// remote PUT/DELETE (e.g. another DC's agent ran RegisterMicroVM
+// + flipped a VM's host_uuid via the claim path). No-op when the
+// Storage backend doesn't implement WatchableStorage — file +
+// in-memory backends are inherently per-process so there's nothing
+// to observe.
+//
+// Returns immediately. The goroutine exits when ctx is cancelled.
+func (a *Adapter) WatchVMRegistry(ctx context.Context) {
+	if a.vmReg == nil {
+		return
+	}
+	ws, ok := a.vmReg.storage.(WatchableStorage)
+	if !ok {
+		return
+	}
+	ch := ws.Watch(ctx)
+	go func() {
+		for range ch {
+			if err := a.vmReg.reloadFromStorage(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "weft: reload vm registry on remote change: %v\n", err)
+				continue
+			}
+			// Publish a bus event so consumers (the agentrespawn
+			// failover path, in particular) know the local hostIdx
+			// was refreshed and can re-evaluate orphan claims.
+			a.bus.Publish(PlatformEvent{Kind: "vm.registry_reloaded"})
+		}
+	}()
+}
+
 // ── VM inventory surface ────────────────────────────────────────
 
 // VMs returns every registered VM across all projects.
