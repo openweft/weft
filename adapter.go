@@ -500,6 +500,12 @@ type Adapter struct {
 	// uses the file-backed default. See storage.go for the three
 	// implementations and [[etcd-control-plane]] for the prod path.
 	storageFactory func(name string) Storage
+	// kvStorageFactory is the per-record sibling of storageFactory,
+	// optional ; non-nil only when the operator wired etcd / embed-
+	// etcd. Registries that want surgical per-record etcd semantics
+	// (vmRegistry today, others next) prefer this path over the
+	// blob Storage on every mutation.
+	kvStorageFactory func(name string) KVStorage
 	// bus is the in-process pub-sub spine for PlatformEvents. Per
 	// [[weft-event-bus]]: every RecordEvent + every project /
 	// lifecycle mutation also Publishes here, and the WatchEvents
@@ -661,6 +667,33 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 		storageFactory: factory,
 		bus:            NewEventBus(),
 	}
+	return a.afterStorageWired()
+}
+
+// NewWithKVStorage is the V0.1.4 sibling of NewWithStorage : the
+// caller passes both a blob factory (for legacy / file backends)
+// AND a KV factory (for etcd-backed per-record). Registries that
+// opt into per-record (vmRegistry today) use the KV path ; others
+// stay on blob. Pass nil for kvFactory to fall back to blob-only
+// behaviour, exactly equivalent to NewWithStorage.
+func NewWithKVStorage(mockDir string, factory func(name string) Storage, kvFactory func(name string) KVStorage) VZAdapter {
+	if mockDir == "" {
+		mockDir = ".mock"
+	}
+	a := &Adapter{
+		stateDir:         mockDir,
+		storageFactory:   factory,
+		kvStorageFactory: kvFactory,
+		bus:              NewEventBus(),
+	}
+	return a.afterStorageWired()
+}
+
+// afterStorageWired is the shared tail of both NewWithStorage and
+// NewWithKVStorage : everything past the factory assignment is
+// identical, so extracting the body keeps the two entrypoints in
+// sync.
+func (a *Adapter) afterStorageWired() VZAdapter {
 	// Install the bus fan-out hook so every RecordEvent (including
 	// the dozens already scattered across runvm.go's state-change
 	// goroutine + the guest-mark console watcher) reaches the bus
@@ -1034,8 +1067,31 @@ func copyFile(src, dst string, mode os.FileMode) error {
 }
 
 // initVMs loads the VM inventory via storageFactory.
+//
+// Two backends today : the legacy blob path (file storage, in-memory
+// tests, pre-V0.1.4 etcd clusters that still hold a `vms` key) and
+// the V0.1.4 per-record KV path (etcd, /weft/vms/<uuid> keys, surgical
+// Put+Watch on every mutation). KV is preferred when the operator
+// wired etcd backend ; it migrates the legacy blob on first run.
 func (a *Adapter) initVMs() {
 	storage := a.storageFactory("vms")
+	if a.kvStorageFactory != nil {
+		kv := a.kvStorageFactory("vms")
+		reg, err := loadVMRegistryKV(context.Background(), kv, storage)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "weft: load vm registry (kv): %v\n", err)
+			reg = &vmRegistry{
+				storage:    storage,
+				kv:         kv,
+				byUUID:     make(map[string]VM),
+				nameIdx:    make(map[string]string),
+				projectIdx: make(map[string]map[string]struct{}),
+				hostIdx:    make(map[string]map[string]struct{}),
+			}
+		}
+		a.vmReg = reg
+		return
+	}
 	reg, err := loadVMRegistry(context.Background(), storage)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "weft: load vm registry: %v\n", err)
@@ -1050,17 +1106,39 @@ func (a *Adapter) initVMs() {
 	a.vmReg = reg
 }
 
-// WatchVMRegistry starts a background goroutine that reloads the
-// in-memory VM registry whenever the shared etcd key receives a
-// remote PUT/DELETE (e.g. another DC's agent ran RegisterMicroVM
-// + flipped a VM's host_uuid via the claim path). No-op when the
-// Storage backend doesn't implement WatchableStorage — file +
-// in-memory backends are inherently per-process so there's nothing
-// to observe.
+// WatchVMRegistry starts a background goroutine that keeps the
+// in-memory VM registry in sync with the persistent layer.
+//
+// Two paths :
+//
+//   - V0.1.4 KV mode (a.vmReg.kv != nil) : the etcd KVStorage
+//     streams per-record events (Put / Delete) for /weft/vms/<uuid>
+//     ; the watcher applies each event surgically via
+//     applyKVEvent — no full reload, no parse of unchanged records.
+//     This is the path the user opted into to dodge the full-blob
+//     thrash described in the design review.
+//
+//   - V0.1.3 blob mode (a.vmReg.storage implements WatchableStorage)
+//     : etcd Watch on the single `vms` key triggers reloadFromStorage
+//     which re-parses the entire blob into a new set of indices.
+//
+//   - Anything else (file backend, in-memory tests) : no-op —
+//     these backends are inherently per-process and don't carry
+//     cross-host semantics.
 //
 // Returns immediately. The goroutine exits when ctx is cancelled.
 func (a *Adapter) WatchVMRegistry(ctx context.Context) {
 	if a.vmReg == nil {
+		return
+	}
+	if a.vmReg.kv != nil {
+		ch := a.vmReg.kv.WatchKeys(ctx)
+		go func() {
+			for ev := range ch {
+				a.vmReg.applyKVEvent(ev)
+				a.bus.Publish(PlatformEvent{Kind: "vm.registry_reloaded"})
+			}
+		}()
 		return
 	}
 	ws, ok := a.vmReg.storage.(WatchableStorage)

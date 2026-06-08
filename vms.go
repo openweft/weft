@@ -184,7 +184,8 @@ type requestedPCIBlock struct {
 //               future reconciler + by HostHandle disconnect cleanup)
 type vmRegistry struct {
 	mu         sync.Mutex
-	storage    Storage
+	storage    Storage   // blob-mode backend (legacy / file / mem)
+	kv         KVStorage // per-record backend (V0.1.4 etcd KV) — nil if blob-mode
 	byUUID     map[string]VM
 	nameIdx    map[string]string              // (projectUUID,name) → UUID
 	projectIdx map[string]map[string]struct{} // projectUUID → set
@@ -629,7 +630,7 @@ func (r *vmRegistry) create(spec CreateVMSpec) (VM, error) {
 		CreatedAt:     time.Now().UTC(),
 	}
 	r.indexLocked(v)
-	if err := r.saveLocked(); err != nil {
+	if err := r.persistOne(v); err != nil {
 		r.unindexLocked(v)
 		return VM{}, err
 	}
@@ -661,7 +662,7 @@ func (r *vmRegistry) setState(uuid string, state VMState) error {
 		v.LastStartAt = time.Now().UTC()
 	}
 	r.byUUID[uuid] = v
-	return r.saveLocked()
+	return r.persistOne(v)
 }
 
 // setHost migrates a VM to a different host. The VM-level move
@@ -695,7 +696,7 @@ func (r *vmRegistry) setHost(uuid, newHostUUID string) error {
 	r.hostIdx[newHostUUID][uuid] = struct{}{}
 	v.HostUUID = newHostUUID
 	r.byUUID[uuid] = v
-	return r.saveLocked()
+	return r.persistOne(v)
 }
 
 // setName renames within the project. Refuses collisions.
@@ -720,7 +721,7 @@ func (r *vmRegistry) setName(uuid, newName string) error {
 	v.Name = newName
 	r.byUUID[uuid] = v
 	r.nameIdx[newKey] = uuid
-	return r.saveLocked()
+	return r.persistOne(v)
 }
 
 // delete drops a VM from the registry. Idempotent on missing
@@ -735,5 +736,5 @@ func (r *vmRegistry) delete(uuid string) error {
 		return fmt.Errorf("vm %q not found", uuid)
 	}
 	r.unindexLocked(v)
-	return r.saveLocked()
+	return r.persistDelete(uuid)
 }
