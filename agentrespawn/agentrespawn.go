@@ -33,7 +33,10 @@ import (
 	"sync"
 	"time"
 
+	clientv3 "go.etcd.io/etcd/client/v3"
+
 	"github.com/openweft/weft"
+	"github.com/openweft/weft/etcdcoord"
 	"github.com/openweft/weft/respawn"
 	weftv1 "github.com/openweft/weft-proto"
 )
@@ -59,16 +62,58 @@ type VMStatusReader interface {
 	IsVMRunning(name string) bool
 }
 
+// HostCoordinator surfaces the cross-host-failover capabilities the
+// Subscriber needs to claim orphan VMs when another agent's lease
+// expires. Captured as an interface so tests can drive failover
+// scenarios without a real etcd cluster.
+//
+//   LocalHostUUID returns the running agent's own host UUID — the
+//   target for claim operations.
+//
+//   VMsOnHost returns the (name, project) pairs of every VM the
+//   inventory pins to hostUUID. Used to enumerate orphans when a
+//   HostDown event fires.
+//
+//   ClaimVM atomically reassigns a VM's host_uuid to LocalHostUUID
+//   and publishes vm.ownership_claimed on the platform bus. Wraps
+//   adapter.MigrateVM in production.
+//
+// V0.1.2 hooks all three to *weft.Adapter via cmd/weft/respawn_-
+// subscriber.go ; integration tests provide a fake.
+type HostCoordinator interface {
+	LocalHostUUID() string
+	VMsOnHost(hostUUID string) []VMRef
+	ClaimVM(uuid string) error
+}
+
+// VMRef is a minimal handle on one inventory entry — what the
+// Subscriber needs to drive a claim + respawn without dragging the
+// full weft.VM type into the agentrespawn package.
+type VMRef struct {
+	UUID    string
+	Name    string
+	Project string
+}
+
 // Subscriber owns the bus subscription + the Reconciler instance.
 // One Subscriber per agent ; Run blocks until ctx is cancelled.
 type Subscriber struct {
-	bus      weft.EventBus
-	rules    SchedulingRulesReader
-	status   VMStatusReader // optional ; nil = bus-only path (classic VMs)
-	rec      *respawn.Reconciler
-	log      *slog.Logger
-	rescanCh chan struct{}
+	bus       weft.EventBus
+	rules     SchedulingRulesReader
+	status    VMStatusReader // optional ; nil = bus-only path (classic VMs)
+	rec       *respawn.Reconciler
+	log       *slog.Logger
+	rescanCh  chan struct{}
 	pollEvery time.Duration
+
+	// Cross-host failover (V0.1.2). All four are wired together via
+	// WithCoordinator ; if any is nil (specifically hostEvents),
+	// the failover path is disabled and the Subscriber behaves like
+	// V0.1 (per-host respawn only).
+	coord       HostCoordinator
+	hostEvents  <-chan etcdcoord.HostEvent
+	etcdCli     *clientv3.Client
+	electionPfx string // defaults to "/weft/coord/elect/respawn"
 
 	mu       sync.Mutex
 	ctx      context.Context   // populated by Run ; used by rescan to scope Reconciler.Watch
@@ -151,6 +196,29 @@ func (s *Subscriber) WithPollInterval(d time.Duration) *Subscriber {
 	return s
 }
 
+// WithCoordinator wires the cross-host failover path : the
+// Subscriber consumes HostDown events from the supplied channel,
+// runs one election per affected SchedulingRule (so only one agent
+// claims the orphans, not all surviving ones at once), and uses
+// HostCoordinator.ClaimVM to flip ownership before issuing the
+// usual Down signal. Pass a nil channel to opt out (V0.1 behaviour).
+//
+// The events channel is normally the return of
+// (*etcdcoord.HostWatcher).Events() ; tests inject a hand-driven
+// channel.
+//
+// electionPrefix defaults to "/weft/coord/elect/respawn" when empty.
+func (s *Subscriber) WithCoordinator(coord HostCoordinator, events <-chan etcdcoord.HostEvent, cli *clientv3.Client, electionPrefix string) *Subscriber {
+	s.coord = coord
+	s.hostEvents = events
+	s.etcdCli = cli
+	if electionPrefix == "" {
+		electionPrefix = "/weft/coord/elect/respawn"
+	}
+	s.electionPfx = electionPrefix
+	return s
+}
+
 type discard struct{}
 
 func (discard) Write(b []byte) (int, error) { return len(b), nil }
@@ -188,6 +256,15 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		pollC = t.C
 	}
 
+	// Cross-host failover : a separate goroutine consumes HostEvents
+	// from the HostWatcher and translates HostDown signals into
+	// per-rule election + claim flows. Kept off the main select so
+	// a slow claim (etcd election can block on contention) doesn't
+	// freeze the bus + poll paths.
+	if s.hostEvents != nil && s.coord != nil {
+		go s.consumeHostEvents(ctx)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -203,6 +280,122 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		case <-pollC:
 			s.pollWatchedVMs()
 		}
+	}
+}
+
+// consumeHostEvents fans HostDown events into per-rule claim work.
+// One goroutine per HostDown so a stuck election on one rule doesn't
+// block claims for other rules. ctx scopes both the election and
+// the resulting Reconciler.Send.
+func (s *Subscriber) consumeHostEvents(ctx context.Context) {
+	for ev := range s.hostEvents {
+		if ev.Kind != etcdcoord.HostDown {
+			// HostUp / HostUnknown — nothing to claim. The other
+			// agents on the now-healthy host will reconcile their
+			// own state next time they rescan.
+			continue
+		}
+		go s.claimOrphans(ctx, ev.HostUUID)
+	}
+}
+
+// claimOrphans is the per-host-down handler. Walks every rule with
+// respawn enabled, finds VMs the inventory still pins to the dead
+// host, takes an election to coalesce work across surviving agents,
+// and (when elected) reassigns + Down-signals each orphan so the
+// usual Reconciler path Stops+Starts it locally.
+func (s *Subscriber) claimOrphans(ctx context.Context, deadHostUUID string) {
+	if deadHostUUID == "" || deadHostUUID == s.coord.LocalHostUUID() {
+		return // never claim our own
+	}
+	orphans := s.coord.VMsOnHost(deadHostUUID)
+	if len(orphans) == 0 {
+		s.log.Info("host down : no orphan VMs to claim", "dead_host", deadHostUUID)
+		return
+	}
+	s.log.Info("host down : evaluating orphan claim",
+		"dead_host", deadHostUUID, "orphan_count", len(orphans))
+
+	// Group orphans by the respawn-enabled rule that watches them.
+	// V0.1 selector grammar : `vm.name=X` ; the per-rule election
+	// is still useful because two rules can watch overlapping VM
+	// sets, and we want to coalesce claim work per rule (not per VM).
+	for _, rule := range s.rules.SchedulingRules() {
+		if rule.Respawn == nil || !rule.Respawn.Enabled {
+			continue
+		}
+		ruleVMNames := vmNamesFromSelector(rule.Selector)
+		if len(ruleVMNames) == 0 {
+			continue
+		}
+		matchSet := make(map[string]struct{}, len(ruleVMNames))
+		for _, n := range ruleVMNames {
+			matchSet[n] = struct{}{}
+		}
+		var targets []VMRef
+		for _, o := range orphans {
+			if _, ok := matchSet[o.Name]; ok {
+				targets = append(targets, o)
+			}
+		}
+		if len(targets) == 0 {
+			continue
+		}
+		s.runClaimElection(ctx, rule, targets)
+	}
+}
+
+// runClaimElection takes a per-rule election so only one surviving
+// agent effects the claim. The election key embeds the rule UUID so
+// each rule has its own arbiter ; two simultaneous host-down events
+// (rare but possible during a network partition) still race per-rule
+// without thrashing.
+func (s *Subscriber) runClaimElection(ctx context.Context, rule weft.SchedulingRuleEntry, targets []VMRef) {
+	if s.etcdCli == nil {
+		// No etcd : fall back to immediate claim (single-host setup,
+		// dev mode). This matches the V0.1 behaviour where the
+		// Reconciler owns its own VMs already.
+		s.executeClaim(ctx, targets)
+		return
+	}
+	identity := s.coord.LocalHostUUID()
+	key := s.electionPfx + "/" + rule.UUID
+	el, err := etcdcoord.NewElection(ctx, s.etcdCli, etcdcoord.ElectionOptions{
+		Key: key, Logger: s.log,
+	})
+	if err != nil {
+		s.log.Error("respawn election : new session failed", "rule", rule.UUID, "err", err)
+		return
+	}
+	defer el.Close()
+
+	// 30s campaign deadline : a healthy cluster elects in <1s ;
+	// 30s tolerates partition-recovery + GC pauses.
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := el.Campaign(cctx, identity); err != nil {
+		s.log.Info("respawn election : not leader, skipping claim", "rule", rule.UUID, "err", err)
+		return
+	}
+	s.log.Info("respawn election : leader, claiming orphans",
+		"rule", rule.UUID, "count", len(targets))
+	s.executeClaim(ctx, targets)
+	_ = el.Resign(ctx)
+}
+
+func (s *Subscriber) executeClaim(ctx context.Context, targets []VMRef) {
+	for _, t := range targets {
+		if err := s.coord.ClaimVM(t.UUID); err != nil {
+			s.log.Error("claim VM failed", "vm", t.Name, "uuid", t.UUID, "err", err)
+			continue
+		}
+		s.log.Info("claimed VM ; firing Down signal", "vm", t.Name)
+		// Inject a Down signal so the existing per-VM Reconciler
+		// state machine drives StartVM locally (now that ownership
+		// is ours).
+		s.rec.Send(respawn.Signal{
+			VMName: t.Name, Kind: respawn.SignalDown, When: time.Now(),
+		})
 	}
 }
 

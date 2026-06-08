@@ -490,7 +490,7 @@ func run(t fileConfigTargets) error {
 	// max_restarts inside window, constant/exponential backoff.
 	// V0.1 selector grammar is `vm.name=<name>` only — see
 	// agentrespawn/agentrespawn.go for the V0.1.1 follow-ups.
-	defer startRespawnSubscriber(a, bf.bus, logger)()
+	defer startRespawnSubscriber(a, bf.bus, sf.etcdClient, logger)()
 
 	// Auto-render the NATS authorization block on every project
 	// mutation when the operator configured `nats_authorization {
