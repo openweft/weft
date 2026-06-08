@@ -483,6 +483,15 @@ func run(t fileConfigTargets) error {
 	// touching the kernel).
 	defer startFloatingIPNATWatcher(a, bf.bus, logger)()
 
+	// Respawn reconciler (per [[openweft_nominal_binding]] V0.1) :
+	// subscribes to vm.state_changed + schedulingrule.* events and
+	// drives weft/respawn's state machine for every VM bound by a
+	// SchedulingRule with respawn.enabled=true. Honours grace_period,
+	// max_restarts inside window, constant/exponential backoff.
+	// V0.1 selector grammar is `vm.name=<name>` only — see
+	// agentrespawn/agentrespawn.go for the V0.1.1 follow-ups.
+	defer startRespawnSubscriber(a, bf.bus, logger)()
+
 	// Auto-render the NATS authorization block on every project
 	// mutation when the operator configured `nats_authorization {
 	// path = … }` in weft.hcl. The hook is a no-op when path is
