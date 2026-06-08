@@ -79,9 +79,14 @@ type respawnStatus struct{ adp weft.VZAdapter }
 
 // IsVMRunning reads the vmDir for the named VM and returns true iff
 // the qemu/vz reaper has NOT written exit.json AND the recorded
-// vm.pid maps to a live process. Mirrors adapter.go's status probe
-// in the StatusVM RPC ; kept inline to dodge the dep cycle the
-// adapter package would impose if it imported agentrespawn.
+// vm.pid maps to a non-zombie process. Mirrors adapter.go's status
+// probe in the StatusVM RPC, plus a /proc/<pid>/status zombie check
+// the original probe lacks : a SIGKILL'd qemu whose parent driver
+// hasn't yet reaped it sits in state 'Z' (defunct), and signal-0
+// against a zombie returns nil because the kernel still has the
+// PID entry. Without the State check we'd report "running" for the
+// duration of the unreaped zombie window — exactly when the respawn
+// reconciler wants to see "stopped".
 func (r respawnStatus) IsVMRunning(name string) bool {
 	vmDir := r.adp.VMDir(name)
 	if vmDir == "" {
@@ -102,7 +107,33 @@ func (r respawnStatus) IsVMRunning(name string) bool {
 	if err != nil {
 		return false
 	}
-	// signal-0 probe : returns nil iff the kernel can deliver to the
-	// pid (i.e. the process exists and the caller has permission).
-	return proc.Signal(syscall.Signal(0)) == nil
+	if proc.Signal(syscall.Signal(0)) != nil {
+		return false
+	}
+	// Zombie check via /proc/<pid>/status. Format line "State:\t<X>
+	// (...)". On a non-zombie host process X is one of R/S/D/T/t/I
+	// (running, sleeping, etc.). 'Z' means defunct — the process is
+	// dead but its exit code hasn't been reaped by the parent yet.
+	// Treating Z as "stopped" is what `weft microvm ls` does too via
+	// the exit.json path ; we just race ahead of the reaper here.
+	return !isZombie(pid)
+}
+
+// isZombie returns true when /proc/<pid>/status reports State Z.
+// Linux-only ; safe no-op (returns false) when /proc is unavailable
+// because the dev/test host isn't Linux.
+func isZombie(pid int) bool {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "State:") {
+			f := strings.Fields(line)
+			if len(f) >= 2 {
+				return f[1] == "Z"
+			}
+		}
+	}
+	return false
 }
