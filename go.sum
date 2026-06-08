@@ -143,6 +143,8 @@ github.com/openweft/weft-cidata v0.2.0 h1:HLUlc1iXNfEl5c5h3qMwV9uvBzrk3fQRYT14s0
 github.com/openweft/weft-cidata v0.2.0/go.mod h1:rHxPRc5+2YPP4o4ZCc7qHVLkFtf8m5N0911XezOtbfE=
 github.com/openweft/weft-hcl v0.2.0 h1:XcHwOMJ2xegmO+CwJicQYITnZfX8ebYLvS4ZHQy+45g=
 github.com/openweft/weft-hcl v0.2.0/go.mod h1:F5BcTd/FFwXtC+yrSAxVFqSqI+nlYTCiszUUQcZT6A4=
+github.com/openweft/weft-slognats v0.2.0 h1:qE3LScrliyDIdtqwdxN9MO/8XakZxAKRgoPlqKXGXjA=
+github.com/openweft/weft-slognats v0.2.0/go.mod h1:6szcJAzzSR8lT4S7weWHedDfbjDUf2mR9RXBNM5E4wI=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/prometheus/client_golang v1.20.5 h1:cxppBPuYhUnsO6yo/aoRol4L7q7UFfdm+bR9r+8l63Y=

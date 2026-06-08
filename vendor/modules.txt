@@ -290,6 +290,9 @@ github.com/openweft/weft-microvm-init/pkg/pod
 ## explicit; go 1.25.0
 github.com/openweft/weft-proto
 github.com/openweft/weft-proto/introspectv1
+# github.com/openweft/weft-slognats v0.2.0
+## explicit; go 1.26
+github.com/openweft/weft-slognats
 # github.com/prometheus/client_golang v1.20.5
 ## explicit; go 1.20
 github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil

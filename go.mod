@@ -1,6 +1,6 @@
 module github.com/openweft/weft
 
-go 1.25.1
+go 1.26
 
 require (
 	github.com/coreos/go-oidc/v3 v3.18.0
@@ -29,6 +29,7 @@ require (
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
 	github.com/openweft/weft-proto v0.9.0
+	github.com/openweft/weft-slognats v0.2.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
 	github.com/spf13/cobra v1.10.2
