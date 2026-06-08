@@ -78,16 +78,31 @@ func (a *Adapter) initResources() {
 	a.sshKeyCatReg = skReg
 
 	srStorage := a.storageFactory(schedulingRuleRegistryFileName)
-	srReg, err := loadSchedulingRuleRegistry(context.Background(), srStorage)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "weft: load scheduling rule registry: %v\n", err)
-		srReg = &schedulingRuleRegistry{
-			storage: srStorage,
-			byUUID:  make(map[string]SchedulingRuleEntry),
-			nameIdx: make(map[string]string),
+	if a.kvStorageFactory != nil {
+		srKV := a.kvStorageFactory(schedulingRuleRegistryFileName)
+		srReg, err := loadSchedulingRuleRegistryKV(context.Background(), srKV, srStorage)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "weft: load scheduling rule registry (kv): %v\n", err)
+			srReg = &schedulingRuleRegistry{
+				storage: srStorage,
+				kv:      srKV,
+				byUUID:  make(map[string]SchedulingRuleEntry),
+				nameIdx: make(map[string]string),
+			}
 		}
+		a.schedRuleReg = srReg
+	} else {
+		srReg, err := loadSchedulingRuleRegistry(context.Background(), srStorage)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "weft: load scheduling rule registry: %v\n", err)
+			srReg = &schedulingRuleRegistry{
+				storage: srStorage,
+				byUUID:  make(map[string]SchedulingRuleEntry),
+				nameIdx: make(map[string]string),
+			}
+		}
+		a.schedRuleReg = srReg
 	}
-	a.schedRuleReg = srReg
 
 	rrStorage := a.storageFactory(registryRemoteRegistryFileName)
 	rrReg, err := loadRegistryRemoteRegistry(context.Background(), rrStorage)
@@ -375,6 +390,24 @@ func (a *Adapter) DeleteSchedulingRule(uuid string) error {
 	}
 	a.bus.Publish(PlatformEvent{Kind: "schedulingrule.deleted", Subject: uuid})
 	return nil
+}
+
+// WatchSchedulingRuleRegistry mirrors WatchVMRegistry for the
+// scheduling rule registry : KV mode consumes per-record events
+// into applyKVEvent, blob mode is a no-op (no reloadFromStorage
+// helper). Returns immediately ; the goroutine exits when ctx is
+// cancelled.
+func (a *Adapter) WatchSchedulingRuleRegistry(ctx context.Context) {
+	if a.schedRuleReg == nil || a.schedRuleReg.kv == nil {
+		return
+	}
+	ch := a.schedRuleReg.kv.WatchKeys(ctx)
+	go func() {
+		for ev := range ch {
+			a.schedRuleReg.applyKVEvent(ev)
+			a.bus.Publish(PlatformEvent{Kind: "schedulingrule.registry_reloaded"})
+		}
+	}()
 }
 
 // --- Registry remotes -------------------------------------------

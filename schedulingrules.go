@@ -68,7 +68,8 @@ const schedulingRuleRegistryFileName = "scheduling_rules"
 
 type schedulingRuleRegistry struct {
 	mu      sync.Mutex
-	storage Storage
+	storage Storage   // blob-mode backend (legacy / file / mem)
+	kv      KVStorage // per-record backend (V0.1.5 etcd KV) — nil if blob-mode
 	byUUID  map[string]SchedulingRuleEntry
 	nameIdx map[string]string // name → uuid
 }
@@ -159,7 +160,7 @@ func (r *schedulingRuleRegistry) create(name, selector string, targetCount int32
 	}
 	r.byUUID[uuid] = sr
 	r.nameIdx[name] = uuid
-	if err := r.saveLocked(); err != nil {
+	if err := r.persistOne(sr); err != nil {
 		delete(r.byUUID, uuid)
 		delete(r.nameIdx, name)
 		return SchedulingRuleEntry{}, false, err
@@ -193,7 +194,7 @@ func (r *schedulingRuleRegistry) update(uuid, selector string, targetCount int32
 		cur.Respawn = respawn
 	}
 	r.byUUID[uuid] = cur
-	if err := r.saveLocked(); err != nil {
+	if err := r.persistOne(cur); err != nil {
 		return SchedulingRuleEntry{}, err
 	}
 	return cur, nil
@@ -208,7 +209,7 @@ func (r *schedulingRuleRegistry) delete(uuid string) error {
 	}
 	delete(r.byUUID, uuid)
 	delete(r.nameIdx, cur.Name)
-	if err := r.saveLocked(); err != nil {
+	if err := r.persistDelete(uuid); err != nil {
 		r.byUUID[uuid] = cur
 		r.nameIdx[cur.Name] = uuid
 		return err
