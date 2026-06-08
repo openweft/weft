@@ -1860,6 +1860,13 @@ func (a *Adapter) DeleteSecurityGroup(uuid string) error {
 // initProjects loads the on-disk project registry (or starts an
 // empty one when the file is missing). Must run before any code
 // that resolves projects.
+//
+// Two backends today : the legacy blob path (file storage, in-memory
+// tests, pre-V0.1.4 etcd clusters that still hold a `projects` key)
+// and the V0.1.4 per-record KV path (etcd, /weft/projects/<uuid>
+// keys, surgical Put+Watch on every mutation). KV is preferred when
+// the operator wired the etcd backend ; it migrates the legacy blob
+// on first run.
 func (a *Adapter) initProjects() {
 	if err := os.MkdirAll(a.vmsDir(), 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "weft: mkdir vmsDir: %v\n", err)
@@ -1870,6 +1877,21 @@ func (a *Adapter) initProjects() {
 	// see etcd_control_plane.md. The registry consumer code
 	// doesn't change either way.
 	storage := a.storageFactory("projects")
+	if a.kvStorageFactory != nil {
+		kv := a.kvStorageFactory("projects")
+		reg, err := loadProjectRegistryKV(context.Background(), kv, storage)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "weft: load project registry (kv): %v\n", err)
+			reg = &projectRegistry{
+				storage: storage,
+				kv:      kv,
+				byUUID:  make(map[string]Project),
+				nameIdx: make(map[string]string),
+			}
+		}
+		a.projects = reg
+		return
+	}
 	reg, err := loadProjectRegistry(context.Background(), storage)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "weft: load project registry: %v\n", err)
@@ -1883,6 +1905,33 @@ func (a *Adapter) initProjects() {
 		}
 	}
 	a.projects = reg
+}
+
+// WatchProjectRegistry starts a background goroutine that keeps the
+// in-memory project registry in sync with the persistent layer.
+// Mirrors WatchVMRegistry : KV mode consumes WatchKeys → applyKVEvent
+// surgically ; blob mode is a no-op (projectRegistry doesn't
+// currently expose a reloadFromStorage). Returns immediately ; the
+// goroutine exits when ctx is cancelled.
+func (a *Adapter) WatchProjectRegistry(ctx context.Context) {
+	if a.projects == nil {
+		return
+	}
+	if a.projects.kv != nil {
+		ch := a.projects.kv.WatchKeys(ctx)
+		go func() {
+			for ev := range ch {
+				a.projects.applyKVEvent(ev)
+				a.bus.Publish(PlatformEvent{Kind: "project.registry_reloaded"})
+			}
+		}()
+		return
+	}
+	// blob mode : no projectRegistry.reloadFromStorage today, so
+	// remote PUT/DELETE events on the legacy `projects` blob don't
+	// propagate. Single-DC dev setups stay correct ; multi-DC blob
+	// deploys are explicitly off the V0.1.4 supported path and
+	// should opt into KV mode.
 }
 
 // migrateLegacyLayout walks <vmsDir>/* looking for entries that

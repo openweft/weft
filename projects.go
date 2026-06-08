@@ -105,7 +105,8 @@ type projectBlock struct {
 // registry code doesn't care which one is wired underneath.
 type projectRegistry struct {
 	mu      sync.Mutex
-	storage Storage
+	storage Storage   // blob backend (legacy / file / mem)
+	kv      KVStorage // per-record backend (V0.1.5 etcd KV) — nil if blob-mode
 	byUUID  map[string]Project
 	nameIdx map[string]string // display name → uuid (case-sensitive)
 }
@@ -251,7 +252,7 @@ func (r *projectRegistry) getOrCreate(name string) (Project, bool, error) {
 	}
 	r.byUUID[p.UUID] = p
 	r.nameIdx[p.Name] = p.UUID
-	if err := r.saveLocked(); err != nil {
+	if err := r.persistOne(p); err != nil {
 		// Roll back to keep the in-memory state consistent with
 		// what's on disk.
 		delete(r.byUUID, p.UUID)
@@ -281,7 +282,7 @@ func (r *projectRegistry) rename(uuid, newName string) error {
 	p.Name = newName
 	r.byUUID[uuid] = p
 	r.nameIdx[newName] = uuid
-	if err := r.saveLocked(); err != nil {
+	if err := r.persistOne(p); err != nil {
 		return err
 	}
 	return nil
@@ -309,7 +310,7 @@ func (r *projectRegistry) addMember(projectUUID, userUUID string) error {
 	}
 	p.Members = append(p.Members, userUUID)
 	r.byUUID[projectUUID] = p
-	return r.saveLocked()
+	return r.persistOne(p)
 }
 
 // removeMember drops `userUUID` from the project's Members list.
@@ -335,7 +336,7 @@ func (r *projectRegistry) removeMember(projectUUID, userUUID string) error {
 	}
 	p.Members = out
 	r.byUUID[projectUUID] = p
-	return r.saveLocked()
+	return r.persistOne(p)
 }
 
 // ensureNATSUserSeed returns the project's NATS user-NKey seed,
@@ -365,7 +366,7 @@ func (r *projectRegistry) ensureNATSUserSeed(projectUUID string) (string, error)
 	}
 	p.NATSUserSeed = nk.Seed
 	r.byUUID[projectUUID] = p
-	if err := r.saveLocked(); err != nil {
+	if err := r.persistOne(p); err != nil {
 		// Roll back so the in-memory state matches what's on disk.
 		p.NATSUserSeed = ""
 		r.byUUID[projectUUID] = p
@@ -396,7 +397,7 @@ func (r *projectRegistry) delete(uuid string) error {
 	}
 	delete(r.byUUID, uuid)
 	delete(r.nameIdx, p.Name)
-	if err := r.saveLocked(); err != nil {
+	if err := r.persistDelete(uuid); err != nil {
 		return err
 	}
 	return nil

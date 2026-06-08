@@ -203,7 +203,8 @@ type gpuBlock struct {
 // scope (no projectIdx).
 type hostRegistry struct {
 	mu      sync.Mutex
-	storage Storage
+	storage Storage   // blob backend (legacy / file / mem)
+	kv      KVStorage // per-record backend (V0.1.5 etcd KV) — nil if blob-mode
 	byUUID  map[string]Host
 	nameIdx map[string]string // hostname → UUID (hostnames must be unique cluster-wide)
 }
@@ -573,7 +574,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 				existing.State = HostStateActive
 			}
 			r.byUUID[spec.UUID] = existing
-			if err := r.saveLocked(); err != nil {
+			if err := r.persistOne(existing); err != nil {
 				return Host{}, err
 			}
 			return existing, nil
@@ -615,7 +616,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 	}
 	r.byUUID[h.UUID] = h
 	r.nameIdx[h.Hostname] = h.UUID
-	if err := r.saveLocked(); err != nil {
+	if err := r.persistOne(h); err != nil {
 		delete(r.byUUID, h.UUID)
 		delete(r.nameIdx, h.Hostname)
 		return Host{}, err
@@ -655,7 +656,7 @@ func (r *hostRegistry) heartbeat(uuid string) error {
 		h.State = HostStateActive
 	}
 	r.byUUID[uuid] = h
-	return r.saveLocked()
+	return r.persistOne(h)
 }
 
 // setState transitions the host between active / draining / down.
@@ -679,7 +680,7 @@ func (r *hostRegistry) setState(uuid string, state HostState) error {
 	}
 	h.State = state
 	r.byUUID[uuid] = h
-	return r.saveLocked()
+	return r.persistOne(h)
 }
 
 // setCordoned flips the Cordoned flag. Idempotent — no-op + nil
@@ -701,7 +702,7 @@ func (r *hostRegistry) setCordoned(uuid string, cordoned bool) error {
 	}
 	h.Cordoned = cordoned
 	r.byUUID[uuid] = h
-	return r.saveLocked()
+	return r.persistOne(h)
 }
 
 // setLabels replaces the labels map atomically.
@@ -722,7 +723,7 @@ func (r *hostRegistry) setLabels(uuid string, labels map[string]string) error {
 		h.Labels = nil
 	}
 	r.byUUID[uuid] = h
-	return r.saveLocked()
+	return r.persistOne(h)
 }
 
 // delete drops a host. Refuses when the host is Active — operator
@@ -740,5 +741,5 @@ func (r *hostRegistry) delete(uuid string) error {
 	}
 	delete(r.byUUID, uuid)
 	delete(r.nameIdx, h.Hostname)
-	return r.saveLocked()
+	return r.persistDelete(uuid)
 }
