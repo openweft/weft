@@ -53,13 +53,14 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "UUID\tNAME\tSELECTOR\tTARGET\tANTI_AFFINITY\tCREATED")
+			fmt.Fprintln(tw, "UUID\tNAME\tSELECTOR\tTARGET\tANTI_AFFINITY\tRESPAWN\tCREATED")
 			for _, r := range resp.Rules {
 				created := "-"
 				if r.CreatedAtUnixNs != 0 {
 					created = time.Unix(0, r.CreatedAtUnixNs).UTC().Format(time.RFC3339)
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n", r.Uuid, r.Name, dashIf(r.Selector), r.TargetCount, dashIf(r.AntiAffinity), created)
+				respawn := dashIf(summariseRespawn(r.GetRespawn()))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n", r.Uuid, r.Name, dashIf(r.Selector), r.TargetCount, dashIf(r.AntiAffinity), respawn, created)
 			}
 			return tw.Flush()
 		},
@@ -69,23 +70,32 @@ func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var name, selector, antiAffinity string
 	var target int32
+	var rflags respawnFlags
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a scheduling rule (admin-only)",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			policy, _, err := rflags.build()
+			if err != nil {
+				return err
+			}
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
 			resp, err := c.CreateSchedulingRule(context.Background(), &weftv1.CreateSchedulingRuleRequest{
-				Name: name, Selector: selector, TargetCount: target, AntiAffinity: antiAffinity,
+				Name: name, Selector: selector, TargetCount: target, AntiAffinity: antiAffinity, Respawn: policy,
 			})
 			if err != nil {
 				return err
 			}
-			fmt.Printf("created\t%s\t%s\ttarget=%d\n", resp.Rule.Uuid, resp.Rule.Name, resp.Rule.TargetCount)
+			extra := summariseRespawn(resp.Rule.GetRespawn())
+			if extra != "" {
+				extra = "\t" + extra
+			}
+			fmt.Printf("created\t%s\t%s\ttarget=%d%s\n", resp.Rule.Uuid, resp.Rule.Name, resp.Rule.TargetCount, extra)
 			return nil
 		},
 	}
@@ -93,6 +103,7 @@ func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	cmd.Flags().StringVar(&selector, "selector", "", "Label selector \"k=v,...\"")
 	cmd.Flags().Int32Var(&target, "target-count", 0, "Target replica count")
 	cmd.Flags().StringVar(&antiAffinity, "anti-affinity", "", "host | az | rack")
+	rflags.register(cmd, false)
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
@@ -100,11 +111,16 @@ func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 func updateCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var selector, antiAffinity string
 	var target int32 = -1
+	var rflags respawnFlags
 	cmd := &cobra.Command{
 		Use:   "update <uuid>",
 		Short: "Patch a scheduling rule (admin-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			policy, clear, err := rflags.build()
+			if err != nil {
+				return err
+			}
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
 				return err
@@ -112,17 +128,23 @@ func updateCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			defer conn.Close()
 			resp, err := c.UpdateSchedulingRule(context.Background(), &weftv1.UpdateSchedulingRuleRequest{
 				Uuid: args[0], Selector: selector, TargetCount: target, AntiAffinity: antiAffinity,
+				Respawn: policy, ClearRespawn: clear,
 			})
 			if err != nil {
 				return err
 			}
-			fmt.Printf("updated\t%s\ttarget=%d\n", resp.Rule.Uuid, resp.Rule.TargetCount)
+			extra := summariseRespawn(resp.Rule.GetRespawn())
+			if extra != "" {
+				extra = "\t" + extra
+			}
+			fmt.Printf("updated\t%s\ttarget=%d%s\n", resp.Rule.Uuid, resp.Rule.TargetCount, extra)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&selector, "selector", "", "Replace selector (empty = keep)")
 	cmd.Flags().Int32Var(&target, "target-count", -1, "Replace target count (-1 = keep)")
 	cmd.Flags().StringVar(&antiAffinity, "anti-affinity", "", "Replace anti-affinity (empty = keep)")
+	rflags.register(cmd, true)
 	return cmd
 }
 

@@ -168,8 +168,8 @@ type VZAdapter interface {
 	ImportSSHKeyCatalogue(namePrefix, blob, comment string) ([]SSHKeyCatalogueEntry, int32, error)
 	SchedulingRules() []SchedulingRuleEntry
 	SchedulingRuleByUUID(uuid string) (SchedulingRuleEntry, bool)
-	CreateSchedulingRule(name, selector string, targetCount int32, antiAffinity string) (SchedulingRuleEntry, bool, error)
-	UpdateSchedulingRule(uuid, selector string, targetCount int32, antiAffinity string) (SchedulingRuleEntry, error)
+	CreateSchedulingRule(name, selector string, targetCount int32, antiAffinity string, respawn *RespawnPolicyJSON) (SchedulingRuleEntry, bool, error)
+	UpdateSchedulingRule(uuid, selector string, targetCount int32, antiAffinity string, respawn *RespawnPolicyJSON, clearRespawn bool) (SchedulingRuleEntry, error)
 	DeleteSchedulingRule(uuid string) error
 	RegistryRemotes() []RegistryRemote
 	RegistryRemoteByUUID(uuid string) (RegistryRemote, bool)

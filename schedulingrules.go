@@ -18,12 +18,46 @@ import (
 // SchedulingRuleEntry is one entry in the registry. The name is
 // "Entry" suffix to avoid collision with the in-tree scheduler types.
 type SchedulingRuleEntry struct {
-	UUID         string    `json:"uuid"`
-	Name         string    `json:"name"`
-	Selector     string    `json:"selector"` // comma-separated "k=v" pairs
-	TargetCount  int32     `json:"target_count"`
-	AntiAffinity string    `json:"anti_affinity,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	UUID         string             `json:"uuid"`
+	Name         string             `json:"name"`
+	Selector     string             `json:"selector"` // comma-separated "k=v" pairs
+	TargetCount  int32              `json:"target_count"`
+	AntiAffinity string             `json:"anti_affinity,omitempty"`
+	Respawn      *RespawnPolicyJSON `json:"respawn,omitempty"`
+	CreatedAt    time.Time          `json:"created_at"`
+}
+
+// RespawnPolicyJSON is the persisted shape of the respawn policy. It
+// mirrors weft-proto's RespawnPolicy + HealthProbe one-for-one but
+// stays on plain Go types so the registry stays JSON-serialisable
+// without proto runtime deps. Conversion to/from the proto types
+// happens at the gRPC boundary.
+type RespawnPolicyJSON struct {
+	Enabled        bool              `json:"enabled"`
+	GracePeriodMs  int64             `json:"grace_period_ms,omitempty"`
+	MaxRestarts    int32             `json:"max_restarts,omitempty"`
+	WindowMs       int64             `json:"window_ms,omitempty"`
+	Backoff        string            `json:"backoff,omitempty"`
+	InitialDelayMs int64             `json:"initial_delay_ms,omitempty"`
+	Liveness       *HealthProbeJSON  `json:"liveness,omitempty"`
+	Readiness      *HealthProbeJSON  `json:"readiness,omitempty"`
+}
+
+// HealthProbeJSON mirrors weft-proto's HealthProbe message ; same
+// rationale as RespawnPolicyJSON.
+type HealthProbeJSON struct {
+	Type             string   `json:"type"` // "http" | "tcp" | "exec"
+	HttpPath         string   `json:"http_path,omitempty"`
+	HttpPort         int32    `json:"http_port,omitempty"`
+	HttpMethod       string   `json:"http_method,omitempty"`
+	HttpStatusOK     []int32  `json:"http_status_ok,omitempty"`
+	TcpPort          int32    `json:"tcp_port,omitempty"`
+	ExecCommand      []string `json:"exec_command,omitempty"`
+	InitialDelayMs   int64    `json:"initial_delay_ms,omitempty"`
+	PeriodMs         int64    `json:"period_ms,omitempty"`
+	TimeoutMs        int64    `json:"timeout_ms,omitempty"`
+	FailureThreshold int32    `json:"failure_threshold,omitempty"`
+	SuccessThreshold int32    `json:"success_threshold,omitempty"`
 }
 
 type schedulingRulesDoc struct {
@@ -101,7 +135,7 @@ func (r *schedulingRuleRegistry) list() []SchedulingRuleEntry {
 	return out
 }
 
-func (r *schedulingRuleRegistry) create(name, selector string, targetCount int32, antiAffinity string) (SchedulingRuleEntry, bool, error) {
+func (r *schedulingRuleRegistry) create(name, selector string, targetCount int32, antiAffinity string, respawn *RespawnPolicyJSON) (SchedulingRuleEntry, bool, error) {
 	if name == "" {
 		return SchedulingRuleEntry{}, false, fmt.Errorf("name is required")
 	}
@@ -120,6 +154,7 @@ func (r *schedulingRuleRegistry) create(name, selector string, targetCount int32
 		Selector:     selector,
 		TargetCount:  targetCount,
 		AntiAffinity: antiAffinity,
+		Respawn:      respawn,
 		CreatedAt:    time.Now().UTC(),
 	}
 	r.byUUID[uuid] = sr
@@ -133,8 +168,10 @@ func (r *schedulingRuleRegistry) create(name, selector string, targetCount int32
 }
 
 // update patches the mutable fields. Empty selector / antiAffinity
-// = keep current ; targetCount == -1 = keep current.
-func (r *schedulingRuleRegistry) update(uuid, selector string, targetCount int32, antiAffinity string) (SchedulingRuleEntry, error) {
+// = keep current ; targetCount == -1 = keep current ; respawn nil =
+// keep current, clearRespawn=true clears it (mirrors the proto's
+// clear_respawn gate).
+func (r *schedulingRuleRegistry) update(uuid, selector string, targetCount int32, antiAffinity string, respawn *RespawnPolicyJSON, clearRespawn bool) (SchedulingRuleEntry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cur, ok := r.byUUID[uuid]
@@ -149,6 +186,11 @@ func (r *schedulingRuleRegistry) update(uuid, selector string, targetCount int32
 	}
 	if antiAffinity != "" {
 		cur.AntiAffinity = antiAffinity
+	}
+	if clearRespawn {
+		cur.Respawn = nil
+	} else if respawn != nil {
+		cur.Respawn = respawn
 	}
 	r.byUUID[uuid] = cur
 	if err := r.saveLocked(); err != nil {
