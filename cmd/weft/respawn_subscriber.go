@@ -17,34 +17,80 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
+
+	clientv3 "go.etcd.io/etcd/client/v3"
 
 	weft "github.com/openweft/weft"
 	"github.com/openweft/weft/agentrespawn"
+	"github.com/openweft/weft/etcdcoord"
 )
 
 // startRespawnSubscriber starts the bus subscriber + reconciler loop.
 // Returns a cancel that stops the goroutine and tears down the bus
 // subscription. Always returns a non-nil cancel ; an init failure
 // logs + returns a no-op so the daemon shutdown path stays simple.
-func startRespawnSubscriber(adp weft.VZAdapter, bus weft.EventBus, logger *log.Logger) func() {
+func startRespawnSubscriber(adp weft.VZAdapter, bus weft.EventBus, etcdCli *clientv3.Client, logger *log.Logger) func() {
 	actions := &respawnActions{adp: adp}
 	sub := agentrespawn.
 		New(bus, respawnRules{adp: adp}, actions, nil).
 		WithStatusReader(respawnStatus{adp: adp})
 
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// V0.1.2 : wire cross-host failover when an etcd client is
+	// available. The HostLiveness lease registered at agent boot
+	// signals other agents that this host is alive ; the
+	// HostWatcher inside the Subscriber reacts to other hosts'
+	// lease expiries to claim orphan VMs.
+	var hostLiveness *etcdcoord.HostLiveness
+	cancelAll := func() {
+		cancel()
+		if hostLiveness != nil {
+			// Use a fresh ctx — the parent is already cancelled.
+			revokeCtx, revokeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer revokeCancel()
+			_ = hostLiveness.Stop(revokeCtx)
+		}
+	}
+
+	if etcdCli != nil {
+		localUUID := localHostUUID(adp)
+		if localUUID != "" {
+			hostname, _ := os.Hostname()
+			hl, err := etcdcoord.RegisterHostLiveness(ctx, etcdCli, etcdcoord.HostMetadata{
+				HostUUID: localUUID, Hostname: hostname, Hypervisor: os.Getenv("WEFT_HYPERVISOR"),
+			}, etcdcoord.LivenessOptions{Logger: slog.Default()})
+			if err != nil {
+				logger.Printf("respawn subscriber: host liveness register failed (continuing without failover): %v", err)
+			} else {
+				hostLiveness = hl
+				watcher, werr := etcdcoord.NewHostWatcher(ctx, etcdCli, etcdcoord.WatcherOptions{
+					IncludeSelf: localUUID, Logger: slog.Default(),
+				})
+				if werr != nil {
+					logger.Printf("respawn subscriber: host watcher init failed (continuing without failover): %v", werr)
+				} else {
+					sub.WithCoordinator(respawnCoord{adp: adp}, watcher.Events(), etcdCli, "")
+					logger.Printf("respawn subscriber: cross-host failover active (host=%s)", localUUID)
+				}
+			}
+		}
+	}
+
 	go func() {
 		if err := sub.Run(ctx); err != nil && err != context.Canceled {
 			logger.Printf("respawn subscriber exited: %v", err)
 		}
 	}()
 	logger.Printf("respawn subscriber: bus subscribed + 2s poll fallback for microVM death")
-	return cancel
+	return cancelAll
 }
 
 // respawnActions adapts Adapter.StartVM/StopVM onto the
@@ -68,6 +114,31 @@ type respawnRules struct{ adp weft.VZAdapter }
 
 func (r respawnRules) SchedulingRules() []weft.SchedulingRuleEntry {
 	return r.adp.SchedulingRules()
+}
+
+// respawnCoord is the HostCoordinator projection : lets the
+// Subscriber claim VMs whose inventory record points at a host
+// whose etcd-coord lease just expired. Wraps adapter.MigrateVM
+// + adapter.ListVMsForHost ; the bus event vm.ownership_claimed
+// is already published by MigrateVM (Kind=vm.migrated with
+// old_host / new_host meta), so we don't double-publish here.
+type respawnCoord struct{ adp weft.VZAdapter }
+
+func (c respawnCoord) LocalHostUUID() string { return localHostUUID(c.adp) }
+
+func (c respawnCoord) VMsOnHost(hostUUID string) []agentrespawn.VMRef {
+	vms := c.adp.ListVMsForHost(hostUUID)
+	out := make([]agentrespawn.VMRef, 0, len(vms))
+	for _, v := range vms {
+		out = append(out, agentrespawn.VMRef{
+			UUID: v.UUID, Name: v.Name, Project: v.ProjectUUID,
+		})
+	}
+	return out
+}
+
+func (c respawnCoord) ClaimVM(uuid string) error {
+	return c.adp.MigrateVM(uuid, localHostUUID(c.adp))
 }
 
 // respawnStatus is the VMStatusReader projection : tells the
