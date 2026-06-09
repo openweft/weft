@@ -19,12 +19,25 @@ type fakeAdapter struct {
 	projects []weft.Project
 	vmDirs   []weft.VMDirEntry
 
-	deletions  []string
-	stateSets  []stateSet
-	deleteFail error
+	deletions    []string
+	dirDeletions []string
+	stateSets    []stateSet
+	deleteFail   error
 }
 
 func (a *fakeAdapter) ListVMDirs() []weft.VMDirEntry { return a.vmDirs }
+func (a *fakeAdapter) DeleteVMDir(projectUUID, name string) error {
+	a.dirDeletions = append(a.dirDeletions, projectUUID+"/"+name)
+	// Reflect removal in vmDirs slice so a follow-up Sweep doesn't
+	// see the path again (mirrors os.RemoveAll behaviour).
+	for i, d := range a.vmDirs {
+		if d.ProjectUUID == projectUUID && d.Name == name {
+			a.vmDirs = append(a.vmDirs[:i], a.vmDirs[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
 
 type stateSet struct {
 	uuid  string
@@ -297,6 +310,52 @@ func TestSweep_OrphanDir_RegisteredVMNotFlagged(t *testing.T) {
 	rep := r.Sweep(context.Background())
 	if len(rep.Zombies) != 0 {
 		t.Errorf("registered VM should not produce orphan_dir, got %+v", rep.Zombies)
+	}
+}
+
+func TestSweep_OrphanDir_AutoDeleteAfterGrace(t *testing.T) {
+	adp, probe := setup()
+	adp.vmDirs = []weft.VMDirEntry{
+		// Very old dir : 48h, threshold 24h → should delete
+		{ProjectUUID: "p-1", Name: "old-ghost", Path: "/state/vz/p-1/old-ghost",
+			ModTime: time.Now().Add(-48 * time.Hour)},
+		// Below auto-delete threshold but past detection grace : mark only
+		{ProjectUUID: "p-1", Name: "young-ghost", Path: "/state/vz/p-1/young-ghost",
+			ModTime: time.Now().Add(-1 * time.Hour)},
+	}
+	r := New(adp, probe, localHost, Options{
+		OrphanDirGrace:           5 * time.Minute,
+		OrphanDirAutoDeleteAfter: 24 * time.Hour,
+	})
+	rep := r.Sweep(context.Background())
+	if len(rep.Zombies) != 2 {
+		t.Fatalf("expected 2 orphan_dirs, got %+v", rep.Zombies)
+	}
+	if rep.Deleted != 1 {
+		t.Errorf("expected 1 auto-delete (48h > 24h grace), got %d", rep.Deleted)
+	}
+	if len(adp.dirDeletions) != 1 || adp.dirDeletions[0] != "p-1/old-ghost" {
+		t.Errorf("expected dir-deletion of old-ghost, got %v", adp.dirDeletions)
+	}
+}
+
+func TestSweep_OrphanDir_AutoDeleteDisabledByDefault(t *testing.T) {
+	adp, probe := setup()
+	adp.vmDirs = []weft.VMDirEntry{
+		{ProjectUUID: "p-1", Name: "ancient", Path: "/state/vz/p-1/ancient",
+			ModTime: time.Now().Add(-30 * 24 * time.Hour)}, // 30 days old
+	}
+	// OrphanDirAutoDeleteAfter not set → mark only.
+	r := New(adp, probe, localHost, Options{OrphanDirGrace: 5 * time.Minute})
+	rep := r.Sweep(context.Background())
+	if len(rep.Zombies) != 1 || rep.Zombies[0].Kind != ZombieOrphanDir {
+		t.Fatalf("expected orphan_dir, got %+v", rep.Zombies)
+	}
+	if rep.Deleted != 0 {
+		t.Errorf("OrphanDirAutoDeleteAfter=0 should never delete, got %d", rep.Deleted)
+	}
+	if len(adp.dirDeletions) != 0 {
+		t.Errorf("no DeleteVMDir should be called, got %v", adp.dirDeletions)
 	}
 }
 
