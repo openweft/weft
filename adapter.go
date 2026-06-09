@@ -582,8 +582,8 @@ func (a *Adapter) installBusHook(raw func(vmDir, kind string, ts int64, meta map
 // publishes with empty project (= "global"), reaching every
 // subscriber.
 func splitVMDir(vmsDir, vmDir string) (project, name string) {
-	// vmsDir is typically `.mock/vz`; vmDir is
-	// `.mock/vz/<projectUUID>/<vmName>`. Trim the prefix, split.
+	// vmsDir is typically `<stateDir>/vz`; vmDir is
+	// `<stateDir>/vz/<projectUUID>/<vmName>`. Trim the prefix, split.
 	rel := vmDir
 	if vmsDir != "" && len(vmDir) > len(vmsDir) {
 		if vmDir[:len(vmsDir)] == vmsDir {
@@ -646,12 +646,13 @@ func (a *Adapter) SetPaths(cachePath, vmsPath string) {
 	a.imageStore.SetDir(a.cacheDir())
 }
 
-// New returns a new vz Adapter with state stored under mockDir (.mock/ by default).
-// Images are cached under mockDir/cache/ and VM state under mockDir/vz/.
-// Equivalent to NewWithStorage(mockDir, nil), which falls back to
-// a file-backed Storage factory (single-host dev path).
-func New(mockDir string) VZAdapter {
-	return NewWithStorage(mockDir, nil)
+// New returns a new vz Adapter with state stored under stateDir
+// (./state by default). Images are cached under stateDir/cache/ and
+// VM state under stateDir/vz/. Equivalent to
+// NewWithStorage(stateDir, nil), which falls back to a file-backed
+// Storage factory (single-host dev path).
+func New(stateDir string) VZAdapter {
+	return NewWithStorage(stateDir, nil)
 }
 
 // NewWithStorage creates a VZAdapter with an explicit registry
@@ -662,12 +663,12 @@ func New(mockDir string) VZAdapter {
 //
 // Passing nil for the factory uses the default file-based one:
 // each registry lives at <vmsDir>/.<name>.hcl.
-func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter {
-	if mockDir == "" {
-		mockDir = ".mock"
+func NewWithStorage(stateDir string, factory func(name string) Storage) VZAdapter {
+	if stateDir == "" {
+		stateDir = "state"
 	}
 	a := &Adapter{
-		stateDir:       mockDir,
+		stateDir:       stateDir,
 		storageFactory: factory,
 		bus:            NewEventBus(),
 	}
@@ -680,12 +681,12 @@ func NewWithStorage(mockDir string, factory func(name string) Storage) VZAdapter
 // opt into per-record (vmRegistry today) use the KV path ; others
 // stay on blob. Pass nil for kvFactory to fall back to blob-only
 // behaviour, exactly equivalent to NewWithStorage.
-func NewWithKVStorage(mockDir string, factory func(name string) Storage, kvFactory func(name string) KVStorage) VZAdapter {
-	if mockDir == "" {
-		mockDir = ".mock"
+func NewWithKVStorage(stateDir string, factory func(name string) Storage, kvFactory func(name string) KVStorage) VZAdapter {
+	if stateDir == "" {
+		stateDir = "state"
 	}
 	a := &Adapter{
-		stateDir:         mockDir,
+		stateDir:         stateDir,
 		storageFactory:   factory,
 		kvStorageFactory: kvFactory,
 		bus:              NewEventBus(),

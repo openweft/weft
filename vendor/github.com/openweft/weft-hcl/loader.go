@@ -1,4 +1,4 @@
-package hclconfig
+package wefthcl
 
 import (
 	"bytes"
@@ -33,7 +33,7 @@ var archTokenRe = regexp.MustCompile(`\$\{arch\.(gnu|oci)\}|arch\.(gnu|oci)`)
 // configDir must be a directory; passing a file path is an error.
 func resolveConfig(configDir string) ([]byte, string, error) {
 	if configDir == "" {
-		configDir = ".mock/hcl"
+		configDir = "state/hcl"
 	}
 	fi, err := os.Stat(configDir)
 	if err != nil {
@@ -118,7 +118,7 @@ func ReadConfig(dir string) ([]byte, error) {
 // public key is derived by appending ".pub".
 func LoadKeypairs(cfg string) map[string]string {
 	if cfg == "" {
-		cfg = ".mock/hcl"
+		cfg = "state/hcl"
 	}
 	data, err := ReadConfig(cfg)
 	if err != nil {
@@ -166,7 +166,7 @@ func expandHomePath(p string) string {
 // map[name]imageRef. Supports `from = "..."` and `from = join("/", [...])`.
 func LoadOCIFroms(cfg string) map[string]string {
 	if cfg == "" {
-		cfg = ".mock/hcl"
+		cfg = "state/hcl"
 	}
 	data, label, err := resolveConfig(cfg)
 	if err != nil {
@@ -201,7 +201,7 @@ func LoadOCIFroms(cfg string) map[string]string {
 // a `from` attribute (resolving to an HTTPS URL) and a `checksum` attribute.
 func LoadHTTPChecksums(cfg string) map[string]string {
 	if cfg == "" {
-		cfg = ".mock/hcl"
+		cfg = "state/hcl"
 	}
 	data, label, err := resolveConfig(cfg)
 	if err != nil {
@@ -681,7 +681,7 @@ type LogConfig struct {
 // single file) and returns the discovered settings.
 func LoadLogConfig(cfg string) LogConfig {
 	if cfg == "" {
-		cfg = ".mock/hcl"
+		cfg = "state/hcl"
 	}
 	data, label, err := resolveConfig(cfg)
 	if err != nil {
@@ -739,7 +739,7 @@ type TimeoutConfig struct {
 //	}
 func LoadTimeoutConfig(cfg string) TimeoutConfig {
 	if cfg == "" {
-		cfg = ".mock/hcl"
+		cfg = "state/hcl"
 	}
 	data, label, err := resolveConfig(cfg)
 	if err != nil {
@@ -870,7 +870,7 @@ type MockBlock struct {
 // or single file) and returns discovered settings.
 func LoadMockBlock(cfg string) MockBlock {
 	if cfg == "" {
-		cfg = ".mock/hcl"
+		cfg = "state/hcl"
 	}
 	data, label, err := resolveConfig(cfg)
 	if err != nil {

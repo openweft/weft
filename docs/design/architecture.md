@@ -166,7 +166,7 @@ subject ; the host side is reconciled by `weft-network`.
 declares inputs (typed, optional defaults), VM blocks (count = HCL
 expression over inputs), volume blocks, scheduling rules, and post-
 provision scripts. Manifests are parsed by `pluginstore` and rendered
-through `hclconfig`.
+through `weft-hcl` (Go package `wefthcl`).
 
 **Install flow** : `InstallPlugin(name, project, inputs)` (RPC) →
 `pluginstore.Install` materialises VMs + volumes + rules in the

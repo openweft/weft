@@ -1,4 +1,4 @@
-// Local-dev example config for `weft agent --config-dir .mock/hcl`.
+// Local-dev example config for `weft agent --config-dir weft/hcl`.
 //
 // This is the all-in-one single-host default: file storage + in-process
 // event bus, no etcd / NATS required. Edit the ssh keypair path and the

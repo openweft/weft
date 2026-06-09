@@ -141,8 +141,8 @@ github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJw
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
 github.com/openweft/weft-cidata v0.2.0 h1:HLUlc1iXNfEl5c5h3qMwV9uvBzrk3fQRYT14s0OvQiQ=
 github.com/openweft/weft-cidata v0.2.0/go.mod h1:rHxPRc5+2YPP4o4ZCc7qHVLkFtf8m5N0911XezOtbfE=
-github.com/openweft/weft-hcl v0.2.0 h1:XcHwOMJ2xegmO+CwJicQYITnZfX8ebYLvS4ZHQy+45g=
-github.com/openweft/weft-hcl v0.2.0/go.mod h1:F5BcTd/FFwXtC+yrSAxVFqSqI+nlYTCiszUUQcZT6A4=
+github.com/openweft/weft-hcl v0.3.0 h1:P2foFlLYzNA0707y/kxfaDz1kR5+aeHHuVq33ezBzTQ=
+github.com/openweft/weft-hcl v0.3.0/go.mod h1:F5BcTd/FFwXtC+yrSAxVFqSqI+nlYTCiszUUQcZT6A4=
 github.com/openweft/weft-slognats v0.2.0 h1:qE3LScrliyDIdtqwdxN9MO/8XakZxAKRgoPlqKXGXjA=
 github.com/openweft/weft-slognats v0.2.0/go.mod h1:6szcJAzzSR8lT4S7weWHedDfbjDUf2mR9RXBNM5E4wI=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

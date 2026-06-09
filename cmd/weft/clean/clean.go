@@ -42,7 +42,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&cfgDir, "config-dir", ".mock/hcl", "Path to HCL config directory")
+	cmd.Flags().StringVar(&cfgDir, "config-dir", "state/hcl", "Path to HCL config directory")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm deletion (default: dry-run)")
 	return cmd
 }

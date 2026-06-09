@@ -94,6 +94,9 @@ const (
 	WeftAgent_HeartbeatHost_FullMethodName                   = "/weft.v1.WeftAgent/HeartbeatHost"
 	WeftAgent_SetHostState_FullMethodName                    = "/weft.v1.WeftAgent/SetHostState"
 	WeftAgent_SetHostLabels_FullMethodName                   = "/weft.v1.WeftAgent/SetHostLabels"
+	WeftAgent_SetVMLabels_FullMethodName                     = "/weft.v1.WeftAgent/SetVMLabels"
+	WeftAgent_GetZombieReport_FullMethodName                 = "/weft.v1.WeftAgent/GetZombieReport"
+	WeftAgent_TriggerZombieSweep_FullMethodName              = "/weft.v1.WeftAgent/TriggerZombieSweep"
 	WeftAgent_SetHostCordoned_FullMethodName                 = "/weft.v1.WeftAgent/SetHostCordoned"
 	WeftAgent_DeleteHost_FullMethodName                      = "/weft.v1.WeftAgent/DeleteHost"
 	WeftAgent_PublishShareToProject_FullMethodName           = "/weft.v1.WeftAgent/PublishShareToProject"
@@ -324,6 +327,9 @@ type WeftAgentClient interface {
 	HeartbeatHost(ctx context.Context, in *HeartbeatHostRequest, opts ...grpc.CallOption) (*HeartbeatHostResponse, error)
 	SetHostState(ctx context.Context, in *SetHostStateRequest, opts ...grpc.CallOption) (*SetHostStateResponse, error)
 	SetHostLabels(ctx context.Context, in *SetHostLabelsRequest, opts ...grpc.CallOption) (*SetHostLabelsResponse, error)
+	SetVMLabels(ctx context.Context, in *SetVMLabelsRequest, opts ...grpc.CallOption) (*SetVMLabelsResponse, error)
+	GetZombieReport(ctx context.Context, in *GetZombieReportRequest, opts ...grpc.CallOption) (*GetZombieReportResponse, error)
+	TriggerZombieSweep(ctx context.Context, in *TriggerZombieSweepRequest, opts ...grpc.CallOption) (*GetZombieReportResponse, error)
 	SetHostCordoned(ctx context.Context, in *SetHostCordonedRequest, opts ...grpc.CallOption) (*SetHostCordonedResponse, error)
 	DeleteHost(ctx context.Context, in *DeleteHostRequest, opts ...grpc.CallOption) (*DeleteHostResponse, error)
 	// PublishShareToProject fans a CubeFS share mount (or, with
@@ -1225,6 +1231,36 @@ func (c *weftAgentClient) SetHostLabels(ctx context.Context, in *SetHostLabelsRe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SetHostLabelsResponse)
 	err := c.cc.Invoke(ctx, WeftAgent_SetHostLabels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) SetVMLabels(ctx context.Context, in *SetVMLabelsRequest, opts ...grpc.CallOption) (*SetVMLabelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetVMLabelsResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetVMLabels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetZombieReport(ctx context.Context, in *GetZombieReportRequest, opts ...grpc.CallOption) (*GetZombieReportResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetZombieReportResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetZombieReport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) TriggerZombieSweep(ctx context.Context, in *TriggerZombieSweepRequest, opts ...grpc.CallOption) (*GetZombieReportResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetZombieReportResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_TriggerZombieSweep_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2233,6 +2269,9 @@ type WeftAgentServer interface {
 	HeartbeatHost(context.Context, *HeartbeatHostRequest) (*HeartbeatHostResponse, error)
 	SetHostState(context.Context, *SetHostStateRequest) (*SetHostStateResponse, error)
 	SetHostLabels(context.Context, *SetHostLabelsRequest) (*SetHostLabelsResponse, error)
+	SetVMLabels(context.Context, *SetVMLabelsRequest) (*SetVMLabelsResponse, error)
+	GetZombieReport(context.Context, *GetZombieReportRequest) (*GetZombieReportResponse, error)
+	TriggerZombieSweep(context.Context, *TriggerZombieSweepRequest) (*GetZombieReportResponse, error)
 	SetHostCordoned(context.Context, *SetHostCordonedRequest) (*SetHostCordonedResponse, error)
 	DeleteHost(context.Context, *DeleteHostRequest) (*DeleteHostResponse, error)
 	// PublishShareToProject fans a CubeFS share mount (or, with
@@ -2605,6 +2644,15 @@ func (UnimplementedWeftAgentServer) SetHostState(context.Context, *SetHostStateR
 }
 func (UnimplementedWeftAgentServer) SetHostLabels(context.Context, *SetHostLabelsRequest) (*SetHostLabelsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetHostLabels not implemented")
+}
+func (UnimplementedWeftAgentServer) SetVMLabels(context.Context, *SetVMLabelsRequest) (*SetVMLabelsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetVMLabels not implemented")
+}
+func (UnimplementedWeftAgentServer) GetZombieReport(context.Context, *GetZombieReportRequest) (*GetZombieReportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetZombieReport not implemented")
+}
+func (UnimplementedWeftAgentServer) TriggerZombieSweep(context.Context, *TriggerZombieSweepRequest) (*GetZombieReportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TriggerZombieSweep not implemented")
 }
 func (UnimplementedWeftAgentServer) SetHostCordoned(context.Context, *SetHostCordonedRequest) (*SetHostCordonedResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetHostCordoned not implemented")
@@ -4224,6 +4272,60 @@ func _WeftAgent_SetHostLabels_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeftAgentServer).SetHostLabels(ctx, req.(*SetHostLabelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_SetVMLabels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetVMLabelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SetVMLabels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SetVMLabels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SetVMLabels(ctx, req.(*SetVMLabelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetZombieReport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetZombieReportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetZombieReport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetZombieReport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetZombieReport(ctx, req.(*GetZombieReportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_TriggerZombieSweep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TriggerZombieSweepRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).TriggerZombieSweep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_TriggerZombieSweep_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).TriggerZombieSweep(ctx, req.(*TriggerZombieSweepRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -6078,6 +6180,18 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetHostLabels",
 			Handler:    _WeftAgent_SetHostLabels_Handler,
+		},
+		{
+			MethodName: "SetVMLabels",
+			Handler:    _WeftAgent_SetVMLabels_Handler,
+		},
+		{
+			MethodName: "GetZombieReport",
+			Handler:    _WeftAgent_GetZombieReport_Handler,
+		},
+		{
+			MethodName: "TriggerZombieSweep",
+			Handler:    _WeftAgent_TriggerZombieSweep_Handler,
 		},
 		{
 			MethodName: "SetHostCordoned",

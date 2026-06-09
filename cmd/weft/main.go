@@ -417,7 +417,7 @@ continuity (same sockets, same registry on-disk layout).`,
 	}
 
 	cmd.Flags().StringVar(&configFile, "config", "", "Path to weft.hcl (default: /etc/weft/weft.hcl or ~/.config/weft/weft.hcl)")
-	cmd.Flags().StringVar(&cfgDir, "config-dir", ".mock/hcl", "Path to HCL config directory")
+	cmd.Flags().StringVar(&cfgDir, "config-dir", "state/hcl", "Path to HCL config directory")
 	cmd.Flags().StringVar(&socketPath, "socket", defaultSocket, "Unix socket path to listen on")
 	cmd.Flags().StringVar(&sshSocket, "ssh-socket", defaultSSHSocket, "Unix socket path for the SSH-secured gRPC listener (empty to disable)")
 	cmd.Flags().StringVar(&sshAuthorizedKeys, "ssh-authorized-keys", defaultAuthorizedKeys, "Path to authorized_keys for SSH client authentication")

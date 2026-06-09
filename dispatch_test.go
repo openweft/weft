@@ -64,9 +64,9 @@ var _ drivers.HypervisorDriver = (*fakeHypervisor)(nil)
 
 func newAdapterForDispatchTest(t *testing.T) *Adapter {
 	t.Helper()
-	mockDir := t.TempDir()
+	stateDir := t.TempDir()
 	factory := func(name string) Storage { return NewMemStorage() }
-	return NewWithStorage(mockDir, factory).(*Adapter)
+	return NewWithStorage(stateDir, factory).(*Adapter)
 }
 
 // TestAdapter_LocalHandleRegisteredOnBoot confirms the
