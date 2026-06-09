@@ -27,7 +27,7 @@ import (
 	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	sshtransport "github.com/grpc-transports/ssh"
 	cloudinit "github.com/openweft/weft-cidata"
-	imock "github.com/openweft/weft-hcl"
+	wefthcl "github.com/openweft/weft-hcl"
 	weftslognats "github.com/openweft/weft-slognats"
 	"github.com/openweft/weft"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
@@ -463,7 +463,7 @@ continuity (same sockets, same registry on-disk layout).`,
 }
 
 func run(t fileConfigTargets) error {
-	mc := imock.LoadMockBlock(t.configDir)
+	mc := wefthcl.LoadWeftBlock(t.configDir)
 
 	// Storage factory selects which Storage backend every registry
 	// (projects, users, networks, volumes, …) goes through. Default
@@ -849,7 +849,7 @@ func run(t fileConfigTargets) error {
 type weftServer struct {
 	weftv1.UnimplementedWeftAgentServer
 	cfgDir string
-	mc     imock.MockBlock
+	mc     wefthcl.WeftBlock
 	adp    weft.VZAdapter
 	// dispatch is the per-host AgentDispatch stream registry.
 	// Server-side RPCs that target a specific Host (via the
@@ -1303,14 +1303,14 @@ func (s *weftServer) PullImages(ctx context.Context, req *weftv1.PullImagesReque
 		cfgDir = s.cfgDir
 	}
 	logger.Printf("PullImages config-dir=%s parallel=%d", cfgDir, req.Parallel)
-	ociMap := imock.LoadOCIFroms(cfgDir)
+	ociMap := wefthcl.LoadOCIFroms(cfgDir)
 	imgSet := map[string]struct{}{}
 	for _, v := range ociMap {
 		if v != "" {
 			imgSet[v] = struct{}{}
 		}
 	}
-	rows, err := imock.BuildRowsFromConfig(cfgDir, "", map[string]map[string]interface{}{}, ociMap)
+	rows, err := wefthcl.BuildRowsFromConfig(cfgDir, "", map[string]map[string]interface{}{}, ociMap)
 	if err == nil {
 		for _, r := range rows {
 			if r.Image != "" {
@@ -1405,7 +1405,7 @@ func (s *weftServer) CleanImages(_ context.Context, req *weftv1.CleanImagesReque
 	if cfgDir == "" {
 		cfgDir = s.cfgDir
 	}
-	ociMap := imock.LoadOCIFroms(cfgDir)
+	ociMap := wefthcl.LoadOCIFroms(cfgDir)
 	imageSet := map[string]struct{}{}
 	for _, v := range ociMap {
 		if v != "" {
@@ -3856,7 +3856,7 @@ func waitForIP(a weft.VZAdapter, name string, timeout time.Duration) error {
 
 // ---- helpers ---------------------------------------------------------------
 
-func rowToProto(r imock.Row) *weftv1.VMInfo {
+func rowToProto(r wefthcl.Row) *weftv1.VMInfo {
 	return &weftv1.VMInfo{
 		Name:   r.Name,
 		State:  stateToProto(r.State),

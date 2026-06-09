@@ -669,7 +669,7 @@ func parseHCLVars(s string) map[string]string {
 	return vars
 }
 
-// LogConfig describes logging-related settings parsed from mock.hcl
+// LogConfig describes logging-related settings parsed from weft.hcl
 type LogConfig struct {
 	File       string
 	Level      string
@@ -717,7 +717,7 @@ func LoadLogConfig(cfg string) LogConfig {
 	return out
 }
 
-// TimeoutConfig holds timeout-related settings from the mock.hcl
+// TimeoutConfig holds timeout-related settings from the weft.hcl
 type TimeoutConfig struct {
 	// PullPostCompletion controls how long to wait after a pull signals completion
 	// before declaring the process finished (seconds).
@@ -731,7 +731,7 @@ type TimeoutConfig struct {
 // LoadTimeoutConfig parses a `mock` block and extracts a nested `timeout` block
 // if present. Example:
 //
-//	mock "ID" {
+//	weft "ID" {
 //	  timeout {
 //	    pull_post_completion = 30
 //	    wait_ssh = 120
@@ -750,7 +750,7 @@ func LoadTimeoutConfig(cfg string) TimeoutConfig {
 		evalCtx := &hcl.EvalContext{Variables: map[string]cty.Value{}}
 		if hb, ok := file.Body.(*hclsyntax.Body); ok {
 			for _, b := range hb.Blocks {
-				if b.Type != "mock" {
+				if b.Type != "weft" {
 					continue
 				}
 				for _, nb := range b.Body.Blocks {
@@ -771,23 +771,23 @@ func LoadTimeoutConfig(cfg string) TimeoutConfig {
 // regular expressions. Used as a fallback when hclsyntax.ParseConfig fails.
 func loadTimeoutConfigRegex(s string) TimeoutConfig {
 	s = stripHCLComments(s)
-	// Locate the mock block body.
-	mockRe := regexp.MustCompile(`(?m)\bmock\s+(?:"[^"]*"|[A-Za-z_][A-Za-z0-9_-]*)\s*\{`)
-	loc := mockRe.FindStringIndex(s)
+	// Locate the weft block body.
+	weftRe := regexp.MustCompile(`(?m)\bweft\s+(?:"[^"]*"|[A-Za-z_][A-Za-z0-9_-]*)\s*\{`)
+	loc := weftRe.FindStringIndex(s)
 	if loc == nil {
 		return TimeoutConfig{}
 	}
-	mockBody, _, ok := extractCurlyBody(s, loc[1]-1)
+	weftBody, _, ok := extractCurlyBody(s, loc[1]-1)
 	if !ok {
 		return TimeoutConfig{}
 	}
-	// Locate the timeout block inside the mock body.
+	// Locate the timeout block inside the weft body.
 	timeoutRe := regexp.MustCompile(`(?m)\btimeout\s*\{`)
-	tloc := timeoutRe.FindStringIndex(mockBody)
+	tloc := timeoutRe.FindStringIndex(weftBody)
 	if tloc == nil {
 		return TimeoutConfig{}
 	}
-	timeoutBody, _, ok := extractCurlyBody(mockBody, tloc[1]-1)
+	timeoutBody, _, ok := extractCurlyBody(weftBody, tloc[1]-1)
 	if !ok {
 		return TimeoutConfig{}
 	}
@@ -852,34 +852,34 @@ func parseTimeoutBlock(b *hclsyntax.Body, evalCtx *hcl.EvalContext) TimeoutConfi
 	return out
 }
 
-// MockBlock describes a top-level `mock` block values we care about.
-type MockBlock struct {
+// WeftBlock describes a top-level `weft` block values we care about.
+type WeftBlock struct {
 	AuthorizedKeysPath string
 	Parallelism        int
 	Adapter            string
 	ID                 string
 	CachePath          string
 	VMsPath            string
-	// SSHUser is the default SSH username from `mock { ssh { user = "..." } }`.
+	// SSHUser is the default SSH username from `weft { ssh { user = "..." } }`.
 	SSHUser string
-	// SSHKeyPath is the default SSH private key path from `mock { ssh { keypair = ... } }`.
+	// SSHKeyPath is the default SSH private key path from `weft { ssh { keypair = ... } }`.
 	SSHKeyPath string
 }
 
-// LoadMockBlock parses the top-level `mock` block from the config (directory
+// LoadWeftBlock parses the top-level `weft` block from the config (directory
 // or single file) and returns discovered settings.
-func LoadMockBlock(cfg string) MockBlock {
+func LoadWeftBlock(cfg string) WeftBlock {
 	if cfg == "" {
 		cfg = "state/hcl"
 	}
 	data, label, err := resolveConfig(cfg)
 	if err != nil {
-		return MockBlock{}
+		return WeftBlock{}
 	}
 	file, diags := hclsyntax.ParseConfig(data, label, hcl.InitialPos)
 	if diags != nil && diags.HasErrors() {
 		// fallback to regex parse
-		return parseMockBlockRegex(string(data))
+		return parseWeftBlockRegex(string(data))
 	}
 	evalCtx := &hcl.EvalContext{
 		Variables: map[string]cty.Value{
@@ -892,21 +892,21 @@ func LoadMockBlock(cfg string) MockBlock {
 	}
 	if hb, ok := file.Body.(*hclsyntax.Body); ok {
 		for _, b := range hb.Blocks {
-			if b.Type != "mock" {
+			if b.Type != "weft" {
 				continue
 			}
-			return parseMockBlockHCL(b.Body, evalCtx)
+			return parseWeftBlockHCL(b.Body, evalCtx)
 		}
 	}
-	return MockBlock{}
+	return WeftBlock{}
 }
 
-// parseMockBlockRegex extracts mock block information using a regex fallback.
-func parseMockBlockRegex(s string) MockBlock {
+// parseWeftBlockRegex extracts weft block information using a regex fallback.
+func parseWeftBlockRegex(s string) WeftBlock {
 	s = stripHCLComments(s)
-	// Use a header-only regex to find the mock block label and opening brace,
+	// Use a header-only regex to find the weft block label and opening brace,
 	// then use extractCurlyBody to correctly handle nested sub-blocks.
-	rb := regexp.MustCompile(`(?m)mock\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_-]*))\s*\{`)
+	rb := regexp.MustCompile(`(?m)weft\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_-]*))\s*\{`)
 	loc := rb.FindStringSubmatchIndex(s)
 	if loc != nil {
 		id := ""
@@ -918,9 +918,9 @@ func parseMockBlockRegex(s string) MockBlock {
 		openPos := loc[1] - 1 // position of '{'
 		mb, _, ok := extractCurlyBody(s, openPos)
 		if !ok {
-			return MockBlock{}
+			return WeftBlock{}
 		}
-		res := MockBlock{ID: id}
+		res := WeftBlock{ID: id}
 		if ark := regexp.MustCompile(`authorized[_-]?keys[_-]?path\s*=\s*"([^"]+)"`); ark.MatchString(mb) {
 			res.AuthorizedKeysPath = ark.FindStringSubmatch(mb)[1]
 		}
@@ -971,12 +971,12 @@ func parseMockBlockRegex(s string) MockBlock {
 		}
 		return res
 	}
-	return MockBlock{}
+	return WeftBlock{}
 }
 
-// parseMockBlockHCL extracts mock block values from a parsed HCL body.
-func parseMockBlockHCL(b *hclsyntax.Body, evalCtx *hcl.EvalContext) MockBlock {
-	out := MockBlock{}
+// parseWeftBlockHCL extracts weft block values from a parsed HCL body.
+func parseWeftBlockHCL(b *hclsyntax.Body, evalCtx *hcl.EvalContext) WeftBlock {
+	out := WeftBlock{}
 	// id is provided as label on the block; if present it will be set by caller
 	if v := readStringAttr(b, evalCtx, "authorized_keys_path"); v != "" {
 		out.AuthorizedKeysPath = v

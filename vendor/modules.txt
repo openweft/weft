@@ -275,7 +275,7 @@ github.com/openweft/weft-driver-plugin/driverpb
 # github.com/openweft/weft-drivers v0.2.0 => ../weft-drivers
 ## explicit; go 1.25.0
 github.com/openweft/weft-drivers
-# github.com/openweft/weft-hcl v0.3.0
+# github.com/openweft/weft-hcl v0.4.0
 ## explicit; go 1.25.0
 github.com/openweft/weft-hcl
 # github.com/openweft/weft-microvm v0.2.0 => ../weft-microvm

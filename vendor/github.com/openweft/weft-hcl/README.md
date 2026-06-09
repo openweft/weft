@@ -13,11 +13,10 @@ github.com/openweft/weft-hcl   // Go package name : wefthcl
 ## API surface
 
 ```go
-// Per-environment daemon settings parsed from the top-level `mock`
-// block (the keyword is historical ; the block holds cache paths,
-// SSH defaults, parallelism, timeouts).
-type MockBlock struct { ... }
-func LoadMockBlock(cfg string) MockBlock
+// Per-environment daemon settings parsed from the top-level `weft`
+// block (cache paths, SSH defaults, parallelism, timeouts).
+type WeftBlock struct { ... }
+func LoadWeftBlock(cfg string) WeftBlock
 
 // VM table — one row per declared VM, used by webui + tfprovider.
 type Row     struct { ... }
@@ -47,15 +46,6 @@ rows, err := wefthcl.ReadVMs("state/hcl")
 - [`weft`](https://github.com/openweft/weft) — reads daemon config + VM definitions
 - [`weft-webui`](https://github.com/openweft/weft-webui) — populates the VM table (Svelte SPA + Go API)
 - [`terraform-provider-weft`](https://github.com/openweft/terraform-provider-weft) — reads image URLs from HCL
-
-## Naming note
-
-The HCL daemon block keyword (`mock "<label>" { … }`) and the `MockBlock`
-Go type are historical — early openweft was scaffolded as a "mock UI".
-The default config directory was previously `.mock/hcl` ; it became
-`state/hcl` in the cleanup cycle. The HCL block keyword + Go type
-rename remains a follow-up (breaking config-file change → deliberate
-major bump).
 
 ## License
 

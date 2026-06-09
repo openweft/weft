@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	imock "github.com/openweft/weft-hcl"
+	wefthcl "github.com/openweft/weft-hcl"
 )
 
 // ── rowToProto ────────────────────────────────────────────────────────────────
 
 func TestRowToProto_MemConversion(t *testing.T) {
 	// r.Mem is in GiB; proto MemMb must be r.Mem * 1024.
-	r := imock.Row{
+	r := wefthcl.Row{
 		Name:  "test-vm",
 		CPU:   4,
 		Mem:   8, // 8 GiB
@@ -30,7 +30,7 @@ func TestRowToProto_MemConversion(t *testing.T) {
 }
 
 func TestRowToProto_CpuPassthrough(t *testing.T) {
-	r := imock.Row{CPU: 6, Mem: 4, Disk: 10}
+	r := wefthcl.Row{CPU: 6, Mem: 4, Disk: 10}
 	info := rowToProto(r)
 	if info.Cpu != 6 {
 		t.Errorf("Cpu: got %d, want 6", info.Cpu)
@@ -38,7 +38,7 @@ func TestRowToProto_CpuPassthrough(t *testing.T) {
 }
 
 func TestRowToProto_DiskPassthrough(t *testing.T) {
-	r := imock.Row{CPU: 2, Mem: 2, Disk: 50}
+	r := wefthcl.Row{CPU: 2, Mem: 2, Disk: 50}
 	info := rowToProto(r)
 	if info.DiskGb != 50 {
 		t.Errorf("DiskGb: got %d, want 50", info.DiskGb)
@@ -46,7 +46,7 @@ func TestRowToProto_DiskPassthrough(t *testing.T) {
 }
 
 func TestRowToProto_ZeroMem(t *testing.T) {
-	r := imock.Row{Mem: 0}
+	r := wefthcl.Row{Mem: 0}
 	info := rowToProto(r)
 	if info.MemMb != 0 {
 		t.Errorf("MemMb: got %d, want 0 for zero Mem", info.MemMb)

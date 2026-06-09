@@ -7,7 +7,7 @@
 // and VMs that `weft image …` / `weft instance …` operate on.
 version = "1"
 
-mock "local" {
+weft "local" {
   // Default SSH identity injected into every VM that doesn't override it.
   // The file only has to exist when a VM is actually provisioned, not at
   // config-load time — so this validates even on a fresh machine.

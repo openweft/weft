@@ -2,16 +2,16 @@ version: '3'
 
 tasks:
   build:
-    desc: "Build the hclconfig package"
+    desc: "Build the wefthcl package"
     cmds:
       - go build ./...
 
   test:
-    desc: "Run tests for the hclconfig package"
+    desc: "Run tests for the wefthcl package"
     cmds:
       - go test ./...
 
   lint:
-    desc: "Vet the hclconfig package"
+    desc: "Vet the wefthcl package"
     cmds:
       - go vet ./...

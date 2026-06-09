@@ -89,7 +89,7 @@ type Row struct {
 	SSHPubKey string `json:"-"`
 }
 
-// ParseVMs parses a mock HCL config (directory or single file) in a
+// ParseVMs parses a weft HCL config (directory or single file) in a
 // tolerant way for tests.
 func ParseVMs(path string) ([]VMDef, string, string, error) {
 	if path == "" {
@@ -101,12 +101,12 @@ func ParseVMs(path string) ([]VMDef, string, string, error) {
 	}
 	s := string(data)
 
-	ak, mid, err := parseMockHeader(s)
+	ak, mid, err := parseWeftHeader(s)
 	if err != nil {
 		return nil, "", "", err
 	}
 
-	mb := LoadMockBlock(path)
+	mb := LoadWeftBlock(path)
 	out := parseVMDefs(s)
 	enrichVMDefs(out, s, LoadKeypairs(path), mb)
 	if err := validateVMDefs(out); err != nil {
@@ -116,11 +116,11 @@ func ParseVMs(path string) ([]VMDef, string, string, error) {
 	return out, ak, mid, nil
 }
 
-// parseMockHeader extracts the mock block id and authorized keys path.
-func parseMockHeader(s string) (string, string, error) {
-	mr := regexp.MustCompile(`(?ms)mock\s*(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_-]*))\s*\{(.*?)\}`)
+// parseWeftHeader extracts the weft block id and authorized keys path.
+func parseWeftHeader(s string) (string, string, error) {
+	mr := regexp.MustCompile(`(?ms)weft\s*(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_-]*))\s*\{(.*?)\}`)
 	if !mr.MatchString(s) {
-		return "", "", fmt.Errorf("mock config must declare a labeled mock block: mock \"ID\" { ... }")
+		return "", "", fmt.Errorf("weft config must declare a labeled weft block: weft \"ID\" { ... }")
 	}
 	m := mr.FindStringSubmatch(s)
 	mid := ""
@@ -409,8 +409,8 @@ func parseVMDefs(s string) []VMDef {
 }
 
 // enrichVMDefs fills CPU, memory and disk defaults from VM bodies.
-// mockDefaults provides the mock-level ssh defaults inherited by any vm without its own ssh block.
-func enrichVMDefs(out []VMDef, s string, keypairs map[string]string, mockDefaults MockBlock) {
+// weftDefaults provides the weft-level ssh defaults inherited by any vm without its own ssh block.
+func enrichVMDefs(out []VMDef, s string, keypairs map[string]string, weftDefaults WeftBlock) {
 	s = stripHCLComments(s)
 	// Build a name→body map using brace-balanced extraction.
 	bodyMap := make(map[string]string)
@@ -474,13 +474,13 @@ func enrichVMDefs(out []VMDef, s string, keypairs map[string]string, mockDefault
 				}
 			}
 		}
-		// Apply mock-level ssh defaults to any vm that didn't define its own ssh block.
-		if out[i].SSHUser == "" && mockDefaults.SSHUser != "" {
-			out[i].SSHUser = mockDefaults.SSHUser
+		// Apply weft-level ssh defaults to any vm that didn't define its own ssh block.
+		if out[i].SSHUser == "" && weftDefaults.SSHUser != "" {
+			out[i].SSHUser = weftDefaults.SSHUser
 		}
-		if out[i].SSHKeyPath == "" && mockDefaults.SSHKeyPath != "" {
-			out[i].SSHKeyPath = mockDefaults.SSHKeyPath
-			pubKeyPath := mockDefaults.SSHKeyPath + ".pub"
+		if out[i].SSHKeyPath == "" && weftDefaults.SSHKeyPath != "" {
+			out[i].SSHKeyPath = weftDefaults.SSHKeyPath
+			pubKeyPath := weftDefaults.SSHKeyPath + ".pub"
 			out[i].SSHPubKeyPath = pubKeyPath
 			if content, err := os.ReadFile(pubKeyPath); err == nil {
 				out[i].SSHPubKey = strings.TrimSpace(string(content))
@@ -579,14 +579,14 @@ func validateVMDefs(out []VMDef) error {
 			}
 		}
 		if v.SSHUser == "" {
-			errs = append(errs, fmt.Sprintf("vm %s: missing ssh user (set ssh { user = \"...\" } in the vm block or in the mock block)", v.Name))
+			errs = append(errs, fmt.Sprintf("vm %s: missing ssh user (set ssh { user = \"...\" } in the vm block or in the weft block)", v.Name))
 		}
 		if v.SSHKeyPath == "" {
-			errs = append(errs, fmt.Sprintf("vm %s: missing ssh keypair (set ssh { keypair = ... } in the vm block or in the mock block)", v.Name))
+			errs = append(errs, fmt.Sprintf("vm %s: missing ssh keypair (set ssh { keypair = ... } in the vm block or in the weft block)", v.Name))
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("invalid mock config: %s", strings.Join(errs, "; "))
+		return fmt.Errorf("invalid weft config: %s", strings.Join(errs, "; "))
 	}
 	return nil
 }
@@ -646,10 +646,10 @@ func buildRowsFromVMDefs(vms []VMDef, groupPrefix, prefix, mid string) []Row {
 			namePart := base
 			if groupPrefix != "" && strings.HasPrefix(base, groupPrefix+"-") {
 				namePart = strings.TrimPrefix(base, groupPrefix+"-")
-			} else if groupPrefix != "" && strings.HasPrefix(base, "mock-"+groupPrefix+"-") {
-				namePart = strings.TrimPrefix(base, "mock-"+groupPrefix+"-")
+			} else if groupPrefix != "" && strings.HasPrefix(base, "weft-"+groupPrefix+"-") {
+				namePart = strings.TrimPrefix(base, "weft-"+groupPrefix+"-")
 			}
-			instName := fmt.Sprintf("mock-%s-%s-%d", idToken, namePart, i+1)
+			instName := fmt.Sprintf("weft-%s-%s-%d", idToken, namePart, i+1)
 			// collect extra data disks (skip index 0, which is the boot disk)
 			extraDisks := make([]ExtraDisk, 0)
 			if len(v.Disks) > 1 {

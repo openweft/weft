@@ -25,7 +25,7 @@ require (
 	github.com/openweft/weft-client v0.0.0
 	github.com/openweft/weft-driver-plugin v0.0.0
 	github.com/openweft/weft-drivers v0.2.0
-	github.com/openweft/weft-hcl v0.3.0
+	github.com/openweft/weft-hcl v0.4.0
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
 	github.com/openweft/weft-proto v0.11.1
