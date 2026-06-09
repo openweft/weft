@@ -172,6 +172,65 @@ func sortStrings(s []string) {
 	}
 }
 
+func TestVMsMatchingSelector_CIGateDefault(t *testing.T) {
+	// `deployment.type=ci` VMs are skipped by default even when the
+	// selector matches via another key (role=ci-runner is broad).
+	vms := []VMRef{
+		{Name: "runner-1", Labels: map[string]string{"role": "ci-runner", "deployment.type": "ci"}},
+		{Name: "runner-2", Labels: map[string]string{"role": "ci-runner", "deployment.type": "ha"}},
+	}
+	got := vmsMatchingSelector("role=ci-runner", vms)
+	if len(got) != 1 || got[0].Name != "runner-2" {
+		t.Errorf("CI gate broken : got %v ; want only runner-2", got)
+	}
+}
+
+func TestVMsMatchingSelector_CIGateExplicitOverride(t *testing.T) {
+	// Operator explicitly opts in to CI respawn by naming
+	// `deployment.type=ci` in the selector — gate is suppressed.
+	vms := []VMRef{
+		{Name: "runner-1", Labels: map[string]string{"role": "ci-runner", "deployment.type": "ci"}},
+		{Name: "web-1", Labels: map[string]string{"role": "web", "deployment.type": "ha"}},
+	}
+	got := vmsMatchingSelector("deployment.type=ci", vms)
+	if len(got) != 1 || got[0].Name != "runner-1" {
+		t.Errorf("explicit CI override broken : got %v ; want runner-1", got)
+	}
+}
+
+func TestVMsMatchingSelector_CIGateOROverride(t *testing.T) {
+	// OR-clause that includes ci AND ha matches both — operator
+	// said "respawn anything HA or CI under this rule".
+	vms := []VMRef{
+		{Name: "runner", Labels: map[string]string{"deployment.type": "ci"}},
+		{Name: "web", Labels: map[string]string{"deployment.type": "ha"}},
+		{Name: "stale", Labels: map[string]string{"deployment.type": "stateless"}},
+	}
+	got := vmsMatchingSelector("deployment.type=ci,deployment.type=ha", vms)
+	names := make([]string, 0, len(got))
+	for _, v := range got {
+		names = append(names, v.Name)
+	}
+	sortStrings(names)
+	want := []string{"runner", "web"}
+	if !equalStrings(names, want) {
+		t.Errorf("OR-clause override : got %v ; want %v", names, want)
+	}
+}
+
+func TestVMsMatchingSelector_NoLabelsNotCI(t *testing.T) {
+	// VMs without a deployment.type label are NOT treated as CI
+	// (the default is "no opinion, allow respawn").
+	vms := []VMRef{
+		{Name: "naked", Labels: nil},
+		{Name: "labeled", Labels: map[string]string{"role": "loom"}},
+	}
+	got := vmsMatchingSelector("vm.name=naked,vm.name=labeled", vms)
+	if len(got) != 2 {
+		t.Errorf("naked VMs got gated : %v", got)
+	}
+}
+
 func TestSubscriber_RestartsVMOnStopEvent(t *testing.T) {
 	bus := &fakeBus{}
 	rules := &fakeRules{}
