@@ -84,15 +84,26 @@ type HostCoordinator interface {
 	LocalHostUUID() string
 	VMsOnHost(hostUUID string) []VMRef
 	ClaimVM(uuid string) error
+	// ListAllVMs enumerates every VM the registry knows about,
+	// across projects + hosts. Used by V0.1.8 label-based
+	// SchedulingRule selectors to find matching VMs without
+	// pre-knowing their names. Production impl reads
+	// adapter.VMs() ; tests pass a hand-crafted list.
+	ListAllVMs() []VMRef
 }
 
 // VMRef is a minimal handle on one inventory entry — what the
 // Subscriber needs to drive a claim + respawn without dragging the
 // full weft.VM type into the agentrespawn package.
+//
+// Labels (V0.1.8) carries the operator-supplied k=v annotations
+// SchedulingRule label-based selectors evaluate against. Nil/empty
+// = no labels ; selector match falls back to vm.name= comparison.
 type VMRef struct {
 	UUID    string
 	Name    string
 	Project string
+	Labels  map[string]string
 }
 
 // Subscriber owns the bus subscription + the Reconciler instance.
@@ -337,27 +348,15 @@ func (s *Subscriber) claimOrphans(ctx context.Context, deadHostUUID string) {
 		"dead_host", deadHostUUID, "orphan_count", len(orphans))
 
 	// Group orphans by the respawn-enabled rule that watches them.
-	// V0.1 selector grammar : `vm.name=X` ; the per-rule election
-	// is still useful because two rules can watch overlapping VM
-	// sets, and we want to coalesce claim work per rule (not per VM).
+	// V0.1.8 selector grammar : `vm.name=X` OR k=v label match.
+	// The per-rule election is still useful because two rules can
+	// watch overlapping VM sets, and we want to coalesce claim work
+	// per rule (not per VM).
 	for _, rule := range s.rules.SchedulingRules() {
 		if rule.Respawn == nil || !rule.Respawn.Enabled {
 			continue
 		}
-		ruleVMNames := vmNamesFromSelector(rule.Selector)
-		if len(ruleVMNames) == 0 {
-			continue
-		}
-		matchSet := make(map[string]struct{}, len(ruleVMNames))
-		for _, n := range ruleVMNames {
-			matchSet[n] = struct{}{}
-		}
-		var targets []VMRef
-		for _, o := range orphans {
-			if _, ok := matchSet[o.Name]; ok {
-				targets = append(targets, o)
-			}
-		}
+		targets := vmsMatchingSelector(rule.Selector, orphans)
 		if len(targets) == 0 {
 			continue
 		}
@@ -570,14 +569,30 @@ type desiredEntry struct {
 
 func (s *Subscriber) desiredWatchedSet() map[string]desiredEntry {
 	out := map[string]desiredEntry{}
+	// V0.1.8 : enumerate the full inventory once per rescan and
+	// evaluate every rule's selector against it. coord is optional —
+	// when nil (legacy / no-failover mode), fall back to the
+	// vm.name=-only path so rules with explicit name selectors keep
+	// working without a coord.
+	var allVMs []VMRef
+	if s.coord != nil {
+		allVMs = s.coord.ListAllVMs()
+	}
 	for _, r := range s.rules.SchedulingRules() {
 		if r.Respawn == nil || !r.Respawn.Enabled {
 			continue
 		}
-		// V0.1 : the only supported selector is "vm.name=<name>".
-		// A future commit will fold label / nominal-binding matching
-		// into the same map without changing the bus subscriber.
-		for _, name := range vmNamesFromSelector(r.Selector) {
+		var names []string
+		if s.coord != nil {
+			for _, vm := range vmsMatchingSelector(r.Selector, allVMs) {
+				names = append(names, vm.Name)
+			}
+		} else {
+			// V0.1 fallback : no coord, only the name-only grammar
+			// produces watchable names without an inventory lookup.
+			names = vmNamesFromSelector(r.Selector)
+		}
+		for _, name := range names {
 			if existing, dup := out[name]; dup {
 				// Two rules targeting the same VM is a misconfig.
 				// Honour the lexicographically smaller UUID for
@@ -594,15 +609,11 @@ func (s *Subscriber) desiredWatchedSet() map[string]desiredEntry {
 }
 
 // vmNamesFromSelector parses the rule's selector field and returns
-// the VM names the policy applies to under V0.1 grammar :
-//
-//	"vm.name=foo"            → ["foo"]
-//	"vm.name=foo,vm.name=bar" → ["foo", "bar"]    (rare ; either-or)
-//	"k=v"                    → []                  (unsupported)
-//
-// Anything we don't understand returns an empty slice — the rule
-// then matches no VMs, which keeps the bus subscriber from honouring
-// half-configured policies.
+// the VM names the policy applies to under the V0.1 name-only grammar.
+// V0.1.8 keeps this helper for callsites that legitimately want
+// names without an inventory ; new code prefers vmsMatchingSelector
+// which evaluates the full grammar (vm.name= + arbitrary k=v
+// label match).
 func vmNamesFromSelector(selector string) []string {
 	if selector == "" {
 		return nil
@@ -622,6 +633,76 @@ func vmNamesFromSelector(selector string) []string {
 		}
 	}
 	return out
+}
+
+// vmsMatchingSelector evaluates the V0.1.8 selector grammar against
+// an inventory list and returns the matching VMs. Grammar :
+//
+//	"vm.name=foo"             → VMs whose Name == "foo"
+//	"vm.name=foo,vm.name=bar" → VMs whose Name is "foo" OR "bar"
+//	"role=loom"               → VMs with label role=loom
+//	"role=loom,tier=prod"     → VMs with labels role=loom AND tier=prod
+//	"vm.name=foo,role=loom"   → mixed : Name "foo" AND role=loom (AND)
+//
+// Empty selector returns the empty slice (rule matches nothing).
+// Unknown grammar tokens are skipped silently — same conservative
+// behaviour as V0.1.
+//
+// Comma-separated tokens with the SAME key (e.g. two `vm.name=` or
+// two `role=` entries) are treated as OR within that key ; tokens
+// with different keys are AND-combined. This matches the
+// Kubernetes label-selector semantics operators expect.
+func vmsMatchingSelector(selector string, vms []VMRef) []VMRef {
+	if selector == "" {
+		return nil
+	}
+	// Parse selector into key → set of allowed values. Special key
+	// "vm.name" matches against VMRef.Name ; everything else
+	// matches against VMRef.Labels.
+	clauses := make(map[string]map[string]struct{})
+	for _, pair := range strings.Split(selector, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(pair), "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		if _, exists := clauses[k]; !exists {
+			clauses[k] = map[string]struct{}{}
+		}
+		clauses[k][v] = struct{}{}
+	}
+	if len(clauses) == 0 {
+		return nil
+	}
+	var out []VMRef
+	for _, vm := range vms {
+		if vmMatchesAllClauses(vm, clauses) {
+			out = append(out, vm)
+		}
+	}
+	return out
+}
+
+// vmMatchesAllClauses returns true when every selector clause is
+// satisfied by the VM. AND across clause keys ; OR within values
+// for the same key.
+func vmMatchesAllClauses(vm VMRef, clauses map[string]map[string]struct{}) bool {
+	for k, allowed := range clauses {
+		var actual string
+		if k == "vm.name" {
+			actual = vm.Name
+		} else {
+			actual = vm.Labels[k]
+		}
+		if _, ok := allowed[actual]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // respawnToProto mirrors the converter in cmd/weft/main.go but kept

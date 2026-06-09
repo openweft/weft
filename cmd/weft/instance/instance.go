@@ -8,6 +8,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/instance/property"
 	"github.com/openweft/weft/cmd/weft/instance/ps"
 	"github.com/openweft/weft/cmd/weft/instance/registermicrovm"
+	"github.com/openweft/weft/cmd/weft/instance/setlabels"
 	"github.com/openweft/weft/cmd/weft/instance/sshkey"
 	"github.com/openweft/weft/cmd/weft/instance/start"
 	"github.com/openweft/weft/cmd/weft/instance/status"
@@ -37,6 +38,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		property.Command(socket, sshSocket, sshKey),
 		uefi.Command(socket, sshSocket, sshKey),
 		sshkey.Command(socket, sshSocket, sshKey),
+		setlabels.Command(socket, sshSocket, sshKey),
 	)
 	return cmd
 }

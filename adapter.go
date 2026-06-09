@@ -288,6 +288,7 @@ type VZAdapter interface {
 	HeartbeatHost(uuid string) error
 	SetHostState(uuid string, state HostState) error
 	SetHostLabels(uuid string, labels map[string]string) error
+	SetVMLabels(projectUUID, name string, labels map[string]string) (VM, error)
 	SetHostCordoned(uuid string, cordoned bool) error
 	DeleteHost(uuid string) error
 	// ScheduleVMGroup picks `req.Replicas` hosts honouring the
@@ -1493,6 +1494,34 @@ func (a *Adapter) SetHostLabels(uuid string, labels map[string]string) error {
 		Meta:    map[string]string{"label_count": strconv.Itoa(len(labels))},
 	})
 	return nil
+}
+
+// SetVMLabels replaces a VM's label set atomically. V0.1.8 :
+// drives SchedulingRule label-based selectors + reserved-key system
+// gates (deployment.type=ci|ha, etc.). Returns the updated VM record.
+// projectUUID can be the project display name or UUID ;
+// ResolveProjectUUID handles both.
+func (a *Adapter) SetVMLabels(projectUUID, name string, labels map[string]string) (VM, error) {
+	if a.vmReg == nil {
+		return VM{}, fmt.Errorf("vm registry not initialised")
+	}
+	puuid := a.ResolveProjectUUID(projectUUID)
+	v, ok := a.vmReg.lookupByName(puuid, name)
+	if !ok {
+		return VM{}, fmt.Errorf("vm %q not found in project %s", name, puuid)
+	}
+	if err := a.vmReg.setLabels(v.UUID, labels); err != nil {
+		return VM{}, err
+	}
+	// Reload the record to surface the post-set labels.
+	updated, _ := a.vmReg.lookupByUUID(v.UUID)
+	a.bus.Publish(PlatformEvent{
+		Kind:        "vm.labels_updated",
+		Subject:     updated.UUID,
+		ProjectUUID: updated.ProjectUUID,
+		Meta:        map[string]string{"label_count": strconv.Itoa(len(labels))},
+	})
+	return updated, nil
 }
 
 // SetHostCordoned toggles the per-host cordon flag. Cordoned

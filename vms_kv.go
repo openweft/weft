@@ -80,6 +80,13 @@ func encodeVMRecord(v VM) []byte {
 			pb.SetAttributeValue("count", cty.NumberIntVal(int64(p.Count)))
 		}
 	}
+	if len(v.Labels) > 0 {
+		ctyMap := make(map[string]cty.Value, len(v.Labels))
+		for k, lv := range v.Labels {
+			ctyMap[k] = cty.StringVal(lv)
+		}
+		bb.SetAttributeValue("labels", cty.MapVal(ctyMap))
+	}
 	if v.State != "" {
 		bb.SetAttributeValue("state", cty.StringVal(string(v.State)))
 	}

@@ -140,6 +140,23 @@ func (c respawnCoord) VMsOnHost(hostUUID string) []agentrespawn.VMRef {
 	for _, v := range vms {
 		out = append(out, agentrespawn.VMRef{
 			UUID: v.UUID, Name: v.Name, Project: v.ProjectUUID,
+			Labels: v.Labels,
+		})
+	}
+	return out
+}
+
+// ListAllVMs returns every VM the registry knows about, across
+// projects + hosts. V0.1.8 selector grammar (label-based) consumes
+// this on every rescan to find matching VMs without pre-knowing
+// their names.
+func (c respawnCoord) ListAllVMs() []agentrespawn.VMRef {
+	vms := c.adp.VMs()
+	out := make([]agentrespawn.VMRef, 0, len(vms))
+	for _, v := range vms {
+		out = append(out, agentrespawn.VMRef{
+			UUID: v.UUID, Name: v.Name, Project: v.ProjectUUID,
+			Labels: v.Labels,
 		})
 	}
 	return out
