@@ -22,11 +22,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// startZombieGC wires the GC + its Prometheus gauge. Returns a cancel
-// fn that stops the sweep goroutine cleanly on agent shutdown.
-func startZombieGC(reg *prometheus.Registry, a weft.VZAdapter) func() {
+// startZombieGC wires the GC + its Prometheus gauge. Returns the
+// running Reconciler (for the gRPC GetZombieReport handler to query)
+// and a cancel fn that stops the sweep goroutine cleanly on agent
+// shutdown.
+func startZombieGC(reg *prometheus.Registry, a weft.VZAdapter) (*zombiegc.Reconciler, func()) {
 	if a == nil {
-		return func() {}
+		return nil, func() {}
 	}
 	opts := zombiegc.Options{
 		CIGracePeriod: envDuration("WEFT_ZOMBIE_GC_CI_GRACE", 1*time.Hour),
@@ -113,7 +115,7 @@ func startZombieGC(reg *prometheus.Registry, a weft.VZAdapter) func() {
 		"orphan_dir_grace", opts.OrphanDirGrace,
 		"orphan_dir_delete_after", opts.OrphanDirAutoDeleteAfter,
 	)
-	return cancel
+	return r, cancel
 }
 
 // envDuration parses a duration from the env var if set, else

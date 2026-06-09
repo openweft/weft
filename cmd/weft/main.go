@@ -41,6 +41,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/floatingip"
 	"github.com/openweft/weft/cmd/weft/host"
 	"github.com/openweft/weft/cmd/weft/monitor"
+	"github.com/openweft/weft/zombiegc"
 	"github.com/openweft/weft/cmd/weft/image"
 	"github.com/openweft/weft/cmd/weft/instance"
 	"github.com/openweft/weft/cmd/weft/login"
@@ -664,7 +665,8 @@ func run(t fileConfigTargets) error {
 	// optional but the cleanup must happen on every agent so the
 	// registry stays bounded. When metrics are off, the Prometheus
 	// gauge inside startZombieGC is a no-op (nil reg).
-	defer startZombieGC(promRegistry, a)()
+	zombieReconciler, zombieCancel := startZombieGC(promRegistry, a)
+	defer zombieCancel()
 
 	unaryInterceptors := []grpc.UnaryServerInterceptor{
 		weft.UnaryAuthInterceptor(validator, userPersister(a)),
@@ -734,16 +736,17 @@ func run(t fileConfigTargets) error {
 		return fmt.Errorf("load vm-sshkey registry: %w", err)
 	}
 	weftv1.RegisterWeftAgentServer(srv, &weftServer{
-		cfgDir:        t.configDir,
-		mc:            mc,
-		adp:           a,
-		dispatch:      dispatchSrv,
-		localHostUUID: localHostUUID(a),
-		flavors:       flavorReg,
-		scripts:       scriptReg,
-		vmProps:       vmPropReg,
-		uefiVars:      uefiReg,
-		vmKeys:        sshKeyReg,
+		cfgDir:           t.configDir,
+		mc:               mc,
+		adp:              a,
+		dispatch:         dispatchSrv,
+		localHostUUID:    localHostUUID(a),
+		flavors:          flavorReg,
+		scripts:          scriptReg,
+		vmProps:          vmPropReg,
+		uefiVars:         uefiReg,
+		vmKeys:           sshKeyReg,
+		zombieReconciler: zombieReconciler,
 	})
 	weftv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 
@@ -886,6 +889,11 @@ type weftServer struct {
 	// surface backing the Plugin RPCs. nil = plugin manager not
 	// wired ; List* returns empty, Install returns Unavailable.
 	plugins pluginManager
+	// zombieReconciler is the running zombiegc instance ; the
+	// GetZombieReport RPC queries its LastReport. nil in tests +
+	// when the agent boots without `weft agent` (CLI mode), in
+	// which case the RPC returns an empty report.
+	zombieReconciler *zombiegc.Reconciler
 }
 
 func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {

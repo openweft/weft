@@ -1,17 +1,17 @@
-// Package gc implements `weft instance gc` — operator-side trigger
-// for the V0.1.12 zombie garbage collector. By default lists the
-// zombies the next sweep would mark / delete (dry-run on the wire,
-// just reads VMInfo) ; --apply hands off to the agent's running
-// reconciler which will execute the full policy on its next tick.
+// Package gc implements `weft instance gc` — operator-side query
+// + actuator for the V0.1.12 zombie garbage collector. Reads the
+// agent's running reconciler state via the V0.1.15 GetZombieReport
+// gRPC and renders one row per zombie with its classification.
 //
-// The agent reconciler runs on its own ticker (default 5min) ; this
-// CLI is for operators who want to see/clear the queue NOW without
-// waiting for the next interval.
+// The agent reconciler runs on its own ticker (default 5min,
+// tunable via WEFT_ZOMBIE_GC_SWEEP_INTERVAL). This CLI shows what
+// the agent currently sees — no client-side heuristics involved.
 package gc
 
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/openweft/weft/cmd/weft/shared"
 	weftv1 "github.com/openweft/weft-proto"
@@ -20,16 +20,11 @@ import (
 
 // Command returns the `weft instance gc` cobra command.
 func Command(socket, sshSocket, sshKey *string) *cobra.Command {
-	var apply bool
 	cmd := &cobra.Command{
 		Use:   "gc",
-		Short: "List or apply VM zombie GC actions (V0.1.12)",
-		Long: `List or apply VM zombie garbage-collection actions.
-
-The agent runs the zombiegc reconciler on a 5-min tick by default
-(tunable via WEFT_ZOMBIE_GC_SWEEP_INTERVAL). This CLI lets operators
-see the current zombie set + their classification, and (with --apply)
-trigger an immediate sweep.
+		Short: "Show VM zombies as classified by the agent's reconciler (V0.1.15)",
+		Long: `Show VM zombies as currently classified by the agent's running
+zombiegc reconciler.
 
 Zombie kinds :
   local           — VM record points at this host but no process
@@ -37,69 +32,63 @@ Zombie kinds :
                     after WEFT_ZOMBIE_GC_CI_GRACE, default 1h)
   ha_cross_host   — non-CI on a Down host (NEVER auto-deleted)
   orphan_project  — project no longer exists in registry
+  orphan_dir      — vmDir on disk with no registry record
+                    (auto-deletable past WEFT_ZOMBIE_GC_ORPHAN_DIR_DELETE_AFTER)
 
-Without --apply, this command just reads ListVMs and shows what
-the reconciler would classify. With --apply, the agent runs an
-immediate Sweep and applies the policy.`,
+The reconciler sweeps every WEFT_ZOMBIE_GC_SWEEP_INTERVAL (default
+5min). This CLI just fetches the latest sweep result — no client-side
+classification — so the output matches what Prometheus and the agent
+logs see.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
-			// Today the CLI reads ListVMs + renders zombies the
-			// operator's local heuristic matches. A future
-			// RunZombieGC RPC would let --apply trigger an
-			// out-of-band sweep ; for now --apply just instructs
-			// the operator to wait for the next agent tick.
-			resp, err := c.ListVMs(context.Background(), &weftv1.ListVMsRequest{})
+			resp, err := c.GetZombieReport(context.Background(), &weftv1.GetZombieReportRequest{})
 			if err != nil {
 				return err
 			}
-			var zombies []*weftv1.VMInfo
-			for _, vm := range resp.Vms {
-				if isLikelyZombie(vm) {
-					zombies = append(zombies, vm)
-				}
-			}
-			if len(zombies) == 0 {
-				fmt.Println("no zombie candidates")
-				return nil
-			}
-			fmt.Printf("%-40s %-20s %-12s %-30s\n", "VM", "STATE", "DEPLOYMENT", "REASON")
-			for _, vm := range zombies {
-				dep := vm.Labels["deployment.type"]
-				if dep == "" {
-					dep = "-"
-				}
-				reason := zombieReason(vm)
-				fmt.Printf("%-40s %-20s %-12s %-30s\n", vm.Name, vm.State.String(), dep, reason)
-			}
-			if apply {
-				fmt.Println("\n--apply : trigger via agent reconciler tick (max wait = WEFT_ZOMBIE_GC_SWEEP_INTERVAL ; default 5min).")
-				fmt.Println("To accelerate : SIGHUP the agent (not yet wired) or restart it.")
-			}
+			renderReport(resp)
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&apply, "apply", false, "Hand off to the agent's reconciler (next tick)")
 	return cmd
 }
 
-// isLikelyZombie is the CLI-side heuristic that matches what the
-// agent's zombiegc.Reconciler classifies. State=zombie OR state=running
-// without a fresh IP (best proxy from the gRPC surface) — the agent
-// has the full truth.
-func isLikelyZombie(vm *weftv1.VMInfo) bool {
-	if vm.State.String() == "zombie" {
-		return true
+func renderReport(resp *weftv1.GetZombieReportResponse) {
+	if len(resp.Zombies) == 0 {
+		fmt.Printf("no zombies (deleted_total=%d, last_sweep=%s)\n",
+			resp.DeletedTotal, fmtUnixNs(resp.LastSweepAtUnixNs))
+		return
 	}
-	return false
+	fmt.Printf("Last sweep : %s\nTotals     : ", fmtUnixNs(resp.LastSweepAtUnixNs))
+	first := true
+	for kind, n := range resp.ZombiesByKind {
+		if n == 0 {
+			continue
+		}
+		if !first {
+			fmt.Print(", ")
+		}
+		fmt.Printf("%s=%d", kind, n)
+		first = false
+	}
+	fmt.Printf("\nDeleted    : %d (cumulative)\n\n", resp.DeletedTotal)
+
+	fmt.Printf("%-50s %-15s %-12s %s\n", "VM", "KIND", "DEPLOYMENT", "REASON")
+	for _, z := range resp.Zombies {
+		dep := z.DeploymentType
+		if dep == "" {
+			dep = "-"
+		}
+		fmt.Printf("%-50s %-15s %-12s %s\n", z.Name, z.Kind, dep, z.Reason)
+	}
 }
 
-func zombieReason(vm *weftv1.VMInfo) string {
-	if vm.State.String() == "zombie" {
-		return "marked by reconciler"
+func fmtUnixNs(ns int64) string {
+	if ns == 0 {
+		return "never"
 	}
-	return "classification pending next sweep"
+	return time.Unix(0, ns).UTC().Format(time.RFC3339)
 }
