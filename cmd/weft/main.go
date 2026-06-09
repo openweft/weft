@@ -610,6 +610,11 @@ func run(t fileConfigTargets) error {
 		// number of healthy agent monitors operators can fail over to.
 		// Refreshes every 5s. No-op when storage backend isn't etcd.
 		defer startMonitorsGauge(reg, sf.etcdClient)()
+		// Bus saturation gauge : weft_bus_dropped_total counts events
+		// suppressed because a subscriber's 128-deep channel was full.
+		// Operators alert on a non-zero rate (wedged consumer or
+		// genuine burst overrunning the buffer).
+		defer startBusDropsGauge(reg, bf.bus)()
 		defer func() { _ = metricsCloser() }()
 	}
 

@@ -1136,7 +1136,16 @@ func (a *Adapter) WatchVMRegistry(ctx context.Context) {
 		go func() {
 			for ev := range ch {
 				a.vmReg.applyKVEvent(ev)
-				a.bus.Publish(PlatformEvent{Kind: "vm.registry_reloaded"})
+				// V0.1.7 : no vm.registry_reloaded publish. The original
+				// intent was to signal consumers (agentrespawn) to
+				// re-evaluate orphans, but no consumer subscribes today
+				// and a future subscriber that reacts by writing the
+				// registry would close a feedback loop (Save → Watch
+				// → reload → Publish → Save). The applyKVEvent above
+				// already mutates the indices ; consumers that need a
+				// notification specifically for hostIdx changes should
+				// subscribe to vm.migrated which the claim path
+				// already publishes per-VM.
 			}
 		}()
 		return
@@ -1152,10 +1161,6 @@ func (a *Adapter) WatchVMRegistry(ctx context.Context) {
 				fmt.Fprintf(os.Stderr, "weft: reload vm registry on remote change: %v\n", err)
 				continue
 			}
-			// Publish a bus event so consumers (the agentrespawn
-			// failover path, in particular) know the local hostIdx
-			// was refreshed and can re-evaluate orphan claims.
-			a.bus.Publish(PlatformEvent{Kind: "vm.registry_reloaded"})
 		}
 	}()
 }
@@ -1369,7 +1374,9 @@ func (a *Adapter) WatchHostRegistry(ctx context.Context) {
 	go func() {
 		for ev := range ch {
 			a.hostReg.applyKVEvent(ev)
-			a.bus.Publish(PlatformEvent{Kind: "host.registry_reloaded"})
+			// V0.1.7 : no host.registry_reloaded publish — same
+			// rationale as the vm.registry_reloaded removal. See
+			// WatchVMRegistry's comment.
 		}
 	}()
 }
@@ -1953,7 +1960,7 @@ func (a *Adapter) WatchProjectRegistry(ctx context.Context) {
 		go func() {
 			for ev := range ch {
 				a.projects.applyKVEvent(ev)
-				a.bus.Publish(PlatformEvent{Kind: "project.registry_reloaded"})
+				// V0.1.7 : no project.registry_reloaded publish.
 			}
 		}()
 		return
