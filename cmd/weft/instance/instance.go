@@ -4,6 +4,7 @@ package instance
 import (
 	"context"
 
+	"github.com/openweft/weft/cmd/weft/instance/gc"
 	"github.com/openweft/weft/cmd/weft/instance/logs"
 	"github.com/openweft/weft/cmd/weft/instance/property"
 	"github.com/openweft/weft/cmd/weft/instance/ps"
@@ -39,6 +40,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		uefi.Command(socket, sshSocket, sshKey),
 		sshkey.Command(socket, sshSocket, sshKey),
 		setlabels.Command(socket, sshSocket, sshKey),
+		gc.Command(socket, sshSocket, sshKey),
 	)
 	return cmd
 }

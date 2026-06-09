@@ -69,6 +69,13 @@ const (
 	VMStateCreated VMState = "created"
 	// VMStateRunning: StartVM succeeded; vm.pid present.
 	VMStateRunning VMState = "running"
+	// VMStateZombie : the registry says the VM is running but the
+	// actual process is gone — or the owning host has been Down past
+	// its lease grace and respawn was skipped (typically a CI VM
+	// covered by the deployment.type=ci respawn-skip gate). Set by
+	// zombiegc.Reconciler ; cleared by either operator action or
+	// auto-delete after a grace period (CI-only).
+	VMStateZombie VMState = "zombie"
 	// VMStateStopped: StopVM completed OR subprocess crashed.
 	VMStateStopped VMState = "stopped"
 	// VMStateDeleting: soft-delete in progress. Reconcilers
@@ -411,7 +418,7 @@ func (r *vmRegistry) saveLocked() error {
 
 func validateVMState(s VMState) error {
 	switch s {
-	case "", VMStateCreated, VMStateRunning, VMStateStopped, VMStateDeleting:
+	case "", VMStateCreated, VMStateRunning, VMStateStopped, VMStateDeleting, VMStateZombie:
 		return nil
 	default:
 		return fmt.Errorf("unknown vm state %q (want created, running, stopped, or deleting)", s)
