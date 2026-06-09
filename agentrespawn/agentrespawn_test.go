@@ -126,6 +126,52 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
+func TestVMsMatchingSelector(t *testing.T) {
+	vms := []VMRef{
+		{Name: "loom-1", Labels: map[string]string{"role": "loom", "tier": "prod"}},
+		{Name: "loom-2", Labels: map[string]string{"role": "loom", "tier": "dev"}},
+		{Name: "api-1", Labels: map[string]string{"role": "api", "tier": "prod"}},
+		{Name: "lonely"},
+	}
+	cases := []struct {
+		selector  string
+		wantNames []string
+	}{
+		{"", nil},
+		{"vm.name=loom-1", []string{"loom-1"}},
+		{"vm.name=loom-1,vm.name=loom-2", []string{"loom-1", "loom-2"}},
+		{"role=loom", []string{"loom-1", "loom-2"}},
+		{"role=loom,tier=prod", []string{"loom-1"}}, // AND across keys
+		{"role=loom,role=api", []string{"loom-1", "loom-2", "api-1"}}, // OR within key
+		{"role=loom,vm.name=loom-1", []string{"loom-1"}}, // mixed AND
+		{"role=missing", nil},
+		{"vm.name=lonely", []string{"lonely"}},
+		{"k=", nil}, // empty value, ignored
+	}
+	for _, tc := range cases {
+		got := vmsMatchingSelector(tc.selector, vms)
+		gotNames := make([]string, 0, len(got))
+		for _, v := range got {
+			gotNames = append(gotNames, v.Name)
+		}
+		// Sort both since selector evaluation order isn't guaranteed.
+		sortStrings(gotNames)
+		want := append([]string(nil), tc.wantNames...)
+		sortStrings(want)
+		if !equalStrings(gotNames, want) {
+			t.Errorf("selector %q : got %v ; want %v", tc.selector, gotNames, want)
+		}
+	}
+}
+
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+			s[j-1], s[j] = s[j], s[j-1]
+		}
+	}
+}
+
 func TestSubscriber_RestartsVMOnStopEvent(t *testing.T) {
 	bus := &fakeBus{}
 	rules := &fakeRules{}

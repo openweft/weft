@@ -30,6 +30,15 @@ func (c *fakeCoord) VMsOnHost(h string) []VMRef {
 	copy(out, c.orphans[h])
 	return out
 }
+func (c *fakeCoord) ListAllVMs() []VMRef {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []VMRef
+	for _, vms := range c.orphans {
+		out = append(out, vms...)
+	}
+	return out
+}
 func (c *fakeCoord) ClaimVM(uuid string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -232,6 +241,7 @@ type flakyCoord struct {
 
 func (f *flakyCoord) LocalHostUUID() string         { return f.base.LocalHostUUID() }
 func (f *flakyCoord) VMsOnHost(h string) []VMRef    { return f.base.VMsOnHost(h) }
+func (f *flakyCoord) ListAllVMs() []VMRef           { return f.base.ListAllVMs() }
 func (f *flakyCoord) ClaimVM(uuid string) error {
 	f.mu.Lock()
 	first := f.failFirst && f.calls == 0
