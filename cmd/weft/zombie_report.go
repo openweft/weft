@@ -1,20 +1,22 @@
 package main
 
-// zombie_report.go implements the V0.1.15 GetZombieReport gRPC
-// handler. Returns a snapshot of the running zombiegc reconciler's
-// LastReport + cumulative deleted-counter so operators can see the
-// live classification without running their own classifier in the
-// CLI.
+// zombie_report.go implements the V0.1.15 GetZombieReport + V0.1.16
+// TriggerZombieSweep gRPC handlers. GetZombieReport returns a
+// snapshot of the running reconciler's LastReport ;
+// TriggerZombieSweep runs the reconciler immediately and returns the
+// fresh result.
 //
-// Read-only ; the reconciler runs on its own ticker independently
-// of this RPC. Auth : RequireAdmin (cluster-wide visibility of
-// every project's VMs).
+// Both are admin-gated (cluster-wide visibility of every project's
+// VMs). The reconciler is still running its own ticker independently
+// of these RPCs ; the trigger just races a sweep ahead of the next
+// natural tick.
 
 import (
 	"context"
 
 	weft "github.com/openweft/weft"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/zombiegc"
 )
 
 func (s *weftServer) GetZombieReport(ctx context.Context, _ *weftv1.GetZombieReportRequest) (*weftv1.GetZombieReportResponse, error) {
@@ -27,12 +29,32 @@ func (s *weftServer) GetZombieReport(ctx context.Context, _ *weftv1.GetZombieRep
 		// always callable.
 		return &weftv1.GetZombieReportResponse{}, nil
 	}
-	rep := s.zombieReconciler.LastReport()
-	stats := s.zombieReconciler.StatsSnapshot()
+	return buildReport(s.zombieReconciler.LastReport(), s.zombieReconciler.StatsSnapshot()), nil
+}
 
+// TriggerZombieSweep runs the reconciler synchronously + returns the
+// fresh report. Closes the V0.1.15 CLI --apply loop : operators
+// previously had to wait for the next interval-tick to see GC
+// effects. Admin-gated identically to GetZombieReport.
+func (s *weftServer) TriggerZombieSweep(ctx context.Context, _ *weftv1.TriggerZombieSweepRequest) (*weftv1.GetZombieReportResponse, error) {
+	if err := weft.RequireAdmin(ctx, "trigger zombie sweep"); err != nil {
+		return nil, err
+	}
+	if s.zombieReconciler == nil {
+		return &weftv1.GetZombieReportResponse{}, nil
+	}
+	rep := s.zombieReconciler.Sweep(ctx)
+	stats := s.zombieReconciler.StatsSnapshot()
+	return buildReport(rep, stats), nil
+}
+
+// buildReport converts the in-process zombiegc types into the proto
+// response. Shared by GetZombieReport + TriggerZombieSweep since
+// their wire shape is identical.
+func buildReport(rep zombiegc.Report, stats zombiegc.Stats) *weftv1.GetZombieReportResponse {
 	out := &weftv1.GetZombieReportResponse{
-		DeletedTotal:    stats.DeletedTotal,
-		ZombiesByKind:   make(map[string]int32, len(stats.ZombiesByKind)),
+		DeletedTotal:  stats.DeletedTotal,
+		ZombiesByKind: make(map[string]int32, len(stats.ZombiesByKind)),
 	}
 	if !stats.LastSweepAt.IsZero() {
 		out.LastSweepAtUnixNs = stats.LastSweepAt.UnixNano()
@@ -43,13 +65,13 @@ func (s *weftServer) GetZombieReport(ctx context.Context, _ *weftv1.GetZombieRep
 	out.Zombies = make([]*weftv1.ZombieEntry, 0, len(rep.Zombies))
 	for _, z := range rep.Zombies {
 		entry := &weftv1.ZombieEntry{
-			Uuid:             z.UUID,
-			Name:             z.Name,
-			ProjectUuid:      z.ProjectUUID,
-			HostUuid:         z.HostUUID,
-			Kind:             string(z.Kind),
-			Reason:           z.Reason,
-			DeploymentType:   z.DeploymentType,
+			Uuid:           z.UUID,
+			Name:           z.Name,
+			ProjectUuid:    z.ProjectUUID,
+			HostUuid:       z.HostUUID,
+			Kind:           string(z.Kind),
+			Reason:         z.Reason,
+			DeploymentType: z.DeploymentType,
 		}
 		if !z.DetectedAt.IsZero() {
 			entry.DetectedAtUnixNs = z.DetectedAt.UnixNano()
@@ -59,5 +81,5 @@ func (s *weftServer) GetZombieReport(ctx context.Context, _ *weftv1.GetZombieRep
 		}
 		out.Zombies = append(out.Zombies, entry)
 	}
-	return out, nil
+	return out
 }
