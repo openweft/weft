@@ -145,6 +145,22 @@ type VMSpec struct {
 	MemMB    int    `hcl:"mem_mb,optional"`
 	DiskGB   int    `hcl:"disk_gb,optional"`
 
+	// Runtime picks the install path. Empty / "classic" → CreateVM
+	// (the historical full-VM path with kernel + cloud-init + the
+	// scheduler). "microvm" → microvm.Run (OCI image → microVM,
+	// Docker-style, fast cold boot, shared kernel). Used by plugins
+	// that ship container-shaped workloads — weft-loom, runners,
+	// observability sidecars — where classic VM provisioning is
+	// disproportionate.
+	Runtime string `hcl:"runtime,optional"`
+
+	// Labels stamps the V0.1.8 label map on the freshly-installed
+	// VM. Typical pattern : `deployment.type = "ha"` + `role = "X"`
+	// so the platform's V0.1.10 respawn gate + V0.1.15 zombiegc see
+	// the workload as long-lived and a future SchedulingRule pin
+	// finds it by role.
+	Labels map[string]string `hcl:"labels,optional"`
+
 	// Network references one of the manifest's Networks by name.
 	// Empty defaults to the project's default network.
 	Network string `hcl:"network,optional"`

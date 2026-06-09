@@ -2,7 +2,9 @@ package pluginstore
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/openweft/weft-microvm"
 	weftv1 "github.com/openweft/weft-proto"
 )
 
@@ -10,12 +12,23 @@ import (
 // narrow Client interface this package needs. The wrapper drops
 // the variadic grpc.CallOption from each signature so plain fakes
 // (no gRPC import) can satisfy the interface in tests.
+//
+// V0.5 : carries the agent socket path so MicroVMRun can drive the
+// shared weft-microvm library (which dials its own grpc connection
+// rather than reusing this one). Plain Classic plugins ignore the
+// socket.
 type AgentClient struct {
-	c weftv1.WeftAgentClient
+	c          weftv1.WeftAgentClient
+	weftSocket string
 }
 
-// NewAgentClient adapts a real gRPC stub.
-func NewAgentClient(c weftv1.WeftAgentClient) *AgentClient { return &AgentClient{c: c} }
+// NewAgentClient adapts a real gRPC stub. socket is the path to the
+// agent's Unix socket — passed through to microvm.Run for the
+// microVM-runtime install path. Empty socket disables MicroVMRun ;
+// existing classic-VM plugins are unaffected.
+func NewAgentClient(c weftv1.WeftAgentClient, socket string) *AgentClient {
+	return &AgentClient{c: c, weftSocket: socket}
+}
 
 func (a *AgentClient) CreateNetwork(ctx context.Context, in *weftv1.CreateNetworkRequest) (*weftv1.CreateNetworkResponse, error) {
 	return a.c.CreateNetwork(ctx, in)
@@ -43,4 +56,31 @@ func (a *AgentClient) CreateVolume(ctx context.Context, in *weftv1.CreateVolumeR
 }
 func (a *AgentClient) DeleteVolume(ctx context.Context, in *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error) {
 	return a.c.DeleteVolume(ctx, in)
+}
+
+// MicroVMRun drives the shared weft-microvm library to register +
+// start a microVM around an OCI image (auto-pulling on cache miss).
+// Used by the V0.5 plugin schema when a vm block declares
+// runtime = "microvm". Returns ErrMicroVMUnavailable if the
+// AgentClient was constructed without a socket — the install path
+// degrades to a clear "wire the socket" error rather than a silent
+// classic-VM fallback.
+func (a *AgentClient) MicroVMRun(ctx context.Context, image, project string) error {
+	if a.weftSocket == "" {
+		return fmt.Errorf("pluginstore: MicroVMRun called without an agent socket (plugin runtime=microvm requires NewAgentClient with a non-empty socket)")
+	}
+	return microvm.Run(microvm.Args{
+		Image:      image,
+		Project:    project,
+		Detach:     true,
+		WeftSocket: a.weftSocket,
+	})
+}
+
+// SetVMLabels stamps the V0.1.8 label map on a freshly-installed VM
+// so plugin-declared labels (typically deployment.type=ha + role=…)
+// reach the registry. Used after MicroVMRun by the V0.5 plugin
+// installer's microvm dispatch.
+func (a *AgentClient) SetVMLabels(ctx context.Context, in *weftv1.SetVMLabelsRequest) (*weftv1.SetVMLabelsResponse, error) {
+	return a.c.SetVMLabels(ctx, in)
 }

@@ -139,7 +139,8 @@ plugin "loom-ha" {
   # -----------------------------------------------------------------
 
   vm "loom" {
-    image    = "{{input.image}}"
+    image    = "ghcr.io/openweft/weft-loom-server:latest"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 2
     mem_mb   = 2048
@@ -167,38 +168,19 @@ plugin "loom-ha" {
     }
   }
 
-  # -----------------------------------------------------------------
-  # Respawn rule — covers host failure for the loom replicas
-  # specifically. Matches the deployment.type=ha + role=loom labels on
-  # the VMs above ; target_count=3 keeps the trio always alive. The
-  # V0.1.10 CI gate is irrelevant here since deployment.type != ci.
-  # -----------------------------------------------------------------
-
-  scheduling_rule "loom-ha" {
-    selector       = "deployment.type=ha,role=loom"
-    target_count   = 3
-    anti_affinity  = "host"
-    respawn {
-      enabled       = true
-      grace_period  = "5s"
-      max_restarts  = 5
-      window        = "5m"
-      backoff       = "exponential"
-    }
-  }
-
-  # -----------------------------------------------------------------
-  # Edge listener — the L7 Caddy in weft-agent fronts the trio on
-  # {{input.domain}}, active-probes /api/healthz, dispatches WebSocket
-  # upgrades to /api/relay correctly. Issued certificates come from the
-  # cluster's ACME issuer (configured per-cluster, not per-plugin).
-  # -----------------------------------------------------------------
-
-  edge_listener "loom" {
-    domain      = "{{input.domain}}"
-    upstream_vm = "loom"
-    upstream_port = 8080
-    probe_path  = "/api/healthz"
-    websocket   = true
-  }
+  # Post-install (not yet expressible in the plugin schema — run by hand
+  # OR via the operator's bring-up script ; a future schema bump will
+  # fold these in) :
+  #
+  #   weft scheduling-rule create \
+  #     --name loom-ha \
+  #     --selector "deployment.type=ha,role=loom" \
+  #     --target-count 3 --anti-affinity host \
+  #     --respawn-enabled --respawn-grace-period 5s \
+  #     --respawn-max-restarts 5 --respawn-window 5m
+  #
+  # The Caddy L7 edge listener for {{input.domain}} is set up the same
+  # way the rest of the platform's domains are (`weft router exposed-name
+  # add` against the loom VM trio) — out of scope for this manifest
+  # until the catalogue grows an `edge_listener` block primitive.
 }
