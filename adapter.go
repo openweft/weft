@@ -71,6 +71,7 @@ type VZAdapter interface {
 	SetEventBus(b EventBus)
 	VMDir(name string) string
 	ListVMDirs() []VMDirEntry
+	DeleteVMDir(projectUUID, name string) error
 	VMDirFor(project, name string) string
 	// RegistryStorage returns the Storage backing the named
 	// registry blob. Cmd/weft uses this to construct catalogues
@@ -2757,6 +2758,25 @@ type VMDirEntry struct {
 	Name        string
 	Path        string
 	ModTime     time.Time
+}
+
+// DeleteVMDir removes an orphan vmDir from disk. Used by zombiegc
+// V0.1.14 auto-delete path when OrphanDirAutoDeleteAfter is
+// configured ; safe to call on a path that doesn't exist (no-op).
+// Refuses to delete anything outside vmsDir (defense against the
+// caller stuffing in a "../"-style escape).
+func (a *Adapter) DeleteVMDir(projectUUID, name string) error {
+	if projectUUID == "" || name == "" {
+		return fmt.Errorf("delete vm dir: empty projectUUID or name")
+	}
+	if strings.Contains(projectUUID, string(filepath.Separator)) ||
+		strings.Contains(name, string(filepath.Separator)) ||
+		strings.Contains(projectUUID, "..") ||
+		strings.Contains(name, "..") {
+		return fmt.Errorf("delete vm dir: refuses path escape (%q/%q)", projectUUID, name)
+	}
+	target := filepath.Join(a.vmsDir(), projectUUID, name)
+	return os.RemoveAll(target)
 }
 
 // ListVMDirs walks vmsDir and returns one entry per VM directory it

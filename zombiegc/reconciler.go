@@ -109,6 +109,13 @@ type Options struct {
 	// enough that a freshly-created VM (RegisterMicroVM mid-flight)
 	// doesn't race into the report.
 	OrphanDirGrace time.Duration
+	// OrphanDirAutoDeleteAfter, when > 0, enables auto-deletion of
+	// orphan_dirs whose age is older than this threshold. Default :
+	// 0 (disabled — orphan_dirs mark only). Set to 24h-7d for
+	// long-term housekeeping ; a vmDir untouched for that long is
+	// extremely unlikely to be a VM mid-claim. Set to 0 to keep
+	// the original V0.1.13 mark-only behaviour.
+	OrphanDirAutoDeleteAfter time.Duration
 	// DryRun disables auto-delete + state mutations. The Sweep still
 	// returns the Report so callers can render what WOULD happen.
 	DryRun bool
@@ -329,10 +336,30 @@ func (r *Reconciler) Sweep(ctx context.Context) Report {
 		}
 		rep.Zombies = append(rep.Zombies, z)
 		byKind[ZombieOrphanDir]++
-		// orphan_dir is never auto-deleted by default — operator
-		// triggers explicit cleanup via `weft instance gc --apply`
-		// (TODO : --delete-orphan-dirs flag wires this up).
-		_ = z
+
+		// V0.1.14 : optional auto-delete past a long grace.
+		// Default 0 = disabled (V0.1.13 mark-only behaviour).
+		// When set (typically 24h-7d), reaping disk leaks without
+		// operator intervention. Dry-run still respected.
+		if r.opts.DryRun {
+			continue
+		}
+		if r.opts.OrphanDirAutoDeleteAfter <= 0 {
+			continue
+		}
+		if age < r.opts.OrphanDirAutoDeleteAfter {
+			continue
+		}
+		if err := r.adp.DeleteVMDir(d.ProjectUUID, d.Name); err != nil {
+			r.log.Warn("zombiegc : delete orphan_dir failed",
+				"project", d.ProjectUUID, "name", d.Name,
+				"path", d.Path, "err", err)
+			continue
+		}
+		r.log.Info("zombiegc : orphan_dir auto-deleted",
+			"project", d.ProjectUUID, "name", d.Name,
+			"path", d.Path, "age", age.Truncate(time.Second))
+		rep.Deleted++
 	}
 
 	r.mu.Lock()
