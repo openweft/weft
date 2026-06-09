@@ -59,7 +59,7 @@ See docs/operations/telemetry.md for the full payload contract.`,
 	}
 	stateDir := ""
 	cmd.PersistentFlags().StringVar(&stateDir, "state-dir", "",
-		"Directory holding the agent's registry blobs. Empty = the same default as `weft agent` (~/.mock/hcl).")
+		"Directory holding the agent's registry blobs. Empty = the same default as `weft agent` (~/.weft/hcl).")
 
 	cmd.AddCommand(
 		enableCmd(&stateDir),
@@ -72,7 +72,7 @@ See docs/operations/telemetry.md for the full payload contract.`,
 
 // resolveStateDir returns the directory under which the telemetry
 // registry blob lives. Mirrors the default `weft agent` uses for
-// the file backend (--config-dir .mock/hcl) when --state-dir is
+// the file backend (--config-dir weft/hcl) when --state-dir is
 // not set. Operators with a non-default agent config-dir pass
 // --state-dir to point telemetry at the matching path.
 func resolveStateDir(flag string) string {
@@ -81,9 +81,9 @@ func resolveStateDir(flag string) string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return ".mock/hcl"
+		return "state/hcl"
 	}
-	return filepath.Join(home, ".mock", "hcl")
+	return filepath.Join(home, ".weft", "hcl")
 }
 
 // newStore wires the on-disk registry blob the CLI talks to. The

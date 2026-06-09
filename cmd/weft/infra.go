@@ -77,7 +77,7 @@ deployer substitutes it with the booted VM's IP at probe time.`,
 	}
 	cmd.Flags().StringVar(&planPath, "plan", "", "Path to plan.hcl (default: pkg/openweft/weft/infra/<service>/plan.hcl)")
 	cmd.Flags().StringVar(&rootfsPath, "rootfs", "", "Override the OCI rootfs path (default: weft-microvm image-cache layout)")
-	cmd.Flags().StringVar(&stateDir, "state-dir", ".mock", "weft state directory (where the VM lands on disk)")
+	cmd.Flags().StringVar(&stateDir, "state-dir", "state", "weft state directory (where the VM lands on disk)")
 	cmd.Flags().BoolVar(&waitHealth, "wait-health", false, "After StartVM, poll the plan's health URL until it returns 2xx")
 	cmd.Flags().DurationVar(&healthTimeout, "health-timeout", 60*time.Second, "Total time to wait for a service to become healthy (only consulted with --wait-health)")
 	return cmd
@@ -136,7 +136,7 @@ poll time.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&stateDir, "state-dir", ".mock", "weft state directory")
+	cmd.Flags().StringVar(&stateDir, "state-dir", "state", "weft state directory")
 	cmd.Flags().StringSliceVar(&serviceFilter, "services", nil, "Comma-separated subset of services to deploy (default: all under infra/)")
 	cmd.Flags().BoolVar(&waitHealth, "wait-health", false, "After StartVM, poll the plan's health URL until 2xx before moving to the next service")
 	cmd.Flags().DurationVar(&healthTimeout, "health-timeout", 60*time.Second, "Total time to wait for a service to become healthy (only consulted with --wait-health)")
@@ -231,7 +231,7 @@ State is one of:
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&stateDir, "state-dir", ".mock", "weft state directory")
+	cmd.Flags().StringVar(&stateDir, "state-dir", "state", "weft state directory")
 	return cmd
 }
 

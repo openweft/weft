@@ -1,10 +1,10 @@
-// Package hclconfig parses the openweft HCL configuration directory and
+// Package wefthcl parses the openweft HCL configuration directory and
 // exposes the daemon-level settings block plus the table of VM definitions.
 //
 // It owns the parser end-to-end: types, HCL parsing, OCI/HTTP resolution,
 // and the row-building logic consumed by weft, weft-webui, and
 // terraform-provider-weft.
-package hclconfig
+package wefthcl
 
 // ReadVMs is a convenience wrapper that parses the HCL config directory and
 // returns the resolved VM rows with no deployment prefix and no live

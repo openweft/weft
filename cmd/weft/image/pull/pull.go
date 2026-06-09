@@ -29,7 +29,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&cfgDir, "config-dir", ".mock/hcl", "Path to HCL config directory")
+	cmd.Flags().StringVar(&cfgDir, "config-dir", "state/hcl", "Path to HCL config directory")
 	cmd.Flags().IntVar(&parallel, "parallel", 4, "Parallelism for pulls")
 	return cmd
 }

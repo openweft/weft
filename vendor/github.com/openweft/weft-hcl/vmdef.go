@@ -1,4 +1,4 @@
-package hclconfig
+package wefthcl
 
 import (
 	"encoding/json"
@@ -93,7 +93,7 @@ type Row struct {
 // tolerant way for tests.
 func ParseVMs(path string) ([]VMDef, string, string, error) {
 	if path == "" {
-		path = ".mock/hcl"
+		path = "state/hcl"
 	}
 	data, _, err := resolveConfig(path)
 	if err != nil {
@@ -595,7 +595,7 @@ func validateVMDefs(out []VMDef) error {
 // configPath may be a directory or a single HCL file.
 func BuildRowsFromConfig(configPath, prefix string, tartMap map[string]map[string]interface{}, ociMap map[string]string) ([]Row, error) {
 	if configPath == "" {
-		configPath = ".mock/hcl"
+		configPath = "state/hcl"
 	}
 	vms, _, mid, err := ParseVMs(configPath)
 	if err != nil {

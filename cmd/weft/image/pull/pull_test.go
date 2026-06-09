@@ -38,7 +38,7 @@ func TestPull_DefaultFlags(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Errorf("Execute: %v", err)
 	}
-	if got.ConfigDir != ".mock/hcl" {
+	if got.ConfigDir != "state/hcl" {
 		t.Errorf("default configDir = %q", got.ConfigDir)
 	}
 	if got.Parallel != 4 {

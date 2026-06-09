@@ -98,14 +98,14 @@ The driver plugin (e.g. [`weft-driver-vz`](../weft-driver-vz/)) ships the per-hy
 After `task build` (which compiles + code-signs `./bin/weft`):
 
 ```sh
-./bin/weft agent --config-dir .mock/hcl      # or: task run
+./bin/weft agent --config-dir state/hcl      # or: task run
 ```
 
 All-in-one mono-host default — file storage + in-process event bus, no etcd/NATS required. Then drive it from another terminal: `./bin/weft instance list`, `./bin/weft image pull …`.
 
 | `agent` flag | Default | Description |
 |------|---------|-------------|
-| `--config-dir` | `.mock/hcl` | HCL config directory (optional — pre-declares VMs/images) |
+| `--config-dir` | `state/hcl` | HCL config directory (optional — pre-declares VMs/images) |
 | `--socket` | `~/.weft/weft.sock` | Unix socket path |
 | `--ssh-socket` | `~/.weft/weft-ssh.sock` | SSH-secured gRPC socket (empty to disable) |
 | `--ssh-authorized-keys` | `~/.weft/authorized_keys` | Path to authorized_keys |

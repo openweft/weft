@@ -12,9 +12,9 @@ import (
 // refusal) can be exercised without touching disk.
 func newAdapterForRegistryTest(t *testing.T) *Adapter {
 	t.Helper()
-	mockDir := t.TempDir()
+	stateDir := t.TempDir()
 	factory := func(name string) Storage { return NewMemStorage() }
-	return NewWithStorage(mockDir, factory).(*Adapter)
+	return NewWithStorage(stateDir, factory).(*Adapter)
 }
 
 func TestAdapter_SetNetworkDefaultSecurityGroups_HappyPath(t *testing.T) {

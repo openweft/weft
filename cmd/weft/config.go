@@ -13,7 +13,7 @@ package main
 //   socket               = "~/.weft/weft.sock"
 //   ssh_socket           = "~/.weft/weft-ssh.sock"
 //   ssh_authorized_keys  = "~/.weft/authorized_keys"
-//   config_dir           = ".mock/hcl"
+//   config_dir           = "state/hcl"
 //
 //   oidc {
 //     issuer    = "https://dex.internal.example.com"

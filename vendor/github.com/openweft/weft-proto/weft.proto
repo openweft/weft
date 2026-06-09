@@ -35,6 +35,10 @@ message VMInfo {
   // `AttachVolumeRequest.vm_uuid` and similar UUID-keyed RPCs match
   // it. Survives a `RenameVM` if/when that lands.
   string   uuid          = 11;
+  // V0.1.8 : operator-supplied annotations consumed by
+  // SchedulingRule label-based selectors + reserved-key system
+  // gates (deployment.type=ci|ha, …). Mirrors VM.Labels server-side.
+  map<string, string> labels = 12;
 }
 
 // --- AvailabilityZones (AZ) ---
@@ -1198,6 +1202,9 @@ service WeftAgent {
   rpc HeartbeatHost  (HeartbeatHostRequest)  returns (HeartbeatHostResponse);
   rpc SetHostState    (SetHostStateRequest)    returns (SetHostStateResponse);
   rpc SetHostLabels   (SetHostLabelsRequest)   returns (SetHostLabelsResponse);
+  rpc SetVMLabels     (SetVMLabelsRequest)     returns (SetVMLabelsResponse);
+  rpc GetZombieReport     (GetZombieReportRequest)     returns (GetZombieReportResponse);
+  rpc TriggerZombieSweep  (TriggerZombieSweepRequest)  returns (GetZombieReportResponse);
   rpc SetHostCordoned (SetHostCordonedRequest) returns (SetHostCordonedResponse);
   rpc DeleteHost      (DeleteHostRequest)      returns (DeleteHostResponse);
 
@@ -1448,6 +1455,50 @@ message SetHostStateResponse {}
 // scheduler's LabelSelectors match against these.
 message SetHostLabelsRequest  { string uuid = 1; map<string, string> labels = 2; }
 message SetHostLabelsResponse {}
+
+// SetVMLabels replaces a VM's label set atomically. V0.1.8 :
+// labels drive SchedulingRule label-based selectors (`role=loom`,
+// `deployment.type=ha`, etc.) and reserved keys gate system
+// behaviour : `deployment.type=ci` skips etcd-backup persistence ;
+// `deployment.type=ha` is the canonical respawn-eligible marker.
+message SetVMLabelsRequest  { string project = 1; string name = 2; map<string, string> labels = 3; }
+message SetVMLabelsResponse { VMInfo vm = 1; }
+
+// GetZombieReport exposes the latest snapshot of the agent's
+// zombiegc reconciler — what VMs it currently classifies as zombies,
+// by kind, plus the cumulative auto-delete counter. Read-only ; the
+// reconciler runs on its own ticker (default 5min, env-tunable).
+// V0.1.15.
+message GetZombieReportRequest {}
+
+// ZombieEntry describes one classified zombie. Mirrors
+// zombiegc.Zombie verbatim — kind is one of "local", "ci_cross_host",
+// "ha_cross_host", "orphan_project", "orphan_dir".
+message ZombieEntry {
+  string uuid              = 1;
+  string name              = 2;
+  string project_uuid      = 3;
+  string host_uuid         = 4;
+  string kind              = 5;
+  string reason            = 6;
+  string deployment_type   = 7;
+  int64  detected_at_unix_ns = 8;
+  int64  host_down_since_unix_ns = 9;
+}
+
+message GetZombieReportResponse {
+  repeated ZombieEntry zombies         = 1;
+  uint64 deleted_total                 = 2;
+  int64  last_sweep_at_unix_ns         = 3;
+  map<string, int32> zombies_by_kind   = 4; // kind → count
+}
+
+// TriggerZombieSweep runs the reconciler immediately + returns the
+// fresh report. Closes the --apply loop in `weft instance gc` —
+// previously the CLI only listed the last cached sweep ; now it
+// can demand a sweep on demand without waiting for the next tick.
+// Admin-gated like GetZombieReport. V0.1.16.
+message TriggerZombieSweepRequest {}
 
 // SetHostCordoned flips the host's cordon flag. Cordoned hosts
 // stay Active (existing VMs keep running) but the scheduler drops
@@ -2464,6 +2515,59 @@ message ImportSSHKeyCatalogueResponse {
 // matching the selector. Anti-affinity controls the granularity of
 // the spread (host / az / rack).
 
+// HealthProbe declares how the per-host weft daemon checks whether a
+// VM is alive. Probes run from the host owning the VM ; results are
+// emitted on the event bus and consumed by the central respawn
+// reconciler. Type=NONE disables probing — the only "dead" signal
+// becomes the hypervisor's own state transition (Stopped / Failed).
+//
+// HTTP probe : the binding is the microVM's overlay IP from outside,
+// or 127.0.0.1 from inside ; the agent uses the overlay address.
+// TCP probe  : same binding rule ; success = connect within timeout.
+// EXEC probe : runs the command via the in-VM weft-microvm-agent
+// (V0.2 ; V0.1 implements HTTP+TCP only and rejects EXEC at create
+// time with INVALID_ARGUMENT).
+message HealthProbe {
+  enum Type {
+    NONE = 0;
+    HTTP = 1;
+    TCP  = 2;
+    EXEC = 3;
+  }
+  Type   type              = 1;
+  // HTTP probe fields ; ignored for TCP/EXEC.
+  string http_path         = 2;  // default "/"
+  int32  http_port         = 3;  // required for HTTP
+  string http_method       = 4;  // default "GET"
+  // Acceptable HTTP status codes ; empty = [200..299].
+  repeated int32 http_status_ok = 5;
+  // TCP probe fields.
+  int32  tcp_port          = 6;
+  // EXEC probe fields (V0.2).
+  repeated string exec_command = 7;
+  // Common scheduling fields.
+  int64  initial_delay_ms  = 8;   // wait after VM boot before first probe
+  int64  period_ms         = 9;   // between probes
+  int64  timeout_ms        = 10;  // per-probe deadline
+  int32  failure_threshold = 11;  // N consecutive failures = unhealthy
+  int32  success_threshold = 12;  // N consecutive successes = healthy
+}
+
+// RespawnPolicy declares automatic recovery rules for VMs covered by
+// the parent SchedulingRule. When `enabled` is false (zero value),
+// the rule is purely descriptive — VMs that die stay dead until the
+// operator re-creates them.
+message RespawnPolicy {
+  bool   enabled         = 1;
+  int64  grace_period_ms = 2;   // wait after first "down" signal before respawning (anti-flap)
+  int32  max_restarts    = 3;   // cap per window (anti-thrash)
+  int64  window_ms       = 4;   // sliding window for max_restarts
+  string backoff         = 5;   // "constant" | "exponential"
+  int64  initial_delay_ms = 6;  // initial backoff delay ; doubles each retry if exponential
+  HealthProbe liveness   = 7;   // optional ; when set, drives "unhealthy" detection independently of VM state
+  HealthProbe readiness  = 8;   // optional ; gates "first healthy" transition for staggered respawns
+}
+
 message SchedulingRuleInfo {
   string uuid               = 1;
   string name               = 2;
@@ -2471,6 +2575,7 @@ message SchedulingRuleInfo {
   int32  target_count       = 4;
   string anti_affinity      = 5;  // "host" | "az" | "rack" | ""
   int64  created_at_unix_ns = 6;
+  RespawnPolicy respawn     = 7;  // optional ; nil = no respawn
 }
 
 message ListSchedulingRulesRequest  {
@@ -2487,6 +2592,7 @@ message CreateSchedulingRuleRequest  {
   string selector      = 2;
   int32  target_count  = 3;
   string anti_affinity = 4;
+  RespawnPolicy respawn = 5;  // optional
 }
 message CreateSchedulingRuleResponse { SchedulingRuleInfo rule = 1; bool created = 2; }
 
@@ -2495,6 +2601,8 @@ message UpdateSchedulingRuleRequest  {
   string selector      = 2;  // empty = keep current
   int32  target_count  = 3;  // -1 = keep current
   string anti_affinity = 4;  // empty = keep current
+  RespawnPolicy respawn = 5;  // nil = keep current ; explicit empty = clear
+  bool   clear_respawn = 6;   // bool gate to disambiguate "keep" from "clear" (matches v0.8.0 pattern)
 }
 message UpdateSchedulingRuleResponse { SchedulingRuleInfo rule = 1; }
 

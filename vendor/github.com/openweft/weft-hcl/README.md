@@ -1,4 +1,4 @@
-# hclconfig
+# wefthcl
 
 Pure-Go HCL configuration parser for openweft. Owns the parser
 end-to-end : types, HCL syntax, OCI/HTTP reference resolution, and
@@ -7,7 +7,7 @@ the row-building logic that feeds the daemon's VM inventory.
 ## Module
 
 ```
-github.com/openweft/hclconfig
+github.com/openweft/weft-hcl   // Go package name : wefthcl
 ```
 
 ## API surface
@@ -37,9 +37,9 @@ func MarshalRows(rows []Row) ([]byte, error)
 ## Usage
 
 ```go
-import "github.com/openweft/hclconfig"
+import "github.com/openweft/weft-hcl"
 
-rows, err := hclconfig.ReadVMs(".mock/hcl")
+rows, err := wefthcl.ReadVMs("state/hcl")
 ```
 
 ## Consumers
@@ -50,12 +50,12 @@ rows, err := hclconfig.ReadVMs(".mock/hcl")
 
 ## Naming note
 
-The HCL daemon block keyword (`mock "<label>" { … }`), the `MockBlock`
-Go type, and the default config directory (`.mock/hcl`) are
-historical — early openweft was scaffolded as a "mock UI". The
-naming is slated for cleanup in a future cycle (the rename is a
-breaking change for live config files, so it ships behind a deliberate
-major-version bump rather than a patch).
+The HCL daemon block keyword (`mock "<label>" { … }`) and the `MockBlock`
+Go type are historical — early openweft was scaffolded as a "mock UI".
+The default config directory was previously `.mock/hcl` ; it became
+`state/hcl` in the cleanup cycle. The HCL block keyword + Go type
+rename remains a follow-up (breaking config-file change → deliberate
+major bump).
 
 ## License
 

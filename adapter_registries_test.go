@@ -19,9 +19,9 @@ import (
 // without spreading deps across test files.
 func newAdapterForRegistries(t *testing.T) *Adapter {
 	t.Helper()
-	mockDir := t.TempDir()
+	stateDir := t.TempDir()
 	factory := func(name string) Storage { return NewMemStorage() }
-	return NewWithStorage(mockDir, factory).(*Adapter)
+	return NewWithStorage(stateDir, factory).(*Adapter)
 }
 
 // drain consumes events until the channel is empty (non-blocking).
@@ -857,15 +857,15 @@ func TestSplitVMDir(t *testing.T) {
 		wantProj, wantN string
 	}{
 		// post-Phase-1 layout: <vmsDir>/<projectUUID>/<vmName>
-		{".mock/vz", ".mock/vz/p1/vm-a", "p1", "vm-a"},
+		{"state/vz", "state/vz/p1/vm-a", "p1", "vm-a"},
 		// vmDir not under vmsDir → splits at the first slash anyway.
-		{".mock/vz", "/somewhere/else/vm-x", "", "somewhere/else/vm-x"},
+		{"state/vz", "/somewhere/else/vm-x", "", "somewhere/else/vm-x"},
 		// No slash at all → empty project, raw remainder.
 		{"", "stray", "", "stray"},
 		// Empty vmsDir + slashed input: splits at first slash.
 		{"", "p1/vm-a", "p1", "vm-a"},
 		// vmDir == vmsDir exactly → rel stays vmDir, splits at first slash inside it.
-		{".mock/vz", ".mock/vz", ".mock", "vz"},
+		{"state/vz", "state/vz", "state", "vz"},
 	}
 	for _, c := range cases {
 		gotP, gotN := splitVMDir(c.vmsDir, c.vmDir)
