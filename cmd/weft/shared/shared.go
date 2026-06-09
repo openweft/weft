@@ -15,7 +15,9 @@ import (
 	"google.golang.org/grpc"
 
 	"fmt"
+	"io"
 	"os"
+	"strings"
 )
 
 // Dial opens a gRPC connection to weft. Uses SSH transport when sshKey is set.
@@ -62,11 +64,35 @@ func RenderTable(vms []*weftv1.VMInfo) {
 
 // PrintJSON marshals the VM list to JSON lines on stdout.
 func PrintJSON(vms []*weftv1.VMInfo) error {
+	return PrintJSONTo(os.Stdout, vms)
+}
+
+// PrintJSONTo writes the VM list as JSON lines to w. Useful for
+// admin tools that wrap PrintJSON behind a `-o file` flag.
+func PrintJSONTo(w io.Writer, vms []*weftv1.VMInfo) error {
 	for _, vm := range vms {
-		fmt.Printf("{\"name\":%q,\"state\":%q,\"os\":%q,\"cpu\":%d,\"mem_mb\":%d,\"disk_gb\":%d,\"ip\":%q}\n",
-			vm.Name, ProtoStateStr(vm.State), vm.Os, vm.Cpu, vm.MemMb, vm.DiskGb, vm.Ip)
+		if _, err := fmt.Fprintf(w,
+			"{\"name\":%q,\"uuid\":%q,\"project_uuid\":%q,\"state\":%q,\"os\":%q,\"cpu\":%d,\"mem_mb\":%d,\"disk_gb\":%d,\"ip\":%q,\"labels\":%s}\n",
+			vm.Name, vm.Uuid, vm.ProjectUuid, ProtoStateStr(vm.State), vm.Os,
+			vm.Cpu, vm.MemMb, vm.DiskGb, vm.Ip, jsonLabels(vm.Labels),
+		); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// jsonLabels emits a string-string map as a JSON object. Falls back
+// to "{}" on empty / nil so consumers don't have to special-case it.
+func jsonLabels(in map[string]string) string {
+	if len(in) == 0 {
+		return "{}"
+	}
+	parts := make([]string, 0, len(in))
+	for k, v := range in {
+		parts = append(parts, fmt.Sprintf("%q:%q", k, v))
+	}
+	return "{" + strings.Join(parts, ",") + "}"
 }
 
 // RenderImagesTable prints image infos as a table to stdout.

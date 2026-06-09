@@ -22,6 +22,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		Short: "Operator-side control-plane utilities (admin-only)",
 	}
 	cmd.AddCommand(natsAuthzCommand(socket, sshSocket, sshKey))
+	cmd.AddCommand(vmExportCommand(socket, sshSocket, sshKey))
 	return cmd
 }
 
