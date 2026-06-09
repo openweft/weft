@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/openweft/weft-client"
@@ -68,6 +69,60 @@ type Args struct {
 	// Cmd: the manifest names its own images and commands. Pod mode
 	// boots weft-init (a supervisor PID 1) instead of weft-microvm-init.
 	Pod string
+
+	// Mounts attach host directories into the guest as additional
+	// virtio-fs shares. Each Mount becomes a `{Tag, Path, ReadOnly}`
+	// share on RegisterMicroVMRequest with a synthesised tag
+	// ("mount-0", "mount-1", …) AND a matching `weft.mount=virtiofs:
+	// <tag>:<guest>[:ro]` directive on the kernel cmdline. The guest's
+	// weft-microvm-init parses those directives and mounts each share
+	// at GuestPath before the container starts.
+	//
+	// Use cases : "docker-run -v" semantics for hostpath bind mounts —
+	// project working trees for in-VM compiles (weft-loom-texlive /
+	// weft-loom-markdown), scratch dirs for build artefacts, /etc
+	// overrides for service init, etc.
+	Mounts []Mount
+
+	// CubeFSMounts attach CubeFS volumes directly inside the guest.
+	// cfs-client (already in the initramfs at /bin/cfs-client per the
+	// pod-init-build packer) handles the FUSE mount ; weft-init parses
+	// the matching `weft.cubefs=<masters>:<volume>:<guest>[:ro]`
+	// cmdline directives and calls cubefs.Mount() per entry.
+	//
+	// Use cases : shared project trees across many microVMs (the
+	// weft-loom-server use case — loom-server + ephemeral compile VMs
+	// see the same /workspace), classroom shares fanned out to student
+	// VMs, multi-replica catalogue plugin data shares.
+	CubeFSMounts []CubeFSMount
+}
+
+// Mount describes one host-directory share attached to a microVM.
+type Mount struct {
+	// HostPath is the absolute path on the host that the guest will
+	// see at GuestPath.
+	HostPath string
+	// GuestPath is the absolute path inside the guest where the host
+	// share is mounted.
+	GuestPath string
+	// ReadOnly, when true, mounts the share read-only.
+	ReadOnly bool
+}
+
+// CubeFSMount describes one CubeFS volume to mount inside the guest.
+// The cfs-client process is launched by weft-init at boot — no agent
+// needed for the boot-time path.
+type CubeFSMount struct {
+	// Masters are the CubeFS master node addresses (host:port). At
+	// least one required ; multiple yield redundancy.
+	Masters []string
+	// Volume is the CubeFS volume name to mount.
+	Volume string
+	// GuestPath is the absolute path inside the guest where the FUSE
+	// mount appears.
+	GuestPath string
+	// ReadOnly mounts the share read-only.
+	ReadOnly bool
 }
 
 // Run is the typed entry point: dispatch to pod mode (multi-
@@ -152,6 +207,48 @@ func runMicroVM(a Args) error {
 			{Tag: tag, Path: rootfs, ReadOnly: false, Clone: true},
 		},
 		Cmdline: fmt.Sprintf("weft.rootfs=virtiofs:%s console=hvc0", tag),
+	}
+
+	// Hostpath mounts → additional virtio-fs shares + cmdline
+	// directives. Each `--mount HOST:GUEST[:ro]` flag on the CLI
+	// becomes one Share entry (with a synthesised tag the guest
+	// references in the directive) + one `weft.mount=virtiofs:tag:
+	// guest[:ro]` token appended to the kernel cmdline.
+	for i, m := range a.Mounts {
+		if m.HostPath == "" || m.GuestPath == "" {
+			return fmt.Errorf("microvm: mount %d : both HostPath and GuestPath are required", i)
+		}
+		mountTag := fmt.Sprintf("mount-%d", i)
+		req.Shares = append(req.Shares, &weftv1.MicroVMShare{
+			Tag:      mountTag,
+			Path:     m.HostPath,
+			ReadOnly: m.ReadOnly,
+			// Clone:false — these are user-provided hostpaths ;
+			// caller expects bidirectional visibility (the typical
+			// "docker -v" semantic) so writes inside the guest land
+			// on the host directly, no per-VM clonefile2 view.
+		})
+		directive := fmt.Sprintf("weft.mount=virtiofs:%s:%s", mountTag, m.GuestPath)
+		if m.ReadOnly {
+			directive += ":ro"
+		}
+		req.Cmdline += " " + directive
+	}
+
+	// CubeFS mounts → cmdline directives only ; no extra Shares needed
+	// because cfs-client speaks to the CubeFS masters directly over the
+	// guest's network (typically wg0 in the openweft overlay). One
+	// `weft.cubefs=<masters>:<volume>:<guest>[:ro]` token per mount.
+	for i, m := range a.CubeFSMounts {
+		if m.Volume == "" || m.GuestPath == "" || len(m.Masters) == 0 {
+			return fmt.Errorf("microvm: cubefs mount %d : Masters, Volume and GuestPath are all required", i)
+		}
+		directive := fmt.Sprintf("weft.cubefs=%s:%s:%s",
+			strings.Join(m.Masters, ","), m.Volume, m.GuestPath)
+		if m.ReadOnly {
+			directive += ":ro"
+		}
+		req.Cmdline += " " + directive
 	}
 	if iso.kernel != "" {
 		req.Kernel = iso.kernel
