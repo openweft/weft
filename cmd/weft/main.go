@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	grubpkg "github.com/go-grub/grub"
@@ -79,10 +80,48 @@ func main() {
 	// The host-local datapath (the AppKit VM window via vz-vm-run, and
 	// provision) moved into the weft-driver-vz plugin executable, so weft no
 	// longer forks itself for VM display and needs no main-thread OS lock.
+	defer panicReporter()
 	if err := rootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// panicReporter is the top-level recover() that gives weft-doctor a
+// shot at diagnosing a Go panic before the process exits. Without it
+// the stack trace lands on stderr only ; weft-slognats fan-out only
+// covers slog calls, so a runtime crash is invisible to anyone
+// subscribing to the NATS log subject — including the AI log triage
+// in `weft-doctor` ([[project_weft_doctor]]).
+//
+// We slog.Error with the full stack, flush stderr, then re-panic so
+// systemd still sees the abnormal exit + the kernel still produces
+// a coredump if the unit is configured for one.
+//
+// Off-systemd / non-NATS hosts get the same behaviour as before :
+// slog.Default() falls back to stderr, which is where the stack was
+// going to land anyway.
+func panicReporter() {
+	r := recover()
+	if r == nil {
+		return
+	}
+	stack := debug.Stack()
+	slog.Error("weft : panic in main",
+		"value", fmt.Sprintf("%v", r),
+		"stack", string(stack),
+	)
+	// Give the NATS fan-out a beat to flush the line before the
+	// runtime exits. 100ms is generous compared to RTT inside the
+	// rack ; if the fan-out is wedged we lose the line but the
+	// process exit goes through regardless.
+	time.Sleep(100 * time.Millisecond)
+	// Mirror the standard panic exit code so systemd's Restart= /
+	// any wrapper still treats the exit as a real crash. Re-panic
+	// rather than os.Exit so the runtime prints the canonical
+	// stderr stack trace too — operators reading journalctl still
+	// see what they expect.
+	panic(r)
 }
 
 // rootCmd builds the unified Weft cobra tree. The top-level binary is
