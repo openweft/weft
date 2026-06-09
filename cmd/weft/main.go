@@ -21,6 +21,8 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	grubpkg "github.com/go-grub/grub"
 	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	sshtransport "github.com/grpc-transports/ssh"
@@ -625,6 +627,7 @@ func run(t fileConfigTargets) error {
 	var srvMetrics *grpcprom.ServerMetrics
 	var rpcByKind *rpcMetrics
 	var metricsCloser func() error
+	var promRegistry *prometheus.Registry
 	if t.metricsListen != "" {
 		reg, closer, mErr := startMetricsServer(t.metricsListen, logger)
 		if mErr != nil {
@@ -644,6 +647,7 @@ func run(t fileConfigTargets) error {
 			return fmt.Errorf("register weft_rpc_total: %w", mErr)
 		}
 		rpcByKind = rm
+		promRegistry = reg
 		// Cluster-topology gauge : weft_monitors_live = count of
 		// etcd-coord liveness leases at /weft/coord/hosts/. Tracks the
 		// number of healthy agent monitors operators can fail over to.
@@ -656,6 +660,11 @@ func run(t fileConfigTargets) error {
 		defer startBusDropsGauge(reg, bf.bus)()
 		defer func() { _ = metricsCloser() }()
 	}
+	// V0.1.12 : VM zombie GC. Runs unconditionally — metrics are
+	// optional but the cleanup must happen on every agent so the
+	// registry stays bounded. When metrics are off, the Prometheus
+	// gauge inside startZombieGC is a no-op (nil reg).
+	defer startZombieGC(promRegistry, a)()
 
 	unaryInterceptors := []grpc.UnaryServerInterceptor{
 		weft.UnaryAuthInterceptor(validator, userPersister(a)),

@@ -106,8 +106,9 @@ func TestVMRegistry_SetState_TracksLastStartAt(t *testing.T) {
 	if got.LastStartAt != startedAt {
 		t.Errorf("LastStartAt changed on stop: %v → %v", startedAt, got.LastStartAt)
 	}
-	// Invalid state rejected.
-	if err := reg.setState(v.UUID, VMState("zombie")); err == nil {
+	// Invalid state rejected. (Note : "zombie" became a valid state
+	// in V0.1.12 ; use a never-allocated value here.)
+	if err := reg.setState(v.UUID, VMState("nonsense")); err == nil {
 		t.Errorf("invalid state should be rejected")
 	}
 	// Unknown UUID rejected.
