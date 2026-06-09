@@ -23,6 +23,8 @@ type fakeClient struct {
 	deleteSG                        func(in *weftv1.DeleteSecurityGroupRequest) (*weftv1.DeleteSecurityGroupResponse, error)
 	createVolume                    func(in *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error)
 	deleteVolume                    func(in *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error)
+	microvmRun                      func(image, project string) error
+	setVMLabels                     func(in *weftv1.SetVMLabelsRequest) (*weftv1.SetVMLabelsResponse, error)
 
 	// Call counters
 	creates     int
@@ -35,6 +37,8 @@ type fakeClient struct {
 	delNetworks []*weftv1.DeleteNetworkRequest
 	delSGs      []*weftv1.DeleteSecurityGroupRequest
 	delVols     []*weftv1.DeleteVolumeRequest
+	microvmRuns []microvmCall
+	setLabels   []*weftv1.SetVMLabelsRequest
 }
 
 func (f *fakeClient) CreateNetwork(_ context.Context, in *weftv1.CreateNetworkRequest) (*weftv1.CreateNetworkResponse, error) {
@@ -103,6 +107,26 @@ func (f *fakeClient) DeleteVolume(_ context.Context, in *weftv1.DeleteVolumeRequ
 		return f.deleteVolume(in)
 	}
 	return &weftv1.DeleteVolumeResponse{}, nil
+}
+func (f *fakeClient) MicroVMRun(_ context.Context, image, project string) error {
+	f.creates++
+	f.microvmRuns = append(f.microvmRuns, microvmCall{Image: image, Project: project})
+	if f.microvmRun != nil {
+		return f.microvmRun(image, project)
+	}
+	return nil
+}
+func (f *fakeClient) SetVMLabels(_ context.Context, in *weftv1.SetVMLabelsRequest) (*weftv1.SetVMLabelsResponse, error) {
+	f.setLabels = append(f.setLabels, in)
+	if f.setVMLabels != nil {
+		return f.setVMLabels(in)
+	}
+	return &weftv1.SetVMLabelsResponse{}, nil
+}
+
+type microvmCall struct {
+	Image   string
+	Project string
 }
 
 // loadDemo parses the fixture from manifest_test.go.

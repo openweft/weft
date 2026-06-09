@@ -130,7 +130,7 @@ func installCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			mgr := pluginstore.NewManager(pluginstore.NewAgentClient(c), pluginstore.NewFileStore(resolveStateDir(stateDir)))
+			mgr := pluginstore.NewManager(pluginstore.NewAgentClient(c, *socket), pluginstore.NewFileStore(resolveStateDir(stateDir)))
 			inst, err := mgr.Install(context.Background(), m, project, asAnyMap(parsed))
 			if err != nil {
 				return err
@@ -189,7 +189,7 @@ func uninstallCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			mgr := pluginstore.NewManager(pluginstore.NewAgentClient(c), store)
+			mgr := pluginstore.NewManager(pluginstore.NewAgentClient(c, *socket), store)
 			if err := mgr.Uninstall(context.Background(), name, uuid); err != nil {
 				return err
 			}

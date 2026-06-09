@@ -26,6 +26,11 @@ type Client interface {
 	DeleteSecurityGroup(ctx context.Context, in *weftv1.DeleteSecurityGroupRequest) (*weftv1.DeleteSecurityGroupResponse, error)
 	CreateVolume(ctx context.Context, in *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error)
 	DeleteVolume(ctx context.Context, in *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error)
+	// MicroVMRun drives the host-side weft-microvm orchestration
+	// (auto-pull → RegisterMicroVM → StartVM) for the V0.5
+	// runtime="microvm" plugin path.
+	MicroVMRun(ctx context.Context, image, project string) error
+	SetVMLabels(ctx context.Context, in *weftv1.SetVMLabelsRequest) (*weftv1.SetVMLabelsResponse, error)
 }
 
 // Manager orchestrates Install / Uninstall / List.
@@ -39,6 +44,25 @@ type Manager struct {
 // NewManager builds a Manager over the given client and state store.
 func NewManager(c Client, s StateStore) *Manager {
 	return &Manager{client: c, state: s, now: time.Now}
+}
+
+// microvmRefsafe mirrors the naming weft-microvm.Run derives from an
+// OCI image ref : prefix "weft-microvm-" + the ref with '/' and ':'
+// replaced by '_'. Kept as a helper here so the plugin installer can
+// stamp labels by name after microvm.Run completes, without exposing
+// the orchestration's internal naming scheme as part of its public
+// surface.
+func microvmRefsafe(image string) string {
+	out := make([]byte, 0, len("weft-microvm-")+len(image))
+	out = append(out, "weft-microvm-"...)
+	for i := 0; i < len(image); i++ {
+		c := image[i]
+		if c == '/' || c == ':' {
+			c = '_'
+		}
+		out = append(out, c)
+	}
+	return string(out)
 }
 
 // Install applies the manifest. Idempotency : two calls with the
@@ -214,18 +238,51 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 						}
 					}
 				}
-				req := &weftv1.CreateVMRequest{
-					Project:        project,
-					Name:           vmName,
-					Image:          vm.Image,
-					Cpu:            uint32(vm.CPU),
-					MemMb:          uint64(vm.MemMB),
-					DiskGb:         uint64(vm.DiskGB),
-					SchedulingRule: schedRule,
-					Network:        netUUID,
-				}
-				if _, err := m.client.CreateVM(ctx, req); err != nil {
-					return inst, m.rollback(ctx, inst, fmt.Errorf("create vm %q: %w", vmName, err))
+				switch vm.Runtime {
+				case "", "classic":
+					req := &weftv1.CreateVMRequest{
+						Project:        project,
+						Name:           vmName,
+						Image:          vm.Image,
+						Cpu:            uint32(vm.CPU),
+						MemMb:          uint64(vm.MemMB),
+						DiskGb:         uint64(vm.DiskGB),
+						SchedulingRule: schedRule,
+						Network:        netUUID,
+					}
+					if _, err := m.client.CreateVM(ctx, req); err != nil {
+						return inst, m.rollback(ctx, inst, fmt.Errorf("create vm %q: %w", vmName, err))
+					}
+				case "microvm":
+					// V0.5 microvm runtime : the orchestration
+					// (auto-pull → RegisterMicroVM → StartVM) lives
+					// inside weft-microvm. We pass the OCI image and
+					// project ; the registry name is derived inside
+					// the library (refsafe form of the image).
+					if err := m.client.MicroVMRun(ctx, vm.Image, project); err != nil {
+						return inst, m.rollback(ctx, inst, fmt.Errorf("microvm run %q: %w", vmName, err))
+					}
+					// Apply plugin-declared labels (typically
+					// deployment.type=ha + role=X) so the V0.1.10
+					// respawn gate + V0.1.15 zombiegc see the
+					// workload classification. SetVMLabels is
+					// project-scoped + name-keyed.
+					if len(vm.Labels) > 0 {
+						labels := make(map[string]string, len(vm.Labels))
+						for k, v := range vm.Labels {
+							labels[k] = v
+						}
+						refsafeName := microvmRefsafe(vm.Image)
+						if _, err := m.client.SetVMLabels(ctx, &weftv1.SetVMLabelsRequest{
+							Project: project,
+							Name:    refsafeName,
+							Labels:  labels,
+						}); err != nil {
+							return inst, m.rollback(ctx, inst, fmt.Errorf("set labels %q: %w", refsafeName, err))
+						}
+					}
+				default:
+					return inst, m.rollback(ctx, inst, fmt.Errorf("plugin install: unknown vm runtime %q (want \"\"|\"classic\"|\"microvm\")", vm.Runtime))
 				}
 				inst.VMs = append(inst.VMs, vmName)
 			}
