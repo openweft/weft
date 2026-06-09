@@ -678,11 +678,31 @@ func vmsMatchingSelector(selector string, vms []VMRef) []VMRef {
 	if len(clauses) == 0 {
 		return nil
 	}
+	// V0.1.10 : `deployment.type=ci` is a reserved gate. By
+	// default we skip CI VMs from respawn ; this avoids accidental
+	// resurrection of disposable build runners when a rule with a
+	// broad selector (e.g. `role=ci-runner`) catches them.
+	//
+	// Override : if the rule's selector EXPLICITLY names
+	// `deployment.type=ci` (operator clearly meant it), we honour
+	// that and don't gate. Same intent as Kubernetes scheduler
+	// taints — system defaults can be overridden by an explicit
+	// toleration in the selector itself.
+	skipCI := true
+	if vals, ok := clauses["deployment.type"]; ok {
+		if _, hasCI := vals["ci"]; hasCI {
+			skipCI = false
+		}
+	}
 	var out []VMRef
 	for _, vm := range vms {
-		if vmMatchesAllClauses(vm, clauses) {
-			out = append(out, vm)
+		if !vmMatchesAllClauses(vm, clauses) {
+			continue
 		}
+		if skipCI && vm.Labels["deployment.type"] == "ci" {
+			continue
+		}
+		out = append(out, vm)
 	}
 	return out
 }
