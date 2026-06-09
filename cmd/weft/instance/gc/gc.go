@@ -20,6 +20,7 @@ import (
 
 // Command returns the `weft instance gc` cobra command.
 func Command(socket, sshSocket, sshKey *string) *cobra.Command {
+	var apply bool
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Short: "Show VM zombies as classified by the agent's reconciler (V0.1.15)",
@@ -36,16 +37,23 @@ Zombie kinds :
                     (auto-deletable past WEFT_ZOMBIE_GC_ORPHAN_DIR_DELETE_AFTER)
 
 The reconciler sweeps every WEFT_ZOMBIE_GC_SWEEP_INTERVAL (default
-5min). This CLI just fetches the latest sweep result — no client-side
-classification — so the output matches what Prometheus and the agent
-logs see.`,
+5min). Without --apply this CLI just fetches the latest cached sweep
+— no client-side classification — so the output matches what
+Prometheus and the agent logs see. With --apply the agent runs an
+immediate sweep, executes the auto-delete policy, and returns the
+fresh report (V0.1.16).`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
-			resp, err := c.GetZombieReport(context.Background(), &weftv1.GetZombieReportRequest{})
+			var resp *weftv1.GetZombieReportResponse
+			if apply {
+				resp, err = c.TriggerZombieSweep(context.Background(), &weftv1.TriggerZombieSweepRequest{})
+			} else {
+				resp, err = c.GetZombieReport(context.Background(), &weftv1.GetZombieReportRequest{})
+			}
 			if err != nil {
 				return err
 			}
@@ -53,6 +61,7 @@ logs see.`,
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&apply, "apply", false, "Trigger an immediate sweep + execute the auto-delete policy (V0.1.16)")
 	return cmd
 }
 
