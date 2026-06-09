@@ -52,6 +52,14 @@ const (
 	ZombieCICrossHost   ZombieKind = "ci_cross_host"  // deployment.type=ci, host down
 	ZombieHACrossHost   ZombieKind = "ha_cross_host"  // non-CI, host down
 	ZombieOrphanProject ZombieKind = "orphan_project" // project_uuid no longer exists
+	// ZombieOrphanDir : a vmDir on disk with no matching registry
+	// record. Typical cause : agent crashed mid-RegisterMicroVM, or
+	// manual rm of the registry record while the disk artifact
+	// stayed behind. Detected by ListVMDirs against the in-memory
+	// vmReg. NEVER auto-deleted by default — disk artifacts are
+	// indistinguishable from "VM whose record is about to be
+	// re-registered" without an age signal.
+	ZombieOrphanDir ZombieKind = "orphan_dir"
 )
 
 // Zombie is one detection. The Reason field copies enough host /
@@ -95,6 +103,12 @@ type Options struct {
 	// doesn't trigger false positives, short enough that operators
 	// see the report on the same shift.
 	HostDownGrace time.Duration
+	// OrphanDirGrace is how old a vmDir must be (ModTime) before we
+	// flag it as an orphan_dir zombie. Default : 5 minutes — short
+	// enough that operators see disk leaks the same shift, long
+	// enough that a freshly-created VM (RegisterMicroVM mid-flight)
+	// doesn't race into the report.
+	OrphanDirGrace time.Duration
 	// DryRun disables auto-delete + state mutations. The Sweep still
 	// returns the Report so callers can render what WOULD happen.
 	DryRun bool
@@ -143,6 +157,9 @@ func New(adp weft.VZAdapter, probe VMLivenessProbe, localHostUUID string, opts O
 	}
 	if opts.HostDownGrace <= 0 {
 		opts.HostDownGrace = 60 * time.Second
+	}
+	if opts.OrphanDirGrace <= 0 {
+		opts.OrphanDirGrace = 5 * time.Minute
 	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -242,6 +259,13 @@ func (r *Reconciler) Sweep(ctx context.Context) Report {
 	var rep Report
 	byKind := map[ZombieKind]int{}
 
+	// Build a (projectUUID, name) index from the in-memory registry so
+	// the orphan_dir scan is O(1) per disk entry.
+	knownDirs := make(map[string]struct{}, len(vms))
+	for _, vm := range vms {
+		knownDirs[dirKey(vm.ProjectUUID, vm.Name)] = struct{}{}
+	}
+
 	for _, vm := range vms {
 		z, ok := r.classify(vm, hostByUUID, projectExists, now)
 		if !ok {
@@ -282,6 +306,35 @@ func (r *Reconciler) Sweep(ctx context.Context) Report {
 		}
 	}
 
+	// V0.1.13 : orphan_dir scan. Walks the disk-side vmsDir and
+	// flags any directory that doesn't have a corresponding
+	// registry record. Catches the "crash mid-RegisterMicroVM" and
+	// "manual rm of registry record" cases that the registry-only
+	// sweep above misses by definition.
+	for _, d := range r.adp.ListVMDirs() {
+		if _, known := knownDirs[dirKey(d.ProjectUUID, d.Name)]; known {
+			continue
+		}
+		age := now.Sub(d.ModTime)
+		if age < r.opts.OrphanDirGrace {
+			// Too young — likely a RegisterMicroVM in flight.
+			continue
+		}
+		z := Zombie{
+			Name:        d.Name,
+			ProjectUUID: d.ProjectUUID,
+			Kind:        ZombieOrphanDir,
+			Reason:      fmt.Sprintf("vmDir %q has no matching registry record (age=%s)", d.Path, age.Truncate(time.Second)),
+			DetectedAt:  now,
+		}
+		rep.Zombies = append(rep.Zombies, z)
+		byKind[ZombieOrphanDir]++
+		// orphan_dir is never auto-deleted by default — operator
+		// triggers explicit cleanup via `weft instance gc --apply`
+		// (TODO : --delete-orphan-dirs flag wires this up).
+		_ = z
+	}
+
 	r.mu.Lock()
 	r.last = rep
 	r.stats.LastSweepAt = now
@@ -289,6 +342,14 @@ func (r *Reconciler) Sweep(ctx context.Context) Report {
 	r.stats.DeletedTotal += uint64(rep.Deleted)
 	r.mu.Unlock()
 	return rep
+}
+
+// dirKey builds the lookup key the orphan_dir scan uses to test
+// whether a vmDir matches a registry record. Mirrors the on-disk
+// path layout (<projectUUID>/<vmName>) so the comparison is
+// straightforward.
+func dirKey(projectUUID, name string) string {
+	return projectUUID + "\x00" + name
 }
 
 // classify decides whether `vm` is a zombie, and if so which kind.

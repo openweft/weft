@@ -17,11 +17,14 @@ type fakeAdapter struct {
 	vms      []weft.VM
 	hosts    []weft.Host
 	projects []weft.Project
+	vmDirs   []weft.VMDirEntry
 
 	deletions  []string
 	stateSets  []stateSet
 	deleteFail error
 }
+
+func (a *fakeAdapter) ListVMDirs() []weft.VMDirEntry { return a.vmDirs }
 
 type stateSet struct {
 	uuid  string
@@ -256,6 +259,58 @@ func TestSweep_OrphanHost(t *testing.T) {
 	}
 	if rep.Deleted != 0 {
 		t.Error("unknown-host VM must never be auto-deleted")
+	}
+}
+
+func TestSweep_OrphanDir_DetectedNotDeleted(t *testing.T) {
+	adp, probe := setup()
+	// Registry is empty ; disk has a stale vmDir for a VM nobody knows.
+	adp.vmDirs = []weft.VMDirEntry{
+		{ProjectUUID: "p-1", Name: "ghost", Path: "/state/vz/p-1/ghost",
+			ModTime: time.Now().Add(-10 * time.Minute)},
+	}
+	r := New(adp, probe, localHost, Options{OrphanDirGrace: 5 * time.Minute})
+	rep := r.Sweep(context.Background())
+	if len(rep.Zombies) != 1 || rep.Zombies[0].Kind != ZombieOrphanDir {
+		t.Fatalf("expected orphan_dir, got %+v", rep.Zombies)
+	}
+	if rep.Deleted != 0 {
+		t.Error("orphan_dir must never be auto-deleted")
+	}
+	if len(adp.deletions) != 0 {
+		t.Error("no DeleteVM should be called on orphan_dirs")
+	}
+}
+
+func TestSweep_OrphanDir_RegisteredVMNotFlagged(t *testing.T) {
+	adp, probe := setup()
+	// vmDir matches a registered VM → not orphan.
+	adp.vms = []weft.VM{
+		{UUID: "vm-1", Name: "web", ProjectUUID: "p-1", HostUUID: localHost, State: weft.VMStateRunning},
+	}
+	probe.alive["web"] = true
+	adp.vmDirs = []weft.VMDirEntry{
+		{ProjectUUID: "p-1", Name: "web", Path: "/state/vz/p-1/web",
+			ModTime: time.Now().Add(-1 * time.Hour)},
+	}
+	r := New(adp, probe, localHost, Options{OrphanDirGrace: 5 * time.Minute})
+	rep := r.Sweep(context.Background())
+	if len(rep.Zombies) != 0 {
+		t.Errorf("registered VM should not produce orphan_dir, got %+v", rep.Zombies)
+	}
+}
+
+func TestSweep_OrphanDir_GraceNotElapsed(t *testing.T) {
+	adp, probe := setup()
+	// Fresh vmDir (1s old) — likely RegisterMicroVM in flight.
+	adp.vmDirs = []weft.VMDirEntry{
+		{ProjectUUID: "p-1", Name: "fresh", Path: "/state/vz/p-1/fresh",
+			ModTime: time.Now().Add(-1 * time.Second)},
+	}
+	r := New(adp, probe, localHost, Options{OrphanDirGrace: 5 * time.Minute})
+	rep := r.Sweep(context.Background())
+	if len(rep.Zombies) != 0 {
+		t.Errorf("young vmDir should not be flagged, got %+v", rep.Zombies)
 	}
 }
 

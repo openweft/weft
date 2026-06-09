@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/go-grub/grub"
 	weftplugin "github.com/openweft/weft-driver-plugin"
@@ -69,6 +70,7 @@ type VZAdapter interface {
 	SetPaths(cachePath, vmsPath string)
 	SetEventBus(b EventBus)
 	VMDir(name string) string
+	ListVMDirs() []VMDirEntry
 	VMDirFor(project, name string) string
 	// RegistryStorage returns the Storage backing the named
 	// registry blob. Cmd/weft uses this to construct catalogues
@@ -2746,6 +2748,58 @@ func (a *Adapter) vmDirIn(project, name string) string {
 
 // VMDir is the public accessor for vmDir(name).
 func (a *Adapter) VMDir(name string) string { return a.vmDir(name) }
+
+// VMDirEntry is one row from ListVMDirs. Used by zombiegc to
+// classify orphan_dir zombies — vmDirs on disk without a matching
+// registry record.
+type VMDirEntry struct {
+	ProjectUUID string
+	Name        string
+	Path        string
+	ModTime     time.Time
+}
+
+// ListVMDirs walks vmsDir and returns one entry per VM directory it
+// finds. Used by zombiegc to detect disk-side zombies that the
+// registry-iterating sweep can't see (typically the result of a
+// crash mid-RegisterMicroVM or operator manual rm against the
+// registry). Returns empty + nil if the vmsDir is missing — that's
+// a fresh agent with no VMs yet.
+func (a *Adapter) ListVMDirs() []VMDirEntry {
+	base := a.vmsDir()
+	projectEntries, err := os.ReadDir(base)
+	if err != nil {
+		return nil
+	}
+	var out []VMDirEntry
+	for _, p := range projectEntries {
+		if !p.IsDir() {
+			continue
+		}
+		projectPath := filepath.Join(base, p.Name())
+		vmEntries, err := os.ReadDir(projectPath)
+		if err != nil {
+			continue
+		}
+		for _, v := range vmEntries {
+			if !v.IsDir() {
+				continue
+			}
+			vmPath := filepath.Join(projectPath, v.Name())
+			st, err := os.Stat(vmPath)
+			if err != nil {
+				continue
+			}
+			out = append(out, VMDirEntry{
+				ProjectUUID: p.Name(),
+				Name:        v.Name(),
+				Path:        vmPath,
+				ModTime:     st.ModTime(),
+			})
+		}
+	}
+	return out
+}
 
 // VMDirIn is the public accessor for vmDirIn(project, name).
 func (a *Adapter) VMDirIn(project, name string) string { return a.vmDirIn(project, name) }

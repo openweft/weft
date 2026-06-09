@@ -31,7 +31,8 @@ func startZombieGC(reg *prometheus.Registry, a weft.VZAdapter) func() {
 	opts := zombiegc.Options{
 		CIGracePeriod: envDuration("WEFT_ZOMBIE_GC_CI_GRACE", 1*time.Hour),
 		SweepInterval: envDuration("WEFT_ZOMBIE_GC_SWEEP_INTERVAL", 5*time.Minute),
-		HostDownGrace: envDuration("WEFT_ZOMBIE_GC_HOST_DOWN_GRACE", 60*time.Second),
+		HostDownGrace:  envDuration("WEFT_ZOMBIE_GC_HOST_DOWN_GRACE", 60*time.Second),
+		OrphanDirGrace: envDuration("WEFT_ZOMBIE_GC_ORPHAN_DIR_GRACE", 5*time.Minute),
 		Logger:        slog.Default(),
 	}
 	// Liveness probe : reuse the same VMStatusReader logic the
@@ -93,6 +94,7 @@ func startZombieGC(reg *prometheus.Registry, a weft.VZAdapter) func() {
 					zombiegc.ZombieCICrossHost,
 					zombiegc.ZombieHACrossHost,
 					zombiegc.ZombieOrphanProject,
+					zombiegc.ZombieOrphanDir,
 				} {
 					gauge.WithLabelValues(string(k)).Set(float64(s.ZombiesByKind[k]))
 				}
@@ -107,6 +109,7 @@ func startZombieGC(reg *prometheus.Registry, a weft.VZAdapter) func() {
 		"sweep_interval", opts.SweepInterval,
 		"ci_grace", opts.CIGracePeriod,
 		"host_down_grace", opts.HostDownGrace,
+		"orphan_dir_grace", opts.OrphanDirGrace,
 	)
 	return cancel
 }
