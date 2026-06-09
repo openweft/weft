@@ -23,7 +23,7 @@ tasks:
   run:
     desc: "Run the weft agent (all-in-one) with the local example config"
     cmds:
-      - ./bin/weft agent --config-dir .mock/hcl
+      - ./bin/weft agent --config-dir state/hcl
 
   lint:
     desc: "Vet the package"
