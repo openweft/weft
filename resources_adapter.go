@@ -405,7 +405,7 @@ func (a *Adapter) WatchSchedulingRuleRegistry(ctx context.Context) {
 	go func() {
 		for ev := range ch {
 			a.schedRuleReg.applyKVEvent(ev)
-			a.bus.Publish(PlatformEvent{Kind: "schedulingrule.registry_reloaded"})
+			// V0.1.7 : no schedulingrule.registry_reloaded publish.
 		}
 	}()
 }

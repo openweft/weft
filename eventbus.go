@@ -132,6 +132,23 @@ type LocalEventBus struct {
 	mu     sync.RWMutex
 	subs   map[*subscriber]struct{}
 	closed atomic.Bool
+	// dropTotal is the cluster-wide drop counter aggregated across
+	// all subscribers' per-channel drops. Surfaced as
+	// weft_bus_dropped_total on /metrics so operators alert on bus
+	// overload (a wedged consumer or genuine event burst) without
+	// having to instrument each subscriber.
+	dropTotal atomic.Uint64
+}
+
+// DropTotal returns the running total of bus events dropped because
+// a subscriber's channel was full. The counter is monotonic across
+// the bus's lifetime ; expose via Prometheus by polling and
+// computing the delta.
+func (b *LocalEventBus) DropTotal() uint64 {
+	if b == nil {
+		return 0
+	}
+	return b.dropTotal.Load()
 }
 
 // subscriber is one open subscription. `out` is the channel the
@@ -184,6 +201,7 @@ func (b *LocalEventBus)Publish(ev PlatformEvent) {
 		case s.out <- ev:
 		default:
 			s.dropped.Add(1)
+			b.dropTotal.Add(1)
 		}
 	}
 }
