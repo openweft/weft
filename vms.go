@@ -536,6 +536,7 @@ func (r *vmRegistry) reloadFromStorage(ctx context.Context) error {
 				Architecture:  b.Architecture,
 				RequestedGPUs: reqGPUs,
 				RequestedPCI:  reqPCI,
+				Labels:        copyLabels(b.Labels),
 				State:         state,
 				CreatedAt:     created,
 				LastStartAt:   lastStart,
