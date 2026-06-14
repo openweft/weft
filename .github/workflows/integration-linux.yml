@@ -40,3 +40,30 @@ jobs:
         # no userns/seccomp gymnastics needed.
         run: |
           sudo -E env "PATH=$PATH" go test -tags=integration -v -count=1 ./floatingipnat/
+
+  floatingipl2:
+    name: floatingipl2 macvlan + gARP integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: kernel info
+        run: |
+          uname -a
+          which tcpdump || true
+
+      - name: go test (integration)
+        env:
+          GOWORK: off
+        # Same CAP_NET_ADMIN need as floatingipnat — we create a fresh
+        # netns, add a veth pair, program VLAN sub-interface + macvlan
+        # + addresses, emit gARP via AF_PACKET, and assert the kernel
+        # state. tcpdump is available on ubuntu-latest ; the wire-
+        # capture test will run, the others use only netlink.
+        run: |
+          sudo -E env "PATH=$PATH" go test -tags=integration -v -count=1 ./floatingipl2/
