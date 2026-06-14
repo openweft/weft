@@ -7,6 +7,57 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [0.4.22] - 2026-06-14
+
+### Added
+
+- **L2/VLAN attachment path for floating IPs** (`floatingipl2/`).
+  Closes the gap for deployments where the establishment provides
+  a VLAN trunk + subnet but no routing protocol (academic /
+  enterprise environments where the ops team won't peer BGP with
+  the openweft cluster). When a Network is declared with
+  `external_mode = "vlan"`, the host running the target VM :
+  - Attaches a macvlan (in bridge mode, so multiple FIPs share a
+    parent) to the VLAN sub-interface ("`<parent>.<vlan>`") of
+    the operator-supplied NIC.
+  - Binds the FIP as a /32 secondary address on the macvlan.
+  - Emits gratuitous ARP via hand-rolled AF_PACKET (14 B Ethernet
+    + 28 B ARP, broadcast destination, sender = target = FIP) so
+    switch CAM tables refresh on migration within ms.
+  - Tears the macvlan down on VM departure ; the VLAN sub-interface
+    is kept (may be operator-managed or shared).
+  Whole-state replace on every Apply ; safe for concurrent calls
+  (mutex-serialised). Stale-macvlan GC by `wft-mvl-` prefix scan.
+  IPv4 only ; v6 falls back to standard NDP. Symmetric Watcher
+  (`floatingipl2.Watcher`) reactor — same event taxonomy as
+  `floatingipnat.Watcher`, parallel reconcile path. 17 tests (5
+  unit + 5 compute + 2 watcher + 5 Linux-kernel integration in
+  netns + veth pair). CI workflow's second job exercises the
+  integration tag with CAP_NET_ADMIN. Commit `7153f0b`.
+
+- **Network model extension** (with weft-proto v0.11.2) :
+  `Network.ExternalMode` ("bgp" default, "vlan"), `VLAN` (802.1Q
+  tag 1-4094, 0 = untagged trunk), `ParentInterface` (host NIC
+  name for the macvlan). Validated cross-field at CreateNetwork
+  time (mode=vlan requires parent_interface ; mode=bgp/empty
+  rejects non-zero vlan or parent_interface). HCL + JSON +
+  proto round-trip. Commit `35bacda`.
+
+### Changed
+
+- **`floatingipnat.ComputeLocalMappings`** now returns broad-
+  coverage NAT mappings : every active FIP whose target VM has
+  a port-assigned IP, regardless of which host runs the VM.
+  Pre-installs DNAT rules on every host so a VM migration finds
+  its NAT already in place — only failover delay left is BGP
+  redistribution (one keepalive) or gARP propagation (ms). Two
+  paths : production `*weft.Adapter` exposes `ListHostUUIDs` →
+  broad walk ; minimal Scope-impls (tests, future-proofed) fall
+  back to local-only. Existing tests stay green. Rules grow as
+  O(hosts × FIPs) cluster-wide — typical setups (hundreds of VMs,
+  dozens of FIPs) stay well under nftables' practical limits.
+  Commit `616a202`.
+
 ## [0.4.21] - 2026-06-14
 
 ### Changed
