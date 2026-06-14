@@ -7,6 +7,47 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [0.4.24] - 2026-06-14
+
+3 deferred items closed in parallel as a follow-up to v0.4.23 :
+
+### Added
+
+- **DHCPv4 protocol implementation** (`dhcpd/protocol.go` +
+  `dhcpd/server_linux.go`). Hand-rolled RFC 2131 + 2132 — fixed
+  236-byte header parser/builder, TLV option encoder, full
+  DISCOVER → OFFER / REQUEST → ACK state machine via the new
+  `Decide(packet, source)` pure function. `NewLinuxServer` binds
+  UDP/67 via `unix.SO_BINDTODEVICE` + `SO_BROADCAST` + raw
+  `unix.Socket` handed to `net.FilePacketConn` ; replies always
+  broadcast to `255.255.255.255:68` (every-switch-compatible).
+  Zero new module deps — `golang.org/x/sys/unix` was already
+  vendored. 25 tests : protocol round-trip + state-machine + a
+  real-UDP-socket loopback test that drives a DISCOVER on lo and
+  asserts the Source.Resolve fires. Commit `8936789`.
+
+- **Live-kernel integration tests** for the new packages
+  (`.github/workflows/integration-linux.yml` grows portsec +
+  portqos jobs). 4 portsec tests programming the `bridge
+  weft-portsec` table + 4 portqos tests programming tc/htb
+  egress + ifb-mirror ingress + 2 new floatingipnat tests for
+  the IPv6 NAT path (v4+v6 in one Apply, mixed-family rejected).
+  Each test enters a fresh netns, creates a veth pair, applies,
+  reads back via netlink. All 13 pass live on Debian arm64
+  (kernel 6.12.90). Commit `eeb0242`.
+
+### Companion bump
+
+- `weft-microvm-agent v0.3.x` ([commit `3c91ba3`](https://github.com/openweft/weft-microvm-agent/commit/3c91ba3)) :
+  `weft_microvm_agent_firewall_drops_packets_total` +
+  `weft_microvm_agent_firewall_drops_bytes_total` counters
+  surface the kernel nftables drop accounting from
+  `pod.FirewallStatus`. Reset-aware accumulator handles the
+  table-rebuild kernel-counter reset cleanly (last < current →
+  add current ; last > current → reseed and add). New ReadHook
+  seam on the firewallstatus emitter fires after each
+  `ReadFirewallStatus` poll.
+
 ## [0.4.23] - 2026-06-14
 
 8-item network-gap sweep ("loop until exhaustion") — each item
