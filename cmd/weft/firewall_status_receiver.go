@@ -68,6 +68,14 @@ func natsWildcardSubscribe(conn *nats.Conn) firewallpub.NATSSubscribeFunc {
 		sub, err := conn.Subscribe(subjectPattern, func(m *nats.Msg) {
 			handler(m.Subject, m.Data)
 		})
+		// Flush so the SUB protocol message has reached the server
+		// before we block on ctx.Done() — without it a publish
+		// landing in the next millisecond can race the subscription
+		// and silently drop. Surfaced by a flake in the e2e test ;
+		// hardening here removes the same race from production.
+		if err == nil {
+			err = conn.Flush()
+		}
 		if err != nil {
 			return err
 		}

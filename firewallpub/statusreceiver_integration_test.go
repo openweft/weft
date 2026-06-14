@@ -53,12 +53,17 @@ func TestStatusReceiver_EndToEnd_NATS_to_Bus(t *testing.T) {
 	defer cancel()
 	go rcv.Run(ctx)
 
-	// Wait for the NATS subscription to actually be registered
-	// before publishing — nats.Conn.Subscribe is async over the
-	// wire, so a tight test can race a publish vs the
-	// subscription landing. Round-trip a ping via the same conn.
-	if err := nc.Flush(); err != nil {
-		t.Fatalf("flush: %v", err)
+	// Wait until the StatusReceiver's subscription is live on the
+	// shared conn before publishing. The goroutine starts async, so
+	// a tight test can otherwise publish into the void. Poll for
+	// up to 1 s — typical startup is sub-ms ; failing this means
+	// the receiver never got off the ground.
+	waitDeadline := time.Now().Add(time.Second)
+	for nc.NumSubscriptions() == 0 {
+		if time.Now().After(waitDeadline) {
+			t.Fatal("StatusReceiver subscription never landed")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	// Simulate an in-VM agent publishing its status.
@@ -108,6 +113,12 @@ func natsWildcardSubscribe(conn *nats.Conn) firewallpub.NATSSubscribeFunc {
 		sub, err := conn.Subscribe(subjectPattern, func(m *nats.Msg) {
 			handler(m.Subject, m.Data)
 		})
+		if err == nil {
+			// Flush so the SUB protocol message reached the server
+			// before we block on ctx.Done() — otherwise a publish in
+			// the next millisecond races the subscription.
+			err = conn.Flush()
+		}
 		if err != nil {
 			return err
 		}
