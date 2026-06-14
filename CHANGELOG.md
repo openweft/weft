@@ -7,6 +7,8 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [0.4.21] - 2026-06-14
+
 ### Changed
 
 - **`SearchRegistryRemote` : implementation upgrades from server-side
