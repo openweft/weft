@@ -401,6 +401,16 @@ type fileConfigTargets struct {
 	clientMode      bool
 	controlPlaneURL string
 
+	// Node-side TPM remote attestation (--client mode). attestTPM gates the
+	// agent's bring-up behind the Enroll/Admit handshake against the
+	// control-plane AttestationService ; attestTPMDevice is the TPM
+	// character device it opens (empty → devtpm.DefaultDevice). Default OFF
+	// — the agent never touches a TPM and bring-up is the legacy path. The
+	// node side mirrors the server's --attestation-enabled (both ends must
+	// agree).
+	attestTPM       bool
+	attestTPMDevice string
+
 	// Reverse-proxy plane (Caddy supervised subprocess + etcd
 	// Watcher). Opt-in via --proxy ; off by default so the agent
 	// stays a single-process daemon for operators that don't need

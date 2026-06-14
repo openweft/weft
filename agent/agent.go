@@ -80,6 +80,37 @@ type Options struct {
 	// on linux) and registers it as the host's only capability. Existing
 	// deployments don't have to opt in.
 	Drivers []DriverSpec
+
+	// AttestTPM, when true, gates this host's RegisterHost behind the TPM
+	// remote-attestation handshake : before registering, the agent opens
+	// the local TPM, derives an EK/AK, and runs the four-RPC
+	// Enroll→CompleteEnroll→RequestAdmission→Admit dance against the
+	// control-plane AttestationService (AttestClient). Only on a granted
+	// admission does it proceed to RegisterHost, stamping the admitted AK
+	// Name onto reg.Labels[AttestLabelKey] (the key the control plane's
+	// flag-gated RegisterHost reads). On any handshake failure the agent
+	// bring-up fails : when the operator turns attestation on, it is
+	// required, not best-effort.
+	//
+	// Default false — the agent never touches the TPM and bring-up is
+	// byte-for-byte the legacy path. Mirrors the control plane's
+	// --attestation-enabled (both sides must agree).
+	AttestTPM bool
+	// AttestTPMDevice is the TPM character-device path the agent opens when
+	// AttestTPM is set. Empty defaults to devtpm.DefaultDevice
+	// ("/dev/tpmrm0", the Linux resource-manager channel). Ignored when
+	// AttestTPM is false.
+	AttestTPMDevice string
+	// AttestClient is the AttestationService gRPC client the handshake
+	// drives. Required when AttestTPM is true (run_client builds it from
+	// the same control-plane conn it already dials). nil with AttestTPM
+	// set is a configuration error surfaced at Start. Ignored when
+	// AttestTPM is false.
+	//
+	// The in-process adapterControlPlane path can't carry this : the
+	// attested bring-up requires the gRPC control plane (the realistic
+	// deployment — a TPM-bearing node dialing a remote control plane).
+	AttestClient AttestationClient
 }
 
 // DriverSpec describes one driver to launch on this host : its kind
@@ -92,15 +123,15 @@ type DriverSpec struct {
 
 // Agent is the per-host worker.
 type Agent struct {
-	opts       Options
-	hostUUID   string
-	hostname   string
+	opts     Options
+	hostUUID string
+	hostname string
 	// handles + hypervisor describe the PRIMARY driver. In single-plugin
 	// mode they're the only handles ; in multi-plugin mode they mirror
 	// driverSet[primaryKind] so legacy dispatch keeps working until the
 	// per-kind table lands.
-	handles      DriverHandles
-	hypervisor   string
+	handles    DriverHandles
+	hypervisor string
 	// driverSet is non-nil only in multi-plugin mode (Options.Drivers
 	// non-empty). Keys are driver kinds ("vz" / "qemu") ; values are
 	// per-driver handles. Reserved for the per-arch dispatch table
@@ -110,9 +141,9 @@ type Agent struct {
 	pluginCloser io.Closer // kills the local driver plugin on Stop
 	cancel       context.CancelFunc
 	doneCh       chan struct{}
-	startOnce  sync.Once
-	stopOnce   sync.Once
-	startedErr error
+	startOnce    sync.Once
+	stopOnce     sync.Once
+	startedErr   error
 }
 
 // New constructs an Agent without starting it. Returns an
@@ -215,14 +246,37 @@ func (a *Agent) start(ctx context.Context) error {
 		driverCaps = []HostDriverCapability{{Kind: a.hypervisor, Arches: []string{runtime.GOARCH}}}
 	}
 
+	// Attestation gate (feature-flagged, default OFF). When AttestTPM is
+	// false this block is skipped entirely and the path below is exactly
+	// the legacy RegisterHost flow — no TPM is opened, no extra label is
+	// set. When ON, the agent opens the local TPM, runs the four-RPC
+	// handshake against the control-plane AttestationService, and only on
+	// a granted admission stamps the admitted AK Name onto the labels the
+	// control-plane gate (requireAdmittedAK) consumes. Any failure aborts
+	// the bring-up : with the flag on, attestation is required.
+	attestLabels := a.opts.Labels
+	if a.opts.AttestTPM {
+		akName, err := runNodeAttestationFn(ctx, a.opts.AttestTPMDevice, a.opts.AttestClient)
+		if err != nil {
+			return fmt.Errorf("weft-agent: attestation handshake: %w", err)
+		}
+		// Copy-on-write : never mutate the operator's Options.Labels map.
+		merged := make(map[string]string, len(a.opts.Labels)+1)
+		for k, v := range a.opts.Labels {
+			merged[k] = v
+		}
+		merged[AttestLabelKey] = string(akName)
+		attestLabels = merged
+	}
+
 	reg := HostRegistration{
-		UUID:           uuid,
-		Hostname:       hn,
-		AZ:             a.opts.AZ,
-		Rack:           a.opts.Rack,
-		Endpoint:       a.opts.Endpoint,
-		Hypervisor:     a.hypervisor,
-		Architecture:   runtime.GOARCH,
+		UUID:         uuid,
+		Hostname:     hn,
+		AZ:           a.opts.AZ,
+		Rack:         a.opts.Rack,
+		Endpoint:     a.opts.Endpoint,
+		Hypervisor:   a.hypervisor,
+		Architecture: runtime.GOARCH,
 		// Drivers carries the full capability list — one entry per
 		// driver plugin this agent has launched, with the set of
 		// guest archs each can run. Single-plugin agents publish a
@@ -232,7 +286,7 @@ func (a *Agent) start(ctx context.Context) error {
 		Drivers:        driverCaps,
 		NetworkTypes:   []string{"nat", "bridged", "isolated", "mesh"},
 		VolumeBackends: []string{"file"},
-		Labels:         a.opts.Labels,
+		Labels:         attestLabels,
 	}
 	if _, err := a.opts.ControlPlane.RegisterHost(ctx, reg); err != nil {
 		return fmt.Errorf("weft-agent: RegisterHost: %w", err)
