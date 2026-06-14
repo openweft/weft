@@ -133,6 +133,24 @@ type Host struct {
 	// OFF, so this is unset on every existing host. Informational on the
 	// registry side ; the gate decision happens in the RegisterHost RPC.
 	AKName string `json:"ak_name,omitempty"`
+	// WGPublicKey is the host's WireGuard public key for the host-level
+	// overlay mesh (cluster prereq #3). The host MINTS its keypair locally
+	// (EnsureHostWGKey) and registers ONLY the public half — the private key
+	// never leaves the node, so the registry (and any NATS distribution built
+	// from it) carries no secret. Empty on every host registered before the
+	// host-mesh feature landed and on hosts that didn't mint a WG identity ;
+	// such hosts simply don't participate in the host mesh (additive,
+	// legacy-safe). When the attestation gate is enabled only attested nodes
+	// reach RegisterHost, so a non-empty WGPublicKey is implicitly
+	// attestation-gated.
+	WGPublicKey string `json:"wg_public_key,omitempty"`
+	// WGOverlayIndex is the host's stable 1-based index in the overlay
+	// subnet ; wgcoord.Allocator.Host(idx) maps it to the host's overlay IP
+	// deterministically, so the IP itself isn't persisted. Zero means
+	// "unassigned" (legacy / non-mesh host) — HostMeshMembers skips such
+	// hosts. Assigned by selfRegisterHost from a host-local file so it's
+	// stable across restarts.
+	WGOverlayIndex int `json:"wg_overlay_index,omitempty"`
 }
 
 // HostDriver is one weft-driver-<kind> subprocess running on a host, with
@@ -189,6 +207,8 @@ type hostBlock struct {
 	LastSeenAt     string            `hcl:"last_seen_at,optional"`
 	CreatedAt      string            `hcl:"created_at"`
 	AKName         string            `hcl:"ak_name,optional"`
+	WGPublicKey    string            `hcl:"wg_public_key,optional"`
+	WGOverlayIndex int               `hcl:"wg_overlay_index,optional"`
 }
 
 type hostDriverBlock struct {
@@ -301,6 +321,8 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			LastSeenAt:     lastSeen,
 			CreatedAt:      created,
 			AKName:         b.AKName,
+			WGPublicKey:    b.WGPublicKey,
+			WGOverlayIndex: b.WGOverlayIndex,
 		}
 		reg.byUUID[h.UUID] = h
 		if h.Hostname != "" {
@@ -425,6 +447,14 @@ func (r *hostRegistry) saveLocked() error {
 		if h.AKName != "" {
 			bb.SetAttributeValue("ak_name", cty.StringVal(h.AKName))
 		}
+		// Host-mesh WG identity — persisted only when the host minted one,
+		// keeping the legacy / non-mesh path byte-identical.
+		if h.WGPublicKey != "" {
+			bb.SetAttributeValue("wg_public_key", cty.StringVal(h.WGPublicKey))
+		}
+		if h.WGOverlayIndex != 0 {
+			bb.SetAttributeValue("wg_overlay_index", cty.NumberIntVal(int64(h.WGOverlayIndex)))
+		}
 		body.AppendNewline()
 	}
 	return r.storage.Save(context.Background(), f.Bytes())
@@ -537,6 +567,15 @@ type RegisterHostSpec struct {
 	// OIDC-only path). Stamped onto the Host registry entry. See
 	// [[attestation.go]] for the gate.
 	AKName string
+	// WGPublicKey is the host's WireGuard public key for the host-level
+	// overlay mesh. The registering node mints its keypair locally
+	// (EnsureHostWGKey) and supplies ONLY the public half here — there is no
+	// field for the private key by design, so a secret can never reach the
+	// registry. Empty on the legacy / non-mesh registration path.
+	WGPublicKey string
+	// WGOverlayIndex is the host's stable 1-based overlay-subnet index (see
+	// Host.WGOverlayIndex). Zero leaves the host out of the host mesh.
+	WGOverlayIndex int
 }
 
 // register adds a new host or, when spec.UUID matches an
@@ -597,6 +636,16 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 			if spec.AKName != "" {
 				existing.AKName = spec.AKName
 			}
+			// Host-mesh identity: refresh only when the caller supplies one,
+			// mirroring the AKName "don't clobber on the legacy path" rule.
+			// A node re-registering through the mesh path keeps its stable
+			// pubkey + index ; a legacy re-register leaves any prior value.
+			if spec.WGPublicKey != "" {
+				existing.WGPublicKey = spec.WGPublicKey
+			}
+			if spec.WGOverlayIndex != 0 {
+				existing.WGOverlayIndex = spec.WGOverlayIndex
+			}
 			r.byUUID[spec.UUID] = existing
 			if err := r.persistOne(existing); err != nil {
 				return Host{}, err
@@ -638,6 +687,8 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		LastSeenAt:     now,
 		CreatedAt:      now,
 		AKName:         spec.AKName,
+		WGPublicKey:    spec.WGPublicKey,
+		WGOverlayIndex: spec.WGOverlayIndex,
 	}
 	r.byUUID[h.UUID] = h
 	r.nameIdx[h.Hostname] = h.UUID
