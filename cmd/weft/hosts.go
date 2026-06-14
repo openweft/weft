@@ -73,11 +73,49 @@ func (s *weftServer) RegisterHost(ctx context.Context, req *weftv1.RegisterHostR
 			spec.Labels[k] = v
 		}
 	}
+	// Attestation gate (feature-flagged, default OFF). When the flag is
+	// off (s.attest nil or disabled) this block is skipped entirely and
+	// the path below is exactly the legacy OIDC-only flow. When ON, the
+	// caller's AK Name (carried in the labels under attestAKLabel) must
+	// have a fresh successful Admit, and the admitted AK Name is stamped
+	// onto the Host registry entry.
+	if s.attestGateEnabled() {
+		akName := attestAKNameFromReq(req)
+		if err := s.requireAdmittedAK(akName); err != nil {
+			return nil, err
+		}
+		spec.AKName = string(akName)
+	}
 	h, err := s.adp.RegisterHost(spec)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "register host: %v", err)
 	}
 	return &weftv1.RegisterHostResponse{Host: toHostInfo(h)}, nil
+}
+
+// attestAKLabel is the reserved RegisterHostRequest.labels key carrying
+// the node's TPM AK Name (the value the Admit handler keyed on) when
+// attestation is enabled. Using the existing labels map avoids a proto
+// change to RegisterHostRequest ; the key is namespaced under weft.attest/
+// so it can't collide with an operator label. The value is the raw AK
+// Name bytes rendered as the same string key the gate's admitted-set
+// uses (the node sends string(akName)).
+const attestAKLabel = "weft.attest/ak-name"
+
+// attestAKNameFromReq pulls the node's AK Name out of the request labels.
+// Returns nil when absent (requireAdmittedAK then denies). The label is
+// removed from the spec's labels by the caller path implicitly — we read
+// it here and do NOT strip it from spec.Labels, so it is also visible on
+// the Host entry for diagnostics ; AKName is the authoritative field.
+func attestAKNameFromReq(req *weftv1.RegisterHostRequest) []byte {
+	if req == nil || len(req.Labels) == 0 {
+		return nil
+	}
+	v, ok := req.Labels[attestAKLabel]
+	if !ok || v == "" {
+		return nil
+	}
+	return []byte(v)
 }
 
 func (s *weftServer) ListHosts(ctx context.Context, req *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {

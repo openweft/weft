@@ -126,6 +126,13 @@ type Host struct {
 	Cordoned   bool      `json:"cordoned,omitempty"`
 	LastSeenAt time.Time `json:"last_seen_at"`
 	CreatedAt  time.Time `json:"created_at"`
+	// AKName is the TPM Attestation Key Name the host's node proved at
+	// admission time (hex of the attest AK Name), stamped here when the
+	// attestation gate is enabled. Empty for hosts registered through the
+	// legacy OIDC-only path (the default) — attestation is feature-flagged
+	// OFF, so this is unset on every existing host. Informational on the
+	// registry side ; the gate decision happens in the RegisterHost RPC.
+	AKName string `json:"ak_name,omitempty"`
 }
 
 // HostDriver is one weft-driver-<kind> subprocess running on a host, with
@@ -181,6 +188,7 @@ type hostBlock struct {
 	Cordoned       bool              `hcl:"cordoned,optional"`
 	LastSeenAt     string            `hcl:"last_seen_at,optional"`
 	CreatedAt      string            `hcl:"created_at"`
+	AKName         string            `hcl:"ak_name,optional"`
 }
 
 type hostDriverBlock struct {
@@ -292,6 +300,7 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			Cordoned:       b.Cordoned,
 			LastSeenAt:     lastSeen,
 			CreatedAt:      created,
+			AKName:         b.AKName,
 		}
 		reg.byUUID[h.UUID] = h
 		if h.Hostname != "" {
@@ -413,6 +422,9 @@ func (r *hostRegistry) saveLocked() error {
 			bb.SetAttributeValue("last_seen_at", cty.StringVal(h.LastSeenAt.Format(time.RFC3339Nano)))
 		}
 		bb.SetAttributeValue("created_at", cty.StringVal(h.CreatedAt.Format(time.RFC3339Nano)))
+		if h.AKName != "" {
+			bb.SetAttributeValue("ak_name", cty.StringVal(h.AKName))
+		}
 		body.AppendNewline()
 	}
 	return r.storage.Save(context.Background(), f.Bytes())
@@ -520,6 +532,11 @@ type RegisterHostSpec struct {
 	// `pci { … }` blocks during the stub era.
 	PCIDevices []PCIDevice
 	Labels     map[string]string
+	// AKName is the TPM Attestation Key Name the registering node proved
+	// at admission (set only on the attested path ; empty on the default
+	// OIDC-only path). Stamped onto the Host registry entry. See
+	// [[attestation.go]] for the gate.
+	AKName string
 }
 
 // register adds a new host or, when spec.UUID matches an
@@ -573,6 +590,13 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 			if existing.State == HostStateDown {
 				existing.State = HostStateActive
 			}
+			// Stamp the attested AK Name only when the caller supplies
+			// one (attested path). The OIDC-only path leaves spec.AKName
+			// empty, so a re-register through it preserves any prior value
+			// rather than clobbering it.
+			if spec.AKName != "" {
+				existing.AKName = spec.AKName
+			}
 			r.byUUID[spec.UUID] = existing
 			if err := r.persistOne(existing); err != nil {
 				return Host{}, err
@@ -613,6 +637,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		State:          HostStateActive,
 		LastSeenAt:     now,
 		CreatedAt:      now,
+		AKName:         spec.AKName,
 	}
 	r.byUUID[h.UUID] = h
 	r.nameIdx[h.Hostname] = h.UUID
