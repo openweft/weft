@@ -2,7 +2,10 @@
 
 package floatingipnat
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // StubReconciler is the non-Linux fallback. Apply records the
 // payload it would have installed so host-side tests on darwin
@@ -23,7 +26,15 @@ func NewStubReconciler() *StubReconciler { return &StubReconciler{} }
 // Apply validates the payload (so a malformed mapping still
 // surfaces an error on darwin, matching the linux behaviour) and
 // stores it. Always returns nil after Validate succeeds.
-func (r *StubReconciler) Apply(mappings []NATMapping) error {
+//
+// Records weft_fip_nat_apply_total / _duration / _rules_installed
+// via the package-level metrics surface so test binaries on darwin
+// produce the same Prometheus shape the linux daemon emits in prod.
+func (r *StubReconciler) Apply(mappings []NATMapping) (retErr error) {
+	start := time.Now()
+	defer func() {
+		recordApply(mappings, retErr, time.Since(start).Seconds())
+	}()
 	if err := ValidateMappings(mappings); err != nil {
 		return err
 	}
