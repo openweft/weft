@@ -26,34 +26,33 @@ import (
 	grubpkg "github.com/go-grub/grub"
 	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	sshtransport "github.com/grpc-transports/ssh"
+	"github.com/openweft/weft"
 	cloudinit "github.com/openweft/weft-cidata"
 	wefthcl "github.com/openweft/weft-hcl"
-	weftslognats "github.com/openweft/weft-slognats"
-	"github.com/openweft/weft"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
 	weftv1 "github.com/openweft/weft-proto"
+	weftslognats "github.com/openweft/weft-slognats"
 	"github.com/openweft/weft/auditlog"
 	"github.com/openweft/weft/cmd/weft/admin"
+	"github.com/openweft/weft/cmd/weft/az"
+	"github.com/openweft/weft/cmd/weft/bucket"
 	"github.com/openweft/weft/cmd/weft/clean"
 	"github.com/openweft/weft/cmd/weft/completion"
+	"github.com/openweft/weft/cmd/weft/dnsrecord"
+	"github.com/openweft/weft/cmd/weft/dnszone"
 	"github.com/openweft/weft/cmd/weft/events"
 	"github.com/openweft/weft/cmd/weft/flavor"
 	"github.com/openweft/weft/cmd/weft/floatingip"
 	"github.com/openweft/weft/cmd/weft/host"
-	"github.com/openweft/weft/cmd/weft/monitor"
-	"github.com/openweft/weft/zombiegc"
 	"github.com/openweft/weft/cmd/weft/image"
 	"github.com/openweft/weft/cmd/weft/instance"
+	"github.com/openweft/weft/cmd/weft/loadbalancer"
 	"github.com/openweft/weft/cmd/weft/login"
 	"github.com/openweft/weft/cmd/weft/microvm"
+	"github.com/openweft/weft/cmd/weft/monitor"
 	"github.com/openweft/weft/cmd/weft/network"
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/plugin"
-	"github.com/openweft/weft/cmd/weft/az"
-	"github.com/openweft/weft/cmd/weft/bucket"
-	"github.com/openweft/weft/cmd/weft/dnsrecord"
-	"github.com/openweft/weft/cmd/weft/dnszone"
-	"github.com/openweft/weft/cmd/weft/loadbalancer"
 	"github.com/openweft/weft/cmd/weft/project"
 	"github.com/openweft/weft/cmd/weft/quota"
 	"github.com/openweft/weft/cmd/weft/rack"
@@ -70,6 +69,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/wait"
 	"github.com/openweft/weft/federation"
 	"github.com/openweft/weft/registryclient"
+	"github.com/openweft/weft/zombiegc"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -260,6 +260,7 @@ func agentCmd() *cobra.Command {
 	var controlPlaneURL string
 	var hypervisor string
 	var tcpListen string
+	var attestationEnabled bool
 	var az string
 	var rack string
 	var proxyEnabled bool
@@ -313,15 +314,16 @@ continuity (same sockets, same registry on-disk layout).`,
 				return err
 			}
 			tgt := fileConfigTargets{
-				socket:            socketPath,
-				sshSocket:         sshSocket,
-				sshAuthorizedKeys: sshAuthorizedKeys,
-				tcpListen:         tcpListen,
-				configDir:         cfgDir,
-				oidcIssuer:        oidcIssuer,
-				oidcClientID:      oidcClientID,
-				storageBackend:    storageBackend,
-				eventBusBackend:   eventBusBackend,
+				socket:             socketPath,
+				sshSocket:          sshSocket,
+				sshAuthorizedKeys:  sshAuthorizedKeys,
+				tcpListen:          tcpListen,
+				attestationEnabled: attestationEnabled,
+				configDir:          cfgDir,
+				oidcIssuer:         oidcIssuer,
+				oidcClientID:       oidcClientID,
+				storageBackend:     storageBackend,
+				eventBusBackend:    eventBusBackend,
 				// Proxy fields seeded with CLI-flag defaults so that
 				// `applyFileConfigDefaults` only overrides them when
 				// the HCL block sets a value. The Changed()-restore
@@ -429,6 +431,7 @@ continuity (same sockets, same registry on-disk layout).`,
 	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", `Registry persistence backend: "file" (dev, local disk), "etcd" (prod, 3-DC cluster), or "embed-etcd" (single-host, in-process etcd under <configDir>/etcd-embed). Empty = HCL config decides; HCL empty = "file".`)
 	cmd.Flags().StringVar(&eventBusBackend, "event-bus", "", `Event-bus backend: "local" (dev, in-process channels) or "nats" (prod, 3-DC cluster). Empty = HCL config decides; HCL empty = "local".`)
 	cmd.Flags().StringVar(&hypervisor, "hypervisor", "", `Local hypervisor driver: "" / "apple-vz" (default) or "qemu" (QEMU/TCG — pure emulation, works without nested virt).`)
+	cmd.Flags().BoolVar(&attestationEnabled, "attestation-enabled", false, "Enable the TPM remote-attestation host-admission gate. When set, RegisterHost additionally requires the calling node to have completed the Enroll/Admit attestation handshake (its AK must be freshly admitted). Default OFF — RegisterHost uses the legacy OIDC RequireAdmin path only.")
 	cmd.Flags().BoolVar(&serverMode, "server", false, "Run as control-plane server (no per-host driver dispatch). Default mode includes both.")
 	cmd.Flags().BoolVar(&clientMode, "client", false, "Run as per-host driver runtime only. Requires --control-plane to point at the server.")
 	cmd.Flags().StringVar(&controlPlaneURL, "control-plane", "", "URL of the Weft control-plane server (only consulted when --client is set).")
@@ -735,7 +738,25 @@ func run(t fileConfigTargets) error {
 	if err != nil {
 		return fmt.Errorf("load vm-sshkey registry: %w", err)
 	}
-	weftv1.RegisterWeftAgentServer(srv, &weftServer{
+	// Attestation gate (feature-flagged, default OFF). Built before the
+	// weftServer so it can be wired onto it. When --attestation-enabled
+	// is not set, attestGate is a disabled gate and every attestation
+	// hook is inert ; RegisterHost's OFF path is untouched.
+	var attestKV weft.KVStorage
+	if t.attestationEnabled {
+		if sf.newKV == nil {
+			return fmt.Errorf("--attestation-enabled requires an etcd storage backend (storage.backend = etcd or embed-etcd) for the EK registry; the file backend has no per-record KV store")
+		}
+		attestKV = sf.newKV("attest")
+	}
+	attestGate, err := weftAttestGateFromConfig(context.Background(), t.attestationEnabled, attestKV)
+	if err != nil {
+		return fmt.Errorf("attestation gate: %w", err)
+	}
+	if t.attestationEnabled {
+		logger.Printf("attestation gate ENABLED — TPM host admission required for RegisterHost")
+	}
+	srvImpl := &weftServer{
 		cfgDir:           t.configDir,
 		mc:               mc,
 		adp:              a,
@@ -747,7 +768,10 @@ func run(t fileConfigTargets) error {
 		uefiVars:         uefiReg,
 		vmKeys:           sshKeyReg,
 		zombieReconciler: zombieReconciler,
-	})
+		attest:           attestGate,
+	}
+	weftv1.RegisterWeftAgentServer(srv, srvImpl)
+	weftv1.RegisterAttestationServiceServer(srv, srvImpl)
 	weftv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 
 	// Top-level lifecycle ctx — cancelled on SIGINT/SIGTERM. The
@@ -848,6 +872,7 @@ func run(t fileConfigTargets) error {
 
 type weftServer struct {
 	weftv1.UnimplementedWeftAgentServer
+	weftv1.UnimplementedAttestationServiceServer
 	cfgDir string
 	mc     wefthcl.WeftBlock
 	adp    weft.VZAdapter
@@ -894,6 +919,14 @@ type weftServer struct {
 	// when the agent boots without `weft agent` (CLI mode), in
 	// which case the RPC returns an empty report.
 	zombieReconciler *zombiegc.Reconciler
+	// attest is the TPM remote-attestation host-admission gate. nil
+	// (the default) OR disabled means RegisterHost behaves exactly as
+	// it does today (OIDC RequireAdmin only). When enabled, the four
+	// AttestationService RPCs drive the verifier and RegisterHost
+	// additionally requires a fresh admission for the caller's AK.
+	// Set by run() only when --attestation-enabled is passed. See
+	// attestation.go (the weft package) + attestation.go (cmd/weft).
+	attest *weft.AttestationGate
 }
 
 func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {

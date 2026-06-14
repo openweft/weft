@@ -2661,3 +2661,96 @@ message SearchRegistryRemoteResponse {
   repeated string repositories = 1;
   string registry_name         = 2;
 }
+
+// --- Attestation (TPM remote-attestation host admission) ----------
+//
+// The attestation surface lets a TPM-bearing weft node prove an
+// approved boot to the control plane BEFORE it is allowed to register
+// itself as a Host. It wraps the go-tpm2/attest protocol's two phases
+// (enrolment + admission) over gRPC.
+//
+// The proto is intentionally decoupled from attest's Go structs : every
+// request/response carries the attest wire message as an OPAQUE blob
+// (AttestMsg.payload = the bytes of the corresponding attest.Marshal()).
+// The control-plane handler unmarshals into the concrete attest type,
+// drives the in-process attest.Verifier, and marshals the response.
+// This keeps weft-proto free of any TPM/attest dependency : a future
+// attest wire-format bump needs no .proto change.
+//
+// Handshake (node ↔ control plane) :
+//
+//   1. Enroll(req=attest.EnrollRequest)  → resp=attest.EnrollChallenge
+//   2. CompleteEnroll(req=attest.EnrollProof) → AttestResult{ok}
+//   3. RequestAdmission(req=attest.AdmissionRequest)
+//                                        → resp=attest.AdmissionChallenge
+//   4. Admit(req=attest.AdmissionResponse) → AdmitResult{granted,reason,ak_name}
+//
+// After a successful Admit the node's ak_name lands in a short-TTL
+// "recently admitted" set ; RegisterHost (when attestation is enabled)
+// requires the caller's ak_name to be in that set and stamps it on the
+// Host registry entry. When attestation is DISABLED (the default) the
+// RegisterHost path is unchanged (OIDC RequireAdmin only) and this
+// service still answers but its results never gate anything.
+
+// AttestMsg carries one opaque attest wire message. `payload` is the
+// raw output of the matching attest message's Marshal() — the server
+// Unmarshal()s it into the concrete attest type. `ak_name` is the AK
+// Name the node enrolled (hex or raw bytes are both fine — the server
+// treats it as an opaque key) ; it disambiguates which pending
+// enrolment / admission a CompleteEnroll / Admit refers to. It is
+// empty on the first Enroll (the AK Name is inside the payload there).
+message AttestMsg {
+  bytes  payload = 1;  // attest.<Message>.Marshal() bytes
+  bytes  ak_name = 2;  // AK Name key for CompleteEnroll / Admit routing
+}
+
+// AttestResult is the boolean-plus-reason outcome of CompleteEnroll.
+// `ok` is true when the credential activation proof matched and the AK
+// was bound to its trusted EK ; `reason` carries the verifier's typed
+// error string on failure (empty on success).
+message AttestResult {
+  bool   ok     = 1;
+  string reason = 2;
+}
+
+// AdmitResult is the outcome of Admit : whether the node's quote proved
+// an approved boot. `granted` gates the subsequent RegisterHost ;
+// `reason` is the verifier's typed error on a deny ; `ak_name` echoes
+// the admitted AK Name so the node can stamp it on its RegisterHost.
+message AdmitResult {
+  bool   granted = 1;
+  string reason  = 2;
+  bytes  ak_name = 3;
+}
+
+// AttestationService is the control-plane side of TPM host admission.
+// Pure-Go verifier (no TPM on the control plane) ; the node side needs
+// a TPM (see the node client stub). All four RPCs are UNAUTHENTICATED
+// at the OIDC layer by design — the cryptographic proof IS the
+// authentication. They are no-ops for trust unless the operator has
+// enabled attestation AND pre-trusted the node's EK (provisioning).
+service AttestationService {
+  // Enroll begins enrolment : the node presents its EK + AK
+  // (req payload = attest.EnrollRequest) ; the verifier rejects an
+  // untrusted EK, else returns a MakeCredential challenge
+  // (resp payload = attest.EnrollChallenge).
+  rpc Enroll (AttestMsg) returns (AttestMsg);
+
+  // CompleteEnroll finishes enrolment : the node returns the recovered
+  // activation secret (req payload = attest.EnrollProof, ak_name set) ;
+  // on a match the AK is bound to the trusted EK in the registry.
+  rpc CompleteEnroll (AttestMsg) returns (AttestResult);
+
+  // RequestAdmission opens an admission round : the node names its bound
+  // AK (req payload = attest.AdmissionRequest, ak_name set) ; the
+  // verifier issues a fresh anti-replay nonce
+  // (resp payload = attest.AdmissionChallenge).
+  rpc RequestAdmission (AttestMsg) returns (AttestMsg);
+
+  // Admit decides admission : the node returns a TPM quote over the
+  // nonce (req payload = attest.AdmissionResponse, ak_name set) ; the
+  // verifier checks signature + nonce + PCR policy and, on success,
+  // records the AK in the short-TTL admitted set that gates
+  // RegisterHost.
+  rpc Admit (AttestMsg) returns (AdmitResult);
+}

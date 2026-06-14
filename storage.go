@@ -520,3 +520,111 @@ func (s *EtcdStorage) Key() string { return s.key }
 // callers may still reference it; the runtime path no longer
 // returns it now that the client integration is in place.
 var ErrEtcdNotWired = errors.New("etcd backend was previously unwired — this build links the etcd v3 client")
+
+// ----------------------------------------------------------------
+// MemKVStorage — in-memory per-record backend (tests + dev fallback).
+// ----------------------------------------------------------------
+
+// MemKVStorage is an in-process KVStorage : a map + a watch fan-out, no
+// etcd, no I/O. It is the per-record sibling of MemStorage. Production
+// HA uses EtcdKVStorage ; MemKVStorage exists so single-process control
+// planes (and tests) can use a registry that needs KVStorage (e.g. the
+// attestation EKRegistry) without standing up etcd. Safe for concurrent
+// use. The watch channel buffers a small queue and drops on overflow —
+// receivers reconcile via List on reconnect, same contract as the etcd
+// watcher's coalescing.
+type MemKVStorage struct {
+	mu     sync.Mutex
+	prefix string
+	data   map[string][]byte
+	subs   []chan KVEvent
+}
+
+// NewMemKVStorage returns an empty in-memory KVStorage under prefix. The
+// prefix is normalised to end with '/' (the registry concatenates the
+// record id verbatim), matching EtcdKVStorage.
+func NewMemKVStorage(prefix string) *MemKVStorage {
+	if prefix == "" || prefix[len(prefix)-1] != '/' {
+		prefix += "/"
+	}
+	return &MemKVStorage{prefix: prefix, data: make(map[string][]byte)}
+}
+
+// Prefix returns the key prefix all records share.
+func (m *MemKVStorage) Prefix() string { return m.prefix }
+
+// GetOne returns the record at key (prefix-relative), or (nil, nil) when
+// absent.
+func (m *MemKVStorage) GetOne(_ context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v, ok := m.data[key]
+	if !ok {
+		return nil, nil
+	}
+	return append([]byte(nil), v...), nil
+}
+
+// PutOne writes a record + notifies watchers.
+func (m *MemKVStorage) PutOne(_ context.Context, key string, blob []byte) error {
+	m.mu.Lock()
+	cp := append([]byte(nil), blob...)
+	m.data[key] = cp
+	subs := append([]chan KVEvent(nil), m.subs...)
+	m.mu.Unlock()
+	for _, ch := range subs {
+		select {
+		case ch <- KVEvent{Kind: KVPut, Key: m.prefix + key, Value: cp}:
+		default:
+		}
+	}
+	return nil
+}
+
+// DeleteOne removes a record + notifies watchers with the previous value.
+func (m *MemKVStorage) DeleteOne(_ context.Context, key string) error {
+	m.mu.Lock()
+	prev := m.data[key]
+	delete(m.data, key)
+	subs := append([]chan KVEvent(nil), m.subs...)
+	m.mu.Unlock()
+	for _, ch := range subs {
+		select {
+		case ch <- KVEvent{Kind: KVDelete, Key: m.prefix + key, PrevValue: prev}:
+		default:
+		}
+	}
+	return nil
+}
+
+// List returns every record as record-id → blob.
+func (m *MemKVStorage) List(_ context.Context) (map[string][]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string][]byte, len(m.data))
+	for k, v := range m.data {
+		out[k] = append([]byte(nil), v...)
+	}
+	return out, nil
+}
+
+// WatchKeys streams per-record events until ctx is cancelled.
+func (m *MemKVStorage) WatchKeys(ctx context.Context) <-chan KVEvent {
+	ch := make(chan KVEvent, 16)
+	m.mu.Lock()
+	m.subs = append(m.subs, ch)
+	m.mu.Unlock()
+	go func() {
+		<-ctx.Done()
+		m.mu.Lock()
+		for i, c := range m.subs {
+			if c == ch {
+				m.subs = append(m.subs[:i], m.subs[i+1:]...)
+				break
+			}
+		}
+		m.mu.Unlock()
+		close(ch)
+	}()
+	return ch
+}

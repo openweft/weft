@@ -363,6 +363,7 @@ type fileConfigTargets struct {
 	sshSocket             string
 	sshAuthorizedKeys     string
 	tcpListen             string // dev-mode plain-TCP gRPC listener (cross-host bring-up); empty = disabled
+	attestationEnabled    bool   // TPM remote-attestation host-admission gate; default false (RegisterHost = legacy OIDC-only)
 	configDir             string
 	oidcIssuer            string
 	oidcClientID          string

@@ -105,6 +105,9 @@ func encodeHostRecord(h Host) []byte {
 		bb.SetAttributeValue("last_seen_at", cty.StringVal(h.LastSeenAt.Format(time.RFC3339Nano)))
 	}
 	bb.SetAttributeValue("created_at", cty.StringVal(h.CreatedAt.Format(time.RFC3339Nano)))
+	if h.AKName != "" {
+		bb.SetAttributeValue("ak_name", cty.StringVal(h.AKName))
+	}
 	return f.Bytes()
 }
 
@@ -172,6 +175,7 @@ func hostFromBlock(b hostBlock) Host {
 		Cordoned:       b.Cordoned,
 		LastSeenAt:     lastSeen,
 		CreatedAt:      created,
+		AKName:         b.AKName,
 	}
 }
 
