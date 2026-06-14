@@ -115,6 +115,19 @@ func (r *LinuxReconciler) Apply(mappings []NATMapping) (retErr error) {
 		}
 		pub4 := pub.As4()
 		prv4 := prv.As4()
+		// Optional rate limit : when RateLimitPPS > 0, insert a
+		// drop-on-over-rate rule BEFORE the DNAT so a DDoS spray
+		// against the FIP is silently dropped before the
+		// connection state is even instantiated. The DNAT rule
+		// below only fires for under-rate packets.
+		if m.RateLimitPPS > 0 {
+			c.AddRule(&nft.Rule{
+				Table:    table,
+				Chain:    prerouting,
+				Exprs:    rateLimitDropExprs(pub4[:], uint64(m.RateLimitPPS)),
+				UserData: ruleComment(m.VMName, "ratelimit"),
+			})
+		}
 		c.AddRule(&nft.Rule{
 			Table:    table,
 			Chain:    prerouting,
@@ -133,6 +146,38 @@ func (r *LinuxReconciler) Apply(mappings []NATMapping) (retErr error) {
 		return fmt.Errorf("nftables flush: %w", err)
 	}
 	return nil
+}
+
+// rateLimitDropExprs builds the expression list for :
+//
+//	ip daddr <publicIP> limit rate over <pps>/second burst <2*pps> drop
+//
+// Matches IPv4 destination = publicIP AND packet rate is over the
+// configured pps, then drops. The DNAT rule that follows in the
+// same chain only fires for under-rate traffic.
+//
+// Burst = 2*rate (one-second leeway) — generous enough not to drop
+// TCP slow-start bursts on legitimate flows.
+func rateLimitDropExprs(publicV4 []byte, pps uint64) []expr.Any {
+	burst := uint32(pps * 2)
+	if burst < 5 {
+		burst = 5 // minimum that lets a 3-way handshake through
+	}
+	return []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.NFPROTO_IPV4}},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader,
+			Offset: 16, Len: 4},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: publicV4},
+		&expr.Limit{
+			Type:  expr.LimitTypePkts,
+			Rate:  pps,
+			Unit:  expr.LimitTimeSecond,
+			Burst: burst,
+			Over:  true, // match when over the rate → drop
+		},
+		&expr.Verdict{Kind: expr.VerdictDrop},
+	}
 }
 
 // dnatExprs builds the expression list for
