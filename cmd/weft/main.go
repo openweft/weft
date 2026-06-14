@@ -183,6 +183,7 @@ running agent.`,
 	root.AddCommand(newUpCmd())
 	root.AddCommand(newDownCmd())
 	root.AddCommand(newClusterCmd())
+	root.AddCommand(newAttestCmd())
 
 	// Client subcommands (was: weft). All speak gRPC to the running agent.
 	root.AddCommand(
@@ -258,6 +259,8 @@ func agentCmd() *cobra.Command {
 	var serverMode bool
 	var clientMode bool
 	var controlPlaneURL string
+	var attestTPM bool
+	var attestTPMDevice string
 	var hypervisor string
 	var tcpListen string
 	var attestationEnabled bool
@@ -399,6 +402,8 @@ continuity (same sockets, same registry on-disk layout).`,
 			tgt.serverMode = serverMode
 			tgt.clientMode = clientMode
 			tgt.controlPlaneURL = controlPlaneURL
+			tgt.attestTPM = attestTPM
+			tgt.attestTPMDevice = attestTPMDevice
 			if clientMode && controlPlaneURL != "" {
 				if proxyEnabled {
 					// The proxy plane needs a local etcd handle ;
@@ -435,6 +440,8 @@ continuity (same sockets, same registry on-disk layout).`,
 	cmd.Flags().BoolVar(&serverMode, "server", false, "Run as control-plane server (no per-host driver dispatch). Default mode includes both.")
 	cmd.Flags().BoolVar(&clientMode, "client", false, "Run as per-host driver runtime only. Requires --control-plane to point at the server.")
 	cmd.Flags().StringVar(&controlPlaneURL, "control-plane", "", "URL of the Weft control-plane server (only consulted when --client is set).")
+	cmd.Flags().BoolVar(&attestTPM, "attest-tpm", false, "(--client mode) Gate this node's RegisterHost behind the TPM remote-attestation handshake. When set, the agent opens the local TPM, derives an EK/AK, and runs the Enroll/Admit dance against the control-plane AttestationService before registering ; only a granted admission lets it register. Requires the control plane to run with --attestation-enabled and to have pre-trusted this node's EK. Default OFF — the agent never touches a TPM and bring-up is the legacy path.")
+	cmd.Flags().StringVar(&attestTPMDevice, "attest-tpm-device", "/dev/tpmrm0", "(--client mode, with --attest-tpm) TPM character device the agent opens for attestation. Defaults to the Linux resource-manager channel /dev/tpmrm0.")
 
 	// Reverse-proxy plane (see proxy.go + agent/proxy/). Off by
 	// default — operators opt in with --proxy. The Caddy binary

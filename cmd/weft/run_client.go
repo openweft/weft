@@ -61,18 +61,33 @@ func runClient(t fileConfigTargets) error {
 	cp := agent.NewGRPCControlPlane(cpClient, logger)
 	logger.Printf("weft agent --client: dialed control plane at %s", t.controlPlaneURL)
 
+	// AttestationService client : only consulted when --attest-tpm is set.
+	// Built from the SAME control-plane conn the agent already dialed, so
+	// the four attestation RPCs ride the same transport (and the same
+	// SSH/TCP/Unix-socket auth) as RegisterHost/Heartbeat. The agent runs
+	// the handshake against it before RegisterHost ; on success it stamps
+	// the admitted AK Name onto its registration labels.
+	var attestClient agent.AttestationClient
+	if t.attestTPM {
+		attestClient = weftv1.NewAttestationServiceClient(conn)
+		logger.Printf("weft agent --client: TPM attestation enabled (device=%s) — running Enroll/Admit handshake before RegisterHost", attestTPMDeviceOrDefault(t.attestTPMDevice))
+	}
+
 	// Build the agent. The driver Bundle is built per-host from
 	// the local Apple-VZ binding ; same code as the all-in-one
 	// path. StateDir reuses the daemon's <stateDir>/vms layout
 	// so a node that flips between --client and all-in-one
 	// preserves its VM state.
 	a, err := agent.New(agent.Options{
-		StateDir:     t.configDir, // operator can re-use existing dir
-		Hostname:     hostnameOrEmpty(),
-		AZ:           os.Getenv("WEFT_AZ"),
-		Rack:         os.Getenv("WEFT_RACK"),
-		Endpoint:     "",
-		ControlPlane: cp,
+		StateDir:        t.configDir, // operator can re-use existing dir
+		Hostname:        hostnameOrEmpty(),
+		AZ:              os.Getenv("WEFT_AZ"),
+		Rack:            os.Getenv("WEFT_RACK"),
+		Endpoint:        "",
+		ControlPlane:    cp,
+		AttestTPM:       t.attestTPM,
+		AttestTPMDevice: t.attestTPMDevice,
+		AttestClient:    attestClient,
 	})
 	if err != nil {
 		return fmt.Errorf("build agent: %w", err)
@@ -258,6 +273,17 @@ func toMicroVMShares(in []*weftv1.MicroVMShare) []weft.MicroVMShare {
 		})
 	}
 	return out
+}
+
+// attestTPMDeviceOrDefault renders the TPM device for the log line : the
+// configured path, or devtpm.DefaultDevice ("/dev/tpmrm0") when empty (the
+// same default the agent applies). Logging-only — the agent re-applies the
+// default internally.
+func attestTPMDeviceOrDefault(device string) string {
+	if device == "" {
+		return "/dev/tpmrm0"
+	}
+	return device
 }
 
 // hostnameOrEmpty returns os.Hostname() or "" on error — the
