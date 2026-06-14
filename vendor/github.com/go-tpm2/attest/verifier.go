@@ -78,24 +78,40 @@ type Verifier struct {
 	// branch.
 	rng io.Reader
 
+	// pending holds the single-use challenge state (activation secret + nonce).
+	// It defaults to a MemPendingStore but can be backed by a shared store
+	// (e.g. etcd) for an HA control plane — see NewVerifierWithStore.
+	pending PendingStore
+
 	mu             sync.Mutex
-	pendingEnroll  map[string][]byte   // AKName -> issued activation secret
-	pendingEnrollP map[string][]byte   // AKName -> AK public (to BindAK on success)
-	pendingNonce   map[string][32]byte // AKName -> issued admission nonce
+	pendingEnrollP map[string][]byte // AKName -> AK public (to BindAK on success)
 }
 
 // NewVerifier builds a Verifier over a trust registry, an admission policy, and
 // a nonce source. Pass RandNonce for production; a deterministic source for
-// tests.
+// tests. The single-use challenge state is held in an in-memory
+// MemPendingStore — use NewVerifierWithStore to back it with a shared store
+// (e.g. etcd) for a multi-replica control plane.
 func NewVerifier(registry EKRegistry, policy Policy, nonce Nonce) *Verifier {
+	return NewVerifierWithStore(registry, policy, nonce, NewMemPendingStore())
+}
+
+// NewVerifierWithStore is NewVerifier with an explicit PendingStore for the
+// single-use enrolment-secret and admission-nonce state. Pass a shared store
+// (e.g. an etcd-backed one) so an Enroll/Challenge served by one replica is
+// visible to the CompleteEnroll/Admit served by another (HA control plane). A
+// nil store falls back to a fresh in-memory MemPendingStore.
+func NewVerifierWithStore(registry EKRegistry, policy Policy, nonce Nonce, store PendingStore) *Verifier {
+	if store == nil {
+		store = NewMemPendingStore()
+	}
 	return &Verifier{
 		registry:       registry,
 		policy:         policy,
 		nonce:          nonce,
 		rng:            rand.Reader,
-		pendingEnroll:  make(map[string][]byte),
+		pending:        store,
 		pendingEnrollP: make(map[string][]byte),
-		pendingNonce:   make(map[string][32]byte),
 	}
 }
 
@@ -135,8 +151,10 @@ func (v *Verifier) Enroll(req EnrollRequest) (EnrollChallenge, error) {
 		return EnrollChallenge{}, err
 	}
 
+	if err := v.pending.PutEnroll(req.AKName, secret); err != nil {
+		return EnrollChallenge{}, err
+	}
 	v.mu.Lock()
-	v.pendingEnroll[string(req.AKName)] = secret
 	cp := make([]byte, len(req.AKPub))
 	copy(cp, req.AKPub)
 	v.pendingEnrollP[string(req.AKName)] = cp
@@ -151,10 +169,9 @@ func (v *Verifier) Enroll(req EnrollRequest) (EnrollChallenge, error) {
 // (so a failed proof cannot be retried against the same challenge).
 func (v *Verifier) CompleteEnroll(akName []byte, proof EnrollProof) error {
 	key := string(akName)
+	want, ok := v.pending.TakeEnroll(akName)
 	v.mu.Lock()
-	want, ok := v.pendingEnroll[key]
 	akPub := v.pendingEnrollP[key]
-	delete(v.pendingEnroll, key)
 	delete(v.pendingEnrollP, key)
 	v.mu.Unlock()
 
@@ -177,9 +194,9 @@ func (v *Verifier) Challenge(req AdmissionRequest) (AdmissionChallenge, error) {
 	if err != nil {
 		return AdmissionChallenge{}, err
 	}
-	v.mu.Lock()
-	v.pendingNonce[string(req.AKName)] = n
-	v.mu.Unlock()
+	if err := v.pending.PutNonce(req.AKName, n[:]); err != nil {
+		return AdmissionChallenge{}, err
+	}
 	return AdmissionChallenge{Nonce: n}, nil
 }
 
@@ -199,17 +216,12 @@ func (v *Verifier) Challenge(req AdmissionRequest) (AdmissionChallenge, error) {
 // Each failure returns a precise sentinel. The pending nonce is consumed on
 // every call so a quote cannot be replayed against the same challenge.
 func (v *Verifier) Admit(akName []byte, resp AdmissionResponse) (bool, error) {
-	key := string(akName)
-
 	akPub, ok := v.registry.AKPub(akName)
 	if !ok {
 		return false, ErrUnboundAK
 	}
 
-	v.mu.Lock()
-	nonce, haveNonce := v.pendingNonce[key]
-	delete(v.pendingNonce, key)
-	v.mu.Unlock()
+	nonce, haveNonce := v.pending.TakeNonce(akName)
 	if !haveNonce {
 		return false, ErrStaleNonce
 	}
@@ -242,7 +254,7 @@ func (v *Verifier) Admit(akName []byte, resp AdmissionResponse) (bool, error) {
 
 	// Anti-replay: the quote must be over THIS challenge's nonce. VerifyQuote
 	// returns extraData but does not compare it, so it is checked here.
-	if subtle.ConstantTimeCompare(info.ExtraData, nonce[:]) != 1 {
+	if subtle.ConstantTimeCompare(info.ExtraData, nonce) != 1 {
 		return false, ErrStaleNonce
 	}
 
