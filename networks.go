@@ -100,9 +100,46 @@ type Network struct {
 	// reach VMs on this network from outside their host / AZ.
 	// Empty for purely intra-host meshes. Each VM's Port can also
 	// carry its own per-port endpoint override (Phase E).
-	MeshEndpoint string    `json:"mesh_endpoint,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	MeshEndpoint string `json:"mesh_endpoint,omitempty"`
+
+	// ── Edge attachment for floating IPs ────────────────────
+	// ExternalMode selects how floating IPs allocated from this
+	// network reach the outside world :
+	//   "bgp"  (default) — per-tenant weft-router microVM
+	//          announces each active FIP as a /32 to upstream
+	//          ISP. Cloud / colo with a public ASN.
+	//   "vlan" — the FIP lives directly in an establishment-
+	//          provided subnet on a tagged VLAN. The host
+	//          running the target VM attaches a macvlan to the
+	//          VLAN subinterface, binds the FIP, answers ARP
+	//          locally, emits gARP on migration. No routing
+	//          protocol — fits academic / enterprise setups.
+	//   ""     — defaults to "bgp".
+	ExternalMode string `json:"external_mode,omitempty"`
+	// VLAN is the 802.1Q tag when ExternalMode == "vlan". Range
+	// 1-4094 ; 0 = untagged (the ParentInterface is on the right
+	// VLAN already).
+	VLAN int `json:"vlan,omitempty"`
+	// ParentInterface is the host NIC the macvlan attaches to
+	// (e.g. "eth0", "bond0"). Required when ExternalMode == "vlan".
+	// Not validated server-side ; each host's weft-agent must have
+	// the interface up.
+	ParentInterface string `json:"parent_interface,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
 }
+
+// NetworkExternalMode enumerates the floating-IP edge-attachment
+// shapes. Mirrors weft-proto's NetworkInfo.external_mode field.
+type NetworkExternalMode = string
+
+const (
+	// NetworkExternalBGP : per-tenant weft-router microVM
+	// announces /32s via BGP. Default when ExternalMode is empty.
+	NetworkExternalBGP NetworkExternalMode = "bgp"
+	// NetworkExternalVLAN : host-side macvlan + ARP + gARP path.
+	NetworkExternalVLAN NetworkExternalMode = "vlan"
+)
 
 // networksDoc is the top-level HCL schema decoded from the
 // registry blob. One `network "<uuid>" { ... }` block per entry.
@@ -122,6 +159,9 @@ type networkBlock struct {
 	DefaultSecurityGroups []string `hcl:"default_security_groups,optional"`
 	MeshListenPort        int      `hcl:"mesh_listen_port,optional"`
 	MeshEndpoint          string   `hcl:"mesh_endpoint,optional"`
+	ExternalMode          string   `hcl:"external_mode,optional"`
+	VLAN                  int      `hcl:"vlan,optional"`
+	ParentInterface       string   `hcl:"parent_interface,optional"`
 	CreatedAt             string   `hcl:"created_at"`
 }
 
@@ -129,13 +169,13 @@ type networkBlock struct {
 //
 // Indexes:
 //
-//   byUUID:     primary, every public lookup goes through this.
-//   nameIdx:    (projectUUID,name) → UUID — name scoped per
-//               project. The composite key uses NUL as
-//               separator (UUID chars + names never contain NUL).
-//   projectIdx: projectUUID → set-of-UUIDs — used by
-//               ListNetworksForProject; the value is a map for
-//               O(1) delete on rename / drop.
+//	byUUID:     primary, every public lookup goes through this.
+//	nameIdx:    (projectUUID,name) → UUID — name scoped per
+//	            project. The composite key uses NUL as
+//	            separator (UUID chars + names never contain NUL).
+//	projectIdx: projectUUID → set-of-UUIDs — used by
+//	            ListNetworksForProject; the value is a map for
+//	            O(1) delete on rename / drop.
 type networkRegistry struct {
 	mu         sync.Mutex
 	storage    Storage
@@ -182,6 +222,9 @@ func loadNetworkRegistry(ctx context.Context, storage Storage) (*networkRegistry
 			DefaultSecurityGroups: append([]string(nil), b.DefaultSecurityGroups...),
 			MeshListenPort:        b.MeshListenPort,
 			MeshEndpoint:          b.MeshEndpoint,
+			ExternalMode:          b.ExternalMode,
+			VLAN:                  b.VLAN,
+			ParentInterface:       b.ParentInterface,
 			CreatedAt:             created,
 		}
 		reg.byUUID[n.UUID] = n
@@ -252,6 +295,15 @@ func (r *networkRegistry) saveLocked() error {
 		if n.MeshEndpoint != "" {
 			bb.SetAttributeValue("mesh_endpoint", cty.StringVal(n.MeshEndpoint))
 		}
+		if n.ExternalMode != "" {
+			bb.SetAttributeValue("external_mode", cty.StringVal(n.ExternalMode))
+		}
+		if n.VLAN != 0 {
+			bb.SetAttributeValue("vlan", cty.NumberIntVal(int64(n.VLAN)))
+		}
+		if n.ParentInterface != "" {
+			bb.SetAttributeValue("parent_interface", cty.StringVal(n.ParentInterface))
+		}
 		bb.SetAttributeValue("created_at", cty.StringVal(n.CreatedAt.Format(time.RFC3339Nano)))
 		body.AppendNewline()
 	}
@@ -266,6 +318,37 @@ func validateNetworkType(t NetworkType) error {
 		return nil
 	default:
 		return fmt.Errorf("unknown network type %q (want nat, bridged, isolated, or mesh)", t)
+	}
+}
+
+// validateExternalMode enforces the external_mode + vlan +
+// parent_interface combo. Cross-field semantics :
+//   - mode "" defaults to "bgp" (no extra validation).
+//   - mode "bgp" allows vlan and parent_interface to be zero ;
+//     non-zero are rejected (no L2 attachment in BGP mode).
+//   - mode "vlan" requires parent_interface ; vlan in [0, 4094]
+//     (0 = untagged trunk, 1-4094 = 802.1Q tag).
+//   - any other mode value is rejected.
+func validateExternalMode(mode string, vlan int, parentIf string) error {
+	switch mode {
+	case "", NetworkExternalBGP:
+		if vlan != 0 {
+			return fmt.Errorf("vlan is only valid when external_mode == \"vlan\"")
+		}
+		if parentIf != "" {
+			return fmt.Errorf("parent_interface is only valid when external_mode == \"vlan\"")
+		}
+		return nil
+	case NetworkExternalVLAN:
+		if parentIf == "" {
+			return fmt.Errorf("parent_interface is required when external_mode == \"vlan\"")
+		}
+		if vlan < 0 || vlan > 4094 {
+			return fmt.Errorf("vlan out of range [0,4094]: %d", vlan)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown external_mode %q (want bgp or vlan)", mode)
 	}
 }
 
@@ -397,6 +480,12 @@ type CreateNetworkSpec struct {
 	Type           NetworkType
 	MeshListenPort int
 	MeshEndpoint   string
+	// Floating-IP edge-attachment knobs ; see Network.ExternalMode
+	// / VLAN / ParentInterface for the semantics. Empty
+	// ExternalMode defaults to "bgp".
+	ExternalMode    string
+	VLAN            int
+	ParentInterface string
 }
 
 // create registers a new Network under the given project.
@@ -436,17 +525,23 @@ func (r *networkRegistry) create(spec CreateNetworkSpec) (Network, error) {
 	if typ == "" {
 		typ = NetworkTypeNAT
 	}
+	if err := validateExternalMode(spec.ExternalMode, spec.VLAN, spec.ParentInterface); err != nil {
+		return Network{}, err
+	}
 	n := Network{
-		UUID:           newUUID(),
-		ProjectUUID:    spec.ProjectUUID,
-		Name:           spec.Name,
-		CIDR:           canonicalCIDR,
-		Gateway:        spec.Gateway,
-		DNSServers:     append([]string(nil), spec.DNSServers...),
-		Type:           typ,
-		MeshListenPort: spec.MeshListenPort,
-		MeshEndpoint:   spec.MeshEndpoint,
-		CreatedAt:      time.Now().UTC(),
+		UUID:            newUUID(),
+		ProjectUUID:     spec.ProjectUUID,
+		Name:            spec.Name,
+		CIDR:            canonicalCIDR,
+		Gateway:         spec.Gateway,
+		DNSServers:      append([]string(nil), spec.DNSServers...),
+		Type:            typ,
+		MeshListenPort:  spec.MeshListenPort,
+		MeshEndpoint:    spec.MeshEndpoint,
+		ExternalMode:    spec.ExternalMode,
+		VLAN:            spec.VLAN,
+		ParentInterface: spec.ParentInterface,
+		CreatedAt:       time.Now().UTC(),
 	}
 	r.byUUID[n.UUID] = n
 	r.nameIdx[key] = n.UUID
