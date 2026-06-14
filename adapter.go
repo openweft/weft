@@ -1629,6 +1629,28 @@ func (a *Adapter) CreatePort(spec CreatePortSpec) (Port, error) {
 	if n.ProjectUUID != spec.ProjectUUID {
 		return Port{}, fmt.Errorf("network %q belongs to project %s, not %s", spec.NetworkUUID, n.ProjectUUID, spec.ProjectUUID)
 	}
+	// IPAM : when spec.IP is empty, auto-allocate the next free
+	// address from the network's CIDR, skipping every IP already
+	// taken by another port on the same network + the network's
+	// gateway. The caller (typically the operator CLI) omits IP
+	// for "give me one" semantics ; passing an explicit IP keeps
+	// the validation path below.
+	if spec.IP == "" {
+		excluded := make([]string, 0, 8)
+		if n.Gateway != "" {
+			excluded = append(excluded, n.Gateway)
+		}
+		for _, p := range a.portReg.listForNetwork(spec.NetworkUUID) {
+			if p.IP != "" {
+				excluded = append(excluded, p.IP)
+			}
+		}
+		picked, err := PickFreeAddress(n.CIDR, excluded)
+		if err != nil {
+			return Port{}, fmt.Errorf("auto-allocate IP on network %q: %w", spec.NetworkUUID, err)
+		}
+		spec.IP = picked
+	}
 	if _, cidr, err := net.ParseCIDR(n.CIDR); err == nil {
 		ip := net.ParseIP(spec.IP)
 		if ip == nil {
