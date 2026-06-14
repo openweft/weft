@@ -81,6 +81,12 @@ type FloatingIP struct {
 	TargetKind  FloatingIPTargetKind `json:"target_kind,omitempty"`
 	Status      FloatingIPStatus     `json:"status"`
 	AllocatedAt time.Time            `json:"allocated_at"`
+	// RateLimitPPS caps inbound packets per second the host's
+	// DNAT rule accepts before dropping new connections.
+	// Anti-DDoS knob ; 0 = no limit. Persisted alongside the
+	// mapping so the host-side reconciler (floatingipnat) reads
+	// it on every reconcile via ComputeLocalMappings.
+	RateLimitPPS int `json:"rate_limit_pps,omitempty"`
 }
 
 // HCL document structure.
@@ -89,14 +95,15 @@ type floatingIPsDoc struct {
 }
 
 type floatingIPBlock struct {
-	UUID        string `hcl:",label"`
-	ProjectUUID string `hcl:"project_uuid"`
-	NetworkUUID string `hcl:"network_uuid"`
-	Address     string `hcl:"address"`
-	MappedTo    string `hcl:"mapped_to,optional"`
-	TargetKind  string `hcl:"target_kind,optional"`
-	Status      string `hcl:"status"`
-	AllocatedAt string `hcl:"allocated_at"`
+	UUID         string `hcl:",label"`
+	ProjectUUID  string `hcl:"project_uuid"`
+	NetworkUUID  string `hcl:"network_uuid"`
+	Address      string `hcl:"address"`
+	MappedTo     string `hcl:"mapped_to,optional"`
+	TargetKind   string `hcl:"target_kind,optional"`
+	Status       string `hcl:"status"`
+	RateLimitPPS int    `hcl:"rate_limit_pps,optional"`
+	AllocatedAt  string `hcl:"allocated_at"`
 }
 
 // floatingIPRegistry indexes by UUID (admin lookup), by address
@@ -129,14 +136,15 @@ func loadFloatingIPRegistry(ctx context.Context, storage Storage) (*floatingIPRe
 	for _, b := range doc.FloatingIPs {
 		alloc, _ := time.Parse(time.RFC3339Nano, b.AllocatedAt)
 		f := FloatingIP{
-			UUID:        b.UUID,
-			ProjectUUID: b.ProjectUUID,
-			NetworkUUID: b.NetworkUUID,
-			Address:     b.Address,
-			MappedTo:    b.MappedTo,
-			TargetKind:  FloatingIPTargetKind(b.TargetKind),
-			Status:      FloatingIPStatus(b.Status),
-			AllocatedAt: alloc,
+			UUID:         b.UUID,
+			ProjectUUID:  b.ProjectUUID,
+			NetworkUUID:  b.NetworkUUID,
+			Address:      b.Address,
+			MappedTo:     b.MappedTo,
+			TargetKind:   FloatingIPTargetKind(b.TargetKind),
+			Status:       FloatingIPStatus(b.Status),
+			RateLimitPPS: b.RateLimitPPS,
+			AllocatedAt:  alloc,
 		}
 		reg.indexLocked(f)
 	}
@@ -233,6 +241,9 @@ func (r *floatingIPRegistry) saveLocked() error {
 			bb.SetAttributeValue("target_kind", cty.StringVal(string(fip.TargetKind)))
 		}
 		bb.SetAttributeValue("status", cty.StringVal(string(fip.Status)))
+		if fip.RateLimitPPS != 0 {
+			bb.SetAttributeValue("rate_limit_pps", cty.NumberIntVal(int64(fip.RateLimitPPS)))
+		}
 		bb.SetAttributeValue("allocated_at", cty.StringVal(fip.AllocatedAt.Format(time.RFC3339Nano)))
 		body.AppendNewline()
 	}
@@ -491,10 +502,13 @@ func (r *floatingIPRegistry) release(uuid string) (FloatingIP, error) {
 	return fip, nil
 }
 
-// mapTo binds fip to (kind, target). Idempotent : a no-op when
-// already at that state ; an error when bound to a different
-// target (caller must Unmap first to make the intent explicit).
-func (r *floatingIPRegistry) mapTo(uuid string, kind FloatingIPTargetKind, target string) (FloatingIP, error) {
+// mapTo binds fip to (kind, target) with an optional rate limit.
+// Idempotent on the same (kind, target) ; rateLimitPPS > 0
+// overrides the persisted value on the idempotent path so the
+// operator can update the rate without an Unmap/Map cycle.
+// rateLimitPPS == 0 leaves the existing value unchanged on
+// idempotent path, sets to 0 (no limit) on fresh map.
+func (r *floatingIPRegistry) mapTo(uuid string, kind FloatingIPTargetKind, target string, rateLimitPPS int) (FloatingIP, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	fip, ok := r.byUUID[uuid]
@@ -503,7 +517,17 @@ func (r *floatingIPRegistry) mapTo(uuid string, kind FloatingIPTargetKind, targe
 	}
 	if fip.Status == FIPStatusActive {
 		if fip.TargetKind == kind && fip.MappedTo == target {
-			return fip, nil // already there — idempotent
+			// Same target — allow rate-limit update in place.
+			if rateLimitPPS > 0 && rateLimitPPS != fip.RateLimitPPS {
+				old := fip
+				fip.RateLimitPPS = rateLimitPPS
+				r.byUUID[uuid] = fip
+				if err := r.saveLocked(); err != nil {
+					r.byUUID[uuid] = old
+					return FloatingIP{}, fmt.Errorf("persist rate-limit update: %w", err)
+				}
+			}
+			return fip, nil
 		}
 		return FloatingIP{}, fmt.Errorf("floating ip %q already mapped to %s %q ; unmap first",
 			uuid, fip.TargetKind, fip.MappedTo)
@@ -512,6 +536,7 @@ func (r *floatingIPRegistry) mapTo(uuid string, kind FloatingIPTargetKind, targe
 	fip.MappedTo = target
 	fip.TargetKind = kind
 	fip.Status = FIPStatusActive
+	fip.RateLimitPPS = rateLimitPPS
 	r.unindexLocked(old)
 	r.indexLocked(fip)
 	if err := r.saveLocked(); err != nil {

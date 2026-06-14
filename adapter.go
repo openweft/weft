@@ -277,7 +277,7 @@ type VZAdapter interface {
 	FloatingIPByUUID(uuid string) (FloatingIP, bool)
 	AllocateFloatingIP(projectUUID, networkUUID, address string) (FloatingIP, error)
 	ReleaseFloatingIP(uuid string) error
-	MapFloatingIP(uuid string, kind FloatingIPTargetKind, target string) (FloatingIP, error)
+	MapFloatingIP(uuid string, kind FloatingIPTargetKind, target string, rateLimitPPS int) (FloatingIP, error)
 	UnmapFloatingIP(uuid string) (FloatingIP, error)
 	// Host registry surface — global compute-node inventory.
 	// One entry per registered weft-agent. Scheduler reads these
