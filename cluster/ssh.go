@@ -121,7 +121,21 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 			env, args, label,
 		)
 	case MeshSync:
-		return seed.ID, "# mesh: publish overlay peer set to [" + strings.Join(a.Hosts, ",") + "] (wgcoord + mesh.PublishAll)"
+		// Control-plane coordination step — rendered as a logged note, NOT a
+		// remote shell command (same class as GrowQuorum below). The real
+		// execution lives in the seed daemon: Adapter.PublishHostMesh rebuilds
+		// the host-level WireGuard peer set from the live host registry and
+		// fans each host's set out on weft.hostmesh.<uuid>. It runs on the
+		// seed because that's where the registry + NATS connection are, and it
+		// can't be a remote `ssh` exec because RenderSSH/Apply have no daemon
+		// handle. The peer set carries public keys + endpoints only — every
+		// host minted its own private key locally (EnsureHostWGKey) — so this
+		// step moves no secret. overlaySubnet() is the subnet PublishHostMesh
+		// is invoked with.
+		return seed.ID, fmt.Sprintf(
+			"# host-mesh sync (seed: Adapter.PublishHostMesh subnet=%s) → publish peer set to [%s]",
+			c.overlaySubnet(), strings.Join(a.Hosts, ","),
+		)
 	case EnsureKernel:
 		// Pull the shared microVM kernel OCI artifact onto the host. Same
 		// idempotency story as EnsureImage: weft microvm pull-kernel is

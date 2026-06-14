@@ -108,6 +108,12 @@ func encodeHostRecord(h Host) []byte {
 	if h.AKName != "" {
 		bb.SetAttributeValue("ak_name", cty.StringVal(h.AKName))
 	}
+	if h.WGPublicKey != "" {
+		bb.SetAttributeValue("wg_public_key", cty.StringVal(h.WGPublicKey))
+	}
+	if h.WGOverlayIndex != 0 {
+		bb.SetAttributeValue("wg_overlay_index", cty.NumberIntVal(int64(h.WGOverlayIndex)))
+	}
 	return f.Bytes()
 }
 
@@ -176,6 +182,8 @@ func hostFromBlock(b hostBlock) Host {
 		LastSeenAt:     lastSeen,
 		CreatedAt:      created,
 		AKName:         b.AKName,
+		WGPublicKey:    b.WGPublicKey,
+		WGOverlayIndex: b.WGOverlayIndex,
 	}
 }
 

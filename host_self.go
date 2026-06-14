@@ -135,6 +135,19 @@ func (a *Adapter) selfRegisterHost() error {
 			hv = "apple-vz"
 		}
 	}
+
+	// Host-level WireGuard mesh identity (cluster prereq #3). The node mints
+	// its WG private key locally and registers ONLY the public half; the
+	// private key never leaves the host. Best-effort + additive: a mint
+	// failure (e.g. read-only stateDir under test) leaves wgPub empty, so the
+	// host registers exactly as before and simply doesn't join the host mesh
+	// — the legacy path is byte-for-byte unaffected.
+	wgPub, wgErr := EnsureHostWGKey(a.stateDir)
+	wgIndex := 0
+	if wgErr == nil && wgPub != "" {
+		wgIndex = hostWGIndexFromUUID(uuid)
+	}
+
 	_, err = a.RegisterHost(RegisterHostSpec{
 		UUID:           uuid,
 		Hostname:       hostname,
@@ -156,6 +169,11 @@ func (a *Adapter) selfRegisterHost() error {
 		// docs/operations/pci-passthrough.md for the operator
 		// workflow + the "no exclusivity today" gotcha.
 		PCIDevices: detectPCI(),
+		// Host-mesh identity — public key + stable overlay index only. Empty
+		// when minting failed, in which case the registry records no WG
+		// identity for this host and it stays out of the mesh.
+		WGPublicKey:    wgPub,
+		WGOverlayIndex: wgIndex,
 	})
 	return err
 }
