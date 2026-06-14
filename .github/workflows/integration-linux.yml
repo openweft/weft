@@ -67,3 +67,60 @@ jobs:
         # capture test will run, the others use only netlink.
         run: |
           sudo -E env "PATH=$PATH" go test -tags=integration -v -count=1 ./floatingipl2/
+
+  portsec:
+    name: portsec bridge-nftables integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: kernel info
+        run: |
+          uname -a
+          which nft || true
+          nft --version || true
+
+      - name: go test (integration)
+        env:
+          GOWORK: off
+        # The portsec reconciler installs a `bridge weft-portsec`
+        # table with per-tap MAC + IP source filters. The test enters
+        # a fresh netns, programs the rules, then reads the table
+        # back via the google/nftables API and asserts rule counts.
+        run: |
+          sudo -E env "PATH=$PATH" go test -tags=integration -v -count=1 ./portsec/
+
+  portqos:
+    name: portqos tc/htb + ifb integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: kernel info
+        run: |
+          uname -a
+          which tc || true
+          # Pre-load the ifb module so the reconciler's LinkAdd
+          # succeeds. modprobe on ubuntu-latest works under sudo.
+          sudo modprobe ifb numifbs=0 || true
+          lsmod | grep -E '^(ifb|sch_htb|act_mirred|cls_u32)' || true
+
+      - name: go test (integration)
+        env:
+          GOWORK: off
+        # portqos drives tc/htb via netlink : root HTB on the tap for
+        # egress, mirred + ifb + HTB for ingress. CAP_NET_ADMIN is
+        # required ; the ifb module is loaded above so the LinkAdd
+        # for "<tap>-ifb" doesn't trip on a stripped kernel.
+        run: |
+          sudo -E env "PATH=$PATH" go test -tags=integration -v -count=1 ./portqos/

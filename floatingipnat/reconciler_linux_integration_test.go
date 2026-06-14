@@ -298,3 +298,121 @@ func dumpUserData(rules []*nft.Rule) []string {
 	}
 	return out
 }
+
+// TestLinuxReconciler_AppliesMixedIPv4AndIPv6 covers the dual-stack
+// path : one v4 + one v6 mapping should land in two distinct tables
+// (ip + ip6, same name "weft-fip-nat") because nftables NAT can't
+// straddle families in a single inet hook. Both tables must have
+// the right chain + rule counts.
+func TestLinuxReconciler_AppliesMixedIPv4AndIPv6(t *testing.T) {
+	cleanup := enterFreshNetns(t)
+	defer cleanup()
+
+	r := NewLinuxReconciler()
+	mappings := []NATMapping{
+		{PublicIP: "203.0.113.5", PrivateIP: "10.0.0.5", VMName: "v4-vm"},
+		{PublicIP: "2001:db8:1::5", PrivateIP: "fd00::5", VMName: "v6-vm"},
+	}
+	if err := r.Apply(mappings); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	c, err := nft.New(nft.AsLasting())
+	if err != nil {
+		t.Fatalf("nft.New: %v", err)
+	}
+	defer c.CloseLasting()
+
+	for _, fam := range []struct {
+		family nft.TableFamily
+		label  string
+		vmTag  string
+	}{
+		{nft.TableFamilyIPv4, "ipv4", "v4-vm"},
+		{nft.TableFamilyIPv6, "ipv6", "v6-vm"},
+	} {
+		tables, err := c.ListTablesOfFamily(fam.family)
+		if err != nil {
+			t.Fatalf("ListTablesOfFamily(%s): %v", fam.label, err)
+		}
+		var fipTable *nft.Table
+		for _, tb := range tables {
+			if tb.Name == natTableName {
+				fipTable = tb
+				break
+			}
+		}
+		if fipTable == nil {
+			t.Fatalf("expected table %q in %s family", natTableName, fam.label)
+		}
+
+		chains, err := c.ListChainsOfTableFamily(fam.family)
+		if err != nil {
+			t.Fatalf("ListChainsOfTableFamily(%s): %v", fam.label, err)
+		}
+		var pre, post *nft.Chain
+		for _, ch := range chains {
+			if ch.Table == nil || ch.Table.Name != natTableName {
+				continue
+			}
+			switch ch.Name {
+			case "prerouting":
+				pre = ch
+			case "postrouting":
+				post = ch
+			}
+		}
+		if pre == nil || post == nil {
+			t.Fatalf("%s : expected prerouting + postrouting chains, got pre=%v post=%v", fam.label, pre, post)
+		}
+		preRules, _ := c.GetRules(fipTable, pre)
+		postRules, _ := c.GetRules(fipTable, post)
+		if got, want := len(preRules), 1; got != want {
+			t.Errorf("%s prerouting rule count = %d, want %d (one mapping per family)", fam.label, got, want)
+		}
+		if got, want := len(postRules), 1; got != want {
+			t.Errorf("%s postrouting rule count = %d, want %d", fam.label, got, want)
+		}
+		if !anyRuleHas(preRules, fam.vmTag) {
+			t.Errorf("%s prerouting missing VM tag %q : %v", fam.label, fam.vmTag, dumpUserData(preRules))
+		}
+	}
+}
+
+// TestLinuxReconciler_RejectsMixedFamilyMapping pins the defense-in-
+// depth check : if the control plane ever produced a NATMapping
+// where PublicIP and PrivateIP disagree on family, the reconciler
+// must refuse rather than installing a half-formed DNAT.
+// ValidateMappings catches it before Apply touches netlink, but we
+// still want the live-kernel test to exercise the path end-to-end.
+func TestLinuxReconciler_RejectsMixedFamilyMapping(t *testing.T) {
+	cleanup := enterFreshNetns(t)
+	defer cleanup()
+
+	r := NewLinuxReconciler()
+	err := r.Apply([]NATMapping{
+		{PublicIP: "203.0.113.5", PrivateIP: "fd00::5", VMName: "mixed"},
+	})
+	if err == nil {
+		t.Fatalf("Apply should reject mixed-family mapping, got nil error")
+	}
+
+	// No table should have leaked into the kernel — the reject
+	// happens before any AddTable / Flush.
+	c, err := nft.New(nft.AsLasting())
+	if err != nil {
+		t.Fatalf("nft.New: %v", err)
+	}
+	defer c.CloseLasting()
+	for _, fam := range []nft.TableFamily{nft.TableFamilyIPv4, nft.TableFamilyIPv6} {
+		tables, err := c.ListTablesOfFamily(fam)
+		if err != nil {
+			t.Fatalf("ListTablesOfFamily: %v", err)
+		}
+		for _, tb := range tables {
+			if tb.Name == natTableName {
+				t.Errorf("table %q (fam %d) should not have been installed after a reject", natTableName, fam)
+			}
+		}
+	}
+}
