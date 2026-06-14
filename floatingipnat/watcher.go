@@ -109,48 +109,93 @@ func (w *Watcher) reconcile() {
 	w.logger.Printf("floatingipnat: applied %d mapping(s) on host %s", len(mappings), w.hostUUID)
 }
 
-// ComputeLocalMappings is the pure projection from
-// "adapter snapshot" → "NAT mappings for THIS host". Walks every
-// FloatingIP, drops the ones not mapped to a local VM, resolves
-// the VM's private IP via the first port on it.
+// ComputeLocalMappings is the pure projection from "adapter
+// snapshot" → "NAT mappings for THIS host". Returns ONE entry per
+// active FIP whose target VM has a port with an IP — regardless of
+// whether the VM is currently scheduled on this host.
 //
-// Multi-NIC VMs : v0 picks the lowest-UUID port deterministically.
-// A future revision can let MapFloatingIP carry an explicit port
-// UUID so the operator targets a specific NIC.
+// Broad-coverage rationale : with weft-router multi-replica HA
+// (Router.Replicas ≥ 2 + BGP multipath upstream), any of the N
+// replica hosts can receive inbound traffic for a given /32 ; the
+// packet must be DNAT-able there even when the target VM lives
+// elsewhere. The kernel then routes the post-DNAT packet via the
+// mesh underlay to the host where the VM actually runs.
 //
-// VMs without an IP yet (still booting) drop out of the result ;
-// the next port.created event re-reconciles.
+// For single-replica routers (Replicas == 1) the broader-than-needed
+// rules are dead weight on most hosts but harmless — the DNAT only
+// fires when a matching public IP arrives, which only happens on
+// the host the upstream actually sent the packet to.
+//
+// Migration latency : with broad coverage, a VM moving from H1 to
+// H2 finds its DNAT rule already on H2 — no NAT install delay,
+// the only failover window is BGP redistribution (one keepalive)
+// or gARP propagation (ms) for VLAN-mode networks. Pre-install.
+//
+// VMs without a port-assigned IP yet (still booting) drop out ;
+// the next port.created event re-reconciles. Multi-NIC VMs pick
+// the lowest-UUID port deterministically — same rule as before.
 func ComputeLocalMappings(scope Scope, hostUUID string) []NATMapping {
-	// Build the local-VM set first so we can short-circuit FIPs
-	// pointed at remote VMs without per-FIP adapter calls.
-	localVMByName := make(map[string]weft.VM)
-	for _, vm := range scope.ListVMsForHost(hostUUID) {
-		localVMByName[vm.Name] = vm
-	}
-	if len(localVMByName) == 0 {
-		return nil
-	}
-
 	var out []NATMapping
 	for _, fip := range scope.ListFloatingIPs() {
 		if fip.Status != weft.FIPStatusActive || fip.TargetKind != weft.FIPTargetVM {
 			continue
 		}
-		vm, local := localVMByName[fip.MappedTo]
-		if !local {
+		vmUUID, vmName := resolveTargetVM(scope, hostUUID, fip.MappedTo)
+		if vmUUID == "" {
 			continue
 		}
-		privateIP := firstPortIP(scope, vm.UUID)
+		privateIP := firstPortIP(scope, vmUUID)
 		if privateIP == "" {
 			continue
 		}
 		out = append(out, NATMapping{
 			PublicIP:  fip.Address,
 			PrivateIP: privateIP,
-			VMName:    vm.Name,
+			VMName:    vmName,
 		})
 	}
 	return out
+}
+
+// resolveTargetVM returns (UUID, Name) for the VM matching vmName
+// the FIP is mapped to. Behaviour :
+//
+//   - Scope-impls exposing ListHostUUIDs (production *weft.Adapter)
+//     get broad coverage : walk every host's VMs, return the match.
+//     The NAT rule is installed on every host because any of them
+//     can receive inbound traffic when the Router has Replicas ≥ 2
+//     with BGP multipath upstream.
+//   - Minimal Scope-impls (tests, future-proofed) fall back to the
+//     local host only (preserving the pre-broad-coverage behaviour).
+//
+// Linear in (host count × VM count) ; fine for typical clusters
+// (few hundred VMs at most). The kernel-side cost is N×M nftables
+// rules, harmless on hosts that never receive the matching packet.
+func resolveTargetVM(scope Scope, hostUUID, vmName string) (uuid, name string) {
+	if vmName == "" {
+		return "", ""
+	}
+	// hostsLister is the opt-in widening for production.
+	type hostsLister interface {
+		ListHostUUIDs() []string
+	}
+	if hl, ok := scope.(hostsLister); ok {
+		for _, h := range hl.ListHostUUIDs() {
+			for _, vm := range scope.ListVMsForHost(h) {
+				if vm.Name == vmName {
+					return vm.UUID, vm.Name
+				}
+			}
+		}
+		return "", ""
+	}
+	// Fallback : local host only — pre-broad-coverage behaviour.
+	for _, vm := range scope.ListVMsForHost(hostUUID) {
+		if vm.Name == vmName {
+			return vm.UUID, vm.Name
+		}
+	}
+	return "", ""
 }
 
 // firstPortIP returns the lowest-UUID port's IP for vmUUID, or

@@ -36,6 +36,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		setDNSCmd(socket, sshSocket, sshKey),
 		setSGsCmd(socket, sshSocket, sshKey),
 		rmCmd(socket, sshSocket, sshKey),
+		diagCmd(socket, sshSocket, sshKey),
 	)
 	return cmd
 }
