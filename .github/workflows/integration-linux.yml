@@ -1,0 +1,42 @@
+name: integration-linux
+
+# Runs the //go:build linux && integration tests : they program
+# real nftables tables via netlink (CAP_NET_ADMIN required) inside
+# a fresh network namespace so the kernel state never leaks onto
+# the runner. Push + PR scope only — no publishing, no tag gating.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  floatingipnat:
+    name: floatingipnat netlink integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: kernel info
+        run: |
+          uname -a
+          which nft || true
+          nft --version || true
+
+      - name: go test (integration)
+        env:
+          GOWORK: off
+        # sudo -E preserves env (GOPATH, GOCACHE, PATH so go is found).
+        # ubuntu-latest gives the runner full CAP_NET_ADMIN via sudo —
+        # no userns/seccomp gymnastics needed.
+        run: |
+          sudo -E env "PATH=$PATH" go test -tags=integration -v -count=1 ./floatingipnat/
