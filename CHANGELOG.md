@@ -7,6 +7,174 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [0.4.24] - 2026-06-14
+
+3 deferred items closed in parallel as a follow-up to v0.4.23 :
+
+### Added
+
+- **DHCPv4 protocol implementation** (`dhcpd/protocol.go` +
+  `dhcpd/server_linux.go`). Hand-rolled RFC 2131 + 2132 — fixed
+  236-byte header parser/builder, TLV option encoder, full
+  DISCOVER → OFFER / REQUEST → ACK state machine via the new
+  `Decide(packet, source)` pure function. `NewLinuxServer` binds
+  UDP/67 via `unix.SO_BINDTODEVICE` + `SO_BROADCAST` + raw
+  `unix.Socket` handed to `net.FilePacketConn` ; replies always
+  broadcast to `255.255.255.255:68` (every-switch-compatible).
+  Zero new module deps — `golang.org/x/sys/unix` was already
+  vendored. 25 tests : protocol round-trip + state-machine + a
+  real-UDP-socket loopback test that drives a DISCOVER on lo and
+  asserts the Source.Resolve fires. Commit `8936789`.
+
+- **Live-kernel integration tests** for the new packages
+  (`.github/workflows/integration-linux.yml` grows portsec +
+  portqos jobs). 4 portsec tests programming the `bridge
+  weft-portsec` table + 4 portqos tests programming tc/htb
+  egress + ifb-mirror ingress + 2 new floatingipnat tests for
+  the IPv6 NAT path (v4+v6 in one Apply, mixed-family rejected).
+  Each test enters a fresh netns, creates a veth pair, applies,
+  reads back via netlink. All 13 pass live on Debian arm64
+  (kernel 6.12.90). Commit `eeb0242`.
+
+### Companion bump
+
+- `weft-microvm-agent v0.3.x` ([commit `3c91ba3`](https://github.com/openweft/weft-microvm-agent/commit/3c91ba3)) :
+  `weft_microvm_agent_firewall_drops_packets_total` +
+  `weft_microvm_agent_firewall_drops_bytes_total` counters
+  surface the kernel nftables drop accounting from
+  `pod.FirewallStatus`. Reset-aware accumulator handles the
+  table-rebuild kernel-counter reset cleanly (last < current →
+  add current ; last > current → reseed and add). New ReadHook
+  seam on the firewallstatus emitter fires after each
+  `ReadFirewallStatus` poll.
+
+## [0.4.23] - 2026-06-14
+
+8-item network-gap sweep ("loop until exhaustion") — each item
+landed as its own commit, this is the rollup.
+
+### Added
+
+- **IPAM auto-allocation on CreatePort** (`ipam.go`,
+  `ports_ipam_test.go`). New `PickFreeAddress(cidr, excluded)`
+  picker — pure, no IO, walks the CIDR skipping network +
+  broadcast + excluded addresses, returns the lowest free host
+  IP. CreatePort calls it when `spec.IP == ""` with
+  exclusions = network's Gateway + every port-occupied IP on
+  the same network. Backward compat : explicit IP keeps the
+  existing in-range validation. 12 tests. Commit `cdeb18e`.
+
+- **Anti-spoofing per-tap** (`portsec/`). Host-side reconciler
+  installing nftables bridge-family rules per VM tap : drop any
+  frame whose source MAC ≠ Port's MAC OR source IPv4/IPv6 ≠
+  Port's IP. Whole-state replace + opt-in via Watcher (driver
+  surfaces tap names — wiring lands in weft-driver-{vz,qemu}).
+  10 tests. Commit `b40399b`.
+
+- **Bandwidth limits per-tap** (`portqos/`). HTB qdisc on the
+  tap (egress = host → VM) plus an `<tap>-ifb` mirror redirect
+  for ingress (VM → host). Per-direction Mbps caps with ~10ms
+  bursts. Whole-state replace removes orphan ifb devices. 9
+  tests. Commit `393b35a`.
+
+- **`weft network diag <vm>` aggregator CLI**
+  (`cmd/weft/network/diag.go`). Read-only inspection : every
+  Network visible to scope + every FloatingIP mapped to the VM,
+  pretty-printed by default + `--format json`. Surfaces
+  ExternalMode / VLAN / ParentInterface so an operator
+  immediately sees BGP- vs VLAN-mode networks. Vendored proto
+  v0.11.4. Commit `7514faf`.
+
+- **Per-FIP rate limit (anti-DDoS)** (`floatingipnat`).
+  `NATMapping.RateLimitPPS` ; when > 0 the reconciler inserts
+  a "drop on over-rate" nftables rule before the DNAT so a
+  volumetric attack against a FIP is dropped before conntrack
+  state is even instantiated. Burst defaults to 2×rate. v4 +
+  v6 (via the IPv6 path below). Commit `6ed0918`.
+
+- **Drop counters in the in-VM firewall** (weft-microvm-init
+  `a332081`). Counter + drop tail rule on the input chain of
+  `inet weft-fw` ; `ReadFirewallStatus` walks for the
+  counter+drop pattern and surfaces `pod.FirewallStatus.DropsPackets`
+  / `DropsBytes`. Surfaced as `weft_microvm_agent_firewall_drops_total`
+  in a follow-up agent-side commit.
+
+- **IPv6 NAT + NDP path** (`floatingipnat`, `floatingipl2`).
+  Reconciler now builds both `ip weft-fip-nat` AND `ip6 weft-fip-nat`
+  tables (NAT requires per-family tables in nftables). DNAT /
+  SNAT / rate-limit exprs split on family (`dnatExprs2`,
+  `snatExprs2`, `rateLimitDropExprs2`). Mixed-family mappings
+  refused. For VLAN-mode v6 FIPs, the L2 programmer sets
+  `/proc/sys/net/ipv6/conf/<macvlan>/ndisc_notify = 1` so the
+  kernel emits unsolicited Neighbor Advertisements on address
+  add — the IPv6 equivalent of gratuitous ARP for switch CAM
+  refresh. Commit `9a2b956`.
+
+- **Embedded DHCPv4 server foundation** (`dhcpd/`). For bridged
+  networks where the establishment provides L2 but no DHCP
+  service. Types : `Lease{Yiaddr, SubnetMaskBits, Router,
+  DNSServers, Domain, LeaseTime}` + `Source` interface +
+  `Options` + `Server` interface. `StubServer` records
+  `SimulateRequest` hits so the Source pipeline (Port → Lease)
+  is fully unit-testable today. Protocol implementation (real
+  UDP/67 + DHCPv4 packet parser) intentionally deferred : weft's
+  module tree has a broken transitive dep (go-compressions/matchlen
+  v0.0.0) blocking `go mod tidy` from adding `insomniacslk/dhcp`.
+  Either clear the broken pin or hand-roll the ~300-line pure-Go
+  protocol — both fit behind the existing `Server` interface.
+  Commit `1c96623`.
+
+## [0.4.22] - 2026-06-14
+
+### Added
+
+- **L2/VLAN attachment path for floating IPs** (`floatingipl2/`).
+  Closes the gap for deployments where the establishment provides
+  a VLAN trunk + subnet but no routing protocol (academic /
+  enterprise environments where the ops team won't peer BGP with
+  the openweft cluster). When a Network is declared with
+  `external_mode = "vlan"`, the host running the target VM :
+  - Attaches a macvlan (in bridge mode, so multiple FIPs share a
+    parent) to the VLAN sub-interface ("`<parent>.<vlan>`") of
+    the operator-supplied NIC.
+  - Binds the FIP as a /32 secondary address on the macvlan.
+  - Emits gratuitous ARP via hand-rolled AF_PACKET (14 B Ethernet
+    + 28 B ARP, broadcast destination, sender = target = FIP) so
+    switch CAM tables refresh on migration within ms.
+  - Tears the macvlan down on VM departure ; the VLAN sub-interface
+    is kept (may be operator-managed or shared).
+  Whole-state replace on every Apply ; safe for concurrent calls
+  (mutex-serialised). Stale-macvlan GC by `wft-mvl-` prefix scan.
+  IPv4 only ; v6 falls back to standard NDP. Symmetric Watcher
+  (`floatingipl2.Watcher`) reactor — same event taxonomy as
+  `floatingipnat.Watcher`, parallel reconcile path. 17 tests (5
+  unit + 5 compute + 2 watcher + 5 Linux-kernel integration in
+  netns + veth pair). CI workflow's second job exercises the
+  integration tag with CAP_NET_ADMIN. Commit `7153f0b`.
+
+- **Network model extension** (with weft-proto v0.11.2) :
+  `Network.ExternalMode` ("bgp" default, "vlan"), `VLAN` (802.1Q
+  tag 1-4094, 0 = untagged trunk), `ParentInterface` (host NIC
+  name for the macvlan). Validated cross-field at CreateNetwork
+  time (mode=vlan requires parent_interface ; mode=bgp/empty
+  rejects non-zero vlan or parent_interface). HCL + JSON +
+  proto round-trip. Commit `35bacda`.
+
+### Changed
+
+- **`floatingipnat.ComputeLocalMappings`** now returns broad-
+  coverage NAT mappings : every active FIP whose target VM has
+  a port-assigned IP, regardless of which host runs the VM.
+  Pre-installs DNAT rules on every host so a VM migration finds
+  its NAT already in place — only failover delay left is BGP
+  redistribution (one keepalive) or gARP propagation (ms). Two
+  paths : production `*weft.Adapter` exposes `ListHostUUIDs` →
+  broad walk ; minimal Scope-impls (tests, future-proofed) fall
+  back to local-only. Existing tests stay green. Rules grow as
+  O(hosts × FIPs) cluster-wide — typical setups (hundreds of VMs,
+  dozens of FIPs) stay well under nftables' practical limits.
+  Commit `616a202`.
+
 ## [0.4.21] - 2026-06-14
 
 ### Changed

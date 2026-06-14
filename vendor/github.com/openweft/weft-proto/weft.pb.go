@@ -5059,13 +5059,40 @@ type NetworkInfo struct {
 	Cidr            string                 `protobuf:"bytes,4,opt,name=cidr,proto3" json:"cidr,omitempty"`
 	Gateway         string                 `protobuf:"bytes,5,opt,name=gateway,proto3" json:"gateway,omitempty"`
 	DnsServers      []string               `protobuf:"bytes,6,rep,name=dns_servers,json=dnsServers,proto3" json:"dns_servers,omitempty"`
-	Type            string                 `protobuf:"bytes,7,opt,name=type,proto3" json:"type,omitempty"` // "nat" | "bridged" | "isolated"
+	Type            string                 `protobuf:"bytes,7,opt,name=type,proto3" json:"type,omitempty"` // "nat" | "bridged" | "isolated" | "mesh"
 	CreatedAtUnixNs int64                  `protobuf:"varint,8,opt,name=created_at_unix_ns,json=createdAtUnixNs,proto3" json:"created_at_unix_ns,omitempty"`
 	// Security-group UUIDs applied by default to every NIC that
 	// joins this network. Updated via SetNetworkDefaultSecurityGroups.
 	DefaultSecurityGroupUuids []string `protobuf:"bytes,9,rep,name=default_security_group_uuids,json=defaultSecurityGroupUuids,proto3" json:"default_security_group_uuids,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// ── Edge attachment for floating IPs ────────────────────────
+	// ExternalMode selects how floating IPs allocated from this
+	// network reach the outside world :
+	//
+	//	"bgp"  (default) — a per-tenant weft-router microVM
+	//	       announces each active FIP as a /32 via BGP to the
+	//	       upstream ISP. Suitable for cloud / colo deployments
+	//	       with a public ASN.
+	//	"vlan" — the FIP lives directly inside an establishment-
+	//	       provided subnet on a VLAN. The host running the
+	//	       target VM attaches a macvlan to the VLAN
+	//	       subinterface, binds the FIP, answers ARP locally,
+	//	       and emits gratuitous ARP on migration. No routing
+	//	       protocol involved — fits academic / enterprise
+	//	       setups where the network team gives you a VLAN +
+	//	       subnet and nothing else.
+	//	""     — defaults to "bgp" (backward compat).
+	ExternalMode string `protobuf:"bytes,10,opt,name=external_mode,json=externalMode,proto3" json:"external_mode,omitempty"`
+	// Vlan is the 802.1Q VLAN id when external_mode == "vlan".
+	// Range 1-4094 ; 0 means "untagged" (the parent interface
+	// itself is on the right VLAN, no tagging required).
+	Vlan int32 `protobuf:"varint,11,opt,name=vlan,proto3" json:"vlan,omitempty"`
+	// ParentInterface is the host NIC the macvlan attaches to
+	// (e.g. "eth0", "bond0"). Required when external_mode == "vlan".
+	// The orchestrator doesn't validate it server-side ; each host's
+	// weft-agent must have the interface up.
+	ParentInterface string `protobuf:"bytes,12,opt,name=parent_interface,json=parentInterface,proto3" json:"parent_interface,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *NetworkInfo) Reset() {
@@ -5159,6 +5186,27 @@ func (x *NetworkInfo) GetDefaultSecurityGroupUuids() []string {
 		return x.DefaultSecurityGroupUuids
 	}
 	return nil
+}
+
+func (x *NetworkInfo) GetExternalMode() string {
+	if x != nil {
+		return x.ExternalMode
+	}
+	return ""
+}
+
+func (x *NetworkInfo) GetVlan() int32 {
+	if x != nil {
+		return x.Vlan
+	}
+	return 0
+}
+
+func (x *NetworkInfo) GetParentInterface() string {
+	if x != nil {
+		return x.ParentInterface
+	}
+	return ""
 }
 
 type ListNetworksRequest struct {
@@ -5274,15 +5322,21 @@ func (x *ListNetworksResponse) GetNextPageToken() string {
 }
 
 type CreateNetworkRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"` // name or UUID
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Cidr          string                 `protobuf:"bytes,3,opt,name=cidr,proto3" json:"cidr,omitempty"`
-	Gateway       string                 `protobuf:"bytes,4,opt,name=gateway,proto3" json:"gateway,omitempty"`
-	DnsServers    []string               `protobuf:"bytes,5,rep,name=dns_servers,json=dnsServers,proto3" json:"dns_servers,omitempty"`
-	Type          string                 `protobuf:"bytes,6,opt,name=type,proto3" json:"type,omitempty"` // empty → "nat"
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Project    string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"` // name or UUID
+	Name       string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Cidr       string                 `protobuf:"bytes,3,opt,name=cidr,proto3" json:"cidr,omitempty"`
+	Gateway    string                 `protobuf:"bytes,4,opt,name=gateway,proto3" json:"gateway,omitempty"`
+	DnsServers []string               `protobuf:"bytes,5,rep,name=dns_servers,json=dnsServers,proto3" json:"dns_servers,omitempty"`
+	Type       string                 `protobuf:"bytes,6,opt,name=type,proto3" json:"type,omitempty"` // empty → "nat"
+	// Edge-attachment knobs for floating IPs ; see
+	// NetworkInfo.external_mode / vlan / parent_interface for the
+	// semantics. external_mode == "" defaults to "bgp".
+	ExternalMode    string `protobuf:"bytes,7,opt,name=external_mode,json=externalMode,proto3" json:"external_mode,omitempty"`
+	Vlan            int32  `protobuf:"varint,8,opt,name=vlan,proto3" json:"vlan,omitempty"`
+	ParentInterface string `protobuf:"bytes,9,opt,name=parent_interface,json=parentInterface,proto3" json:"parent_interface,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreateNetworkRequest) Reset() {
@@ -5353,6 +5407,27 @@ func (x *CreateNetworkRequest) GetDnsServers() []string {
 func (x *CreateNetworkRequest) GetType() string {
 	if x != nil {
 		return x.Type
+	}
+	return ""
+}
+
+func (x *CreateNetworkRequest) GetExternalMode() string {
+	if x != nil {
+		return x.ExternalMode
+	}
+	return ""
+}
+
+func (x *CreateNetworkRequest) GetVlan() int32 {
+	if x != nil {
+		return x.Vlan
+	}
+	return 0
+}
+
+func (x *CreateNetworkRequest) GetParentInterface() string {
+	if x != nil {
+		return x.ParentInterface
 	}
 	return ""
 }
@@ -23139,7 +23214,7 @@ const file_weft_proto_rawDesc = "" +
 	"\x04user\x18\x01 \x01(\v2\x11.weft.v1.UserInfoR\x04user\"'\n" +
 	"\x11DeleteUserRequest\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\"\x14\n" +
-	"\x12DeleteUserResponse\"\xa9\x02\n" +
+	"\x12DeleteUserResponse\"\x8d\x03\n" +
 	"\vNetworkInfo\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12!\n" +
 	"\fproject_uuid\x18\x02 \x01(\tR\vprojectUuid\x12\x12\n" +
@@ -23150,7 +23225,11 @@ const file_weft_proto_rawDesc = "" +
 	"dnsServers\x12\x12\n" +
 	"\x04type\x18\a \x01(\tR\x04type\x12+\n" +
 	"\x12created_at_unix_ns\x18\b \x01(\x03R\x0fcreatedAtUnixNs\x12?\n" +
-	"\x1cdefault_security_group_uuids\x18\t \x03(\tR\x19defaultSecurityGroupUuids\"d\n" +
+	"\x1cdefault_security_group_uuids\x18\t \x03(\tR\x19defaultSecurityGroupUuids\x12#\n" +
+	"\rexternal_mode\x18\n" +
+	" \x01(\tR\fexternalMode\x12\x12\n" +
+	"\x04vlan\x18\v \x01(\x05R\x04vlan\x12)\n" +
+	"\x10parent_interface\x18\f \x01(\tR\x0fparentInterface\"d\n" +
 	"\x13ListNetworksRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x1d\n" +
@@ -23158,7 +23237,7 @@ const file_weft_proto_rawDesc = "" +
 	"page_token\x18\x03 \x01(\tR\tpageToken\"p\n" +
 	"\x14ListNetworksResponse\x120\n" +
 	"\bnetworks\x18\x01 \x03(\v2\x14.weft.v1.NetworkInfoR\bnetworks\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xa7\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x8b\x02\n" +
 	"\x14CreateNetworkRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -23166,7 +23245,10 @@ const file_weft_proto_rawDesc = "" +
 	"\agateway\x18\x04 \x01(\tR\agateway\x12\x1f\n" +
 	"\vdns_servers\x18\x05 \x03(\tR\n" +
 	"dnsServers\x12\x12\n" +
-	"\x04type\x18\x06 \x01(\tR\x04type\"G\n" +
+	"\x04type\x18\x06 \x01(\tR\x04type\x12#\n" +
+	"\rexternal_mode\x18\a \x01(\tR\fexternalMode\x12\x12\n" +
+	"\x04vlan\x18\b \x01(\x05R\x04vlan\x12)\n" +
+	"\x10parent_interface\x18\t \x01(\tR\x0fparentInterface\"G\n" +
 	"\x15CreateNetworkResponse\x12.\n" +
 	"\anetwork\x18\x01 \x01(\v2\x14.weft.v1.NetworkInfoR\anetwork\"E\n" +
 	"\x14RenameNetworkRequest\x12\x12\n" +

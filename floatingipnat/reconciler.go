@@ -48,6 +48,18 @@ type NATMapping struct {
 	// VMName is informational, included in the rule comment so
 	// `nft list ruleset` is operator-readable. Empty is fine.
 	VMName string
+	// RateLimitPPS, when > 0, caps the inbound packet rate the
+	// DNAT rule accepts before dropping new SYNs / connections.
+	// A simple anti-DDoS knob the operator dials in on
+	// Internet-facing FIPs. 0 disables the limit (today's default
+	// behavior, no cap).
+	//
+	// The cap is implemented as an nftables `limit rate <pps>/second
+	// burst <burst> packets` clause on the DNAT rule's match side ;
+	// over-limit packets are dropped before DNAT, so the connection
+	// is never opened. Burst defaults to 2× rate (1s leeway) for
+	// TCP slow-start friendliness.
+	RateLimitPPS int
 }
 
 // Validate checks the mapping has parseable IPs of matching

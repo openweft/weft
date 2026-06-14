@@ -26,6 +26,9 @@ func toNetworkInfo(n weft.Network) *weftv1.NetworkInfo {
 		Type:                      string(n.Type),
 		CreatedAtUnixNs:           n.CreatedAt.UnixNano(),
 		DefaultSecurityGroupUuids: n.DefaultSecurityGroups,
+		ExternalMode:              n.ExternalMode,
+		Vlan:                      int32(n.VLAN),
+		ParentInterface:           n.ParentInterface,
 	}
 }
 
@@ -73,12 +76,15 @@ func (s *weftServer) CreateNetwork(ctx context.Context, req *weftv1.CreateNetwor
 		netType = weft.NetworkTypeNAT
 	}
 	n, err := s.adp.CreateNetwork(weft.CreateNetworkSpec{
-		ProjectUUID: projUUID,
-		Name:        req.Name,
-		CIDR:        req.Cidr,
-		Gateway:     req.Gateway,
-		DNSServers:  req.DnsServers,
-		Type:        netType,
+		ProjectUUID:     projUUID,
+		Name:            req.Name,
+		CIDR:            req.Cidr,
+		Gateway:         req.Gateway,
+		DNSServers:      req.DnsServers,
+		Type:            netType,
+		ExternalMode:    req.ExternalMode,
+		VLAN:            int(req.Vlan),
+		ParentInterface: req.ParentInterface,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create network: %v", err)
