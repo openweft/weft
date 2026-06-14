@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	nft "github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -33,7 +34,16 @@ func NewLinuxReconciler() *LinuxReconciler { return &LinuxReconciler{} }
 // Apply replaces the host's "weft-fip-nat" table whole. Atomic
 // at the netlink batch level — an outside observer never sees a
 // half-applied policy.
-func (r *LinuxReconciler) Apply(mappings []NATMapping) error {
+//
+// Records weft_fip_nat_apply_total / _duration / _rules_installed
+// via the package-level metrics surface on every call ; the deferred
+// recordApply observes the result regardless of which return path
+// fires (ValidateMappings reject, netlink failure, success).
+func (r *LinuxReconciler) Apply(mappings []NATMapping) (retErr error) {
+	start := time.Now()
+	defer func() {
+		recordApply(mappings, retErr, time.Since(start).Seconds())
+	}()
 	if err := ValidateMappings(mappings); err != nil {
 		return err
 	}

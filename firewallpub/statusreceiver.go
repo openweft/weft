@@ -90,6 +90,13 @@ func (r *StatusReceiver) handle(subject string, data []byte) {
 		r.logger.Printf("firewallpub: status subject %q : decode: %v", subject, err)
 		return
 	}
+	// Tick weft_firewall_status_events_total AFTER subject + JSON
+	// parse pass : a counter labelled vm_uuid="" for a malformed
+	// subject would explode cardinality and would not reflect a real
+	// agent status. Empty Overall is legal (status payload from a
+	// reconciler that never observed itself) ; we record it as-is.
+	ensureRegistered()
+	statusEventsTotal.WithLabelValues(vmUUID, status.Overall).Inc()
 	r.bus.Publish(weft.PlatformEvent{
 		Kind:    "firewall.status",
 		Subject: vmUUID,

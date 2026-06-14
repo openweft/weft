@@ -66,7 +66,7 @@ func (p *Publisher) Run(ctx context.Context, events <-chan weft.PlatformEvent) e
 			}
 			vms := p.ImpactedVMs(ev)
 			for _, vm := range vms {
-				p.publishOne(vm)
+				p.publishOne(vm, ev.Kind)
 			}
 		}
 	}
@@ -75,9 +75,13 @@ func (p *Publisher) Run(ctx context.Context, events <-chan weft.PlatformEvent) e
 // ResyncAll computes and publishes the current effective firewall
 // for every UUID in vmUUIDs. Use at startup, after a flag flip, or
 // to recover from a deliberate flush. No-op on the empty list.
+//
+// Publishes emitted by ResyncAll carry the synthetic kind "resync" in
+// weft_firewall_publishes_total so an operator can tell startup /
+// flush-recovery traffic apart from event-driven publishes.
 func (p *Publisher) ResyncAll(vmUUIDs []string) {
 	for _, vm := range vmUUIDs {
-		p.publishOne(vm)
+		p.publishOne(vm, "resync")
 	}
 }
 
@@ -87,7 +91,15 @@ func (p *Publisher) ResyncAll(vmUUIDs []string) {
 // push a malformed payload past the network — the agent's
 // HandleMessage rejects invalid updates, but rejecting at the publish
 // site keeps the bus clean.
-func (p *Publisher) publishOne(vmUUID string) {
+//
+// kind carries the source PlatformEvent kind for the
+// weft_firewall_publishes_total counter ; ResyncAll passes "resync".
+// The counter ticks at function entry, BEFORE Validate / publish, so
+// a malformed-effective-firewall log line is still paired with a
+// metric — the operator sees the attempt and can correlate the log.
+func (p *Publisher) publishOne(vmUUID, kind string) {
+	ensureRegistered()
+	publishesTotal.WithLabelValues(kind, vmUUID).Inc()
 	fw := EffectiveFirewall(p.scope, vmUUID)
 	if err := fw.Validate(); err != nil {
 		p.logger.Printf("firewallpub: vm %s: malformed effective firewall: %v", vmUUID, err)
