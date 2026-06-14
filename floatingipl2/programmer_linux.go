@@ -8,11 +8,24 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/vishvananda/netlink"
 )
+
+// osOpenFileWO opens for write only ; pulled out so tests can
+// stub it without dragging file mocking up the call stack. The
+// production impl is os.OpenFile(WRONLY|TRUNC).
+var osOpenFileWO = func(path string) (procWriter, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+}
+
+type procWriter interface {
+	WriteString(string) (int, error)
+	Close() error
+}
 
 // LinuxProgrammer is the netlink-backed implementation. Safe for
 // concurrent Apply calls — the mutex serialises the multi-step
@@ -112,6 +125,12 @@ func (p *LinuxProgrammer) Apply(mappings []L2Mapping) error {
 		if err != nil {
 			return fmt.Errorf("ensure macvlan %s: %w", name, err)
 		}
+		// Enable unsolicited NA so IPv6 addresses bound below
+		// trigger the kernel to broadcast a neighbor advertisement
+		// — the gARP equivalent for switch CAM refresh. Failing
+		// here only hurts NDP propagation speed ; the binding
+		// still works, so swallow + continue.
+		_ = enableIPv6UnsolicitedNA(name)
 		if err := p.syncAddresses(mv, g.ips); err != nil {
 			return fmt.Errorf("sync addresses on %s: %w", name, err)
 		}
@@ -198,6 +217,35 @@ func (p *LinuxProgrammer) ensureParent(parentName string, vlan int) (netlink.Lin
 	}
 	// Re-fetch to get the kernel-assigned index.
 	return netlink.LinkByName(subName)
+}
+
+// enableIPv6UnsolicitedNA sets the kernel sysctl
+// /proc/sys/net/ipv6/conf/<ifname>/ndisc_notify to 1 so the
+// kernel emits an unsolicited Neighbor Advertisement for every
+// IPv6 address bound to the interface. This is the IPv6
+// equivalent of gratuitous ARP for switch CAM refresh.
+//
+// Best-effort : sysctl write can fail under unprivileged
+// network namespaces (test runs without CAP_NET_ADMIN) — the
+// caller swallows the error since the address binding alone
+// still works after the standard NDP exchange completes.
+func enableIPv6UnsolicitedNA(ifname string) error {
+	path := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s/ndisc_notify", ifname)
+	return writeProc(path, "1")
+}
+
+// writeProc writes one short value to a /proc sysctl file. Open-
+// write-close so we don't carry the fd. Errors are returned to
+// the caller ; permission denied bubbles up so the test harness
+// can skip cleanly.
+func writeProc(path, value string) error {
+	f, err := osOpenFileWO(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(value)
+	return err
 }
 
 // ensureMacvlan creates (or finds) the macvlan child on parent
