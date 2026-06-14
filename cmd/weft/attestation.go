@@ -163,6 +163,15 @@ func weftAttestGateFromConfig(ctx context.Context, enabled bool, kv weft.KVStora
 	if err != nil {
 		return nil, err
 	}
-	v := attest.NewVerifier(reg, attest.GoldenPolicy{}, attest.RandNonce)
-	return weft.NewAttestationGate(true, reg, v, 0), nil
+	// Back the verifier's single-use challenge state (enrolment secret +
+	// admission nonce) and the gate's admitted set with the SAME shared
+	// KVStorage, so an Admit served by one replica is visible to a
+	// RegisterHost served by another (HA control plane). A zero ttl uses
+	// the package defaults.
+	pending, err := weft.NewEtcdPendingStore(kv, 0)
+	if err != nil {
+		return nil, err
+	}
+	v := attest.NewVerifierWithStore(reg, attest.GoldenPolicy{}, attest.RandNonce, pending)
+	return weft.NewAttestationGateWithKV(true, reg, v, 0, kv), nil
 }

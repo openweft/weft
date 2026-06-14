@@ -9,7 +9,7 @@ require (
 	github.com/go-diskimages/tart-oci v0.0.0-00010101000000-000000000000
 	github.com/go-grub/grub v0.0.0
 	github.com/go-jose/go-jose/v4 v4.1.4
-	github.com/go-tpm2/attest v0.2.2
+	github.com/go-tpm2/attest v0.3.0
 	github.com/google/nftables v0.3.0
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.0.1
 	github.com/grpc-transports/ssh v0.2.0
