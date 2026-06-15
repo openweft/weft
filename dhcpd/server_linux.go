@@ -160,25 +160,50 @@ func (s *LinuxServer) listen() (*net.UDPConn, error) {
 // (build-tag-free) so unit tests on darwin cover the same code
 // path the linux loop runs.
 func (s *LinuxServer) handle(conn *net.UDPConn, raw []byte) {
+	start := time.Now()
+	defer func() { recordHandleDuration(time.Since(start).Seconds()) }()
+
 	pkt, err := Parse(raw)
 	if err != nil {
 		s.logger.Debug("parse failed", "err", err, "len", len(raw))
+		recordPacket("drop_parse_err")
 		return
 	}
 	d, err := Decide(pkt, s.opts)
 	if err != nil {
 		s.logger.Warn("decide", "mac", d.MAC, "err", err)
+		recordPacket("drop_decide_err")
 		return
 	}
 	if d.Reply == nil {
 		s.logger.Debug("dropped", "mac", d.MAC, "msg_type", pkt.MessageType())
+		// Distinguish unknown-mac (Resolve→false) from message
+		// types we silently ignore by sentinel : d.MAC is set on
+		// every non-malformed packet, and MsgType is 0 here. The
+		// cleanest signal we have without re-parsing is whether
+		// the inbound was a DHCP message type we'd otherwise
+		// reply to.
+		if mt := pkt.MessageType(); mt == MsgDiscover || mt == MsgRequest {
+			recordPacket("drop_unknown_mac")
+		} else {
+			recordPacket("drop_unsupported")
+		}
 		return
 	}
 	if err := s.send(conn, pkt, d.Reply); err != nil {
 		s.logger.Warn("send", "mac", d.MAC, "msg_type", d.MsgType, "err", err)
+		recordPacket("send_err")
 		return
 	}
 	s.logger.Info("sent", "mac", d.MAC, "msg_type", d.MsgType)
+	switch d.MsgType {
+	case MsgOffer:
+		recordPacket("offer")
+	case MsgAck:
+		recordPacket("ack")
+	case MsgNak:
+		recordPacket("nak")
+	}
 }
 
 // send writes the reply on UDP/68. v0 strategy : always broadcast
