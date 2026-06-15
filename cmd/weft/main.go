@@ -68,6 +68,10 @@ import (
 	"github.com/openweft/weft/cmd/weft/volume"
 	"github.com/openweft/weft/cmd/weft/wait"
 	"github.com/openweft/weft/federation"
+	"github.com/openweft/weft/firewallpub"
+	"github.com/openweft/weft/floatingipnat"
+	"github.com/openweft/weft/portqos"
+	"github.com/openweft/weft/portsec"
 	"github.com/openweft/weft/registryclient"
 	"github.com/openweft/weft/zombiegc"
 	"github.com/spf13/cobra"
@@ -659,6 +663,25 @@ func run(t fileConfigTargets) error {
 		}
 		rpcByKind = rm
 		promRegistry = reg
+		// Network-plane reconciler metrics : floatingipnat (DNAT/SNAT
+		// rules), firewallpub (security-group publishes), portsec
+		// (anti-spoof), portqos (HTB shaping). Each package
+		// implements an idempotent Register ; if the operator never
+		// configured `--metrics-listen` the recordApply hot path
+		// lazy-binds to prometheus.DefaultRegisterer instead (no
+		// observation lost, just not scraped).
+		if err := floatingipnat.Register(reg); err != nil {
+			return fmt.Errorf("register floatingipnat metrics: %w", err)
+		}
+		if err := firewallpub.Register(reg); err != nil {
+			return fmt.Errorf("register firewallpub metrics: %w", err)
+		}
+		if err := portsec.Register(reg); err != nil {
+			return fmt.Errorf("register portsec metrics: %w", err)
+		}
+		if err := portqos.Register(reg); err != nil {
+			return fmt.Errorf("register portqos metrics: %w", err)
+		}
 		// Cluster-topology gauge : weft_monitors_live = count of
 		// etcd-coord liveness leases at /weft/coord/hosts/. Tracks the
 		// number of healthy agent monitors operators can fail over to.

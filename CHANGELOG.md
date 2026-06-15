@@ -7,6 +7,10 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [0.4.25] - 2026-06-15
+
+Network-plane observability + Port visibility round.
+
 ### Added
 - **Floating-IP rate-limit cascade**. `FloatingIP.RateLimitPPS`
   persists through HCL block + load/save ; `MapFloatingIP` adapter
@@ -19,10 +23,23 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
   created-at per NIC. Powers the webui Network panel + future Port
   detail drawer. Backed by weft-proto v0.11.6 PortInfo +
   ListPortsForVM RPC.
+- **portsec + portqos Prometheus metrics**. Each reconciler now
+  exposes `weft_{portsec,portqos}_apply_total{result}`,
+  `_rules_installed` / `_specs_installed`, and
+  `_apply_duration_seconds` (mirrors `floatingipnat/metrics.go`).
+  `cmd/weft/main.go` wires all four network-plane reconcilers
+  (floatingipnat / firewallpub / portsec / portqos) into the
+  served `/metrics` registry — previously they only lazy-bound to
+  the unused DefaultRegisterer.
 - **`docs/operations/grafana/weft-network-plane.json`** : Grafana 10
-  companion dashboard (schema 38) for FIP NAT reconciler counters/
-  latency, firewall publish + status events, bus drops, per-RPC
-  rate, VM monitors / zombie reconciler.
+  companion dashboard (schema 38) — FIP NAT counters/latency, the
+  new portsec + portqos panels (Apply rate, rules/specs gauge,
+  p95 latency), firewall publish + status events, bus drops,
+  per-RPC rate, VM monitors / zombie reconciler.
+
+### Companion bump
+- `weft-proto` → v0.11.6 (PortInfo + ListPortsForVM RPC)
+- `weft-proto` → v0.11.5 (FloatingIP rate_limit_pps)
 
 ## [0.4.24] - 2026-06-14
 

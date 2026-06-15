@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	nft "github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -45,7 +46,9 @@ func NewLinuxReconciler() *LinuxReconciler { return &LinuxReconciler{} }
 //
 // Empty IPs : the IP filter is skipped (boot-time DHCP allowed,
 // MAC filter still enforced).
-func (r *LinuxReconciler) Apply(rules []AntispoofRule) error {
+func (r *LinuxReconciler) Apply(rules []AntispoofRule) (retErr error) {
+	start := time.Now()
+	defer func() { recordApply(rules, retErr, time.Since(start).Seconds()) }()
 	if err := ValidateRules(rules); err != nil {
 		return err
 	}
