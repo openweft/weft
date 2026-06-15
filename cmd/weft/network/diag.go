@@ -66,6 +66,7 @@ type DiagReport struct {
 	VMName       string                  `json:"vm_name"`
 	Networks     []*weftv1.NetworkInfo   `json:"networks,omitempty"`
 	FloatingIPs  []*weftv1.FloatingIPInfo `json:"floating_ips,omitempty"`
+	Ports        []*weftv1.PortInfo      `json:"ports,omitempty"`
 }
 
 func collectDiag(ctx context.Context, c weftv1.WeftAgentClient, vmName, project string) (*DiagReport, error) {
@@ -87,10 +88,21 @@ func collectDiag(ctx context.Context, c weftv1.WeftAgentClient, vmName, project 
 			fips = append(fips, f)
 		}
 	}
+	// Pull every Port attached to the VM (best-effort : older
+	// daemons without the RPC return Unimplemented and we just
+	// leave the section empty rather than failing the whole diag).
+	var ports []*weftv1.PortInfo
+	portsResp, perr := c.ListPortsForVM(ctx, &weftv1.ListPortsForVMRequest{
+		VmName: vmName, Project: project,
+	})
+	if perr == nil {
+		ports = portsResp.GetPorts()
+	}
 	return &DiagReport{
 		VMName:      vmName,
 		Networks:    netResp.GetNetworks(),
 		FloatingIPs: fips,
+		Ports:       ports,
 	}, nil
 }
 
@@ -118,15 +130,46 @@ func renderDiag(r *DiagReport) error {
 		tw.Flush()
 	}
 
+	fmt.Println("\nPorts attached to this VM :")
+	if len(r.Ports) == 0 {
+		fmt.Println("  (none — VM may not be booted yet)")
+	} else {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  MAC\tIP\tNETWORK\tSGS\tINGRESS\tEGRESS")
+		for _, p := range r.Ports {
+			sgs := "—"
+			if n := len(p.GetSecurityGroups()); n > 0 {
+				sgs = fmt.Sprintf("%d", n)
+			}
+			ing := fmtRate(int(p.GetIngressMbps()))
+			egr := fmtRate(int(p.GetEgressMbps()))
+			netUUID := p.GetNetworkUuid()
+			if len(netUUID) > 8 {
+				netUUID = netUUID[:8]
+			}
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
+				p.GetMac(), p.GetIp(), netUUID, sgs, ing, egr)
+		}
+		tw.Flush()
+	}
+
 	fmt.Println("\nFloating IPs mapped to this VM :")
 	if len(r.FloatingIPs) == 0 {
 		fmt.Println("  (none)")
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "  ADDRESS\tNETWORK\tSTATUS")
+		fmt.Fprintln(tw, "  ADDRESS\tNETWORK\tSTATUS\tRATE LIMIT")
 		for _, f := range r.FloatingIPs {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\n",
-				f.GetAddress(), f.GetNetwork(), f.GetStatus())
+			netUUID := f.GetNetwork()
+			if len(netUUID) > 8 {
+				netUUID = netUUID[:8]
+			}
+			rl := "—"
+			if pps := f.GetRateLimitPps(); pps > 0 {
+				rl = fmt.Sprintf("%d pps", pps)
+			}
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\n",
+				f.GetAddress(), netUUID, f.GetStatus(), rl)
 		}
 		tw.Flush()
 	}
@@ -151,3 +194,12 @@ func dumpDiagJSON(r *DiagReport) error {
 // Kept here so the diag file is self-contained.
 func trimDot(s string) string { return strings.TrimSuffix(s, ".") }
 var _ = trimDot
+
+// fmtRate formats a Mbps integer as a column-friendly "<N>Mbps", or
+// an em-dash when the cap is 0 (no limit).
+func fmtRate(mbps int) string {
+	if mbps <= 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%dMbps", mbps)
+}

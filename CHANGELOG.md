@@ -7,6 +7,17 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [0.4.27] - 2026-06-15
+
+### Changed
+- **`weft network diag <vm>`** now surfaces Ports (MAC/IP/network/SG
+  count/QoS Mbps) via the v0.11.6 `ListPortsForVM` RPC, closing the
+  symmetry gap with the webui's Network panel. Floating-IP table
+  also grows a `RATE LIMIT` column for the v0.11.5
+  `rate_limit_pps`. Backward-compatible : older daemons returning
+  Unimplemented on ListPortsForVM just leave the Ports section
+  empty rather than failing the whole diag.
+
 ## [0.4.26] - 2026-06-15
 
 Network-plane observability tail : DHCPv4 metrics + CLI `weft port`.
