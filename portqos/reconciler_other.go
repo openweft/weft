@@ -2,7 +2,10 @@
 
 package portqos
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // StubReconciler records the last Apply payload for darwin builds
 // + cross-platform tests.
@@ -15,7 +18,9 @@ type StubReconciler struct {
 func NewStubReconciler() *StubReconciler { return &StubReconciler{} }
 
 // Apply validates + records.
-func (r *StubReconciler) Apply(specs []PortQoS) error {
+func (r *StubReconciler) Apply(specs []PortQoS) (retErr error) {
+	start := time.Now()
+	defer func() { recordApply(specs, retErr, time.Since(start).Seconds()) }()
 	if err := ValidateSpecs(specs); err != nil {
 		return err
 	}

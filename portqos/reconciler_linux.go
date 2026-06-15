@@ -5,6 +5,7 @@ package portqos
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/vishvananda/netlink"
 )
@@ -38,7 +39,9 @@ func NewLinuxReconciler() *LinuxReconciler { return &LinuxReconciler{} }
 // "<tap>-ifb" the kernel has and removes any not in the new set.
 // (HTB qdisc on the tap is replaced in-place by netlink's
 // QdiscReplace.)
-func (r *LinuxReconciler) Apply(specs []PortQoS) error {
+func (r *LinuxReconciler) Apply(specs []PortQoS) (retErr error) {
+	start := time.Now()
+	defer func() { recordApply(specs, retErr, time.Since(start).Seconds()) }()
 	if err := ValidateSpecs(specs); err != nil {
 		return err
 	}

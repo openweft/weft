@@ -2,7 +2,10 @@
 
 package portsec
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // StubReconciler is the darwin / cross-platform fallback. Records
 // the last Apply payload so a host-side test on darwin can assert
@@ -17,7 +20,9 @@ type StubReconciler struct {
 func NewStubReconciler() *StubReconciler { return &StubReconciler{} }
 
 // Apply validates + records. Always nil after Validate passes.
-func (r *StubReconciler) Apply(rules []AntispoofRule) error {
+func (r *StubReconciler) Apply(rules []AntispoofRule) (retErr error) {
+	start := time.Now()
+	defer func() { recordApply(rules, retErr, time.Since(start).Seconds()) }()
 	if err := ValidateRules(rules); err != nil {
 		return err
 	}
