@@ -50,6 +50,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/login"
 	"github.com/openweft/weft/cmd/weft/microvm"
 	"github.com/openweft/weft/cmd/weft/monitor"
+	"github.com/openweft/weft/cmd/weft/port"
 	"github.com/openweft/weft/cmd/weft/network"
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/plugin"
@@ -67,6 +68,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/user"
 	"github.com/openweft/weft/cmd/weft/volume"
 	"github.com/openweft/weft/cmd/weft/wait"
+	"github.com/openweft/weft/dhcpd"
 	"github.com/openweft/weft/federation"
 	"github.com/openweft/weft/firewallpub"
 	"github.com/openweft/weft/floatingipnat"
@@ -208,6 +210,7 @@ running agent.`,
 		az.Command(&socketPath, &sshSocket, &sshKey),
 		rack.Command(&socketPath, &sshSocket, &sshKey),
 		floatingip.Command(&socketPath, &sshSocket, &sshKey),
+		port.Command(&socketPath, &sshSocket, &sshKey),
 		subnet.Command(&socketPath, &sshSocket, &sshKey),
 		loadbalancer.Command(&socketPath, &sshSocket, &sshKey),
 		dnszone.Command(&socketPath, &sshSocket, &sshKey),
@@ -681,6 +684,9 @@ func run(t fileConfigTargets) error {
 		}
 		if err := portqos.Register(reg); err != nil {
 			return fmt.Errorf("register portqos metrics: %w", err)
+		}
+		if err := dhcpd.Register(reg); err != nil {
+			return fmt.Errorf("register dhcpd metrics: %w", err)
 		}
 		// Cluster-topology gauge : weft_monitors_live = count of
 		// etcd-coord liveness leases at /weft/coord/hosts/. Tracks the

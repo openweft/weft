@@ -7,6 +7,23 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [0.4.26] - 2026-06-15
+
+Network-plane observability tail : DHCPv4 metrics + CLI `weft port`.
+
+### Added
+- **dhcpd Prometheus metrics** : `weft_dhcpd_packets_total{outcome}`
+  (offer/ack/nak + 5 drop reasons + send_err) and
+  `weft_dhcpd_handle_duration_seconds` histogram. Registered cmd-side
+  alongside the other network-plane reconcilers ; observability gap
+  for the embedded DHCPv4 server (v0.4.24) is now closed.
+- **CLI `weft port`** (with `ls` / `list` alias) : thin wrapper over
+  `ListPortsForVM` RPC, surfaces MAC/IP/network/SG count/QoS Mbps per
+  NIC. Supports `--vm <name>` + `--project` or `--vm-uuid` ; `--format=json`
+  emits the full PortInfo (network UUIDs et al.).
+- **weft-network-plane Grafana dashboard** : new "DHCPv4 server" row
+  with packets/sec by outcome + handle latency p95/p99.
+
 ## [0.4.25] - 2026-06-15
 
 Network-plane observability + Port visibility round.
