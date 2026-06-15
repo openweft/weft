@@ -7,6 +7,23 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Added
+- **Floating-IP rate-limit cascade**. `FloatingIP.RateLimitPPS`
+  persists through HCL block + load/save ; `MapFloatingIP` adapter
+  surface validates 0..100k cap, idempotent path updates the cap
+  on same-target re-map without unmap/map churn ; `floatingipnat`
+  `NATMapping` carries the value to the host-side reconciler.
+  Powers the webui anti-DDoS slider.
+- **ListPortsForVM gRPC handler**. Read-only Port view ; resolves
+  the VM by uuid OR (name + project), returns MAC/IP/security-groups/
+  created-at per NIC. Powers the webui Network panel + future Port
+  detail drawer. Backed by weft-proto v0.11.6 PortInfo +
+  ListPortsForVM RPC.
+- **`docs/operations/grafana/weft-network-plane.json`** : Grafana 10
+  companion dashboard (schema 38) for FIP NAT reconciler counters/
+  latency, firewall publish + status events, bus drops, per-RPC
+  rate, VM monitors / zombie reconciler.
+
 ## [0.4.24] - 2026-06-14
 
 3 deferred items closed in parallel as a follow-up to v0.4.23 :

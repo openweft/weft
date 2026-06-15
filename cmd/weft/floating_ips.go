@@ -25,6 +25,7 @@ func toFloatingIPInfo(f weft.FloatingIP) *weftv1.FloatingIPInfo {
 		MappedTo:          f.MappedTo,
 		Status:            string(f.Status),
 		AllocatedAtUnixNs: f.AllocatedAt.UnixNano(),
+		RateLimitPps:      int32(f.RateLimitPPS),
 	}
 }
 
@@ -89,11 +90,12 @@ func (s *weftServer) MapFloatingIP(ctx context.Context, req *weftv1.MapFloatingI
 	if kind == "" {
 		kind = weft.FIPTargetVM
 	}
-	fip, err := s.adp.MapFloatingIP(req.Uuid, kind, req.TargetName)
+	fip, err := s.adp.MapFloatingIP(req.Uuid, kind, req.TargetName, int(req.RateLimitPps))
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "map floating ip: %v", err)
 	}
-	logger.Printf("MapFloatingIP uuid=%s target=%s/%s", req.Uuid, kind, req.TargetName)
+	logger.Printf("MapFloatingIP uuid=%s target=%s/%s rate_limit_pps=%d",
+		req.Uuid, kind, req.TargetName, req.RateLimitPps)
 	return &weftv1.MapFloatingIPResponse{FloatingIp: toFloatingIPInfo(fip)}, nil
 }
 

@@ -149,9 +149,10 @@ func ComputeLocalMappings(scope Scope, hostUUID string) []NATMapping {
 			continue
 		}
 		out = append(out, NATMapping{
-			PublicIP:  fip.Address,
-			PrivateIP: privateIP,
-			VMName:    vmName,
+			PublicIP:     fip.Address,
+			PrivateIP:    privateIP,
+			VMName:       vmName,
+			RateLimitPPS: fip.RateLimitPPS,
 		})
 	}
 	return out

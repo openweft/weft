@@ -32,6 +32,55 @@ func toNetworkInfo(n weft.Network) *weftv1.NetworkInfo {
 	}
 }
 
+func toPortInfo(p weft.Port) *weftv1.PortInfo {
+	return &weftv1.PortInfo{
+		Uuid:            p.UUID,
+		ProjectUuid:     p.ProjectUUID,
+		VmUuid:          p.VMUUID,
+		NetworkUuid:     p.NetworkUUID,
+		Mac:             p.MAC,
+		Ip:              p.IP,
+		SecurityGroups:  p.SecurityGroups,
+		WireguardPubKey: p.WireguardPubKey,
+		MeshEndpoint:    p.MeshEndpoint,
+		CreatedAtUnixNs: p.CreatedAt.UnixNano(),
+		// IngressMbps / EgressMbps not yet persisted on Port — left
+		// at zero until portqos persistence lands.
+	}
+}
+
+// ListPortsForVM resolves the VM via uuid OR (name + project) then
+// returns every NIC binding. Read-only ; the operator inspects
+// MAC/IP/security-groups + (later) QoS caps. RBAC scopes via
+// AuthorizeProject on the owning project.
+func (s *weftServer) ListPortsForVM(ctx context.Context, req *weftv1.ListPortsForVMRequest) (*weftv1.ListPortsForVMResponse, error) {
+	var vm weft.VM
+	var ok bool
+	if req.VmUuid != "" {
+		vm, ok = s.adp.VMByUUID(req.VmUuid)
+	} else if req.VmName != "" {
+		projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+		if err != nil {
+			return nil, err
+		}
+		vm, ok = s.adp.VMByName(projUUID, req.VmName)
+	} else {
+		return nil, status.Error(codes.InvalidArgument, "vm_uuid or (vm_name + project) is required")
+	}
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "vm not found")
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, vm.ProjectUUID); err != nil {
+		return nil, err
+	}
+	ports := s.adp.ListPortsForVM(vm.UUID)
+	out := make([]*weftv1.PortInfo, len(ports))
+	for i, p := range ports {
+		out[i] = toPortInfo(p)
+	}
+	return &weftv1.ListPortsForVMResponse{Ports: out}, nil
+}
+
 func (s *weftServer) ListNetworks(ctx context.Context, req *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error) {
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {

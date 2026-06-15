@@ -76,7 +76,7 @@ func TestFloatingIPRegistry_RoundTripViaEmbeddedEtcd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("allocate fip2: %v", err)
 	}
-	if _, err := reg.mapTo(fip2.UUID, FIPTargetVM, "vm-web-1"); err != nil {
+	if _, err := reg.mapTo(fip2.UUID, FIPTargetVM, "vm-web-1", 0); err != nil {
 		t.Fatalf("mapTo fip2: %v", err)
 	}
 
