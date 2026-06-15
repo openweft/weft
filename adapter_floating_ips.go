@@ -152,7 +152,12 @@ func (a *Adapter) ReleaseFloatingIP(uuid string) error {
 // intent visible — silent rebinding would mask config drift).
 //
 // emits : floating_ip.mapped { uuid, project, address, target_kind, target }
-func (a *Adapter) MapFloatingIP(uuid string, kind FloatingIPTargetKind, target string) (FloatingIP, error) {
+//
+// rateLimitPPS : 0 = no limit on fresh map, leave existing on
+// idempotent path. > 0 = anti-DDoS cap installed by the host-
+// side reconciler (passes through to NATMapping.RateLimitPPS).
+// Capped at 100_000 — anything higher rounds down.
+func (a *Adapter) MapFloatingIP(uuid string, kind FloatingIPTargetKind, target string, rateLimitPPS int) (FloatingIP, error) {
 	if a.fipReg == nil {
 		return FloatingIP{}, fmt.Errorf("floating-ip registry not initialised")
 	}
@@ -164,7 +169,13 @@ func (a *Adapter) MapFloatingIP(uuid string, kind FloatingIPTargetKind, target s
 	default:
 		return FloatingIP{}, fmt.Errorf("unknown target_kind %q (want vm or lb)", kind)
 	}
-	fip, err := a.fipReg.mapTo(uuid, kind, target)
+	if rateLimitPPS < 0 {
+		return FloatingIP{}, fmt.Errorf("rate_limit_pps must be ≥ 0 : %d", rateLimitPPS)
+	}
+	if rateLimitPPS > 100_000 {
+		rateLimitPPS = 100_000
+	}
+	fip, err := a.fipReg.mapTo(uuid, kind, target, rateLimitPPS)
 	if err != nil {
 		return FloatingIP{}, err
 	}

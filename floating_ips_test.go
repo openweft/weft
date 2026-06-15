@@ -135,7 +135,7 @@ func TestFloatingIPAllocate_ExplicitRejectsAlreadyAllocated(t *testing.T) {
 func TestFloatingIPMap_HappyPath(t *testing.T) {
 	reg, _ := newReg(t)
 	fip, _ := reg.allocate(AllocateFloatingIPSpec{ProjectUUID: "p1", NetworkUUID: "net1"}, "10.0.0.0/24")
-	mapped, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-web-1")
+	mapped, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-web-1", 0)
 	if err != nil {
 		t.Fatalf("mapTo: %v", err)
 	}
@@ -151,11 +151,11 @@ func TestFloatingIPMap_HappyPath(t *testing.T) {
 func TestFloatingIPMap_IdempotentOnSameTarget(t *testing.T) {
 	reg, _ := newReg(t)
 	fip, _ := reg.allocate(AllocateFloatingIPSpec{ProjectUUID: "p1", NetworkUUID: "net1"}, "10.0.0.0/24")
-	first, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-web")
+	first, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-web", 0)
 	if err != nil {
 		t.Fatalf("first map: %v", err)
 	}
-	again, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-web")
+	again, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-web", 0)
 	if err != nil {
 		t.Fatalf("second map: %v", err)
 	}
@@ -167,10 +167,10 @@ func TestFloatingIPMap_IdempotentOnSameTarget(t *testing.T) {
 func TestFloatingIPMap_RejectsDifferentTargetWithoutUnmap(t *testing.T) {
 	reg, _ := newReg(t)
 	fip, _ := reg.allocate(AllocateFloatingIPSpec{ProjectUUID: "p1", NetworkUUID: "net1"}, "10.0.0.0/24")
-	if _, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-web"); err != nil {
+	if _, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-web", 0); err != nil {
 		t.Fatalf("first map: %v", err)
 	}
-	_, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-other")
+	_, err := reg.mapTo(fip.UUID, FIPTargetVM, "vm-other", 0)
 	if err == nil || !strings.Contains(err.Error(), "unmap first") {
 		t.Errorf("err = %v", err)
 	}
@@ -179,7 +179,7 @@ func TestFloatingIPMap_RejectsDifferentTargetWithoutUnmap(t *testing.T) {
 func TestFloatingIPUnmap_HappyPathAndIdempotent(t *testing.T) {
 	reg, _ := newReg(t)
 	fip, _ := reg.allocate(AllocateFloatingIPSpec{ProjectUUID: "p1", NetworkUUID: "net1"}, "10.0.0.0/24")
-	reg.mapTo(fip.UUID, FIPTargetVM, "vm-web")
+	reg.mapTo(fip.UUID, FIPTargetVM, "vm-web", 0)
 	got, err := reg.unmap(fip.UUID)
 	if err != nil {
 		t.Fatalf("unmap: %v", err)
@@ -200,7 +200,7 @@ func TestFloatingIPUnmap_HappyPathAndIdempotent(t *testing.T) {
 func TestFloatingIPRelease_RefusesWhenActive(t *testing.T) {
 	reg, _ := newReg(t)
 	fip, _ := reg.allocate(AllocateFloatingIPSpec{ProjectUUID: "p1", NetworkUUID: "net1"}, "10.0.0.0/24")
-	reg.mapTo(fip.UUID, FIPTargetVM, "vm-web")
+	reg.mapTo(fip.UUID, FIPTargetVM, "vm-web", 0)
 	if _, err := reg.release(fip.UUID); err == nil {
 		t.Error("expected refusal to release active FIP")
 	}
@@ -214,7 +214,7 @@ func TestFloatingIPRoundTrip_PersistAndReload(t *testing.T) {
 	reg, storage := newReg(t)
 	a, _ := reg.allocate(AllocateFloatingIPSpec{ProjectUUID: "p1", NetworkUUID: "net1"}, "10.0.0.0/24")
 	b, _ := reg.allocate(AllocateFloatingIPSpec{ProjectUUID: "p2", NetworkUUID: "net2"}, "192.0.2.0/29")
-	reg.mapTo(a.UUID, FIPTargetVM, "vm-web")
+	reg.mapTo(a.UUID, FIPTargetVM, "vm-web", 0)
 
 	// Reload via a fresh registry.
 	reg2, err := loadFloatingIPRegistry(context.Background(), storage)

@@ -1,10 +1,18 @@
-# weft-agent Grafana dashboard
+# weft-agent Grafana dashboards
 
-`weft-agent.json` is a hand-authored Grafana 10 dashboard
+`weft-agent.json` is the core hand-authored Grafana 10 dashboard
 (schema version 38) for the `/metrics` endpoint that
 `weft agent --metrics-listen=:9101` exposes. See
 [../observability.md](../observability.md) for the agent-side
 enabling recipe.
+
+`weft-network-plane.json` is a companion dashboard focused on the
+network plane : floating-IP NAT reconciler (`weft_fip_nat_*`),
+firewall publish + status events (`weft_firewall_*`), bus drops
+(`weft_bus_dropped_total`), per-RPC traffic (`weft_rpc_total`), and
+VM monitors / zombie reconciler counters (`weft_monitors_live`,
+`weft_vm_zombies*`). Import alongside the core dashboard once
+network counters are wired into your Prometheus scrape.
 
 ## Import
 
