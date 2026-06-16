@@ -237,6 +237,31 @@ func TestReconciler_DroppedSignalsDontPanic(t *testing.T) {
 	}
 }
 
+// TestReconciler_HistoryWatchReplaceRace replays the cascade where
+// the operator updates the SchedulingRule mid-flight : Unwatch(vm)
+// then Watch(vm) again within ~ms. The OLD goroutine may still be
+// inside handle()→History.Append while the NEW goroutine starts
+// servicing fresh signals. Pre-fix History had no mu, so two
+// goroutines could race on entries/append.
+func TestReconciler_HistoryWatchReplaceRace(t *testing.T) {
+	acts := &fakeActions{startWait: 5 * time.Millisecond}
+	r := New(acts, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	policy := &weftv1.RespawnPolicy{Enabled: true, MaxRestarts: 100, WindowMs: 60000}
+	r.Watch(ctx, "vm-replay", policy)
+	// 50 cascade iterations : send a signal, then Unwatch+Watch in
+	// quick succession so the old goroutine's handle() likely
+	// overlaps with the new goroutine's first signal.
+	for i := 0; i < 50; i++ {
+		r.Send(Signal{VMName: "vm-replay", Kind: SignalDown, When: time.Now()})
+		r.Unwatch("vm-replay")
+		r.Watch(ctx, "vm-replay", policy)
+	}
+	r.Send(Signal{VMName: "vm-replay", Kind: SignalDown, When: time.Now()})
+	time.Sleep(50 * time.Millisecond)
+}
+
 // TestReconciler_SendUnwatchRace exercises the concurrent path that
 // could panic pre-fix : if Send releases mu before doing the
 // non-blocking channel write, Unwatch can close+delete the channel

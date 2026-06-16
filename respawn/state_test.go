@@ -77,9 +77,12 @@ func TestHistory_TrimsOldEntries(t *testing.T) {
 	h.Append(base)
 	h.Append(base.Add(2 * time.Second))
 	// Move forward 30s — both entries should fall out of the window.
-	h.trim(base.Add(30 * time.Second))
-	if len(h.entries) != 0 {
-		t.Errorf("trim left %d entries ; want 0", len(h.entries))
+	// trimLocked is unexported ; call it through Append which trims
+	// before appending, then verify only the new entry remains in
+	// the post-window region.
+	h.Append(base.Add(30 * time.Second))
+	if len(h.entries) != 1 {
+		t.Errorf("after window expiry + 1 new Append, h.entries = %d ; want 1 (the new entry)", len(h.entries))
 	}
 }
 
