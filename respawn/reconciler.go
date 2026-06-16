@@ -105,9 +105,13 @@ func (r *Reconciler) Unwatch(vmName string) {
 // channel buffer is sized 16, enough for the bursts a healthy agent
 // produces).
 func (r *Reconciler) Send(sig Signal) {
+	// Hold mu around the non-blocking send : a concurrent Unwatch
+	// closes ch + deletes the map entry under the same mu, so without
+	// the lock the lookup could return a not-yet-deleted ch that's
+	// already closed by the next instruction → send-on-closed panic.
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	ch, ok := r.chans[sig.VMName]
-	r.mu.Unlock()
 	if !ok {
 		return
 	}

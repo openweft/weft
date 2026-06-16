@@ -236,3 +236,39 @@ func TestReconciler_DroppedSignalsDontPanic(t *testing.T) {
 		t.Errorf("only sent %d ; loop blocked", got)
 	}
 }
+
+// TestReconciler_SendUnwatchRace exercises the concurrent path that
+// could panic pre-fix : if Send releases mu before doing the
+// non-blocking channel write, Unwatch can close+delete the channel
+// in the meantime → send-on-closed-channel panic. Now Send holds mu
+// across the entire read+send, so close vs send are mutually
+// exclusive. Run with `go test -race` for full coverage.
+func TestReconciler_SendUnwatchRace(t *testing.T) {
+	acts := &fakeActions{}
+	r := New(acts, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	policy := &weftv1.RespawnPolicy{Enabled: true, MaxRestarts: 100, WindowMs: 60000}
+
+	// 20 distinct VM names ; the existing vmName(i) helper builds
+	// from 'a'+i so we stay under its rune range. Distinct names so
+	// the per-VM State (History) doesn't race separately ; what
+	// matters here is Send + Unwatch on the SAME map slot completing
+	// without send-on-closed-channel panics.
+	const N = 20
+	var wg sync.WaitGroup
+	for i := 0; i < N; i++ {
+		vmName := vmName(i)
+		r.Watch(ctx, vmName, policy)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			r.Send(Signal{VMName: vmName, Kind: SignalDown, When: time.Now()})
+		}()
+		go func() {
+			defer wg.Done()
+			r.Unwatch(vmName)
+		}()
+	}
+	wg.Wait()
+}
