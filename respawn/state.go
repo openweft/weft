@@ -102,9 +102,15 @@ type VMActions interface {
 // History is the rolling restart log per VM, capped at the policy's
 // max_restarts. Each entry is a Time the StartVM was issued ; the
 // window check at decide() drops entries older than window_ms before
-// counting. Pure data — no locks ; the reconciler owns the per-VM
-// History inside its goroutine.
+// counting.
+//
+// mu protects entries against the brief Unwatch-then-Watch overlap : a
+// signal already in-flight inside the OLD per-VM goroutine can race
+// the freshly-spawned NEW goroutine's handle() if the operator
+// replaces the rule between two bursts. Both paths look up the same
+// VMState through r.states[vmName], so we serialise the read+write.
 type History struct {
+	mu      sync.Mutex
 	entries []time.Time
 	max     int
 	window  time.Duration
@@ -124,7 +130,9 @@ func newHistory(max int, window time.Duration) *History {
 // now exhausted (i.e. count-in-window >= max). Callers use the result
 // to transition into Cooldown.
 func (h *History) Append(now time.Time) bool {
-	h.trim(now)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.trimLocked(now)
 	h.entries = append(h.entries, now)
 	return len(h.entries) >= h.max
 }
@@ -133,7 +141,9 @@ func (h *History) Append(now time.Time) bool {
 // max_restarts in the current window. Equivalent to Append's return
 // value without actually mutating the log.
 func (h *History) Exhausted(now time.Time) bool {
-	h.trim(now)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.trimLocked(now)
 	return len(h.entries) >= h.max
 }
 
@@ -141,13 +151,16 @@ func (h *History) Exhausted(now time.Time) bool {
 // rolls off — the earliest moment a respawn would be permitted again.
 // Returns zero when the history is empty.
 func (h *History) CooldownEnd() time.Time {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if len(h.entries) == 0 {
 		return time.Time{}
 	}
 	return h.entries[0].Add(h.window)
 }
 
-func (h *History) trim(now time.Time) {
+// trimLocked drops entries older than now-window. Caller must hold h.mu.
+func (h *History) trimLocked(now time.Time) {
 	cutoff := now.Add(-h.window)
 	i := 0
 	for ; i < len(h.entries); i++ {
