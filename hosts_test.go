@@ -92,6 +92,46 @@ func TestHostRegistry_HostnameTakeoverWhenPriorIsStale(t *testing.T) {
 	}
 }
 
+// TestHostRegistry_IdempotentReRegisterPreservesAZRack covers the
+// same gotcha as the takeover preservation rule, but for the
+// idempotent-by-UUID re-register path : a hot agent restart should
+// NOT blank AZ/Rack when WEFT_AZ/WEFT_RACK aren't exported. The
+// fix is the don't-clobber-on-empty pattern the AKName + WGPublicKey
+// branches already use.
+func TestHostRegistry_IdempotentReRegisterPreservesAZRack(t *testing.T) {
+	reg, _ := loadHostRegistry(context.Background(), NewMemStorage())
+	_, err := reg.register(RegisterHostSpec{
+		UUID:     "stable-uuid",
+		Hostname: "c-01",
+		AZ:       "dc1",
+		Rack:     "r2",
+		Properties: map[string]string{
+			"tier": "edge",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same UUID, same hostname, but empty placement fields — the
+	// `nohup weft agent &` without env vars scenario.
+	got, err := reg.register(RegisterHostSpec{
+		UUID:     "stable-uuid",
+		Hostname: "c-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AZ != "dc1" {
+		t.Errorf("AZ = %q, want dc1 (preserved on re-register)", got.AZ)
+	}
+	if got.Rack != "r2" {
+		t.Errorf("Rack = %q, want r2 (preserved on re-register)", got.Rack)
+	}
+	if got.Properties["tier"] != "edge" {
+		t.Errorf("Properties = %v, want {tier:edge} preserved", got.Properties)
+	}
+}
+
 // TestHostRegistry_HostnameTakeoverPreservesPlacementMetadata covers
 // the gotcha surfaced live : when selfRegister fires without
 // WEFT_AZ/WEFT_RACK in the env, the agent passes empty placement
