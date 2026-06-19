@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -116,10 +117,28 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		// pgrep guard makes the action idempotent on re-apply: if a `weft`
 		// process is already running we leave it alone instead of failing on
 		// a duplicate socket bind.
-		return a.Host, fmt.Sprintf(
+		cmd := fmt.Sprintf(
 			"pgrep -x weft >/dev/null || (nohup %sweft agent %s >/tmp/weft-agent.log 2>&1 </dev/null & sleep 0.3)   # %s",
 			env, args, label,
 		)
+		// V0.x : mirror cluster.hcl-declared properties into the runtime
+		// host registry's labels map. The agent self-registers on startup
+		// with an empty labels map (or whatever was persisted last) ; we
+		// chain a `weft host register --uuid=<discovered>` to push the
+		// operator-declared properties. UUID is unknown from cluster.hcl
+		// (minted server-side) so we query `host ls` filtered by hostname.
+		// Best-effort : if the shell snippet fails (agent slow to register,
+		// no UUID found yet), the next `weft up --apply` retries — the
+		// properties stay declarative in cluster.hcl, not lost.
+		if len(a.Properties) > 0 {
+			labels := propertiesToLabelsArg(a.Properties)
+			cmd += fmt.Sprintf(
+				" && (sleep 1 ; WEFT_HOST_UUID=$(weft host ls 2>/dev/null | awk -v h=\"$(hostname)\" '$2==h{print $1}') ; "+
+					"[ -n \"$WEFT_HOST_UUID\" ] && weft host register --uuid=$WEFT_HOST_UUID --hostname=\"$(hostname)\" --labels=%s || true)",
+				labels,
+			)
+		}
+		return a.Host, cmd
 	case MeshSync:
 		// Control-plane coordination step — rendered as a logged note, NOT a
 		// remote shell command (same class as GrowQuorum below). The real
@@ -345,6 +364,26 @@ func authMethods(keyPath string) ([]ssh.AuthMethod, error) {
 		return nil, fmt.Errorf("parse key %s: %w", keyPath, err)
 	}
 	return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+}
+
+// propertiesToLabelsArg renders a map[k]v as a `--labels=k=v,k=v` arg
+// value for `weft host register`. Keys are sorted for determinism so
+// the rendered shell command is byte-stable across runs (helps the
+// pgrep idempotency guard + makes test assertions tractable).
+func propertiesToLabelsArg(props map[string]string) string {
+	if len(props) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(props))
+	for k := range props {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+props[k])
+	}
+	return strings.Join(parts, ",")
 }
 
 // run executes one remote command and returns its combined output.
