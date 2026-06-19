@@ -244,6 +244,130 @@ func TestBuild_PushAgentConfig_HostOverrideRendered(t *testing.T) {
 	}
 }
 
+// TestBuild_ControlPlane_RestrictsPlacement: with two of three hosts labeled
+// `role=control-plane`, every infra-service replica must land on one of the
+// labeled hosts. With 3 replicas across 2 eligible hosts the planner
+// round-robins → replica 1 + 3 share a host, replica 2 on the other.
+func TestBuild_ControlPlane_RestrictsPlacement(t *testing.T) {
+	c := threeHostCluster()
+	c.Hosts[0].Properties = map[string]string{"role": "control-plane"}
+	c.Hosts[1].Properties = map[string]string{"role": "control-plane"}
+	// h3 deliberately unlabeled.
+	c.ControlPlane = &ControlPlane{RequireProperties: []string{"role=control-plane"}}
+
+	p, err := Build(c, []*infra.Plan{etcdPlan(), dexPlan()}, State{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	eligible := map[string]bool{"h1": true, "h2": true}
+	for _, a := range actionsOf(p, PlaceReplica) {
+		if !eligible[a.Host] {
+			t.Errorf("%s/%d placed on %q ; want one of [h1 h2] (h3 is unlabeled)", a.Service, a.Replica, a.Host)
+		}
+	}
+	// Round-robin across the eligible pool: etcd/1=h1, etcd/2=h2, etcd/3=h1.
+	got := map[string]map[int]string{}
+	for _, a := range actionsOf(p, PlaceReplica) {
+		if got[a.Service] == nil {
+			got[a.Service] = map[int]string{}
+		}
+		got[a.Service][a.Replica] = a.Host
+	}
+	wantEtcd := map[int]string{1: "h1", 2: "h2", 3: "h1"}
+	for r, h := range wantEtcd {
+		if got["etcd"][r] != h {
+			t.Errorf("etcd/%d on %q, want %q (wrap-around within control-plane pool)", r, got["etcd"][r], h)
+		}
+	}
+	if got["dex"][1] != "h1" {
+		t.Errorf("dex/1 on %q, want h1 (first eligible)", got["dex"][1])
+	}
+}
+
+// TestBuild_ControlPlane_EmptyRequireProperties_NoConstraint: an empty
+// require_properties list is the same as having no control_plane block —
+// every host is eligible and the placement is unchanged.
+func TestBuild_ControlPlane_EmptyRequireProperties_NoConstraint(t *testing.T) {
+	c := threeHostCluster()
+	c.ControlPlane = &ControlPlane{RequireProperties: nil}
+	p, err := Build(c, []*infra.Plan{etcdPlan()}, State{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	got := map[int]string{}
+	for _, a := range actionsOf(p, PlaceReplica) {
+		got[a.Replica] = a.Host
+	}
+	want := map[int]string{1: "h1", 2: "h2", 3: "h3"}
+	for r, h := range want {
+		if got[r] != h {
+			t.Errorf("etcd/%d on %q, want %q (empty require_properties must keep all hosts eligible)", r, got[r], h)
+		}
+	}
+}
+
+// TestBuild_ControlPlane_NoHostMatches_FailsLoud: require_properties has a key
+// that no host has → Build returns an actionable error (does NOT silently
+// fall back to all hosts).
+func TestBuild_ControlPlane_NoHostMatches_FailsLoud(t *testing.T) {
+	c := threeHostCluster()
+	// Hosts h1/h2 have unrelated labels ; h3 has no labels at all.
+	c.Hosts[0].Properties = map[string]string{"role": "compute"}
+	c.Hosts[1].Properties = map[string]string{"role": "compute"}
+	c.ControlPlane = &ControlPlane{RequireProperties: []string{"role=control-plane"}}
+
+	_, err := Build(c, []*infra.Plan{etcdPlan()}, State{})
+	if err == nil {
+		t.Fatal("expected error when require_properties matches zero hosts")
+	}
+	if !strings.Contains(err.Error(), "control_plane.require_properties") {
+		t.Errorf("error %q should mention control_plane.require_properties (actionable hint)", err)
+	}
+	if !strings.Contains(err.Error(), "role=control-plane") {
+		t.Errorf("error %q should echo the unmet label so operator sees what to add", err)
+	}
+}
+
+// TestBuild_ControlPlane_RequireProperties_BadSyntax: a require_properties entry
+// missing the `=` is rejected at Validate time (which Build calls first).
+func TestBuild_ControlPlane_RequireProperties_BadSyntax(t *testing.T) {
+	c := threeHostCluster()
+	c.ControlPlane = &ControlPlane{RequireProperties: []string{"role-control-plane"}} // no `=`
+	if _, err := Build(c, []*infra.Plan{etcdPlan()}, State{}); err == nil {
+		t.Fatal("expected error on malformed require_properties entry")
+	}
+}
+
+// TestBuild_EnsureHost_CarriesLabels: when cluster.hcl declares labels on a
+// host, the EnsureHost action carries them so the executor can call
+// SetHostLabels — keeping cluster.hcl as the source of truth for the
+// runtime host registry.
+func TestBuild_EnsureHost_CarriesProperties(t *testing.T) {
+	c := threeHostCluster()
+	c.Hosts[0].Properties = map[string]string{"role": "control-plane", "storage": "nvme"}
+	c.Hosts[1].Properties = map[string]string{"role": "control-plane"}
+	// h3 left without properties.
+
+	p, err := Build(c, []*infra.Plan{etcdPlan()}, State{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	byHost := map[string]map[string]string{}
+	for _, a := range actionsOf(p, EnsureHost) {
+		byHost[a.Host] = a.Properties
+	}
+	if got := byHost["h1"]; got["role"] != "control-plane" || got["storage"] != "nvme" {
+		t.Errorf("h1 EnsureHost.Properties = %v ; want role=control-plane storage=nvme", got)
+	}
+	if got := byHost["h2"]; got["role"] != "control-plane" {
+		t.Errorf("h2 EnsureHost.Properties = %v ; want role=control-plane", got)
+	}
+	if got := byHost["h3"]; got != nil {
+		t.Errorf("h3 EnsureHost.Properties = %v ; want nil (no labels declared)", got)
+	}
+}
+
 func TestBuild_AlreadyConverged_NoActions(t *testing.T) {
 	cur := State{
 		Hosts:  map[string]bool{"h1": true, "h2": true, "h3": true},

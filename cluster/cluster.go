@@ -9,6 +9,7 @@ package cluster
 import (
 	"fmt"
 	"net/netip"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2/hclsimple"
 )
@@ -31,6 +32,21 @@ type Cluster struct {
 	// blocks (Host.AgentConfig) overlay this default on a per-field
 	// basis ; see AgentConfigFor.
 	AgentConfig *AgentConfigBlock `hcl:"agent_config,block"`
+	// ControlPlane pins infra-service placement to a subset of the hosts
+	// (etcd / nats / coredns / dex etc. land only on hosts whose labels
+	// satisfy require_properties). Nil / absent → every host is eligible
+	// (current behavior). See ControlPlane for the matching contract.
+	ControlPlane *ControlPlane `hcl:"control_plane,block"`
+}
+
+// ControlPlane scopes which hosts the infra services in this cluster are
+// allowed to land on. require_properties is a list of "key=value" entries ; a
+// host is eligible iff its Host.Properties map contains every (key, value) pair.
+// An empty / unset list means "no constraint, all hosts eligible" — i.e. the
+// pre-control-plane behavior. An entry that no host satisfies makes the
+// planner fail loud rather than silently spill onto a non-control-plane host.
+type ControlPlane struct {
+	RequireProperties []string `hcl:"require_properties,optional"`
 }
 
 // Microvm groups cluster-wide microVM-runtime config — today just the OCI
@@ -122,7 +138,17 @@ type Host struct {
 	Rack       string       `hcl:"rack,optional"`       // sub-AZ placement domain (matched by az=different/rack=different/host=different)
 	Hypervisor string       `hcl:"hypervisor,optional"` // legacy single-driver shortcut — "" | "vz" | "qemu" ; mutually exclusive with `driver` blocks
 	Drivers    []HostDriver `hcl:"driver,block"`        // multi-driver capability list — empty means "use hypervisor legacy field or OS default"
-	SSH        *SSH         `hcl:"ssh,block"`           // optional; used by the SSH-push access model
+	// Properties are operator-declared structured k=v constraints
+	// consumed by the planner when the cluster's `control_plane`
+	// block restricts where infra services land. Distinct from
+	// runtime "labels" (free-form annotations set via
+	// `weft host set-labels`, consumed by SchedulingRule selectors
+	// for USER VMs). Properties are STATIC = declared in cluster.hcl,
+	// pushed into the runtime registry on EnsureHost. HCL form :
+	//   properties = { role = "control-plane", storage = "nvme" }
+	// Nil / empty = no operator constraints declared on this host.
+	Properties map[string]string `hcl:"properties,optional"`
+	SSH    *SSH              `hcl:"ssh,block"` // optional; used by the SSH-push access model
 	// AgentConfig is the per-host override of the cluster-level
 	// agent_config { } block. Each non-nil field replaces the cluster
 	// default ; absent fields fall through. See AgentConfigFor.
@@ -252,6 +278,15 @@ func (c *Cluster) Validate() error {
 			}
 		}
 	}
+	// control_plane.require_properties syntax — caught early so Load returns
+	// the configuration error rather than waiting until Build's first
+	// PlaceReplica. Semantic check (does any host satisfy them?) belongs
+	// to the planner, where the host pool actually matters.
+	if c.ControlPlane != nil {
+		if _, err := parseRequireProperties(c.ControlPlane.RequireProperties); err != nil {
+			return fmt.Errorf("cluster %q: %w", c.Name, err)
+		}
+	}
 	return nil
 }
 
@@ -317,3 +352,65 @@ func (h *Host) SupportsArch(driverKind, arch string) bool {
 
 // IsCluster reports whether this is a multi-host (3-DC) deployment.
 func (c *Cluster) IsCluster() bool { return len(c.Hosts) > 1 }
+
+// parseRequireProperties turns the operator's `["role=control-plane", …]` form
+// into (key, value) pairs. Trims whitespace on both sides of the `=`. Each
+// entry must contain exactly one `=` ; a missing or empty key/value is a
+// configuration error returned to the caller.
+func parseRequireProperties(reqs []string) ([][2]string, error) {
+	out := make([][2]string, 0, len(reqs))
+	for _, r := range reqs {
+		i := strings.IndexByte(r, '=')
+		if i < 0 {
+			return nil, fmt.Errorf("control_plane.require_properties entry %q: missing `=` (expected `key=value`)", r)
+		}
+		k := strings.TrimSpace(r[:i])
+		v := strings.TrimSpace(r[i+1:])
+		if k == "" || v == "" {
+			return nil, fmt.Errorf("control_plane.require_properties entry %q: both key and value must be non-empty", r)
+		}
+		out = append(out, [2]string{k, v})
+	}
+	return out, nil
+}
+
+// hostMatchesRequireProperties reports whether h satisfies every required (k,v)
+// pair from a parsed require_properties list. An empty req list returns true
+// (no constraint == every host eligible, the pre-control-plane behavior).
+func hostMatchesRequireProperties(h *Host, req [][2]string) bool {
+	if len(req) == 0 {
+		return true
+	}
+	for _, kv := range req {
+		if h.Properties == nil {
+			return false
+		}
+		if got, ok := h.Properties[kv[0]]; !ok || got != kv[1] {
+			return false
+		}
+	}
+	return true
+}
+
+// EligibleControlPlaneHosts returns the subset of c.Hosts that satisfies
+// c.ControlPlane.RequireProperties, preserving cluster.hcl declaration order. If
+// the control_plane block is absent or has an empty require_properties list, the
+// full host slice (with no copy) is returned. An entry with bad syntax in
+// require_properties bubbles up as an error — same as Validate would catch on
+// Load, but exposed here so the planner can fail before placing replicas.
+func (c *Cluster) EligibleControlPlaneHosts() ([]Host, error) {
+	if c.ControlPlane == nil || len(c.ControlPlane.RequireProperties) == 0 {
+		return c.Hosts, nil
+	}
+	req, err := parseRequireProperties(c.ControlPlane.RequireProperties)
+	if err != nil {
+		return nil, err
+	}
+	var out []Host
+	for i := range c.Hosts {
+		if hostMatchesRequireProperties(&c.Hosts[i], req) {
+			out = append(out, c.Hosts[i])
+		}
+	}
+	return out, nil
+}

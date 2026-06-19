@@ -86,6 +86,13 @@ type Action struct {
 	// Config is the rendered weft.hcl content for PushAgentConfig — carried
 	// here so renderAction is pure (no second pass over Cluster needed).
 	Config string
+	// Properties is the desired Host.Properties map carried on an
+	// EnsureHost action so the executor can mirror cluster.hcl's
+	// declared properties into the runtime host registry (e.g. via
+	// SetHostLabels — properties get persisted in the same map the
+	// runtime calls "labels" because there's only one map at the
+	// registry level). Nil = no properties declared in cluster.hcl.
+	Properties map[string]string
 }
 
 func (a Action) String() string {
@@ -170,6 +177,20 @@ func effectiveReplicas(p *infra.Plan, hostCount int) int {
 // the topo-sorted infra DAG) minus the observed State. infraOrder must be in
 // dependency order (infra.TopologicalSort). cur may be the zero State for a
 // fresh bootstrap.
+//
+// Infra-service placement honors cluster.ControlPlane: when require_properties is
+// set, replicas are round-robined across the SUBSET of c.Hosts whose Labels
+// satisfy every entry. If the eligible pool is empty Build returns an error
+// — silently spilling onto a non-control-plane host would defeat the point
+// of declaring the constraint.
+//
+// Wrap-around — when there are MORE replicas than eligible hosts (e.g. a
+// 3-replica etcd against 2 control-plane hosts) the planner round-robins :
+// replicas 1,2,3 → eligible[0], eligible[1], eligible[0]. Two replicas of
+// the same service end up on the same host, which is degenerate for quorum
+// services (etcd / nats) but is the right behavior for a 3-host cluster
+// where the operator has explicitly chosen to label only 2 ; growing the
+// label set or the host count is the operator's next step.
 func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -181,11 +202,26 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 	}
 	p := &Plan{Cluster: c.Name, Topology: topology}
 
+	// Resolve the eligible host pool for infra placement. Empty pool with a
+	// non-empty constraint is a hard error — fail loud, see godoc above.
+	placementHosts, err := c.EligibleControlPlaneHosts()
+	if err != nil {
+		return nil, err
+	}
+	if c.ControlPlane != nil && len(c.ControlPlane.RequireProperties) > 0 && len(placementHosts) == 0 {
+		return nil, fmt.Errorf(
+			"cluster %q: control_plane.require_properties = %v but no host satisfies them ; add `labels = { %s }` to at least one host block",
+			c.Name, c.ControlPlane.RequireProperties, c.ControlPlane.RequireProperties[0],
+		)
+	}
+
 	// 1. Bring up any host not yet in the cluster. For each, push the
 	//    rendered weft.hcl FIRST (so it's on disk when the agent reads
 	//    its config on startup), then EnsureHost. Hosts with no
 	//    agent_config at any level skip the push and keep whatever
-	//    skeleton cloud-init wrote.
+	//    skeleton cloud-init wrote. EnsureHost also carries the host's
+	//    declared labels so the executor pushes them to the runtime host
+	//    registry via SetHostLabels.
 	var newHosts bool
 	for i := range c.Hosts {
 		h := &c.Hosts[i]
@@ -201,7 +237,12 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 				Config: cfg.RenderHCL(),
 			})
 		}
-		p.Actions = append(p.Actions, Action{Kind: EnsureHost, Host: h.ID, DC: h.DC})
+		p.Actions = append(p.Actions, Action{
+			Kind:   EnsureHost,
+			Host:   h.ID,
+			DC:     h.DC,
+			Properties: h.Properties,
+		})
 		newHosts = true
 	}
 
@@ -233,7 +274,9 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 	for _, plan := range infraOrder {
 		eff := effectiveReplicas(plan, hostCount)
 		for r := 1; r <= eff; r++ {
-			h := c.Hosts[(r-1)%hostCount]
+			// Round-robin over the eligible pool (which is c.Hosts when
+			// control_plane is absent — identical to the legacy behavior).
+			h := placementHosts[(r-1)%len(placementHosts)]
 			if cur, ok := cur.replicaHost(plan.Service, r); ok && cur == h.ID {
 				continue // already placed correctly
 			}
