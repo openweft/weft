@@ -15,11 +15,12 @@ import (
 // orphan list. Standalone (no etcd dial) so failover unit tests run
 // in milliseconds.
 type fakeCoord struct {
-	mu       sync.Mutex
-	localID  string
-	orphans  map[string][]VMRef // hostUUID → orphans living there
-	claimed  []string           // VM UUIDs claimed, in order
-	claimErr error
+	mu         sync.Mutex
+	localID    string
+	orphans    map[string][]VMRef // hostUUID → orphans living there
+	claimed    []string           // VM UUIDs claimed, in order
+	claimErr   error
+	markedDown []string // host UUIDs that consumeHostEvents asked us to mark Down
 }
 
 func (c *fakeCoord) LocalHostUUID() string { return c.localID }
@@ -46,6 +47,12 @@ func (c *fakeCoord) ClaimVM(uuid string) error {
 		return c.claimErr
 	}
 	c.claimed = append(c.claimed, uuid)
+	return nil
+}
+func (c *fakeCoord) MarkHostDown(uuid string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.markedDown = append(c.markedDown, uuid)
 	return nil
 }
 func (c *fakeCoord) claimCount() int {
@@ -194,6 +201,50 @@ func TestFailover_NoOrphansForDeadHostNoOp(t *testing.T) {
 	}
 }
 
+// TestFailover_MarksHostDownBeforeClaim covers the registry-side
+// side-effect added so `weft host ls` reflects the etcd watcher's
+// liveness verdict immediately. Every HostDown event must propagate
+// MarkHostDown on the coordinator BEFORE the orphan claim spawns —
+// otherwise an idle host whose dispatch session never opened stays
+// "active" forever.
+func TestFailover_MarksHostDownBeforeClaim(t *testing.T) {
+	rules := &fakeRules{}
+	acts := &fakeActions{}
+	coord := &fakeCoord{
+		localID: "host-alive",
+		orphans: map[string][]VMRef{"host-dead": {{UUID: "u-1", Name: "vm-1"}}},
+	}
+	_, events, cancel := startSubscriberWithCoord(t, rules, acts, coord)
+	defer cancel()
+	events <- etcdcoord.HostEvent{Kind: etcdcoord.HostDown, HostUUID: "host-dead"}
+
+	time.Sleep(200 * time.Millisecond)
+	coord.mu.Lock()
+	defer coord.mu.Unlock()
+	if len(coord.markedDown) != 1 || coord.markedDown[0] != "host-dead" {
+		t.Errorf("markedDown = %v, want [host-dead]", coord.markedDown)
+	}
+}
+
+// TestFailover_HostUpDoesntMarkDown : the opposite signal. HostUp
+// events arrive when a previously-dead host comes back ; we must
+// NOT flip its registry state to Down.
+func TestFailover_HostUpDoesntMarkDown(t *testing.T) {
+	rules := &fakeRules{}
+	acts := &fakeActions{}
+	coord := &fakeCoord{localID: "host-alive"}
+	_, events, cancel := startSubscriberWithCoord(t, rules, acts, coord)
+	defer cancel()
+	events <- etcdcoord.HostEvent{Kind: etcdcoord.HostUp, HostUUID: "host-back"}
+
+	time.Sleep(200 * time.Millisecond)
+	coord.mu.Lock()
+	defer coord.mu.Unlock()
+	if len(coord.markedDown) != 0 {
+		t.Errorf("HostUp event marked %v Down — should be a no-op", coord.markedDown)
+	}
+}
+
 func TestFailover_ClaimErrorDoesntBlockOtherClaims(t *testing.T) {
 	rules := &fakeRules{}
 	rules.set(weft.SchedulingRuleEntry{
@@ -242,6 +293,7 @@ type flakyCoord struct {
 func (f *flakyCoord) LocalHostUUID() string         { return f.base.LocalHostUUID() }
 func (f *flakyCoord) VMsOnHost(h string) []VMRef    { return f.base.VMsOnHost(h) }
 func (f *flakyCoord) ListAllVMs() []VMRef           { return f.base.ListAllVMs() }
+func (f *flakyCoord) MarkHostDown(uuid string) error { return f.base.MarkHostDown(uuid) }
 func (f *flakyCoord) ClaimVM(uuid string) error {
 	f.mu.Lock()
 	first := f.failFirst && f.calls == 0

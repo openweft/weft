@@ -166,6 +166,15 @@ func (c respawnCoord) ClaimVM(uuid string) error {
 	return c.adp.MigrateVM(uuid, localHostUUID(c.adp))
 }
 
+// MarkHostDown flips the host registry's State to Down. Called from
+// agentrespawn.consumeHostEvents the moment the etcd watcher observes
+// the host's liveness lease expire — without this, idle hosts whose
+// dispatch session never opened stayed forever "active" in `weft host
+// ls`.  SetHostState is idempotent + tolerant of unknown UUIDs.
+func (c respawnCoord) MarkHostDown(uuid string) error {
+	return c.adp.SetHostState(uuid, weft.HostStateDown)
+}
+
 // respawnStatus is the VMStatusReader projection : tells the
 // subscriber whether a microVM is currently alive. We mirror the
 // adapter's StatusVM probe logic (exit.json takes precedence over

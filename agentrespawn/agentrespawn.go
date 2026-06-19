@@ -90,6 +90,14 @@ type HostCoordinator interface {
 	// pre-knowing their names. Production impl reads
 	// adapter.VMs() ; tests pass a hand-crafted list.
 	ListAllVMs() []VMRef
+	// MarkHostDown flips the host registry's State to Down for
+	// the given UUID. Called from consumeHostEvents the moment a
+	// HostDown event lands so `weft host ls` reflects liveness
+	// the etcd watcher already observed — without this, idle hosts
+	// whose dispatch session never opened (single-DC tests, hosts
+	// behind a NAT) stayed forever "active" despite being dead.
+	// Idempotent ; safe to call on an already-Down or unknown host.
+	MarkHostDown(uuid string) error
 }
 
 // VMRef is a minimal handle on one inventory entry — what the
@@ -325,6 +333,13 @@ func (s *Subscriber) consumeHostEvents(ctx context.Context) {
 			// agents on the now-healthy host will reconcile their
 			// own state next time they rescan.
 			continue
+		}
+		// Mark the host Down in the registry so `weft host ls` and
+		// the scheduler reflect the etcd watcher's verdict. Idempotent
+		// ; surface failures via the log but don't block the orphan
+		// claim (the latter is the more time-critical action).
+		if err := s.coord.MarkHostDown(ev.HostUUID); err != nil {
+			s.log.Warn("host down : registry mark failed", "host", ev.HostUUID, "err", err)
 		}
 		go s.claimOrphans(ctx, ev.HostUUID)
 	}
