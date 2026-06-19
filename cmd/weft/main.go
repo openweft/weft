@@ -577,6 +577,16 @@ func run(t fileConfigTargets) error {
 	// agentrespawn/agentrespawn.go for the V0.1.1 follow-ups.
 	defer startRespawnSubscriber(a, bf.bus, sf.etcdClient, logger)()
 
+	// Local-host heartbeat ticker : keep the registry's LastSeenAt
+	// fresh for the locally-running host. The etcd liveness lease
+	// (registered above) covers cross-host failover, but the
+	// host-registry timestamp is a separate concern and ages
+	// stale without explicit Heartbeat calls. 30s matches the
+	// client-mode default in agent/agent.go.
+	if hostUUID := localHostUUID(a); hostUUID != "" {
+		defer startLocalHostHeartbeat(a, hostUUID, 30*time.Second, logger)()
+	}
+
 	// Auto-render the NATS authorization block on every project
 	// mutation when the operator configured `nats_authorization {
 	// path = … }` in weft.hcl. The hook is a no-op when path is
@@ -1788,6 +1798,44 @@ func localHostUUID(a weft.VZAdapter) string {
 		return g.LocalHostUUID()
 	}
 	return ""
+}
+
+// startLocalHostHeartbeat keeps the host registry's LastSeenAt fresh
+// for the locally-running host by calling adapter.HeartbeatHost on a
+// ticker. Returns a cancel func that stops the goroutine on agent
+// shutdown. The etcd HostLiveness lease handles cross-host failover
+// already — this just closes the lease/heartbeat decoupling gap so
+// `weft host ls` doesn't show 11h-stale timestamps for hosts that
+// are clearly alive (cf. dcN-r2-h1 finding during 2026-06-19 live
+// re-validation).
+func startLocalHostHeartbeat(adp weft.VZAdapter, hostUUID string, interval time.Duration, logger *log.Logger) func() {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		// Fire once immediately so the first heartbeat lands without
+		// waiting `interval` — operator reads `weft host ls` right
+		// after agent start and expects a fresh LastSeenAt.
+		if err := adp.HeartbeatHost(hostUUID); err != nil {
+			logger.Printf("local heartbeat: initial HeartbeatHost(%s) failed: %v", hostUUID, err)
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := adp.HeartbeatHost(hostUUID); err != nil {
+					logger.Printf("local heartbeat: HeartbeatHost(%s) failed: %v", hostUUID, err)
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // VMTimings returns the lifecycle event log recorded by weft at
