@@ -136,6 +136,25 @@ func (s *weftServer) ListHosts(ctx context.Context, req *weftv1.ListHostsRequest
 	if s.dispatch != nil {
 		connected = s.dispatch.ConnectedHostUUIDs()
 	}
+	// The local agent never opens a Connect stream to itself — it
+	// talks to the Adapter directly. But it IS reachable (the
+	// caller is talking to it right now), so the dashboard should
+	// reflect that. Surface localHostUUID as connected if known
+	// and not already in the dispatch list ; otherwise operators
+	// see "connected=no" for the host they just hit, which is
+	// false negative.
+	if s.localHostUUID != "" {
+		dup := false
+		for _, u := range connected {
+			if u == s.localHostUUID {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			connected = append(connected, s.localHostUUID)
+		}
+	}
 	return &weftv1.ListHostsResponse{Hosts: out, ConnectedHostUuids: connected}, nil
 }
 
