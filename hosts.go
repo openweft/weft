@@ -39,6 +39,7 @@ package weft
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -63,6 +64,27 @@ const (
 	// scheduled here are candidates for failover.
 	HostStateDown HostState = "down"
 )
+
+// staleHostTakeoverAge bounds when a hostname collision counts as
+// "the prior agent is dead, take over" vs "two live agents are
+// fighting for the same hostname, refuse". The heartbeat timer is
+// typically 30s, so 5 minutes is 10 missed heartbeats : clearly
+// dead. Operators who want a more aggressive policy can shrink it
+// via the WEFT_STALE_HOST_TAKEOVER env override.
+//
+// The takeover branch in hostRegistry.register also accepts
+// State==Down as a positive signal (the dispatch-session sweeper
+// already flipped the host out of Active), so this threshold only
+// matters for hosts that died WITHOUT going through the sweeper —
+// the common "operator re-imaged the box, state/ was wiped" case.
+var staleHostTakeoverAge = func() time.Duration {
+	if v := os.Getenv("WEFT_STALE_HOST_TAKEOVER"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 5 * time.Minute
+}()
 
 // Host is one compute node in the cluster.
 //
@@ -654,9 +676,31 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		}
 	}
 
-	// Fresh registration. Reject hostname collisions.
-	if _, taken := r.nameIdx[spec.Hostname]; taken {
-		return Host{}, fmt.Errorf("hostname %q already registered", spec.Hostname)
+	// Fresh registration. Hostname collisions normally reject — but a
+	// same-hostname / different-UUID re-register is the expected pattern
+	// when an operator re-images a host (state/ wiped, host-uuid file
+	// regenerated under a new UUID). Accept the takeover when the prior
+	// entry is provably stale : State==Down (dispatch-session sweeper
+	// flipped it) OR LastSeenAt older than staleHostTakeoverAge (no
+	// heartbeat seen). Otherwise refuse — a concurrent live host on the
+	// same hostname is the only case we still want to surface as an
+	// error, since silently hijacking a live agent's identity is unsafe.
+	if priorUUID, taken := r.nameIdx[spec.Hostname]; taken {
+		prior, ok := r.byUUID[priorUUID]
+		stale := ok && (prior.State == HostStateDown || now.Sub(prior.LastSeenAt) > staleHostTakeoverAge)
+		if !ok || !stale {
+			return Host{}, fmt.Errorf("hostname %q already registered (UUID %s, last seen %s)", spec.Hostname, priorUUID, prior.LastSeenAt.UTC().Format(time.RFC3339))
+		}
+		// Takeover : evict the stale entry before claiming the hostname.
+		// On a persist failure we restore the in-memory state so a retry
+		// can observe the same prior entry and re-attempt cleanly.
+		delete(r.byUUID, priorUUID)
+		delete(r.nameIdx, spec.Hostname)
+		if err := r.persistDelete(priorUUID); err != nil {
+			r.byUUID[priorUUID] = prior
+			r.nameIdx[spec.Hostname] = priorUUID
+			return Host{}, fmt.Errorf("hostname takeover: delete prior %s: %w", priorUUID, err)
+		}
 	}
 	uuid := spec.UUID
 	if uuid == "" {

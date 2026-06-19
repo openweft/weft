@@ -27,7 +27,7 @@ func TestHostRegistry_Register(t *testing.T) {
 		Architecture:   "arm64",
 		NetworkTypes:   []string{"nat", "bridged", "mesh"},
 		VolumeBackends: []string{"file"},
-		Labels:         map[string]string{"gpu": "none"},
+		Properties:     map[string]string{"gpu": "none"},
 	})
 	if err != nil {
 		t.Fatalf("register: %v", err)
@@ -57,7 +57,74 @@ func TestHostRegistry_HostnameUnique(t *testing.T) {
 	}
 	_, err = reg.register(RegisterHostSpec{Hostname: "c-01"})
 	if err == nil {
-		t.Errorf("duplicate hostname should be rejected")
+		t.Errorf("duplicate hostname should be rejected (prior host still live)")
+	}
+}
+
+// TestHostRegistry_HostnameTakeoverWhenPriorIsStale covers the
+// re-imaged-host scenario : same hostname re-registers with a new
+// UUID after the prior agent died or its state/ was wiped. The
+// prior entry is stale (LastSeenAt > staleHostTakeoverAge or
+// State==Down) so the new registration must evict + replace.
+func TestHostRegistry_HostnameTakeoverWhenPriorIsStale(t *testing.T) {
+	reg, _ := loadHostRegistry(context.Background(), NewMemStorage())
+	// Plant a stale prior entry : Active state but LastSeenAt
+	// further in the past than the takeover threshold.
+	prior, err := reg.register(RegisterHostSpec{UUID: "prior-uuid", Hostname: "c-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior.LastSeenAt = time.Now().Add(-2 * staleHostTakeoverAge).UTC()
+	reg.byUUID["prior-uuid"] = prior
+	// Re-register with a new UUID under the same hostname.
+	fresh, err := reg.register(RegisterHostSpec{UUID: "fresh-uuid", Hostname: "c-01"})
+	if err != nil {
+		t.Fatalf("takeover should succeed when prior is stale, got %v", err)
+	}
+	if fresh.UUID != "fresh-uuid" {
+		t.Errorf("takeover UUID = %s, want fresh-uuid", fresh.UUID)
+	}
+	if _, ok := reg.byUUID["prior-uuid"]; ok {
+		t.Errorf("prior-uuid entry should have been evicted")
+	}
+	if got := reg.nameIdx["c-01"]; got != "fresh-uuid" {
+		t.Errorf("nameIdx[c-01] = %s, want fresh-uuid", got)
+	}
+}
+
+// TestHostRegistry_HostnameTakeoverRefusedWhenPriorIsFresh : if
+// the prior entry's heartbeat is recent, takeover must refuse — a
+// silent hijack of a live agent's identity is the failure mode we
+// surface as an error.
+func TestHostRegistry_HostnameTakeoverRefusedWhenPriorIsFresh(t *testing.T) {
+	reg, _ := loadHostRegistry(context.Background(), NewMemStorage())
+	if _, err := reg.register(RegisterHostSpec{UUID: "prior-uuid", Hostname: "c-01"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := reg.register(RegisterHostSpec{UUID: "fresh-uuid", Hostname: "c-01"})
+	if err == nil {
+		t.Errorf("takeover should be refused when prior is still fresh")
+	}
+}
+
+// TestHostRegistry_HostnameTakeoverWhenPriorIsDown : Down state is
+// a positive signal (dispatch-session sweeper flipped the host)
+// so takeover applies regardless of LastSeenAt age.
+func TestHostRegistry_HostnameTakeoverWhenPriorIsDown(t *testing.T) {
+	reg, _ := loadHostRegistry(context.Background(), NewMemStorage())
+	prior, err := reg.register(RegisterHostSpec{UUID: "prior-uuid", Hostname: "c-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// LastSeenAt is fresh but State has been flipped to Down.
+	prior.State = HostStateDown
+	reg.byUUID["prior-uuid"] = prior
+	fresh, err := reg.register(RegisterHostSpec{UUID: "fresh-uuid", Hostname: "c-01"})
+	if err != nil {
+		t.Fatalf("takeover should succeed when prior State==Down, got %v", err)
+	}
+	if fresh.UUID != "fresh-uuid" {
+		t.Errorf("takeover UUID = %s, want fresh-uuid", fresh.UUID)
 	}
 }
 
@@ -95,7 +162,7 @@ func TestHostRegistry_IdempotentReRegister(t *testing.T) {
 		Architecture:   "arm64",
 		NetworkTypes:   []string{"nat", "mesh"},
 		VolumeBackends: []string{"file", "ceph"},
-		Labels:         map[string]string{"gpu": "h100"},
+		Properties:     map[string]string{"gpu": "h100"},
 	})
 	if err != nil {
 		t.Fatalf("re-register: %v", err)
@@ -208,7 +275,7 @@ func TestHostRegistry_SetState(t *testing.T) {
 	}
 }
 
-func TestHostRegistry_SetLabels(t *testing.T) {
+func TestHostRegistry_SetProperties(t *testing.T) {
 	reg, _ := loadHostRegistry(context.Background(), NewMemStorage())
 	h, _ := reg.register(RegisterHostSpec{Hostname: "c"})
 	if err := reg.setProperties(h.UUID, map[string]string{"gpu": "h100", "ssd": "true"}); err != nil {
@@ -283,7 +350,7 @@ func TestHostRegistry_RoundTripViaStorage(t *testing.T) {
 		Architecture:   "arm64",
 		NetworkTypes:   []string{"nat", "bridged", "mesh"},
 		VolumeBackends: []string{"file"},
-		Labels:         map[string]string{"gpu": "h100", "ssd": "true"},
+		Properties:     map[string]string{"gpu": "h100", "ssd": "true"},
 	})
 	_ = reg.setState(h.UUID, HostStateDraining)
 
@@ -295,7 +362,7 @@ func TestHostRegistry_RoundTripViaStorage(t *testing.T) {
 		"apple-vz",
 		"network_types",
 		"mesh",
-		"labels",
+		"properties",
 		"h100",
 		"draining",
 	} {
