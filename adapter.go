@@ -81,6 +81,8 @@ type VZAdapter interface {
 	// Project registry surface.
 	Projects() []Project
 	ProjectByUUID(uuid string) (Project, bool)
+	ProjectsByTenant(tenantUUID string) []Project
+	SetProjectTenant(projectUUID, tenantUUID string) error
 	CreateProject(name string) (Project, bool, error)
 	RenameProject(uuid, newName string) error
 	DeleteProject(uuid string) error
@@ -2216,6 +2218,30 @@ func (a *Adapter) Projects() []Project {
 		return nil
 	}
 	return a.projects.list()
+}
+
+// ProjectsByTenant returns every project bound to the given tenant
+// UUID. Empty tenantUUID returns every UNTENANTED project. Used by
+// quota aggregation (`siblings_total` on GetProjectQuota +
+// `allocated` on the future tenant-level quota RPC).
+func (a *Adapter) ProjectsByTenant(tenantUUID string) []Project {
+	if a.projects == nil {
+		return nil
+	}
+	return a.projects.listByTenant(tenantUUID)
+}
+
+// SetProjectTenant binds (or unbinds, when tenantUUID is empty) the
+// project to a parent tenant. Idempotent ; unknown project UUIDs
+// return an error so operators don't silently mistype. Doesn't
+// validate that the tenant exists — operators can stage the binding
+// before the tenant lands, and DeleteTenant's future cascade refusal
+// will surface a missing parent rather than this call.
+func (a *Adapter) SetProjectTenant(projectUUID, tenantUUID string) error {
+	if a.projects == nil {
+		return fmt.Errorf("project registry not initialised")
+	}
+	return a.projects.setTenant(projectUUID, tenantUUID)
 }
 
 // CreateProject explicitly registers a project (no auto-create at
