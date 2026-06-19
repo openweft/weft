@@ -629,8 +629,22 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 			if existing.Hostname != spec.Hostname {
 				return Host{}, fmt.Errorf("host %q hostname mismatch: registered as %q, re-register attempted as %q", spec.UUID, existing.Hostname, spec.Hostname)
 			}
-			existing.AZ = spec.AZ
-			existing.Rack = spec.Rack
+			// Placement metadata (AZ/Rack/Properties) follows the
+			// don't-clobber-on-empty rule the AKName + WGPublicKey
+			// branches below already use : empty spec means "keep
+			// the prior value" so a manual `nohup weft agent &`
+			// relaunch without WEFT_AZ/WEFT_RACK doesn't blank the
+			// cluster.hcl-time placement. Operators explicitly moving
+			// a host between racks pass non-empty values and those
+			// still take precedence. Clearing the property set
+			// explicitly goes through SetHostProperties with a
+			// nil/empty map, not through a re-register.
+			if spec.AZ != "" {
+				existing.AZ = spec.AZ
+			}
+			if spec.Rack != "" {
+				existing.Rack = spec.Rack
+			}
 			existing.Endpoint = spec.Endpoint
 			existing.Hypervisor = spec.Hypervisor
 			existing.Architecture = spec.Architecture
@@ -644,8 +658,6 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 				for k, v := range spec.Properties {
 					existing.Properties[k] = v
 				}
-			} else {
-				existing.Properties = nil
 			}
 			existing.LastSeenAt = now
 			if existing.State == HostStateDown {
