@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	clientv3 "go.etcd.io/etcd/client/v3"
 
 	grubpkg "github.com/go-grub/grub"
 	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
@@ -815,6 +816,7 @@ func run(t fileConfigTargets) error {
 		vmKeys:           sshKeyReg,
 		zombieReconciler: zombieReconciler,
 		attest:           attestGate,
+		etcdCli:          sf.etcdClient,
 	}
 	weftv1.RegisterWeftAgentServer(srv, srvImpl)
 	weftv1.RegisterAttestationServiceServer(srv, srvImpl)
@@ -973,6 +975,13 @@ type weftServer struct {
 	// Set by run() only when --attestation-enabled is passed. See
 	// attestation.go (the weft package) + attestation.go (cmd/weft).
 	attest *weft.AttestationGate
+	// etcdCli is the embedded/external etcd client when the agent is
+	// running with storage=etcd. nil in single-host file-storage mode.
+	// Used by DeleteHost to evict the orphaned liveness key from
+	// /weft/coord/hosts/<uuid> so the watcher fires a HostDown event
+	// instead of leaving a phantom lease referenced by no registry
+	// entry.
+	etcdCli *clientv3.Client
 }
 
 func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
