@@ -691,6 +691,25 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		if !ok || !stale {
 			return Host{}, fmt.Errorf("hostname %q already registered (UUID %s, last seen %s)", spec.Hostname, priorUUID, prior.LastSeenAt.UTC().Format(time.RFC3339))
 		}
+		// Preserve placement metadata (AZ, Rack, Properties) from the
+		// prior entry when the new spec doesn't supply them. selfRegister
+		// reads WEFT_AZ / WEFT_RACK from env — operators who relaunch
+		// the agent via `nohup weft agent &` without exporting those
+		// vars would otherwise lose the cluster.hcl-time placement on
+		// every takeover. Empty spec fields = "keep the prior value" ;
+		// non-empty = explicit override.
+		if spec.AZ == "" {
+			spec.AZ = prior.AZ
+		}
+		if spec.Rack == "" {
+			spec.Rack = prior.Rack
+		}
+		if len(spec.Properties) == 0 && len(prior.Properties) > 0 {
+			spec.Properties = make(map[string]string, len(prior.Properties))
+			for k, v := range prior.Properties {
+				spec.Properties[k] = v
+			}
+		}
 		// Takeover : evict the stale entry before claiming the hostname.
 		// On a persist failure we restore the in-memory state so a retry
 		// can observe the same prior entry and re-attempt cleanly.

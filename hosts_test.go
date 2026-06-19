@@ -92,6 +92,76 @@ func TestHostRegistry_HostnameTakeoverWhenPriorIsStale(t *testing.T) {
 	}
 }
 
+// TestHostRegistry_HostnameTakeoverPreservesPlacementMetadata covers
+// the gotcha surfaced live : when selfRegister fires without
+// WEFT_AZ/WEFT_RACK in the env, the agent passes empty placement
+// fields ; the takeover policy must carry over the prior entry's
+// AZ/Rack/Properties so an unintentional relaunch doesn't blank
+// the cluster.hcl-time placement metadata.
+func TestHostRegistry_HostnameTakeoverPreservesPlacementMetadata(t *testing.T) {
+	reg, _ := loadHostRegistry(context.Background(), NewMemStorage())
+	prior, err := reg.register(RegisterHostSpec{
+		UUID:       "prior-uuid",
+		Hostname:   "c-01",
+		AZ:         "dc1",
+		Rack:       "r2",
+		Properties: map[string]string{"tier": "edge", "role": "compute"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior.LastSeenAt = time.Now().Add(-2 * staleHostTakeoverAge).UTC()
+	reg.byUUID["prior-uuid"] = prior
+
+	// Fresh registration carries an empty AZ/Rack/Properties — the
+	// classic `nohup weft agent &` without env vars set.
+	fresh, err := reg.register(RegisterHostSpec{UUID: "fresh-uuid", Hostname: "c-01"})
+	if err != nil {
+		t.Fatalf("takeover should succeed, got %v", err)
+	}
+	if fresh.AZ != "dc1" {
+		t.Errorf("AZ = %q, want dc1 (preserved from prior)", fresh.AZ)
+	}
+	if fresh.Rack != "r2" {
+		t.Errorf("Rack = %q, want r2 (preserved from prior)", fresh.Rack)
+	}
+	if fresh.Properties["tier"] != "edge" || fresh.Properties["role"] != "compute" {
+		t.Errorf("Properties = %v, want {tier:edge,role:compute} preserved", fresh.Properties)
+	}
+}
+
+// TestHostRegistry_HostnameTakeoverExplicitFieldsOverride covers the
+// other half of the preservation rule : when the new spec DOES carry
+// non-empty AZ/Rack, those win over the prior's. Operators
+// explicitly moving a host between racks shouldn't be defeated by
+// the carry-over.
+func TestHostRegistry_HostnameTakeoverExplicitFieldsOverride(t *testing.T) {
+	reg, _ := loadHostRegistry(context.Background(), NewMemStorage())
+	prior, err := reg.register(RegisterHostSpec{
+		UUID:     "prior-uuid",
+		Hostname: "c-01",
+		AZ:       "dc1",
+		Rack:     "r2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior.LastSeenAt = time.Now().Add(-2 * staleHostTakeoverAge).UTC()
+	reg.byUUID["prior-uuid"] = prior
+
+	fresh, err := reg.register(RegisterHostSpec{
+		UUID: "fresh-uuid", Hostname: "c-01",
+		AZ:   "dc2", // operator explicitly relocates
+		Rack: "r1",
+	})
+	if err != nil {
+		t.Fatalf("takeover should succeed, got %v", err)
+	}
+	if fresh.AZ != "dc2" || fresh.Rack != "r1" {
+		t.Errorf("explicit AZ/Rack overridden by preservation : got %s/%s, want dc2/r1", fresh.AZ, fresh.Rack)
+	}
+}
+
 // TestHostRegistry_HostnameTakeoverRefusedWhenPriorIsFresh : if
 // the prior entry's heartbeat is recent, takeover must refuse — a
 // silent hijack of a live agent's identity is the failure mode we
