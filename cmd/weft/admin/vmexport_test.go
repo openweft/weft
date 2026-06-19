@@ -89,7 +89,7 @@ func TestWriteVMsHCL_Shape(t *testing.T) {
 		{
 			Uuid: "u-1", Name: "web", ProjectUuid: "p-1",
 			Image: "img:v1", Cpu: 2, MemMb: 2048,
-			Labels: map[string]string{"deployment.type": "ha", "role": "loom"},
+			Properties: map[string]string{"deployment.type": "ha", "role": "loom"},
 		},
 		{Uuid: "u-2", Name: "ci-runner", ProjectUuid: "p-2"},
 	}
@@ -105,9 +105,9 @@ func TestWriteVMsHCL_Shape(t *testing.T) {
 		t.Errorf("missing aligned name : %s", out)
 	}
 	if !strings.Contains(out, `deployment.type = "ha"`) {
-		t.Errorf("missing label : %s", out)
+		t.Errorf("missing property : %s", out)
 	}
-	// labelless VM still appears, sans labels block
+	// propertyless VM still appears, sans properties block
 	if !strings.Contains(out, `vm "u-2"`) {
 		t.Errorf("u-2 missing")
 	}

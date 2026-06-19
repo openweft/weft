@@ -8,7 +8,7 @@ package agent
 //     attestation label is stamped, and RegisterHost sees byte-for-byte
 //     the operator's original labels — today's bring-up is unchanged.
 //   - flag ON : the handshake runs, and on a granted admission the admitted
-//     AK Name is stamped onto reg.Labels[AttestLabelKey] before RegisterHost
+//     AK Name is stamped onto reg.Properties[AttestLabelKey] before RegisterHost
 //     (the key the control-plane gate consumes). Driven via the
 //     runNodeAttestationFn seam so it exercises the real handshake logic
 //     against an in-process verifier client WITHOUT a TPM.
@@ -45,7 +45,7 @@ func TestStart_AttestOff_BringupUnchanged(t *testing.T) {
 		StateDir:     t.TempDir(),
 		ControlPlane: cp,
 		LocalHandles: &DriverHandles{}, // skip the driver-plugin launch
-		Labels:       map[string]string{"role": "worker"},
+		Properties:       map[string]string{"role": "worker"},
 		// AttestTPM defaults to false.
 	})
 	if err != nil {
@@ -58,7 +58,7 @@ func TestStart_AttestOff_BringupUnchanged(t *testing.T) {
 	if len(cp.registered) != 1 {
 		t.Fatalf("expected 1 RegisterHost, got %d", len(cp.registered))
 	}
-	labels := cp.registered[0].Labels
+	labels := cp.registered[0].Properties
 	if _, ok := labels[AttestLabelKey]; ok {
 		t.Errorf("attest off: RegisterHost labels must NOT carry %q, got %v", AttestLabelKey, labels)
 	}
@@ -70,7 +70,7 @@ func TestStart_AttestOff_BringupUnchanged(t *testing.T) {
 // TestStart_AttestOn_StampsAKName : with AttestTPM set the runner returns a
 // granted AK Name, which Start must stamp onto RegisterHost's labels under
 // AttestLabelKey while preserving the operator's other labels and NOT
-// mutating the caller's Options.Labels map.
+// mutating the caller's Options.Properties map.
 func TestStart_AttestOn_StampsAKName(t *testing.T) {
 	const akName = "node-ak-name-bytes"
 	withAttestRunner(t, func(_ context.Context, device string, client AttestationClient) ([]byte, error) {
@@ -81,12 +81,12 @@ func TestStart_AttestOn_StampsAKName(t *testing.T) {
 	})
 
 	cp := newRecordingCP()
-	origLabels := map[string]string{"role": "worker"}
+	origProperties := map[string]string{"role": "worker"}
 	a, err := New(Options{
 		StateDir:     t.TempDir(),
 		ControlPlane: cp,
 		LocalHandles: &DriverHandles{},
-		Labels:       origLabels,
+		Properties:       origProperties,
 		AttestTPM:    true,
 		AttestClient: &fakeAttestClient{completeOk: true, granted: true, admitName: []byte(akName)},
 	})
@@ -100,7 +100,7 @@ func TestStart_AttestOn_StampsAKName(t *testing.T) {
 	if len(cp.registered) != 1 {
 		t.Fatalf("expected 1 RegisterHost, got %d", len(cp.registered))
 	}
-	labels := cp.registered[0].Labels
+	labels := cp.registered[0].Properties
 	if labels[AttestLabelKey] != akName {
 		t.Errorf("attest on: labels[%q] = %q ; want %q", AttestLabelKey, labels[AttestLabelKey], akName)
 	}
@@ -108,8 +108,8 @@ func TestStart_AttestOn_StampsAKName(t *testing.T) {
 		t.Errorf("attest on: operator label dropped, got %v", labels)
 	}
 	// Copy-on-write : the caller's map must be untouched.
-	if _, ok := origLabels[AttestLabelKey]; ok {
-		t.Errorf("attest on: Options.Labels was mutated, got %v", origLabels)
+	if _, ok := origProperties[AttestLabelKey]; ok {
+		t.Errorf("attest on: Options.Properties was mutated, got %v", origProperties)
 	}
 }
 
@@ -169,7 +169,7 @@ func TestStart_AttestOn_RealHandshakeChain(t *testing.T) {
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start (real handshake): %v", err)
 	}
-	if got := cp.registered[0].Labels[AttestLabelKey]; got != string(ak) {
+	if got := cp.registered[0].Properties[AttestLabelKey]; got != string(ak) {
 		t.Errorf("labels[%q] = %q ; want %q", AttestLabelKey, got, ak)
 	}
 }

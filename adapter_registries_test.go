@@ -352,9 +352,9 @@ func TestAdapter_Hosts_LifecycleViaWrappers(t *testing.T) {
 	if err := a.SetHostState(h.UUID, HostStateDraining); err != nil {
 		t.Fatalf("SetHostState: %v", err)
 	}
-	// SetHostLabels publishes host.labels_updated.
-	if err := a.SetHostLabels(h.UUID, map[string]string{"role": "compute"}); err != nil {
-		t.Fatalf("SetHostLabels: %v", err)
+	// SetHostProperties publishes host.properties_updated.
+	if err := a.SetHostProperties(h.UUID, map[string]string{"role": "compute"}); err != nil {
+		t.Fatalf("SetHostProperties: %v", err)
 	}
 	// DeleteHost — must drain first (already done above).
 	if err := a.SetHostState(h.UUID, HostStateDown); err != nil {
@@ -369,7 +369,7 @@ func TestAdapter_Hosts_LifecycleViaWrappers(t *testing.T) {
 	for _, ev := range evs {
 		kinds[ev.Kind]++
 	}
-	for _, want := range []string{"host.registered", "host.state_changed", "host.labels_updated", "host.deleted"} {
+	for _, want := range []string{"host.registered", "host.state_changed", "host.properties_updated", "host.deleted"} {
 		if kinds[want] == 0 {
 			t.Errorf("expected event %q, kinds=%v", want, kinds)
 		}
@@ -381,8 +381,8 @@ func TestAdapter_Hosts_ErrorPaths(t *testing.T) {
 	if err := a.SetHostState("nope", HostStateActive); err == nil {
 		t.Errorf("set unknown state should error")
 	}
-	if err := a.SetHostLabels("nope", nil); err == nil {
-		t.Errorf("set labels on unknown should error")
+	if err := a.SetHostProperties("nope", nil); err == nil {
+		t.Errorf("set properties on unknown should error")
 	}
 	if err := a.DeleteHost("nope"); err == nil {
 		t.Errorf("delete unknown host should error")
@@ -715,8 +715,8 @@ func TestAdapter_NilRegistry_GuardErrors(t *testing.T) {
 	if err := a.SetHostState("u", "active"); err == nil {
 		t.Errorf("nil host registry should error on SetHostState")
 	}
-	if err := a.SetHostLabels("u", nil); err == nil {
-		t.Errorf("nil host registry should error on SetHostLabels")
+	if err := a.SetHostProperties("u", nil); err == nil {
+		t.Errorf("nil host registry should error on SetHostProperties")
 	}
 	if err := a.DeleteHost("u"); err == nil {
 		t.Errorf("nil host registry should error on Delete")

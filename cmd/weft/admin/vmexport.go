@@ -72,11 +72,11 @@ within a single value comma-separated alternatives OR (k=a,b).`,
 			}
 			var filtered []*weftv1.VMInfo
 			for _, vm := range resp.Vms {
-				labels := vm.Labels // V0.1.9 wire surfaces it via VMInfo
-				if matchesAny(labels, excludes) {
+				properties := vm.Properties // V0.1.9 wire surfaces it via VMInfo
+				if matchesAny(properties, excludes) {
 					continue
 				}
-				if len(includes) > 0 && !matchesAll(labels, includes) {
+				if len(includes) > 0 && !matchesAll(properties, includes) {
 					continue
 				}
 				filtered = append(filtered, vm)
@@ -186,9 +186,9 @@ func writeVMsHCL(w io.Writer, vms []*weftv1.VMInfo) error {
 		if vm.MemMb > 0 {
 			fmt.Fprintf(w, "  memory_mib   = %d\n", vm.MemMb)
 		}
-		if len(vm.Labels) > 0 {
-			fmt.Fprintln(w, "  labels = {")
-			for k, val := range vm.Labels {
+		if len(vm.Properties) > 0 {
+			fmt.Fprintln(w, "  properties = {")
+			for k, val := range vm.Properties {
 				fmt.Fprintf(w, "    %s = %q\n", k, val)
 			}
 			fmt.Fprintln(w, "  }")

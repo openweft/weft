@@ -112,8 +112,8 @@ func TestHostRegistry_IdempotentReRegister(t *testing.T) {
 	if len(h2.NetworkTypes) != 2 || h2.NetworkTypes[1] != "mesh" {
 		t.Errorf("capabilities not refreshed: %v", h2.NetworkTypes)
 	}
-	if h2.Labels["gpu"] != "h100" {
-		t.Errorf("labels not refreshed: %v", h2.Labels)
+	if h2.Properties["gpu"] != "h100" {
+		t.Errorf("labels not refreshed: %v", h2.Properties)
 	}
 
 	// Down → Active on re-register (heartbeat-like revival).
@@ -211,18 +211,18 @@ func TestHostRegistry_SetState(t *testing.T) {
 func TestHostRegistry_SetLabels(t *testing.T) {
 	reg, _ := loadHostRegistry(context.Background(), NewMemStorage())
 	h, _ := reg.register(RegisterHostSpec{Hostname: "c"})
-	if err := reg.setLabels(h.UUID, map[string]string{"gpu": "h100", "ssd": "true"}); err != nil {
+	if err := reg.setProperties(h.UUID, map[string]string{"gpu": "h100", "ssd": "true"}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := reg.lookupByUUID(h.UUID)
-	if got.Labels["gpu"] != "h100" {
-		t.Errorf("labels not applied: %v", got.Labels)
+	if got.Properties["gpu"] != "h100" {
+		t.Errorf("labels not applied: %v", got.Properties)
 	}
 	// Clear via nil.
-	_ = reg.setLabels(h.UUID, nil)
+	_ = reg.setProperties(h.UUID, nil)
 	got, _ = reg.lookupByUUID(h.UUID)
-	if len(got.Labels) != 0 {
-		t.Errorf("labels should be cleared: %v", got.Labels)
+	if len(got.Properties) != 0 {
+		t.Errorf("labels should be cleared: %v", got.Properties)
 	}
 }
 
@@ -318,8 +318,8 @@ func TestHostRegistry_RoundTripViaStorage(t *testing.T) {
 	if len(got.NetworkTypes) != 3 {
 		t.Errorf("network_types not preserved: %v", got.NetworkTypes)
 	}
-	if got.Labels["gpu"] != "h100" || got.Labels["ssd"] != "true" {
-		t.Errorf("labels not preserved: %v", got.Labels)
+	if got.Properties["gpu"] != "h100" || got.Properties["ssd"] != "true" {
+		t.Errorf("labels not preserved: %v", got.Properties)
 	}
 	if got.State != HostStateDraining {
 		t.Errorf("state not preserved: %q", got.State)

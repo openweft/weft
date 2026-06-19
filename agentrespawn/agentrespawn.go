@@ -22,7 +22,7 @@
 //     Unhealthy signals, but nothing on the agent side emits them
 //     today. To wire the probes we need each VM's overlay IP
 //     surfaced from the VMRecord ; that lands in V0.1.1.
-//   - Multi-VM matching via labels / nominal binding is deferred to
+//   - Multi-VM matching via properties / nominal binding is deferred to
 //     V0.1.1 for the same reason.
 package agentrespawn
 
@@ -96,14 +96,14 @@ type HostCoordinator interface {
 // Subscriber needs to drive a claim + respawn without dragging the
 // full weft.VM type into the agentrespawn package.
 //
-// Labels (V0.1.8) carries the operator-supplied k=v annotations
-// SchedulingRule label-based selectors evaluate against. Nil/empty
-// = no labels ; selector match falls back to vm.name= comparison.
+// Properties (V0.1.8) carries the operator-supplied k=v annotations
+// SchedulingRule property-based selectors evaluate against. Nil/empty
+// = no properties ; selector match falls back to vm.name= comparison.
 type VMRef struct {
-	UUID    string
-	Name    string
-	Project string
-	Labels  map[string]string
+	UUID       string
+	Name       string
+	Project    string
+	Properties map[string]string
 }
 
 // Subscriber owns the bus subscription + the Reconciler instance.
@@ -641,7 +641,7 @@ func vmNamesFromSelector(selector string) []string {
 //	"vm.name=foo"             → VMs whose Name == "foo"
 //	"vm.name=foo,vm.name=bar" → VMs whose Name is "foo" OR "bar"
 //	"role=loom"               → VMs with label role=loom
-//	"role=loom,tier=prod"     → VMs with labels role=loom AND tier=prod
+//	"role=loom,tier=prod"     → VMs with properties role=loom AND tier=prod
 //	"vm.name=foo,role=loom"   → mixed : Name "foo" AND role=loom (AND)
 //
 // Empty selector returns the empty slice (rule matches nothing).
@@ -658,7 +658,7 @@ func vmsMatchingSelector(selector string, vms []VMRef) []VMRef {
 	}
 	// Parse selector into key → set of allowed values. Special key
 	// "vm.name" matches against VMRef.Name ; everything else
-	// matches against VMRef.Labels.
+	// matches against VMRef.Properties.
 	clauses := make(map[string]map[string]struct{})
 	for _, pair := range strings.Split(selector, ",") {
 		k, v, ok := strings.Cut(strings.TrimSpace(pair), "=")
@@ -699,7 +699,7 @@ func vmsMatchingSelector(selector string, vms []VMRef) []VMRef {
 		if !vmMatchesAllClauses(vm, clauses) {
 			continue
 		}
-		if skipCI && vm.Labels["deployment.type"] == "ci" {
+		if skipCI && vm.Properties["deployment.type"] == "ci" {
 			continue
 		}
 		out = append(out, vm)
@@ -716,7 +716,7 @@ func vmMatchesAllClauses(vm VMRef, clauses map[string]map[string]struct{}) bool 
 		if k == "vm.name" {
 			actual = vm.Name
 		} else {
-			actual = vm.Labels[k]
+			actual = vm.Properties[k]
 		}
 		if _, ok := allowed[actual]; !ok {
 			return false

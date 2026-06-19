@@ -30,7 +30,7 @@ type Client interface {
 	// (auto-pull → RegisterMicroVM → StartVM) for the V0.5
 	// runtime="microvm" plugin path.
 	MicroVMRun(ctx context.Context, image, project string) error
-	SetVMLabels(ctx context.Context, in *weftv1.SetVMLabelsRequest) (*weftv1.SetVMLabelsResponse, error)
+	SetVMProperties(ctx context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error)
 }
 
 // Manager orchestrates Install / Uninstall / List.
@@ -49,7 +49,7 @@ func NewManager(c Client, s StateStore) *Manager {
 // microvmRefsafe mirrors the naming weft-microvm.Run derives from an
 // OCI image ref : prefix "weft-microvm-" + the ref with '/' and ':'
 // replaced by '_'. Kept as a helper here so the plugin installer can
-// stamp labels by name after microvm.Run completes, without exposing
+// stamp properties by name after microvm.Run completes, without exposing
 // the orchestration's internal naming scheme as part of its public
 // surface.
 func microvmRefsafe(image string) string {
@@ -262,23 +262,23 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 					if err := m.client.MicroVMRun(ctx, vm.Image, project); err != nil {
 						return inst, m.rollback(ctx, inst, fmt.Errorf("microvm run %q: %w", vmName, err))
 					}
-					// Apply plugin-declared labels (typically
+					// Apply plugin-declared properties (typically
 					// deployment.type=ha + role=X) so the V0.1.10
 					// respawn gate + V0.1.15 zombiegc see the
-					// workload classification. SetVMLabels is
+					// workload classification. SetVMProperties is
 					// project-scoped + name-keyed.
-					if len(vm.Labels) > 0 {
-						labels := make(map[string]string, len(vm.Labels))
-						for k, v := range vm.Labels {
-							labels[k] = v
+					if len(vm.Properties) > 0 {
+						properties := make(map[string]string, len(vm.Properties))
+						for k, v := range vm.Properties {
+							properties[k] = v
 						}
 						refsafeName := microvmRefsafe(vm.Image)
-						if _, err := m.client.SetVMLabels(ctx, &weftv1.SetVMLabelsRequest{
-							Project: project,
-							Name:    refsafeName,
-							Labels:  labels,
+						if _, err := m.client.SetVMProperties(ctx, &weftv1.SetVMPropertiesRequest{
+							Project:    project,
+							Name:       refsafeName,
+							Properties: properties,
 						}); err != nil {
-							return inst, m.rollback(ctx, inst, fmt.Errorf("set labels %q: %w", refsafeName, err))
+							return inst, m.rollback(ctx, inst, fmt.Errorf("set properties %q: %w", refsafeName, err))
 						}
 					}
 				default:
@@ -372,7 +372,7 @@ func (m *Manager) rollback(ctx context.Context, inst Instance, cause error) erro
 // constraints (az = "different", rack = "different", …) are owned
 // by the scheduler ; the rule name is the binding handle weft-
 // network watches for. Per the nominal-binding memo, this name
-// counts the VM under the rule even if its labels don't match.
+// counts the VM under the rule even if its properties don't match.
 func (m *Manager) deriveSchedulingRule(_ *Manifest, vm VMSpec, instanceUUID string) string {
 	return fmt.Sprintf("plugin-%s-%s", shortUUID(instanceUUID), vm.Name)
 }

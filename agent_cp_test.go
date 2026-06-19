@@ -30,7 +30,7 @@ func TestAgentControlPlane_RegisterHost(t *testing.T) {
 		Architecture:   "arm64",
 		NetworkTypes:   []string{"nat", "mesh"},
 		VolumeBackends: []string{"file"},
-		Labels:         map[string]string{"gpu": "h100"},
+		Properties:     map[string]string{"gpu": "h100"},
 	})
 	if err != nil {
 		t.Fatalf("RegisterHost: %v", err)
@@ -45,8 +45,8 @@ func TestAgentControlPlane_RegisterHost(t *testing.T) {
 	if h.Hostname != "compute-test" || h.AZ != "dc1" || h.Hypervisor != "apple-vz" {
 		t.Errorf("host fields not transferred: %+v", h)
 	}
-	if len(h.NetworkTypes) != 2 || h.Labels["gpu"] != "h100" {
-		t.Errorf("network types / labels not transferred: %+v", h)
+	if len(h.NetworkTypes) != 2 || h.Properties["gpu"] != "h100" {
+		t.Errorf("network types / properties not transferred: %+v", h)
 	}
 }
 

@@ -79,7 +79,7 @@ func (g *grpcControlPlane) RegisterHost(ctx context.Context, reg HostRegistratio
 		Architecture:   reg.Architecture,
 		NetworkTypes:   reg.NetworkTypes,
 		VolumeBackends: reg.VolumeBackends,
-		Labels:         reg.Labels,
+		Properties:     reg.Properties,
 	}
 	resp, err := g.c.RegisterHost(ctx, req)
 	if err != nil {

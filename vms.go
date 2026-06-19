@@ -59,7 +59,7 @@ import (
 
 // VMState enumerates the lifecycle phases an operator + the
 // scheduler care about. Kept short on purpose — finer-grained
-// states (booting, draining, migrating) are layered as labels
+// states (booting, draining, migrating) are layered as properties
 // rather than first-class states to keep transition graphs
 // small.
 type VMState string
@@ -128,12 +128,12 @@ type VM struct {
 	// this field landed) means "this VM didn't request a PCI
 	// passthrough" — the aggregate skips it.
 	RequestedPCI []PCIRequest `json:"requested_pci,omitempty"`
-	// Labels is the operator-supplied k=v annotation set used by
-	// SchedulingRule label-based selectors (V0.1.8). Example :
+	// Properties is the operator-supplied k=v annotation set used by
+	// SchedulingRule property-based selectors (V0.1.8). Example :
 	// {"role":"loom","tier":"prod"}. Persists through HCL via a
-	// labels = { ... } attribute. Empty / nil = no labels, selector
+	// properties = { ... } attribute. Empty / nil = no properties, selector
 	// can only match by vm.name.
-	Labels       map[string]string `json:"labels,omitempty"`
+	Properties   map[string]string `json:"properties,omitempty"`
 	State        VMState      `json:"state"`
 	CreatedAt    time.Time    `json:"created_at"`
 	LastStartAt  time.Time    `json:"last_start_at,omitempty"`
@@ -155,7 +155,7 @@ type vmBlock struct {
 	Architecture string              `hcl:"architecture,optional"`
 	RequestedGPU []requestedGPUBlock `hcl:"requested_gpu,block"`
 	RequestedPCI []requestedPCIBlock `hcl:"requested_pci,block"`
-	Labels       map[string]string   `hcl:"labels,optional"`
+	Properties   map[string]string   `hcl:"properties,optional"`
 	State        string              `hcl:"state,optional"`
 	CreatedAt    string              `hcl:"created_at"`
 	LastStartAt  string              `hcl:"last_start_at,optional"`
@@ -269,7 +269,7 @@ func loadVMRegistry(ctx context.Context, storage Storage) (*vmRegistry, error) {
 			Architecture:  b.Architecture,
 			RequestedGPUs: reqGPUs,
 			RequestedPCI:  reqPCI,
-			Labels:        copyLabels(b.Labels),
+			Properties:    copyProperties(b.Properties),
 			State:         state,
 			CreatedAt:     created,
 			LastStartAt:   lastStart,
@@ -283,12 +283,12 @@ func vmNameKey(projectUUID, name string) string {
 	return projectUUID + "\x00" + name
 }
 
-// copyLabels returns a shallow copy of the labels map. Nil/empty
-// in → nil out so the JSON-omitempty / HCL "labels = {}" round-trip
+// copyProperties returns a shallow copy of the properties map. Nil/empty
+// in → nil out so the JSON-omitempty / HCL "properties = {}" round-trip
 // stays clean. Callers should always go through this helper when
-// reading b.Labels into a VM struct to avoid sharing the registry's
+// reading b.Properties into a VM struct to avoid sharing the registry's
 // map with a caller's pointer.
-func copyLabels(in map[string]string) map[string]string {
+func copyProperties(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil
 	}
@@ -397,12 +397,12 @@ func (r *vmRegistry) saveLocked() error {
 				pb.SetAttributeValue("count", cty.NumberIntVal(int64(p.Count)))
 			}
 		}
-		if len(v.Labels) > 0 {
-			ctyMap := make(map[string]cty.Value, len(v.Labels))
-			for k, lv := range v.Labels {
+		if len(v.Properties) > 0 {
+			ctyMap := make(map[string]cty.Value, len(v.Properties))
+			for k, lv := range v.Properties {
 				ctyMap[k] = cty.StringVal(lv)
 			}
-			bb.SetAttributeValue("labels", cty.MapVal(ctyMap))
+			bb.SetAttributeValue("properties", cty.MapVal(ctyMap))
 		}
 		if v.State != "" {
 			bb.SetAttributeValue("state", cty.StringVal(string(v.State)))
@@ -543,7 +543,7 @@ func (r *vmRegistry) reloadFromStorage(ctx context.Context) error {
 				Architecture:  b.Architecture,
 				RequestedGPUs: reqGPUs,
 				RequestedPCI:  reqPCI,
-				Labels:        copyLabels(b.Labels),
+				Properties:    copyProperties(b.Properties),
 				State:         state,
 				CreatedAt:     created,
 				LastStartAt:   lastStart,
@@ -618,11 +618,11 @@ type CreateVMSpec struct {
 	// across all VMs — same aggregate path as RequestedGPUs.
 	// Nil/empty = no PCI request.
 	RequestedPCI []PCIRequest
-	// Labels is the V0.1.8 operator-supplied annotation set.
-	// Persisted as an HCL `labels = { … }` attribute ; consumed by
-	// SchedulingRule label-based selectors (e.g. `role=loom`).
-	// Nil/empty = no labels (selector can only match by vm.name).
-	Labels map[string]string
+	// Properties is the V0.1.8 operator-supplied annotation set.
+	// Persisted as an HCL `properties = { … }` attribute ; consumed by
+	// SchedulingRule property-based selectors (e.g. `role=loom`).
+	// Nil/empty = no properties (selector can only match by vm.name).
+	Properties map[string]string
 }
 
 // create registers a new VM. Refuses name collisions within the
@@ -670,7 +670,7 @@ func (r *vmRegistry) create(spec CreateVMSpec) (VM, error) {
 		Architecture:  spec.Architecture,
 		RequestedGPUs: reqGPUs,
 		RequestedPCI:  reqPCI,
-		Labels:        copyLabels(spec.Labels),
+		Properties:    copyProperties(spec.Properties),
 		State:         VMStateCreated,
 		CreatedAt:     time.Now().UTC(),
 	}
@@ -769,19 +769,19 @@ func (r *vmRegistry) setName(uuid, newName string) error {
 	return r.persistOne(v)
 }
 
-// setLabels replaces the label set atomically. nil/empty in →
-// label set is cleared. V0.1.8 mutator for SchedulingRule label-
-// based selectors ; the index doesn't carry labels (there's no
-// labelIdx because selectors are evaluated at request time, not
+// setProperties replaces the property set atomically. nil/empty in →
+// property set is cleared. V0.1.8 mutator for SchedulingRule property-
+// based selectors ; the index doesn't carry properties (there's no
+// propertyIdx because selectors are evaluated at request time, not
 // pre-indexed) so this is a pure record update + persistOne.
-func (r *vmRegistry) setLabels(uuid string, labels map[string]string) error {
+func (r *vmRegistry) setProperties(uuid string, properties map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	v, ok := r.byUUID[uuid]
 	if !ok {
 		return fmt.Errorf("vm %q not found", uuid)
 	}
-	v.Labels = copyLabels(labels)
+	v.Properties = copyProperties(properties)
 	r.byUUID[uuid] = v
 	return r.persistOne(v)
 }

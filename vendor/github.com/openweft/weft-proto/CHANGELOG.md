@@ -7,6 +7,37 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Changed (breaking)
+- Rename `labels` annotation map → `properties` across the
+  host/VM scheduler surface. Field numbers preserved (wire-compat
+  for binary payloads). RPC + message names renamed :
+  - `SetHostLabels` → `SetHostProperties`
+  - `SetVMLabels` → `SetVMProperties`
+  - `*Request`/`*Response` renamed in lockstep
+  - `HostInfo.labels` (10) → `HostInfo.properties`
+  - `VMInfo.labels` (12) → `VMInfo.properties`
+  - `RegisterHostRequest.labels` (10) → `properties`
+  - `HostRegistration.labels` (agent.proto, 10) → `properties`
+  - `PodSpec.labels` (guest.proto, 5) → `properties`
+  Single naming across the openweft stack ("properties everywhere"
+  per the cluster.hcl Host.properties spec field).
+
+## [v0.11.6] — 2026-06-14
+
+### Added
+- `PortInfo` message + `ListPortsForVM` RPC : read-only view of a
+  VM's NIC bindings (MAC/IP/security-groups/created-at + reserved
+  ingress/egress Mbps for the upcoming portqos persistence). Powers
+  the webui Network panel and the (future) Port detail drawer.
+
+## [v0.11.5] — 2026-06-14
+
+### Added
+- `FloatingIPInfo.rate_limit_pps` + `MapFloatingIPRequest.rate_limit_pps` :
+  anti-DDoS PPS cap on inbound traffic to a floating IP. 0 means
+  no cap ; >100k clamps. Persisted via the weft adapter, consumed
+  by the floatingipnat reconciler on the host side.
+
 ## [v0.9.0] — 2026-06-05
 
 ### Added

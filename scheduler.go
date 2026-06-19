@@ -63,10 +63,10 @@ type ScheduleRequest struct {
 	// AZ: when set, only hosts in this AZ are considered. Empty
 	// = any AZ.
 	AZ string
-	// LabelSelectors: every (key, value) must match a label on
-	// the host. Implements hard label matching only — set
+	// PropertySelectors: every (key, value) must match a property on
+	// the host. Implements hard property matching only — set
 	// arithmetic / "in / not-in" come later if needed.
-	LabelSelectors map[string]string
+	PropertySelectors map[string]string
 	// GPU is the single-axis SchedulingRule filter. Recognised
 	// forms : "" (no constraint), "none" (host must have no GPUs),
 	// "any-nvidia" (any NVIDIA card), or a SKU string ("h200" /
@@ -74,7 +74,7 @@ type ScheduleRequest struct {
 	// gpuAxisMatches for the semantics.
 	//
 	// Per [[openweft_nominal_binding]] this is one matching
-	// dimension among AZ / Rack / Host / labels ; an explicit
+	// dimension among AZ / Rack / Host / properties ; an explicit
 	// nominal binding still wins for SchedulingRule counting.
 	GPU string
 	// RequestedGPUs is the fine-grained per-VM request : the
@@ -196,7 +196,7 @@ func (FirstFitScheduler) Schedule(ctx context.Context, req ScheduleRequest, cand
 	// callers (webui) want the explicit ResourceExhausted hint.
 	var hadGPUCapableMiss bool
 	// Cordoned hosts are removed from the candidate pool **before**
-	// any other matching dimension (quota, GPU, labels). The skip
+	// any other matching dimension (quota, GPU, properties). The skip
 	// reasons go into `skipped` so the failure path can render a
 	// one-line per-host diagnostic — what a `--dry-run schedule`
 	// would surface to operators chasing "why didn't host h2 take
@@ -245,9 +245,9 @@ func (FirstFitScheduler) Schedule(ctx context.Context, req ScheduleRequest, cand
 			req.GPU, len(req.RequestedGPUs),
 		))
 	}
-	base := fmt.Sprintf("schedule: no active host matches request (project=%s vm=%s arch=%q hyp=%q az=%q net=%v vol=%v labels=%v)",
+	base := fmt.Sprintf("schedule: no active host matches request (project=%s vm=%s arch=%q hyp=%q az=%q net=%v vol=%v properties=%v)",
 		req.ProjectUUID, req.VMName, req.Architecture, req.Hypervisor, req.AZ,
-		req.NetworkTypes, req.VolumeBackends, req.LabelSelectors)
+		req.NetworkTypes, req.VolumeBackends, req.PropertySelectors)
 	if len(skipped) > 0 {
 		base += " ; " + joinReasons(skipped)
 	}
@@ -314,7 +314,7 @@ func hostMatches(req ScheduleRequest, h Host) bool {
 }
 
 // hostMatchesIgnoringGPU is the non-GPU half of hostMatches —
-// architecture, hypervisor, AZ, capabilities, labels. Lifted out
+// architecture, hypervisor, AZ, capabilities, properties. Lifted out
 // so Schedule() can tell "host failed the GPU axis only" from
 // "host failed everything", which drives the ResourceExhausted vs
 // generic-error split.
@@ -383,8 +383,8 @@ func hostMatchesIgnoringGPU(req ScheduleRequest, h Host) bool {
 			return false
 		}
 	}
-	for k, want := range req.LabelSelectors {
-		if h.Labels[k] != want {
+	for k, want := range req.PropertySelectors {
+		if h.Properties[k] != want {
 			return false
 		}
 	}
@@ -407,7 +407,7 @@ func sliceContains(haystack []string, needle string) bool {
 // relative to the hosts already chosen for this group.
 //
 // Output order matches replica index 0..N-1 — callers use it to
-// assign per-replica static IPs, DC labels, peer lists, etc.
+// assign per-replica static IPs, DC properties, peer lists, etc.
 //
 // Errors :
 //

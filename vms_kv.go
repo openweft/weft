@@ -80,12 +80,12 @@ func encodeVMRecord(v VM) []byte {
 			pb.SetAttributeValue("count", cty.NumberIntVal(int64(p.Count)))
 		}
 	}
-	if len(v.Labels) > 0 {
-		ctyMap := make(map[string]cty.Value, len(v.Labels))
-		for k, lv := range v.Labels {
+	if len(v.Properties) > 0 {
+		ctyMap := make(map[string]cty.Value, len(v.Properties))
+		for k, lv := range v.Properties {
 			ctyMap[k] = cty.StringVal(lv)
 		}
-		bb.SetAttributeValue("labels", cty.MapVal(ctyMap))
+		bb.SetAttributeValue("properties", cty.MapVal(ctyMap))
 	}
 	if v.State != "" {
 		bb.SetAttributeValue("state", cty.StringVal(string(v.State)))
@@ -142,7 +142,7 @@ func decodeVMRecord(blob []byte) (VM, error) {
 		Architecture:  b.Architecture,
 		RequestedGPUs: reqGPUs,
 		RequestedPCI:  reqPCI,
-		Labels:        copyLabels(b.Labels),
+		Properties:    copyProperties(b.Properties),
 		State:         state,
 		CreatedAt:     created,
 		LastStartAt:   lastStart,
@@ -246,7 +246,7 @@ func migrateBlobToKV(ctx context.Context, blob []byte, kv KVStorage) error {
 			Architecture:  b.Architecture,
 			RequestedGPUs: reqGPUs,
 			RequestedPCI:  reqPCI,
-			Labels:        copyLabels(b.Labels),
+			Properties:    copyProperties(b.Properties),
 			State:         state,
 			CreatedAt:     created,
 			LastStartAt:   lastStart,

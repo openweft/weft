@@ -18,7 +18,7 @@ func TestEncodeDecodeHostRecord_RoundTrip(t *testing.T) {
 		State:      HostStateActive,
 		LastSeenAt: time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
 		CreatedAt:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-		Labels:     map[string]string{"gpu": "h200", "tier": "prod"},
+		Properties: map[string]string{"gpu": "h200", "tier": "prod"},
 	}
 	blob := encodeHostRecord(in)
 	got, err := decodeHostRecord(blob)
@@ -31,8 +31,8 @@ func TestEncodeDecodeHostRecord_RoundTrip(t *testing.T) {
 	if got.State != HostStateActive {
 		t.Errorf("state = %q ; want active", got.State)
 	}
-	if got.Labels["gpu"] != "h200" {
-		t.Errorf("labels lost : %v", got.Labels)
+	if got.Properties["gpu"] != "h200" {
+		t.Errorf("properties lost : %v", got.Properties)
 	}
 }
 
@@ -57,12 +57,12 @@ func TestHostRegistry_KV_CreateAndDeletePerRecord(t *testing.T) {
 		Hostname: "h2", Endpoint: "h2:1", Hypervisor: "qemu", Architecture: "arm64",
 	})
 	prev, _ := kv.GetOne(context.Background(), h1.UUID)
-	if err := reg.setLabels(h2.UUID, map[string]string{"x": "y"}); err != nil {
+	if err := reg.setProperties(h2.UUID, map[string]string{"x": "y"}); err != nil {
 		t.Fatal(err)
 	}
 	cur, _ := kv.GetOne(context.Background(), h1.UUID)
 	if string(prev) != string(cur) {
-		t.Error("setLabels on h2 rewrote h1 — per-record contract broken")
+		t.Error("setProperties on h2 rewrote h1 — per-record contract broken")
 	}
 	// Delete : refused while active.
 	if err := reg.delete(h1.UUID); err == nil {

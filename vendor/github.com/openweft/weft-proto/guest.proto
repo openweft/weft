@@ -39,7 +39,7 @@ message PodSpec {
   repeated Container containers = 2;
   repeated Share     shares     = 3;
   Network network         = 4;
-  map<string, string> labels = 5;
+  map<string, string> properties = 5;
   WireGuard wireguard     = 6;
   repeated ShareMount share_mounts = 7;
 }

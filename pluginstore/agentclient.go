@@ -77,10 +77,10 @@ func (a *AgentClient) MicroVMRun(ctx context.Context, image, project string) err
 	})
 }
 
-// SetVMLabels stamps the V0.1.8 label map on a freshly-installed VM
-// so plugin-declared labels (typically deployment.type=ha + role=…)
+// SetVMProperties stamps the V0.1.8 property map on a freshly-installed VM
+// so plugin-declared properties (typically deployment.type=ha + role=…)
 // reach the registry. Used after MicroVMRun by the V0.5 plugin
 // installer's microvm dispatch.
-func (a *AgentClient) SetVMLabels(ctx context.Context, in *weftv1.SetVMLabelsRequest) (*weftv1.SetVMLabelsResponse, error) {
-	return a.c.SetVMLabels(ctx, in)
+func (a *AgentClient) SetVMProperties(ctx context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error) {
+	return a.c.SetVMProperties(ctx, in)
 }

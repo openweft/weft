@@ -429,7 +429,7 @@ func TestRegisterHostGate_FlagOn_RejectsUnadmitted(t *testing.T) {
 	// An AK label that was never admitted.
 	_, err = s.RegisterHost(devCtx(), &weftv1.RegisterHostRequest{
 		Hostname: "compute-on", Hypervisor: "qemu", Architecture: "arm64",
-		Labels: map[string]string{attestAKLabel: "never-admitted-ak"},
+		Properties: map[string]string{attestAKLabel: "never-admitted-ak"},
 	})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("got %v ; want PermissionDenied for un-admitted ak", err)
@@ -449,7 +449,7 @@ func TestRegisterHostGate_FlagOn_AllowsAdmitted(t *testing.T) {
 
 	if _, err := s.RegisterHost(devCtx(), &weftv1.RegisterHostRequest{
 		Hostname: "compute-admitted", Hypervisor: "qemu", Architecture: "arm64",
-		Labels: map[string]string{attestAKLabel: string(akName)},
+		Properties: map[string]string{attestAKLabel: string(akName)},
 	}); err != nil {
 		t.Fatalf("RegisterHost (admitted) failed: %v", err)
 	}
@@ -465,7 +465,7 @@ func TestRegisterHostGate_FlagOn_AllowsAdmitted(t *testing.T) {
 	// Single-use : a second register with the same (now-consumed) AK fails.
 	_, err := s.RegisterHost(devCtx(), &weftv1.RegisterHostRequest{
 		Hostname: "compute-admitted-2", Hypervisor: "qemu", Architecture: "arm64",
-		Labels: map[string]string{attestAKLabel: string(akName)},
+		Properties: map[string]string{attestAKLabel: string(akName)},
 	})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("second register with consumed AK: got %v want PermissionDenied", err)

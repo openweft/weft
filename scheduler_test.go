@@ -189,22 +189,22 @@ func TestFirstFitScheduler_VolumeBackendsFilter(t *testing.T) {
 	}
 }
 
-func TestFirstFitScheduler_LabelSelectorsFilter(t *testing.T) {
+func TestFirstFitScheduler_PropertySelectorsFilter(t *testing.T) {
 	candidates := []Host{
-		activeHost("nogpu", func(h *Host) { h.Labels = map[string]string{"gpu": "none"} }),
-		activeHost("h100", func(h *Host) { h.Labels = map[string]string{"gpu": "h100"} }),
-		activeHost("a100", func(h *Host) { h.Labels = map[string]string{"gpu": "a100"} }),
+		activeHost("nogpu", func(h *Host) { h.Properties = map[string]string{"gpu": "none"} }),
+		activeHost("h100", func(h *Host) { h.Properties = map[string]string{"gpu": "h100"} }),
+		activeHost("a100", func(h *Host) { h.Properties = map[string]string{"gpu": "a100"} }),
 	}
 	got, _ := FirstFitScheduler{}.Schedule(context.Background(), ScheduleRequest{
-		LabelSelectors: map[string]string{"gpu": "h100"},
+		PropertySelectors: map[string]string{"gpu": "h100"},
 	}, candidates)
 	if got.UUID != "h100" {
-		t.Errorf("label selector gpu=h100 should pick that host, got %q", got.UUID)
+		t.Errorf("property selector gpu=h100 should pick that host, got %q", got.UUID)
 	}
-	// Missing label is not a match (label key absent → empty string, mismatch).
+	// Missing property is not a match (property key absent → empty string, mismatch).
 	sched := FirstFitScheduler{}
 	if _, err := sched.Schedule(context.Background(), ScheduleRequest{
-		LabelSelectors: map[string]string{"gpu": "h100", "ssd": "true"},
+		PropertySelectors: map[string]string{"gpu": "h100", "ssd": "true"},
 	}, candidates); err == nil {
 		t.Errorf("compound selector with absent key should yield no match")
 	}

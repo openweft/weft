@@ -45,7 +45,7 @@ message HostRegistration {
   string architecture     = 7;
   repeated string network_types   = 8;
   repeated string volume_backends = 9;
-  map<string, string> labels      = 10;
+  map<string, string> properties  = 10;
 }
 
 message RegisterAgentRequest  { HostRegistration registration = 1; }

@@ -36,9 +36,15 @@ message VMInfo {
   // it. Survives a `RenameVM` if/when that lands.
   string   uuid          = 11;
   // V0.1.8 : operator-supplied annotations consumed by
-  // SchedulingRule label-based selectors + reserved-key system
-  // gates (deployment.type=ci|ha, …). Mirrors VM.Labels server-side.
-  map<string, string> labels = 12;
+  // SchedulingRule property-based selectors + reserved-key system
+  // gates (deployment.type=ci|ha, …). Mirrors VM.Properties server-side.
+  map<string, string> properties = 12;
+  // Stable UUID of the hypervisor host running this VM. Empty when
+  // the VM is not currently placed (newly-created, in-flight migration,
+  // or recently evacuated). Lets clients (weft-tui Host column, the
+  // webui Hosts→VMs drill-down, the scheduler's compliance probe)
+  // map VM→Host without a second ListHosts lookup.
+  string   host_uuid     = 13;
 }
 
 // --- AvailabilityZones (AZ) ---
@@ -234,6 +240,18 @@ message StartVMResponse {}
 
 message StopVMRequest  { string name = 1; string project = 2; string host_uuid = 3; }
 message StopVMResponse {}
+
+// --- RestartVM ---
+//
+// Atomic stop-then-start in one RPC. Today the weft-tui implements
+// restart as a sequential client-side StopVM → StartVM ; the
+// non-atomicity means a failed StartVM after a successful StopVM
+// leaves the VM stopped without the operator's intent. Wiring this
+// server-side lets the agent rollback (restart on the same host
+// with the same network attachments) when the start half fails.
+
+message RestartVMRequest  { string name = 1; string project = 2; }
+message RestartVMResponse {}
 
 // --- VMStatus ---
 
@@ -548,11 +566,39 @@ message NetworkInfo {
   string cidr               = 4;
   string gateway            = 5;
   repeated string dns_servers = 6;
-  string type               = 7; // "nat" | "bridged" | "isolated"
+  string type               = 7; // "nat" | "bridged" | "isolated" | "mesh"
   int64  created_at_unix_ns = 8;
   // Security-group UUIDs applied by default to every NIC that
   // joins this network. Updated via SetNetworkDefaultSecurityGroups.
   repeated string default_security_group_uuids = 9;
+
+  // ── Edge attachment for floating IPs ────────────────────────
+  // ExternalMode selects how floating IPs allocated from this
+  // network reach the outside world :
+  //
+  //   "bgp"  (default) — a per-tenant weft-router microVM
+  //          announces each active FIP as a /32 via BGP to the
+  //          upstream ISP. Suitable for cloud / colo deployments
+  //          with a public ASN.
+  //   "vlan" — the FIP lives directly inside an establishment-
+  //          provided subnet on a VLAN. The host running the
+  //          target VM attaches a macvlan to the VLAN
+  //          subinterface, binds the FIP, answers ARP locally,
+  //          and emits gratuitous ARP on migration. No routing
+  //          protocol involved — fits academic / enterprise
+  //          setups where the network team gives you a VLAN +
+  //          subnet and nothing else.
+  //   ""     — defaults to "bgp" (backward compat).
+  string external_mode = 10;
+  // Vlan is the 802.1Q VLAN id when external_mode == "vlan".
+  // Range 1-4094 ; 0 means "untagged" (the parent interface
+  // itself is on the right VLAN, no tagging required).
+  int32  vlan = 11;
+  // ParentInterface is the host NIC the macvlan attaches to
+  // (e.g. "eth0", "bond0"). Required when external_mode == "vlan".
+  // The orchestrator doesn't validate it server-side ; each host's
+  // weft-agent must have the interface up.
+  string parent_interface = 12;
 }
 
 message ListNetworksRequest  {
@@ -572,6 +618,12 @@ message CreateNetworkRequest {
   string gateway    = 4;
   repeated string dns_servers = 5;
   string type       = 6; // empty → "nat"
+  // Edge-attachment knobs for floating IPs ; see
+  // NetworkInfo.external_mode / vlan / parent_interface for the
+  // semantics. external_mode == "" defaults to "bgp".
+  string external_mode    = 7;
+  int32  vlan             = 8;
+  string parent_interface = 9;
 }
 message CreateNetworkResponse { NetworkInfo network = 1; }
 
@@ -594,6 +646,39 @@ message SetNetworkDefaultSecurityGroupsRequest {
   repeated string security_group_uuids = 2;
 }
 message SetNetworkDefaultSecurityGroupsResponse { NetworkInfo network = 1; }
+
+// --- Ports (per-NIC binding to a network) ---
+
+// PortInfo describes one VM NIC binding to a network. Each VM
+// gets exactly one Port per NIC at create time ; portsec
+// (anti-spoof) rules are derived from MAC + IP, portqos
+// (rate-limit) caps can be attached per-port.
+message PortInfo {
+  string uuid           = 1;
+  string project_uuid   = 2;
+  string vm_uuid        = 3;
+  string network_uuid   = 4;
+  string mac            = 5;
+  string ip             = 6;
+  // SecurityGroups applied to this port. Inherits from the
+  // Network's default_security_group_uuids at create time ; the
+  // operator overrides via SetPortSecurityGroups.
+  repeated string security_groups = 7;
+  // Optional rate-limit caps in Mbps. 0 = no cap.
+  int32  ingress_mbps   = 8;
+  int32  egress_mbps    = 9;
+  // WireGuard peer key + mesh endpoint (when the network is mesh).
+  string wireguard_pub_key = 10;
+  string mesh_endpoint     = 11;
+  int64  created_at_unix_ns = 12;
+}
+
+message ListPortsForVMRequest  {
+  string vm_uuid = 1;  // either vm_uuid or vm_name (with project)
+  string vm_name = 2;
+  string project = 3;
+}
+message ListPortsForVMResponse { repeated PortInfo ports = 1; }
 
 // --- SecurityGroups (UUID-keyed L3/L4 rule sets per project) ---
 
@@ -1054,6 +1139,7 @@ service WeftAgent {
   rpc VMStatus      (VMStatusRequest)      returns (VMStatusResponse);
   rpc StartVM       (StartVMRequest)       returns (StartVMResponse);
   rpc StopVM        (StopVMRequest)        returns (StopVMResponse);
+  rpc RestartVM     (RestartVMRequest)     returns (RestartVMResponse);
   rpc CreateVM      (CreateVMRequest)      returns (CreateVMResponse);
   rpc DeleteVM      (DeleteVMRequest)      returns (DeleteVMResponse);
   rpc ProvisionVM   (ProvisionVMRequest)   returns (ProvisionVMResponse);
@@ -1136,6 +1222,11 @@ service WeftAgent {
   rpc DeleteNetwork  (DeleteNetworkRequest)  returns (DeleteNetworkResponse);
   rpc SetNetworkDefaultSecurityGroups (SetNetworkDefaultSecurityGroupsRequest) returns (SetNetworkDefaultSecurityGroupsResponse);
 
+  // Read-only Port view : every NIC binding for a given VM ;
+  // operators inspect MAC/IP/security-groups/QoS caps. Writes
+  // happen at VM create time today (no UpdatePort yet).
+  rpc ListPortsForVM (ListPortsForVMRequest) returns (ListPortsForVMResponse);
+
   // SecurityGroup registry RPCs. SetSecurityGroupRules replaces
   // the rule list atomically — clients GET-modify-PUT.
   rpc ListSecurityGroups          (ListSecurityGroupsRequest)          returns (ListSecurityGroupsResponse);
@@ -1201,8 +1292,8 @@ service WeftAgent {
   rpc GetHost        (GetHostRequest)        returns (GetHostResponse);
   rpc HeartbeatHost  (HeartbeatHostRequest)  returns (HeartbeatHostResponse);
   rpc SetHostState    (SetHostStateRequest)    returns (SetHostStateResponse);
-  rpc SetHostLabels   (SetHostLabelsRequest)   returns (SetHostLabelsResponse);
-  rpc SetVMLabels     (SetVMLabelsRequest)     returns (SetVMLabelsResponse);
+  rpc SetHostProperties (SetHostPropertiesRequest) returns (SetHostPropertiesResponse);
+  rpc SetVMProperties   (SetVMPropertiesRequest)   returns (SetVMPropertiesResponse);
   rpc GetZombieReport     (GetZombieReportRequest)     returns (GetZombieReportResponse);
   rpc TriggerZombieSweep  (TriggerZombieSweepRequest)  returns (GetZombieReportResponse);
   rpc SetHostCordoned (SetHostCordonedRequest) returns (SetHostCordonedResponse);
@@ -1381,7 +1472,7 @@ message HostInfo {
   string architecture         = 7;   // "arm64" | "amd64" | "riscv64" | …
   repeated string network_types   = 8;
   repeated string volume_backends = 9;
-  map<string, string> labels  = 10;
+  map<string, string> properties = 10;
   // state: "active" | "draining" | "down".
   string state                = 11;
   int64  created_at_unix_ns   = 12;
@@ -1410,7 +1501,7 @@ message RegisterHostRequest {
   string architecture         = 7;
   repeated string network_types   = 8;
   repeated string volume_backends = 9;
-  map<string, string> labels  = 10;
+  map<string, string> properties = 10;
 }
 message RegisterHostResponse { HostInfo host = 1; }
 
@@ -1451,18 +1542,18 @@ message HeartbeatHostResponse {}
 message SetHostStateRequest  { string uuid = 1; string state = 2; }
 message SetHostStateResponse {}
 
-// SetHostLabels replaces the host's labels atomically. The
-// scheduler's LabelSelectors match against these.
-message SetHostLabelsRequest  { string uuid = 1; map<string, string> labels = 2; }
-message SetHostLabelsResponse {}
+// SetHostProperties replaces the host's properties atomically. The
+// scheduler's property selectors match against these.
+message SetHostPropertiesRequest  { string uuid = 1; map<string, string> properties = 2; }
+message SetHostPropertiesResponse {}
 
-// SetVMLabels replaces a VM's label set atomically. V0.1.8 :
-// labels drive SchedulingRule label-based selectors (`role=loom`,
+// SetVMProperties replaces a VM's property set atomically. V0.1.8 :
+// properties drive SchedulingRule property-based selectors (`role=loom`,
 // `deployment.type=ha`, etc.) and reserved keys gate system
 // behaviour : `deployment.type=ci` skips etcd-backup persistence ;
 // `deployment.type=ha` is the canonical respawn-eligible marker.
-message SetVMLabelsRequest  { string project = 1; string name = 2; map<string, string> labels = 3; }
-message SetVMLabelsResponse { VMInfo vm = 1; }
+message SetVMPropertiesRequest  { string project = 1; string name = 2; map<string, string> properties = 3; }
+message SetVMPropertiesResponse { VMInfo vm = 1; }
 
 // GetZombieReport exposes the latest snapshot of the agent's
 // zombiegc reconciler — what VMs it currently classifies as zombies,
@@ -1873,6 +1964,13 @@ message FloatingIPInfo {
   string mapped_to          = 5; // VM name or LB name ; "" = available
   string status             = 6; // "active" | "available"
   int64  allocated_at_unix_ns = 7;
+  // RateLimitPPS caps inbound packets per second the DNAT rule
+  // accepts before dropping new connections — a simple anti-DDoS
+  // knob the operator dials in on Internet-facing FIPs. 0 = no
+  // limit (default). Set via MapFloatingIP or a dedicated
+  // SetFloatingIPRateLimit call (the latter ships when ops asks
+  // for "rate-limit without re-mapping").
+  int32  rate_limit_pps     = 8;
 }
 
 message ListFloatingIPsRequest  {
@@ -1905,6 +2003,10 @@ message MapFloatingIPRequest {
   string uuid        = 1;
   string target_kind = 2; // "vm" | "lb"
   string target_name = 3;
+  // RateLimitPPS : optional rate cap installed on the DNAT rule.
+  // 0 leaves the existing setting unchanged on idempotent Map ;
+  // > 0 overrides. Capped at 100000 by the server.
+  int32  rate_limit_pps = 4;
 }
 message MapFloatingIPResponse { FloatingIPInfo floating_ip = 1; }
 
@@ -1926,7 +2028,7 @@ message Flavor {
   string ram          = 3;  // "4Gi" / "256Mi" / raw integer = MB
   int32  ephemeral_gb = 4;
   string gpu          = 5;  // empty = none ; "1×A100-40G" etc.
-  // Reserved : 6..9 for future affinity labels / placement hints.
+  // Reserved : 6..9 for future affinity properties / placement hints.
   reserved 6, 7, 8, 9;
 }
 
