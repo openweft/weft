@@ -14,8 +14,10 @@ package main
 
 import (
 	"context"
+	"time"
 
 	weft "github.com/openweft/weft"
+	"github.com/openweft/weft/etcdcoord"
 	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -265,5 +267,19 @@ func (s *weftServer) DeleteHost(ctx context.Context, req *weftv1.DeleteHostReque
 	if err := s.adp.DeleteHost(req.Uuid); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete host: %v", err)
 	}
+	// Evict the etcd liveness key so the HostWatcher sees a clean
+	// HostDown event + so the orphaned lease doesn't keep
+	// /weft/coord/hosts/<uuid> visible to other agents. Best-effort :
+	// a failure here leaves the lease intact (it expires within
+	// LeaseTTLSec=10s after the agent stops anyway) but the registry
+	// delete already committed, so we don't fail the RPC.
+	if s.etcdCli != nil {
+		dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if _, err := s.etcdCli.Delete(dctx, etcdcoord.HostsPrefix+req.Uuid); err != nil {
+			logger.Printf("DeleteHost %s: etcd liveness eviction failed (lease will expire on its own): %v", req.Uuid, err)
+		}
+	}
 	return &weftv1.DeleteHostResponse{}, nil
 }
+
