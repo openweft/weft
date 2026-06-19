@@ -41,6 +41,9 @@ github.com/fatih/color
 # github.com/go-compressions/lzfse v0.0.0 => ../../go-compressions/lzfse
 ## explicit; go 1.20
 github.com/go-compressions/lzfse
+# github.com/go-compressions/matchlen v0.0.0 => ../../go-compressions/matchlen
+## explicit; go 1.20
+github.com/go-compressions/matchlen
 # github.com/go-diskimages/qcow2 v0.0.0 => ../../go-diskimages/qcow2
 ## explicit; go 1.25.0
 github.com/go-diskimages/qcow2
@@ -48,7 +51,7 @@ github.com/go-diskimages/qcow2
 ## explicit; go 1.25.0
 github.com/go-diskimages/tart-oci
 # github.com/go-filesystems/ext4 v0.0.0 => ../../go-filesystems/ext4
-## explicit; go 1.25.0
+## explicit; go 1.26.0
 github.com/go-filesystems/ext4
 # github.com/go-filesystems/interface v0.0.0 => ../../go-filesystems/interface
 ## explicit; go 1.25.0
@@ -298,11 +301,7 @@ github.com/openweft/weft-microvm/initbuild
 # github.com/openweft/weft-microvm-init v0.0.0 => ../weft-microvm-init
 ## explicit; go 1.25.1
 github.com/openweft/weft-microvm-init/pkg/pod
-<<<<<<< HEAD
-# github.com/openweft/weft-proto v0.11.4 => ../weft-proto
-=======
-# github.com/openweft/weft-proto v0.11.5 => ../weft-proto
->>>>>>> origin/main
+# github.com/openweft/weft-proto v0.12.0 => ../weft-proto
 ## explicit; go 1.25.0
 github.com/openweft/weft-proto
 github.com/openweft/weft-proto/introspectv1
@@ -880,6 +879,7 @@ sigs.k8s.io/yaml/goyaml.v2
 # github.com/go-bootloaders/systemd-boot => ../../go-bootloaders/systemd-boot
 # github.com/go-coff/peln => ../../go-coff/peln
 # github.com/go-compressions/lzfse => ../../go-compressions/lzfse
+# github.com/go-compressions/matchlen => ../../go-compressions/matchlen
 # github.com/go-diskimages/diskimage => ../../go-diskimages/diskimage
 # github.com/go-diskimages/qcow2 => ../../go-diskimages/qcow2
 # github.com/go-diskimages/tart-oci => ../../go-diskimages/tart-oci

@@ -957,8 +957,17 @@ func (tx *Transaction) Commit() error {
 	// applied transaction (prevents false positives where tests read after
 	// CommitHook but before entries are visible).
 
-	// Serialize write: descriptor(s) -> data -> commit
+	// Serialize write: descriptor(s) -> data -> commit. Preallocate the buffer
+	// to its exact final size — header (magic+seq+nDesc = 12 bytes) + one
+	// descriptor (block:8 + len:4 = 12 bytes) per entry + the data blobs — so
+	// it never has to grow+copy (the descriptor/data append loop was the
+	// single largest allocator in the write path).
+	totalData := 0
+	for _, e := range entries {
+		totalData += len(e.Data)
+	}
 	var buf bytes.Buffer
+	buf.Grow(12 + len(entries)*12 + totalData)
 	if err := binary.Write(&buf, binary.LittleEndian, journalMagic); err != nil {
 		return err
 	}

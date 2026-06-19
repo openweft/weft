@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/grpc-transports/brand/main/social/grpc-transports.png" alt="grpc-transports/wireguard" width="720"></p>
+
 # wireguard
 
 WireGuard transport layer for gRPC, designed for inter-VM communication regardless of physical location. The server exposes a `net.Listener` whose connections are reached over a WireGuard overlay; the client provides a `grpc.DialOption` that tunnels gRPC through the same overlay.

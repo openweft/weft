@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/grpc-transports/brand/main/social/grpc-transports.png" alt="grpc-transports/ssh" width="720"></p>
+
 # ssh
 
 Transparent SSH tunnel transport layer for gRPC. The server wraps inbound SSH connections as `net.Conn` for a standard `grpc.Server`; the client provides a `grpc.DialOption` that opens gRPC channels over SSH.

@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/openweft/brand/main/social/openweft.png" alt="openweft" width="720"></p>
+
 # weft-proto
 
 Protobuf/gRPC service definition and generated Go stubs for the `weft` daemon API.

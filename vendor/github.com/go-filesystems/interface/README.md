@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/go-filesystems/brand/main/social/go-filesystems.png" alt="go-filesystems/interface" width="720"></p>
+
 # filesystem (interface)
 
 Shared, minimal filesystem interfaces used by the concrete filesystem

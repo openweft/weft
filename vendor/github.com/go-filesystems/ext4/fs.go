@@ -192,6 +192,12 @@ func (fs *ext4FS) ListDir(path string) ([]filesystem.DirEntry, error) {
 	}
 	out := make([]filesystem.DirEntry, 0, len(entries))
 	for _, e := range entries {
+		// Omit the "." and ".." self/parent links from listings, matching the
+		// other go-filesystems drivers (and os.ReadDir): consumers that recurse
+		// over ListDir would otherwise loop.
+		if e.Name == "." || e.Name == ".." {
+			continue
+		}
 		out = append(out, filesystem.NewDirEntry(uint64(e.Inode), e.Name, e.FileType))
 	}
 	return out, nil

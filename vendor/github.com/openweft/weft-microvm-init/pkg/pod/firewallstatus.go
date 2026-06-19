@@ -34,4 +34,17 @@ type FirewallStatus struct {
 	// PublishedAtUnix is the wall-clock time of this status
 	// message (set by the emitter, not by the reconciler).
 	PublishedAtUnix int64 `json:"PublishedAtUnix"`
+	// DropsPackets is the running total of packets dropped by
+	// the firewall's default-drop tail rule on the input chain.
+	// Surfaced by weft-microvm-agent as a Prometheus counter
+	// (weft_microvm_agent_firewall_drops_total) so operators
+	// can spot port-scan storms / mis-configured workloads at
+	// a glance. Monotonic across reconciles ; 0 means either
+	// no drops have happened yet OR the table was just
+	// reinstalled (kernel resets the counter when the rule is
+	// recreated — the metric is reset-aware so a Prometheus
+	// rate() over it still makes sense).
+	DropsPackets uint64 `json:"DropsPackets,omitempty"`
+	// DropsBytes : matching byte counter, same semantics.
+	DropsBytes uint64 `json:"DropsBytes,omitempty"`
 }

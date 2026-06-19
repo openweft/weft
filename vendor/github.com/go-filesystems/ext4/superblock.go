@@ -100,12 +100,12 @@ func writeSuperblock(f readerWriterAt, fsOffset int64, sb *superblock) error {
 	le.PutUint32(raw[0x158:], uint32(sb.FreeBlocksCount>>32))
 	le.PutUint32(raw[16:], sb.FreeInodesCount)
 
-	// Recompute superblock checksum (at offset 0x3FC) using the filesystem
-	// checksum seed per ext4 metadata_csum semantics.
+	// Recompute superblock checksum (at offset 0x3FC). The superblock
+	// checksum is seeded with ~0 — independent of s_checksum_seed — unlike
+	// every other ext4 metadata checksum.
 	if sb.FeatureROCompat&FeatROCompatMetadataCsum != 0 {
 		le.PutUint32(raw[0x3FC:], 0)
-		seed := sb.csumSeed()
-		csum := crc32c(seed, raw[:0x3FC])
+		csum := crc32c(^uint32(0), raw[:0x3FC])
 		le.PutUint32(raw[0x3FC:], csum)
 	}
 
@@ -155,6 +155,38 @@ func (sb *superblock) bgdTableBlock() uint64 {
 	return 2
 }
 
+// isSparseSuperGroup reports whether block group g holds a backup copy of the
+// superblock and group-descriptor table. When the sparse_super feature is set
+// (the default for modern ext4) only groups 0, 1 and powers of 3, 5 and 7 hold
+// backups; otherwise every group does.
+func (sb *superblock) isSparseSuperGroup(g uint32) bool {
+	if sb.FeatureROCompat&FeatROCompatSparseSuper == 0 {
+		return true
+	}
+	return groupIsSparseBackup(g)
+}
+
+// groupIsSparseBackup implements the sparse_super rule: a backup lives in
+// group 0, group 1, and any group that is a power of 3, 5 or 7.
+func groupIsSparseBackup(g uint32) bool {
+	if g <= 1 {
+		return true
+	}
+	if g&1 == 0 {
+		return false // backups only ever live in odd groups (besides 0)
+	}
+	for _, base := range []uint32{3, 5, 7} {
+		p := base
+		for p < g {
+			p *= base
+		}
+		if p == g {
+			return true
+		}
+	}
+	return false
+}
+
 // csumSeed returns the CRC32c seed used for all metadata checksums.
 // When FeatIncompatCsumSeed is set the seed is stored in the superblock;
 // otherwise it is derived from the filesystem UUID.
@@ -184,9 +216,10 @@ func (sb *superblock) encodeRaw() {
 	le.PutUint32(raw[16:], fic)
 
 	if sb.FeatureROCompat&FeatROCompatMetadataCsum != 0 {
+		// Superblock checksum is seeded with ~0, independent of
+		// s_checksum_seed (see writeSuperblock).
 		le.PutUint32(raw[0x3FC:], 0)
-		seed := sb.csumSeed()
-		csum := crc32c(seed, raw[:0x3FC])
+		csum := crc32c(^uint32(0), raw[:0x3FC])
 		le.PutUint32(raw[0x3FC:], csum)
 	}
 }

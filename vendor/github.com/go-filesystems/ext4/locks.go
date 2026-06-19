@@ -5,8 +5,6 @@ import (
 	"os"
 	"reflect"
 	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -221,19 +219,25 @@ func getDirModLock(f readerWriterAt, dirIno uint32) *sync.Mutex {
 }
 
 // getGID returns the numeric goroutine id parsed from runtime.Stack. This is
-// a hack used only for re-entrant locking inside tests and single-process
-// scenarios.
+// a hack used for re-entrant lock ownership. It is on the lock hot path, so it
+// parses the id straight out of the stack-allocated buffer ("goroutine NNN
+// [...") without allocating — no string conversion, strings.Fields, or
+// strconv (which together were ~a third of all allocations during writes).
 func getGID() uint64 {
-	var buf [64]byte
+	var buf [32]byte
 	n := runtime.Stack(buf[:], false)
-	s := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))
-	if len(s) == 0 {
+	b := buf[:n]
+	const prefix = "goroutine "
+	if len(b) < len(prefix) {
 		return 0
 	}
-	idStr := s[0]
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		return 0
+	b = b[len(prefix):]
+	var id uint64
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			break
+		}
+		id = id*10 + uint64(c-'0')
 	}
 	return id
 }
