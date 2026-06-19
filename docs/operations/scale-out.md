@@ -193,10 +193,19 @@ Two ingredients :
     }
     ```
 
-    The `labels` map flows through to the runtime host registry — the same
-    table `weft host set-labels` writes to and `SchedulingRule` consults
-    for user VMs. `cluster.hcl` is now the source of truth ; the agent
-    converges the registry to match each time `weft up --apply` runs.
+    `properties` and runtime `labels` share storage but are two distinct
+    concepts :
+
+    | concept | source of truth | setter | consumer |
+    |---|---|---|---|
+    | **properties** | `cluster.hcl` (declarative) | edit HCL + `weft up --apply` | `weft up` planner → infra-replica placement |
+    | **labels** | runtime registry (etcd) | `weft host set-labels` CLI | SchedulingRule selectors → user VMs |
+
+    `weft up --apply` mirrors the declared `properties` into the runtime
+    registry's labels map on every EnsureHost — `cluster.hcl` wins.
+    Edits made via `weft host set-labels` between two `weft up` runs are
+    overwritten by the next apply ; track them in `cluster.hcl` instead
+    if you want them to stick.
 
 2. **Declare the placement constraint** on the cluster :
 
@@ -212,9 +221,9 @@ Two ingredients :
     ```
 
     With this block, every `place-replica` action emitted by `weft up`
-    selects from the **subset of hosts** whose `labels` satisfy every
-    entry. h3 above joins the mesh, runs user microVMs, but no infra
-    replica is ever scheduled on it.
+    selects from the **subset of hosts** whose `properties` satisfy
+    every entry. h3 above joins the mesh, runs user microVMs, but no
+    infra replica is ever scheduled on it.
 
 3. **Apply** :
 
@@ -251,12 +260,13 @@ This is intentional — silently spilling onto a workload host would defeat
 the point of declaring the constraint. The fix is in the operator's
 hands : either add the label to a host block, or drop the constraint.
 
-### Updating labels on a running cluster
+### Updating properties on a running cluster
 
 Editing the `properties = { … }` map for an existing host and re-running
-`weft up --apply` pushes the new label set to the runtime host registry
-(via the same `SetHostLabels` RPC the CLI uses). The convergent pass is
-idempotent — a host whose label map already matches generates no action.
+`weft up --apply` pushes the new set to the runtime host registry (via
+the same `SetHostLabels` RPC the CLI uses — `cluster.hcl` properties
+share storage with runtime labels). The convergent pass is idempotent —
+a host whose registry map already matches generates no action.
 
 ## Common pitfalls
 
@@ -290,8 +300,9 @@ can't widen the subnet without re-keying every peer. Memory ref :
 **Mixing hypervisor kinds in one AZ.** A single AZ with both
 `qemu-kvm` and `apple-vz` hosts is supported by the scheduler but
 breaks SchedulingRules that nominally bind to "any host in dc1".
-Cleanest pattern : one hypervisor kind per AZ, labels for finer
-distinctions.
+Cleanest pattern : one hypervisor kind per AZ, properties (for
+operator-declared constraints) or runtime labels (for user-VM
+SchedulingRule selectors) for finer distinctions.
 
 ## Verification (gold standard)
 
