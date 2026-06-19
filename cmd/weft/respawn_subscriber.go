@@ -87,6 +87,14 @@ func startRespawnSubscriber(adp weft.VZAdapter, bus weft.EventBus, etcdCli *clie
 				} else {
 					sub.WithCoordinator(respawnCoord{adp: adp}, watcher.Events(), etcdCli, "")
 					logger.Printf("respawn subscriber: cross-host failover active (host=%s)", localUUID)
+					// One-shot startup reconciliation : any host
+					// registered as Active but whose etcd liveness lease
+					// is absent (and whose LastSeenAt aged past the
+					// takeover threshold) must've died while no agent was
+					// watching. The runtime watcher only fires on lease
+					// expiry during this agent's lifetime, so without this
+					// pass those silently-stale hosts stay Active forever.
+					go reconcileStaleHosts(ctx, etcdCli, adp, logger)
 				}
 			}
 		}
@@ -222,6 +230,77 @@ func (r respawnStatus) IsVMRunning(name string) bool {
 	// Treating Z as "stopped" is what `weft microvm ls` does too via
 	// the exit.json path ; we just race ahead of the reaper here.
 	return !isZombie(pid)
+}
+
+// reconcileStaleHosts is the startup-once pass that diffs the host
+// registry against the etcd liveness prefix and marks any Active host
+// without a live lease as Down. Closes the gap where a host died
+// while no agent was watching the cluster (cold cluster boot, dev
+// teardown, host crashed before this agent came up) — without it
+// those entries stay Active in `weft host ls` forever, misleading the
+// operator and the scheduler.
+//
+// The runtime watcher (consumeHostEvents) already covers expiries
+// observed during this agent's lifetime ; this function only handles
+// the snapshot-at-boot case. Idempotent : if no hosts are stale, no
+// state mutates ; if the etcd Get fails, we log + skip (best-effort).
+func reconcileStaleHosts(ctx context.Context, cli *clientv3.Client, adp weft.VZAdapter, logger *log.Logger) {
+	// Brief settle window so peer agents finishing their own boot
+	// have a chance to publish their liveness leases before we read
+	// the prefix — otherwise a cluster-wide restart races itself
+	// and we'd false-positive-flip recently-rebooting hosts.
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(10 * time.Second):
+	}
+
+	// Short read window — this is a best-effort snapshot, not a
+	// correctness gate. We don't want to block agent startup on a
+	// slow etcd quorum, and the runtime watcher catches misses anyway.
+	getCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	resp, err := cli.Get(getCtx, etcdcoord.HostsPrefix, clientv3.WithPrefix(), clientv3.WithKeysOnly(), clientv3.WithSerializable())
+	if err != nil {
+		logger.Printf("reconcile stale hosts: etcd get failed (skipping): %v", err)
+		return
+	}
+	live := make(map[string]struct{}, len(resp.Kvs))
+	for _, kv := range resp.Kvs {
+		// Key shape is "/weft/coord/hosts/<UUID>" — strip the prefix.
+		key := string(kv.Key)
+		if !strings.HasPrefix(key, etcdcoord.HostsPrefix) {
+			continue
+		}
+		live[strings.TrimPrefix(key, etcdcoord.HostsPrefix)] = struct{}{}
+	}
+
+	now := time.Now()
+	var flipped, kept int
+	for _, h := range adp.Hosts() {
+		if h.State != weft.HostStateActive {
+			continue // Draining / Down stay as they are
+		}
+		if _, alive := live[h.UUID]; alive {
+			continue
+		}
+		// No live lease. Use a generous threshold (5 min) so a host
+		// that's heartbeating without a lease (e.g. dispatch-only
+		// path) isn't wrongly demoted. The takeover policy uses the
+		// same threshold via staleHostTakeoverAge.
+		if now.Sub(h.LastSeenAt) < 5*time.Minute {
+			kept++
+			continue
+		}
+		if err := adp.SetHostState(h.UUID, weft.HostStateDown); err != nil {
+			logger.Printf("reconcile stale hosts: SetHostState(%s, down) failed: %v", h.UUID, err)
+			continue
+		}
+		flipped++
+	}
+	if flipped > 0 || kept > 0 {
+		logger.Printf("reconcile stale hosts: flipped %d → Down, kept %d Active (recent heartbeat)", flipped, kept)
+	}
 }
 
 // isZombie returns true when /proc/<pid>/status reports State Z.
