@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"hash/crc32"
 
 	filesystem "github.com/go-filesystems/interface"
 )
@@ -77,15 +76,11 @@ func (fs *ext4FS) SetLabel(label string) error {
 	// the exception. See fs/ext4/super.c::ext4_superblock_csum() and
 	// e2fsprogs lib/ext2fs/csum.c::ext2fs_superblock_csum_set().
 	//
-	// Go's hash/crc32 with a Castagnoli table does its own ^crc
-	// at the start and ^result at the end (simpleUpdate), so to
-	// match the kernel we have to invert what we'd naively pass:
-	//   kernel crc32c(~0, data) == ^crc32.Update(0, castagnoli, data)
-	// (Verifiable via the standard test vector "123456789" →
-	// 0xE3069283 == crc32.Update(0, castagnoli, "123456789").)
+	// The shared crc32c helper already implements the kernel-canonical
+	// CRC32c (init = seed, no final XOR); seed it with ~0 here.
 	if le.Uint32(raw[100:])&FeatROCompatMetadataCsum != 0 {
 		le.PutUint32(raw[0x3FC:], 0)
-		csum := ^crc32.Update(0, castagnoli, raw[:0x3FC])
+		csum := crc32c(^uint32(0), raw[:0x3FC])
 		le.PutUint32(raw[0x3FC:], csum)
 	}
 

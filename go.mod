@@ -1,6 +1,6 @@
 module github.com/openweft/weft
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/coreos/go-oidc/v3 v3.18.0
@@ -29,7 +29,7 @@ require (
 	github.com/openweft/weft-hcl v0.4.0
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
-	github.com/openweft/weft-proto v0.11.5
+	github.com/openweft/weft-proto v0.12.0
 	github.com/openweft/weft-slognats v0.2.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
@@ -42,6 +42,8 @@ require (
 	google.golang.org/grpc v1.81.1
 	oras.land/oras-go/v2 v2.6.0
 )
+
+require github.com/go-compressions/matchlen v0.0.0 // indirect
 
 require (
 	github.com/agext/levenshtein v1.2.2 // indirect
@@ -60,9 +62,9 @@ require (
 	github.com/go-filesystems/interface v0.0.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-tpm2/common v0.1.0 // indirect
+	github.com/go-tpm2/common v0.1.0
 	github.com/go-tpm2/devtpm v0.1.0
-	github.com/go-tpm2/tpm2 v0.5.0 // indirect
+	github.com/go-tpm2/tpm2 v0.5.0
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -99,8 +101,8 @@ require (
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
-	github.com/vishvananda/netlink v1.3.1 // indirect
-	github.com/vishvananda/netns v0.0.5 // indirect
+	github.com/vishvananda/netlink v1.3.1
+	github.com/vishvananda/netns v0.0.5
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
 	go.etcd.io/etcd/api/v3 v3.6.11 // indirect
@@ -141,6 +143,7 @@ replace (
 	github.com/go-bootloaders/systemd-boot => ../../go-bootloaders/systemd-boot
 	github.com/go-coff/peln => ../../go-coff/peln
 	github.com/go-compressions/lzfse => ../../go-compressions/lzfse
+	github.com/go-compressions/matchlen => ../../go-compressions/matchlen
 	github.com/go-diskimages/diskimage => ../../go-diskimages/diskimage
 	github.com/go-diskimages/qcow2 => ../../go-diskimages/qcow2
 	github.com/go-diskimages/tart-oci => ../../go-diskimages/tart-oci

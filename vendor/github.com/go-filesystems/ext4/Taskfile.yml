@@ -1,10 +1,22 @@
 version: '3'
 
 tasks:
-  test:
-    desc: "Run tests with coverage (requires mke2fs from e2fsprogs)"
+  ci:
+    desc: "Full CI pipeline: vet + build + test with coverage (as CI runs it)"
     cmds:
-      - go test -mod=mod -cover -timeout 120s ./...
+      - task: lint
+      - task: build
+      - task: test
+
+  test:
+    desc: "Run tests with coverage (requires mke2fs/e2fsck/debugfs from e2fsprogs)"
+    cmds:
+      # The `test` package drives mke2fs/e2fsck/debugfs round-trips and the
+      # root package exercises the journalled write path, both of which are
+      # dominated by real-time grace periods, so allow a generous timeout.
+      # -coverpkg=./... attributes the external `test` package's coverage of
+      # the library to the combined profile.
+      - go test -mod=mod -coverpkg=./... -coverprofile=cover.out -timeout 1200s ./...
 
   build:
     desc: "Build (library — compile check only)"
@@ -20,6 +32,7 @@ tasks:
     desc: "Install mke2fs (required for some tests)"
     cmds:
       - brew install e2fsprogs
+
   test-stress:
     desc: "Run stress tests (requires 'stress' build tag)"
     cmds:

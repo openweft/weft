@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/openweft/brand/main/social/openweft.png" alt="openweft" width="720"></p>
+
 # weft-drivers
 
 Driver interfaces + types for weft. This Go module is the only

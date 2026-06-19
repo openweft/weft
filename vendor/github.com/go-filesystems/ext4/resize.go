@@ -50,6 +50,11 @@ func (fs *ext4FS) Grow(newSizeBytes int64) error {
 		return fmt.Errorf("ext4: truncate backing file: %w", err)
 	}
 
+	// Publish the new block count up front so numBlockGroups() reflects the
+	// grown layout while we write descriptors and bitmaps for the new groups
+	// (writeBGD and the commit pipeline validate against numBlockGroups).
+	atomic.StoreUint64(&fs.sb.BlocksCount, newBlocks)
+
 	rw := getRW(fs)
 	firstData := uint64(fs.sb.FirstDataBlock)
 	blockSizeU := uint64(fs.sb.BlockSize)
@@ -118,35 +123,93 @@ func (fs *ext4FS) Grow(newSizeBytes int64) error {
 		}
 	}
 
+	// Number of GDT blocks needed for the GROWN group count, plus the
+	// reserved-GDT-blocks (resize inode) recorded in the superblock. A
+	// sparse-super group reserves a backup superblock + this many GDT and
+	// reserved-GDT blocks at its start.
+	gdtBlocksNew := (uint64(newGroups)*uint64(fs.sb.DescSize) + blockSizeU - 1) / blockSizeU
+	reservedGdt := uint64(binary.LittleEndian.Uint16(fs.sb.raw[0xCE:])) // s_reserved_gdt_blocks
+	bitsPerBlock := uint64(fs.sb.BlockSize) * 8
+
+	var addedInodes uint32
+	var addedFreeInodes uint32
+
 	// Add any entirely-new block groups.
 	for g := oldGroups; g < newGroups; g++ {
 		groupStart := uint64(g)*uint64(fs.sb.BlocksPerGroup) + firstData
-		// Reserve: block bitmap, inode bitmap, inode table blocks.
-		blockBitmapBlock := groupStart
-		inodeBitmapBlock := groupStart + 1
-		inodeTableBlock := groupStart + 2
 
-		reserved := uint64(2) + inodeTableBlocks
-		if reserved > uint64(fs.sb.BlocksPerGroup) {
-			return fmt.Errorf("ext4: not enough space in group %d for metadata (reserved=%d groupsz=%d)", g, reserved, fs.sb.BlocksPerGroup)
+		// The final group may be partial: it spans only the blocks that
+		// actually exist, which can be fewer than blocks_per_group.
+		groupBlocks := uint64(fs.sb.BlocksPerGroup)
+		if groupStart+groupBlocks > newBlocks {
+			groupBlocks = newBlocks - groupStart
 		}
 
-		// Build block bitmap: mark metadata blocks used, rest free.
+		// Leading blocks consumed by a backup superblock + GDT + reserved
+		// GDT blocks (only in sparse-super groups).
+		var superBlocks uint64
+		if fs.sb.isSparseSuperGroup(g) {
+			superBlocks = 1 + gdtBlocksNew + reservedGdt
+		}
+
+		blockBitmapBlock := groupStart + superBlocks
+		inodeBitmapBlock := blockBitmapBlock + 1
+		inodeTableBlock := blockBitmapBlock + 2
+
+		reserved := superBlocks + 2 + inodeTableBlocks
+		if reserved > groupBlocks {
+			return fmt.Errorf("ext4: not enough space in group %d for metadata (reserved=%d groupsz=%d)", g, reserved, groupBlocks)
+		}
+
+		// Write a backup superblock + GDT into sparse-super groups. The GDT
+		// is filled in later once all descriptors are written; here we just
+		// stamp the backup superblock so its block is initialised. The
+		// definitive backups are refreshed after the descriptor table is
+		// complete (see refreshBackups below).
+		if superBlocks > 0 {
+			sbCopy := make([]byte, len(fs.sb.raw))
+			copy(sbCopy, fs.sb.raw)
+			binary.LittleEndian.PutUint16(sbCopy[90:], uint16(g)) // s_block_group_nr
+			if err := writeRawBlock(rw, fs.partOffset, fs.sb, groupStart, sbCopy); err != nil {
+				return fmt.Errorf("ext4: write backup superblock g=%d: %w", g, err)
+			}
+		}
+
+		// Build block bitmap: leading metadata used, plus all bits beyond the
+		// group's real size up to the end of the bitmap block set to 1 (the
+		// kernel-style trailing padding e2fsck expects). For a partial final
+		// group this also covers the tail bits inside blocks_per_group.
 		bmap := make([]byte, int(fs.sb.BlockSize))
 		for i := uint64(0); i < reserved; i++ {
 			setBit(bmap, int(i))
 		}
+		for i := groupBlocks; i < bitsPerBlock; i++ {
+			setBit(bmap, int(i))
+		}
+
+		// Inode bitmap: padding bits beyond inodes-per-group set to 1.
+		imap := make([]byte, int(fs.sb.BlockSize))
+		for i := uint64(fs.sb.InodesPerGroup); i < bitsPerBlock; i++ {
+			setBit(imap, int(i))
+		}
 
 		// Prepare descriptor with initial free counts.
-		d := &bgd{raw: make([]byte, int(fs.sb.DescSize)), BlockBitmapBlock: blockBitmapBlock, InodeBitmapBlock: inodeBitmapBlock, InodeTableBlock: inodeTableBlock, FreeBlocksCount: uint32(uint64(fs.sb.BlocksPerGroup) - reserved), FreeInodesCount: fs.sb.InodesPerGroup, UsedDirsCount: 0}
+		d := &bgd{raw: make([]byte, int(fs.sb.DescSize)), BlockBitmapBlock: blockBitmapBlock, InodeBitmapBlock: inodeBitmapBlock, InodeTableBlock: inodeTableBlock, FreeBlocksCount: uint32(groupBlocks - reserved), FreeInodesCount: fs.sb.InodesPerGroup, UsedDirsCount: 0}
+		// bgd.encode() only refreshes the free/used counters, so the bitmap
+		// and inode-table block pointers (which are fixed at group creation)
+		// must be written into the raw descriptor explicitly.
+		le := binary.LittleEndian
+		le.PutUint32(d.raw[0:], uint32(blockBitmapBlock))
+		le.PutUint32(d.raw[4:], uint32(inodeBitmapBlock))
+		le.PutUint32(d.raw[8:], uint32(inodeTableBlock))
+		if fs.sb.FeatureIncompat&FeatIncompat64bit != 0 && fs.sb.DescSize >= 64 {
+			le.PutUint32(d.raw[32:], uint32(blockBitmapBlock>>32))
+			le.PutUint32(d.raw[36:], uint32(inodeBitmapBlock>>32))
+			le.PutUint32(d.raw[40:], uint32(inodeTableBlock>>32))
+		}
 
-		// Write block and inode bitmaps. Acquire BGD then bitmap locks in
-		// canonical order, release BGD before performing IO, and finally
-		// update the BGD.
 		unlockBGD := lockBGDGroup(rw, g)
 		unlockBitmap := lockBitmapGroup(rw, g, true)
-		// write block bitmap while holding bitmap lock (BGD already held,
-		// but released before IO inside writeBitmapBufNoLock path).
 		unlockBGD()
 		if err := writeBitmapBufNoLock(rw, fs.partOffset, fs.sb, g, d, true, blockBitmapBlock, bmap); err != nil {
 			unlockBitmap()
@@ -154,8 +217,6 @@ func (fs *ext4FS) Grow(newSizeBytes int64) error {
 		}
 		unlockBitmap()
 
-		// Inode bitmap
-		imap := make([]byte, int(fs.sb.BlockSize))
 		unlockBGD = lockBGDGroup(rw, g)
 		unlockBitmap = lockBitmapGroup(rw, g, false)
 		unlockBGD()
@@ -178,7 +239,18 @@ func (fs *ext4FS) Grow(newSizeBytes int64) error {
 			return fmt.Errorf("ext4: write BGD for new group %d: %w", g, err)
 		}
 
-		totalAddedBlocks += uint64(fs.sb.BlocksPerGroup) - reserved
+		totalAddedBlocks += groupBlocks - reserved
+		addedInodes += fs.sb.InodesPerGroup
+		addedFreeInodes += fs.sb.InodesPerGroup
+	}
+
+	// Extend the resize inode (inode 7) so it owns the reserved-GDT blocks of
+	// the newly added sparse-super groups. Without this e2fsck reports
+	// "Resize inode not valid".
+	if reservedGdt > 0 {
+		if err := fs.extendResizeInode(rw, oldGroups, newGroups, gdtBlocksNew, reservedGdt); err != nil {
+			return fmt.Errorf("ext4: extend resize inode: %w", err)
+		}
 	}
 
 	// Update superblock counts and persist.
@@ -186,8 +258,154 @@ func (fs *ext4FS) Grow(newSizeBytes int64) error {
 	// alloc/free operations.
 	atomic.StoreUint64(&fs.sb.BlocksCount, newBlocks)
 	atomic.AddUint64(&fs.sb.FreeBlocksCount, totalAddedBlocks)
+	if addedInodes > 0 {
+		fs.sb.InodesCount += addedInodes
+		binary.LittleEndian.PutUint32(fs.sb.raw[0:], fs.sb.InodesCount)
+		atomic.AddUint32(&fs.sb.FreeInodesCount, addedFreeInodes)
+	}
 	if err := writeSuperblock(rw, fs.partOffset, fs.sb); err != nil {
 		return fmt.Errorf("ext4: write updated superblock: %w", err)
+	}
+
+	// Refresh backup superblock + GDT copies in all sparse-super groups so
+	// they reflect the new descriptor table and superblock. The primary GDT
+	// at the start of the filesystem is kept current by writeBGD above.
+	if err := fs.refreshSuperBackups(rw, newGroups, gdtBlocksNew); err != nil {
+		return fmt.Errorf("ext4: refresh backups: %w", err)
+	}
+	return nil
+}
+
+// resizeIno is the well-known inode that owns the reserved GDT blocks used
+// for online growth (the "resize inode").
+const resizeIno uint32 = 7
+
+// extendResizeInode registers the reserved-GDT blocks of newly added
+// sparse-super groups with the resize inode.
+//
+// The resize inode maps reserved GDT blocks through a double-indirect block:
+// i_block[13] points to a DIND block whose non-zero entries are the IND
+// blocks (these IND blocks are group 0's own reserved-GDT blocks). Entry i of
+// the DIND corresponds to reserved-GDT slot i; the IND block it points at then
+// lists, one per backup group (in ascending group order, starting at index 0
+// for group 1), the matching reserved-GDT block in that group.
+//
+// For each newly added sparse-super group we append its reserved-GDT block
+// numbers at the next per-group slot in every IND block, then grow the resize
+// inode's i_blocks count and rewrite it (which refreshes its checksum).
+func (fs *ext4FS) extendResizeInode(rw readerWriterAt, oldGroups, newGroups uint32, gdtBlocks, reservedGdt uint64) error {
+	// Count how many sparse-super backup groups (>0) precede group g; that is
+	// the per-group slot index within each IND block.
+	backupOrdinal := func(g uint32) int {
+		n := 0
+		for x := uint32(1); x < g; x++ {
+			if fs.sb.isSparseSuperGroup(x) {
+				n++
+			}
+		}
+		return n
+	}
+
+	in, err := readInode(rw, fs.partOffset, fs.sb, resizeIno)
+	if err != nil {
+		return fmt.Errorf("read resize inode: %w", err)
+	}
+	le := binary.LittleEndian
+	bs := int64(fs.sb.BlockSize)
+
+	dindBlock := uint64(le.Uint32(in.raw[inodeOffBlock+13*4:]))
+	if dindBlock == 0 {
+		return fmt.Errorf("resize inode has no double-indirect block")
+	}
+	dind := make([]byte, bs)
+	if _, err := rw.ReadAt(dind, fs.partOffset+int64(dindBlock)*bs); err != nil {
+		return fmt.Errorf("read DIND block: %w", err)
+	}
+
+	var addedBlocks uint64
+	for g := oldGroups; g < newGroups; g++ {
+		if !fs.sb.isSparseSuperGroup(g) {
+			continue
+		}
+		slot := backupOrdinal(g)
+		groupStart := uint64(g)*uint64(fs.sb.BlocksPerGroup) + uint64(fs.sb.FirstDataBlock)
+		// Group g's reserved-GDT blocks immediately follow its backup
+		// superblock (1 block) and its GDT copy (gdtBlocks).
+		grpReservedStart := groupStart + 1 + gdtBlocks
+
+		// Iterate every DIND slot. Slot 0 is unused by the resize-inode
+		// layout (logical block 0 is the GDT itself, not a reserved-GDT
+		// block), so only the non-zero IND pointers correspond to real
+		// reserved-GDT blocks that the inode accounts for.
+		for i := uint64(0); i < uint64(len(dind))/4; i++ {
+			indBlockNum := uint64(le.Uint32(dind[i*4:]))
+			if indBlockNum == 0 {
+				continue
+			}
+			indBuf := make([]byte, bs)
+			if _, err := rw.ReadAt(indBuf, fs.partOffset+int64(indBlockNum)*bs); err != nil {
+				return fmt.Errorf("read IND block %d: %w", indBlockNum, err)
+			}
+			// The reserved-GDT block in group g for this slot mirrors the
+			// offset of the IND block within group 0's GDT region.
+			le.PutUint32(indBuf[slot*4:], uint32(grpReservedStart+i-1))
+			if err := writeRawBlock(rw, fs.partOffset, fs.sb, indBlockNum, indBuf); err != nil {
+				return fmt.Errorf("write IND block %d: %w", indBlockNum, err)
+			}
+			addedBlocks++
+		}
+	}
+
+	if addedBlocks == 0 {
+		return nil
+	}
+
+	// Grow i_blocks (recorded in 512-byte sectors) to account for the newly
+	// owned reserved-GDT blocks.
+	sectorsPerBlock := uint64(fs.sb.BlockSize) / 512
+	iblocksLo := uint64(le.Uint32(in.raw[28:]))
+	iblocksHi := uint64(le.Uint16(in.raw[inodeOffBlocksHi:]))
+	total := (iblocksHi << 32) | iblocksLo
+	total += addedBlocks * sectorsPerBlock
+	le.PutUint32(in.raw[28:], uint32(total&0xFFFFFFFF))
+	le.PutUint16(in.raw[inodeOffBlocksHi:], uint16(total>>32))
+
+	if err := writeInode(rw, fs.partOffset, fs.sb, in); err != nil {
+		return fmt.Errorf("write resize inode: %w", err)
+	}
+	return nil
+}
+
+// refreshSuperBackups rewrites the backup superblock and group-descriptor
+// table into every sparse-super group (other than group 0). It reads the
+// authoritative primary GDT and superblock and copies them out, stamping each
+// backup superblock with its own s_block_group_nr.
+func (fs *ext4FS) refreshSuperBackups(rw readerWriterAt, nGroups uint32, gdtBlocks uint64) error {
+	blockSizeU := uint64(fs.sb.BlockSize)
+	primaryGdtBlock := fs.sb.bgdTableBlock()
+
+	// Read the authoritative GDT bytes.
+	gdt := make([]byte, gdtBlocks*blockSizeU)
+	if _, err := rw.ReadAt(gdt, fs.partOffset+int64(primaryGdtBlock)*int64(blockSizeU)); err != nil {
+		return fmt.Errorf("read primary GDT: %w", err)
+	}
+
+	for g := uint32(1); g < nGroups; g++ {
+		if !fs.sb.isSparseSuperGroup(g) {
+			continue
+		}
+		groupStart := uint64(g)*uint64(fs.sb.BlocksPerGroup) + uint64(fs.sb.FirstDataBlock)
+
+		sbCopy := make([]byte, len(fs.sb.raw))
+		copy(sbCopy, fs.sb.raw)
+		binary.LittleEndian.PutUint16(sbCopy[90:], uint16(g)) // s_block_group_nr
+		// Backup superblocks live at byte 0 of their group's first block.
+		if err := writeRawBlock(rw, fs.partOffset, fs.sb, groupStart, sbCopy); err != nil {
+			return fmt.Errorf("write backup superblock g=%d: %w", g, err)
+		}
+		if _, err := rw.WriteAt(gdt, fs.partOffset+int64(groupStart+1)*int64(blockSizeU)); err != nil {
+			return fmt.Errorf("write backup GDT g=%d: %w", g, err)
+		}
 	}
 	return nil
 }
@@ -231,11 +449,13 @@ func shrinkMinimumBlocks(f readerWriterAt, fsOffset int64, sb *superblock) (uint
 	firstData := uint64(sb.FirstDataBlock)
 	blockSizeU := uint64(sb.BlockSize)
 	inodeTableBlocks := (uint64(sb.InodeSize)*uint64(sb.InodesPerGroup) + blockSizeU - 1) / blockSizeU
-	// Per-group metadata reservation at the head of every group (block
-	// bitmap + inode bitmap + inode table). Bits in this range don't count
-	// as live data for shrink purposes — they vanish along with the group
-	// itself when it's dropped.
-	headReserved := uint64(2) + inodeTableBlocks
+	// Per-group metadata reservation at the head of every group. This is the
+	// (optional, sparse-super) backup superblock + GDT + reserved-GDT blocks,
+	// followed by the block bitmap, inode bitmap and inode table. Bits in this
+	// range don't count as live data for shrink purposes — they vanish along
+	// with the group itself when it's dropped.
+	gdtBlocks := (uint64(nGroups)*uint64(sb.DescSize) + blockSizeU - 1) / blockSizeU
+	reservedGdt := uint64(binary.LittleEndian.Uint16(sb.raw[0xCE:]))
 	highestUsed := uint64(0)
 	for g := uint32(0); g < nGroups; g++ {
 		d, err := readBGD(f, fsOffset, sb, g)
@@ -263,6 +483,14 @@ func shrinkMinimumBlocks(f readerWriterAt, fsOffset int64, sb *superblock) (uint
 		if max > len(bmap)*8 {
 			max = len(bmap) * 8
 		}
+		// Head reservation for this specific group: sparse-super groups also
+		// reserve a backup superblock + GDT + reserved-GDT blocks before the
+		// bitmaps/inode table.
+		var superBlocks uint64
+		if sb.isSparseSuperGroup(g) {
+			superBlocks = 1 + gdtBlocks + reservedGdt
+		}
+		headReserved := superBlocks + 2 + inodeTableBlocks
 		floor := int(headReserved)
 		if floor > max {
 			floor = max
@@ -440,8 +668,16 @@ func (fs *ext4FS) Shrink(newSizeBytes int64) error {
 		if err != nil {
 			return fmt.Errorf("ext4: read block bitmap %d: %w", g, err)
 		}
-		// Expected metadata-reserved blocks at the head of this group.
-		reserved := uint64(2) + inodeTableBlocks
+		// Expected metadata-reserved blocks at the head of this group,
+		// including any sparse-super backup superblock + GDT + reserved-GDT
+		// blocks. These vanish with the group when it is dropped.
+		var superBlocks uint64
+		if fs.sb.isSparseSuperGroup(g) {
+			gdtBlocks := (uint64(fs.sb.numBlockGroups())*uint64(fs.sb.DescSize) + blockSizeU - 1) / blockSizeU
+			reservedGdt := uint64(binary.LittleEndian.Uint16(fs.sb.raw[0xCE:]))
+			superBlocks = 1 + gdtBlocks + reservedGdt
+		}
+		reserved := superBlocks + 2 + inodeTableBlocks
 		groupStart := uint64(g)*uint64(fs.sb.BlocksPerGroup) + firstData
 		groupEnd := groupStart + uint64(fs.sb.BlocksPerGroup)
 		if groupEnd > oldBlocks {

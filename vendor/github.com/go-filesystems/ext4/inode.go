@@ -197,7 +197,24 @@ func (in *inode) extents(f readerWriterAt, fsOffset int64, sb *superblock) ([]ex
 		return nil, fmt.Errorf("ext4: inline data not supported")
 	}
 	if flags&InodeFlagExtents == 0 {
+		// Mutating callers only support extent-mapped inodes. Read paths use
+		// readExtents, which also handles classic ext2/ext3 block maps.
 		return nil, fmt.Errorf("ext4: old-style block map not supported (inode %d)", in.num)
+	}
+	return parseExtentNode(f, fsOffset, sb, in.raw[inodeOffBlock:inodeOffBlock+60], in.num, in.raw)
+}
+
+// readExtents returns the data-block layout of an inode for read-only paths.
+// Unlike extents() — used by mutating callers, which only support extent
+// trees — it also synthesises a layout for classic ext2/ext3 indirect block
+// maps (EXT4_EXTENTS_FL clear). Inline data is still reported explicitly.
+func (in *inode) readExtents(f readerWriterAt, fsOffset int64, sb *superblock) ([]extentLeaf, error) {
+	flags := in.flags()
+	if flags&InodeFlagInlineData != 0 {
+		return nil, fmt.Errorf("ext4: inline data not supported")
+	}
+	if flags&InodeFlagExtents == 0 {
+		return in.blockMapExtents(f, fsOffset, sb)
 	}
 	return parseExtentNode(f, fsOffset, sb, in.raw[inodeOffBlock:inodeOffBlock+60], in.num, in.raw)
 }
@@ -322,6 +339,16 @@ func readFileData(f readerWriterAt, fsOffset int64, sb *superblock, in *inode) (
 			unlockInode()
 			break
 		}
+	}
+
+	// Inline data: content lives in the inode (i_block + system.data xattr)
+	// rather than in data blocks.
+	if in.isInline() {
+		return in.inlineData(f, fsOffset, sb)
+	}
+	// Classic ext2/ext3 indirect block map (EXT4_EXTENTS_FL clear).
+	if in.flags()&InodeFlagExtents == 0 && in.flags()&InodeFlagInlineData == 0 {
+		return in.blockMapData(f, fsOffset, sb)
 	}
 
 	ext, err := in.extents(f, fsOffset, sb)

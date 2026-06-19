@@ -106,26 +106,38 @@ func Format(path string, sizeBytes int64, cfg FormatConfig) (filesystem.Filesyst
 	nGroups := (totalBlocks + fmtBlocksPerGroup - 1) / fmtBlocksPerGroup
 	bgdtBlocks := (nGroups*fmtDescSize + fmtBlockSize - 1) / fmtBlockSize
 
-	// ── Group-0 layout ───────────────────────────────────────────────────────
-	// Block 0                : superblock area (SB at byte 1024 within block 0)
-	// Blocks 1..bgdtBlocks   : Block Group Descriptor Table
-	// Block bgdtBlocks+1     : block bitmap for group 0
-	// Block bgdtBlocks+2     : inode bitmap for group 0
-	// Blocks bgdtBlocks+3..  : inode table for group 0 (fmtInodeTableBlocks blocks)
-	// Block bgdtBlocks+3+fmtInodeTableBlocks : root directory data block
+	// sparse_super is enabled, so backup copies of the superblock and the
+	// block-group descriptor table live only in groups 0, 1 and powers of
+	// 3/5/7. groupSuperBlocks reports how many leading blocks a group
+	// reserves for its backup superblock + GDT (0 when it has no backup).
+	// Group 0's primary superblock occupies block 0 (the partial first
+	// block, with the SB at byte 1024), then the GDT follows in blocks
+	// 1..bgdtBlocks.
+	groupSuperBlocks := func(g uint32) uint32 {
+		if !groupIsSparseBackup(g) {
+			return 0
+		}
+		return 1 + bgdtBlocks
+	}
+
+	// ── Per-group layout (no flex_bg) ────────────────────────────────────────
+	// [backup SB + GDT (sparse groups only)] block bitmap, inode bitmap,
+	// inode-table blocks, then data. Group 0 also stores the root directory
+	// data block immediately after its inode table.
 
 	g0BitmapBlock := uint32(1 + bgdtBlocks)
-	g0InodeBmap := g0BitmapBlock + 1
 	g0InodeTable := g0BitmapBlock + 2
 	g0RootDirDataBlock := g0InodeTable + fmtInodeTableBlocks
 
-	// ── Group-g (g>0) layout ─────────────────────────────────────────────────
-	// Block g*GPG+0 : block bitmap
-	// Block g*GPG+1 : inode bitmap
-	// Blocks g*GPG+2..g*GPG+1+fmtInodeTableBlocks : inode table
-	// Block g*GPG+2+fmtInodeTableBlocks : first free data block
-
-	gMeta := uint32(2 + fmtInodeTableBlocks) // metadata blocks per non-zero group
+	// groupMetaBlocks returns the number of blocks at the start of group g
+	// that are consumed by metadata (and, for group 0, the root directory).
+	groupMetaBlocks := func(g uint32) uint32 {
+		m := groupSuperBlocks(g) + 2 + fmtInodeTableBlocks
+		if g == 0 {
+			m++ // root directory data block
+		}
+		return m
+	}
 
 	// Compute totals.
 	totalInodes := fmtInodesPerGroup * nGroups
@@ -135,10 +147,7 @@ func Format(path string, sizeBytes int64, cfg FormatConfig) (filesystem.Filesyst
 		if g == nGroups-1 {
 			groupBlocks = totalBlocks - g*fmtBlocksPerGroup
 		}
-		meta := gMeta
-		if g == 0 {
-			meta = g0RootDirDataBlock + 1 // every block up to and including the root dir data block
-		}
+		meta := groupMetaBlocks(g)
 		if groupBlocks > meta {
 			totalFreeBlocks += uint64(groupBlocks - meta)
 		}
@@ -175,7 +184,10 @@ func Format(path string, sizeBytes int64, cfg FormatConfig) (filesystem.Filesyst
 	// raw[90:92] = block_group_nr = 0 (primary SB)
 	// raw[92:96] = feature_compat = 0
 	le.PutUint32(raw[96:], FeatIncompatFiletype|FeatIncompatExtents) // feature_incompat
-	// raw[100:104] = feature_ro_compat = 0
+	// sparse_super: backup superblock/GDT copies live only in groups 0, 1
+	// and powers of 3/5/7. This matches modern ext4 and keeps multi-group
+	// images e2fsck-clean (otherwise e2fsck expects a backup in every group).
+	le.PutUint32(raw[100:], FeatROCompatSparseSuper) // feature_ro_compat
 	copy(raw[104:], uuid[:])
 	label := cfg.Label
 	if len(label) > 16 {
@@ -200,26 +212,21 @@ func Format(path string, sizeBytes int64, cfg FormatConfig) (filesystem.Filesyst
 			groupBlocks = totalBlocks - g*fmtBlocksPerGroup
 		}
 
-		var bitmapBlock, inodeBmapBlock, inodeTableBlock uint64
-		var freeBlocks, freeInodes, usedDirs uint16
+		// Metadata starts after the (optional) backup superblock + GDT.
+		metaStart := groupBlockStart + uint64(groupSuperBlocks(g))
+		bitmapBlock := metaStart
+		inodeBmapBlock := metaStart + 1
+		inodeTableBlock := metaStart + 2
 
+		used := groupMetaBlocks(g)
+		var freeBlocks, freeInodes, usedDirs uint16
+		if groupBlocks >= used {
+			freeBlocks = uint16(groupBlocks - used)
+		}
 		if g == 0 {
-			bitmapBlock = uint64(g0BitmapBlock)
-			inodeBmapBlock = uint64(g0InodeBmap)
-			inodeTableBlock = uint64(g0InodeTable)
-			used := uint32(g0RootDirDataBlock + 1)
-			if groupBlocks >= used {
-				freeBlocks = uint16(groupBlocks - used)
-			}
 			freeInodes = uint16(fmtInodesPerGroup - fmtReservedInodes)
 			usedDirs = 1
 		} else {
-			bitmapBlock = groupBlockStart
-			inodeBmapBlock = groupBlockStart + 1
-			inodeTableBlock = groupBlockStart + 2
-			if groupBlocks >= gMeta {
-				freeBlocks = uint16(groupBlocks - gMeta)
-			}
 			freeInodes = uint16(fmtInodesPerGroup)
 			usedDirs = 0
 		}
@@ -237,7 +244,8 @@ func Format(path string, sizeBytes int64, cfg FormatConfig) (filesystem.Filesyst
 		return nil, fmt.Errorf("ext4: format: write BGDT: %w", err)
 	}
 
-	// ── 3. Block bitmaps, inode bitmaps, and inode tables ────────────────────
+	// ── 3. Backup superblock/GDT copies, bitmaps, and inode tables ───────────
+	const bitsPerBlock = fmtBlockSize * 8
 	for g := uint32(0); g < nGroups; g++ {
 		groupBlockStart := uint64(g) * fmtBlocksPerGroup
 		groupBlocks := uint32(fmtBlocksPerGroup)
@@ -245,43 +253,59 @@ func Format(path string, sizeBytes int64, cfg FormatConfig) (filesystem.Filesyst
 			groupBlocks = totalBlocks - g*fmtBlocksPerGroup
 		}
 
-		var bitmapOff, inodeBmapOff int64
-
-		// Block bitmap.
-		bmap := make([]byte, fmtBlockSize)
-		if g == 0 {
-			// Mark blocks 0..g0RootDirDataBlock as used.
-			for i := uint32(0); i <= g0RootDirDataBlock; i++ {
-				setBit(bmap, int(i))
+		// Write a backup superblock + GDT into sparse-super groups (g > 0).
+		// The backup superblock records its own block_group_nr.
+		if g > 0 && groupSuperBlocks(g) > 0 {
+			sbCopy := make([]byte, 1024)
+			copy(sbCopy, raw)
+			le.PutUint16(sbCopy[90:], uint16(g)) // s_block_group_nr
+			// The backup superblock occupies the first block of the group;
+			// the SB structure itself sits at byte 0 of that block (only the
+			// primary, in block 0, is offset by 1024).
+			if _, err := formatWriteAt(f, 0, nil, int64(groupBlockStart)*fmtBlockSize, sbCopy); err != nil {
+				f.Close()
+				return nil, fmt.Errorf("ext4: format: write backup superblock (group %d): %w", g, err)
 			}
-			bitmapOff = int64(g0BitmapBlock) * fmtBlockSize
-		} else {
-			// Mark metadata blocks (bitmaps + inode table) as used.
-			for i := uint32(0); i < gMeta; i++ {
-				setBit(bmap, int(i))
+			if _, err := formatWriteAt(f, 0, nil, int64(groupBlockStart+1)*fmtBlockSize, bgdtBuf); err != nil {
+				f.Close()
+				return nil, fmt.Errorf("ext4: format: write backup GDT (group %d): %w", g, err)
 			}
-			bitmapOff = int64(groupBlockStart) * fmtBlockSize
 		}
-		// Mark bits beyond actual group size as unavailable.
-		for i := groupBlocks; i < fmtBlocksPerGroup; i++ {
+
+		metaBlocks := groupMetaBlocks(g)
+		superBlocks := groupSuperBlocks(g)
+
+		// Block bitmap. Bit i maps to block groupBlockStart+i. The leading
+		// metaBlocks blocks (backup SB+GDT, bitmaps, inode table, and the
+		// group-0 root directory block) are in use.
+		bmap := make([]byte, fmtBlockSize)
+		for i := uint32(0); i < metaBlocks; i++ {
 			setBit(bmap, int(i))
 		}
+		// Blocks beyond the group's real size (last/partial group) and all
+		// padding bits up to the end of the bitmap block are set to 1, as the
+		// kernel does, so e2fsck sees the trailing padding marked.
+		for i := groupBlocks; i < bitsPerBlock; i++ {
+			setBit(bmap, int(i))
+		}
+		bitmapOff := int64(groupBlockStart+uint64(superBlocks)) * fmtBlockSize
 		if _, err := formatWriteAt(f, 0, nil, bitmapOff, bmap); err != nil {
 			f.Close()
 			return nil, fmt.Errorf("ext4: format: write block bitmap (group %d): %w", g, err)
 		}
 
-		// Inode bitmap.
+		// Inode bitmap. Group 0 reserves inodes 1..fmtReservedInodes (bits
+		// 0..9). All bits beyond inodes-per-group are padding and must be 1.
 		ibmap := make([]byte, fmtBlockSize)
 		if g == 0 {
-			// Mark inodes 1-10 (bits 0-9) as reserved.
 			for i := 0; i < fmtReservedInodes; i++ {
 				setBit(ibmap, i)
 			}
-			inodeBmapOff = int64(g0InodeBmap) * fmtBlockSize
-		} else {
-			inodeBmapOff = int64(groupBlockStart+1) * fmtBlockSize
 		}
+		for i := uint32(fmtInodesPerGroup); i < bitsPerBlock; i++ {
+			setBit(ibmap, int(i))
+		}
+		inodeBmapOff := int64(groupBlockStart+uint64(superBlocks)+1) * fmtBlockSize
 		if _, err := formatWriteAt(f, 0, nil, inodeBmapOff, ibmap); err != nil {
 			f.Close()
 			return nil, fmt.Errorf("ext4: format: write inode bitmap (group %d): %w", g, err)

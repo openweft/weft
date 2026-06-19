@@ -16,6 +16,8 @@ const (
 
 // Read-only compatible feature flags.
 const (
+	FeatROCompatSparseSuper  = 0x0001
+	FeatROCompatLargeFile    = 0x0002
 	FeatROCompatGdtCsum      = 0x0010
 	FeatROCompatMetadataCsum = 0x0400
 )

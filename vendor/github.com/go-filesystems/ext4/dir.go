@@ -78,7 +78,13 @@ func parseDirBlock(buf []byte) []DirEntry {
 
 // readDir reads all entries from a directory inode.
 func readDir(f readerWriterAt, fsOffset int64, sb *superblock, dirInode *inode) ([]DirEntry, error) {
-	exts, err := dirInode.extents(f, fsOffset, sb)
+	// Inline directories store their entries inside the inode (i_block +
+	// system.data xattr) rather than in directory data blocks.
+	if dirInode.isInline() {
+		return inlineDirEntries(f, fsOffset, sb, dirInode)
+	}
+
+	exts, err := dirInode.readExtents(f, fsOffset, sb)
 	if err != nil {
 		return nil, err
 	}
@@ -95,14 +101,24 @@ func readDir(f readerWriterAt, fsOffset int64, sb *superblock, dirInode *inode) 
 	return entries, nil
 }
 
+// maxSymlinks bounds the number of symlinks resolved while looking up a single
+// path, mirroring Linux's MAXSYMLINKS. It guards against symlink loops; it is
+// deliberately unrelated to how deep the directory tree may be.
+const maxSymlinks = 40
+
 // lookupPath resolves an absolute path and returns the final inode number.
 // Symlinks are followed up to maxSymlinks times.
 func lookupPath(f readerWriterAt, fsOffset int64, sb *superblock, path string) (*inode, error) {
 	return lookupPathFrom(f, fsOffset, sb, RootIno, path, 0)
 }
 
-func lookupPathFrom(f readerWriterAt, fsOffset int64, sb *superblock, startIno uint32, path string, depth int) (*inode, error) {
-	if depth > 8 {
+// lookupPathFrom resolves path relative to startIno. symlinkHops counts only
+// symlinks followed so far on this resolution; it is bounded by maxSymlinks to
+// detect loops. Ordinary descent into directory components does NOT increment
+// it — each descent consumes a path component and terminates on its own, so an
+// arbitrarily deep but symlink-free tree resolves successfully.
+func lookupPathFrom(f readerWriterAt, fsOffset int64, sb *superblock, startIno uint32, path string, symlinkHops int) (*inode, error) {
+	if symlinkHops > maxSymlinks {
 		return nil, fmt.Errorf("ext4: symlink loop resolving %q", path)
 	}
 	path = strings.TrimPrefix(path, "/")
@@ -141,14 +157,14 @@ func lookupPathFrom(f readerWriterAt, fsOffset int64, sb *superblock, startIno u
 					nextPath = target + "/" + parts[1]
 				}
 				if strings.HasPrefix(nextPath, "/") {
-					return lookupPathFrom(f, fsOffset, sb, RootIno, nextPath, depth+1)
+					return lookupPathFrom(f, fsOffset, sb, RootIno, nextPath, symlinkHops+1)
 				}
-				return lookupPathFrom(f, fsOffset, sb, curIno, nextPath, depth+1)
+				return lookupPathFrom(f, fsOffset, sb, curIno, nextPath, symlinkHops+1)
 			}
 			if len(parts) == 1 {
 				return child, nil
 			}
-			return lookupPathFrom(f, fsOffset, sb, e.Inode, parts[1], depth+1)
+			return lookupPathFrom(f, fsOffset, sb, e.Inode, parts[1], symlinkHops)
 		}
 	}
 	// On lookup failure, emit a debug trace with current journal applySeq
