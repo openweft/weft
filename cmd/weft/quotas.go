@@ -117,8 +117,7 @@ func (s *weftServer) GetProjectQuota(ctx context.Context, req *weftv1.GetProject
 			sum.FloatingIPs += q.FloatingIPs
 		}
 		resp.SiblingsTotal = tenantQuotaToProto(sum)
-		// TenantCap stays nil until a tenant-level cap registry lands ;
-		// that's the next milestone after this linkage ships.
+		resp.TenantCap = tenantQuotaToProto(s.adp.TenantCap(proj.TenantUUID))
 	}
 	return resp, nil
 }
@@ -151,26 +150,50 @@ func (s *weftServer) SetProjectQuota(ctx context.Context, req *weftv1.SetProject
 	}, nil
 }
 
-// GetTenantQuota / SetTenantQuota return Unimplemented until the
-// project → tenant linkage lands. Surfacing it as Unimplemented (a
-// gRPC error code clients should already special-case) with an
-// explicit message beats letting the legacy generated stub fire
-// the bare "method GetTenantQuota not implemented" line — operators
-// hitting `weft quota tenant get` now see WHY it's not wired.
-func (s *weftServer) GetTenantQuota(ctx context.Context, _ *weftv1.GetTenantQuotaRequest) (*weftv1.GetTenantQuotaResponse, error) {
+// GetTenantQuota reads the tenant-level cap from the tenant_caps
+// registry + aggregates Allocated from every project bound to the
+// tenant (via Project.TenantUUID, see commit d9f9d46ea). Unknown
+// tenant_uuid returns a zero Cap + zero Allocated — the convention
+// the project-keyed registry already uses for "no caps set".
+func (s *weftServer) GetTenantQuota(ctx context.Context, req *weftv1.GetTenantQuotaRequest) (*weftv1.GetTenantQuotaResponse, error) {
 	if err := weft.RequireAdmin(ctx, "get tenant quota"); err != nil {
 		return nil, err
 	}
-	return nil, status.Error(codes.Unimplemented,
-		"tenant-scoped quotas need a project→tenant linkage that doesn't exist yet ; "+
-			"use `weft quota project get/set` until the Project struct grows a TenantUUID field")
+	if req.TenantUuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_uuid is required")
+	}
+	return &weftv1.GetTenantQuotaResponse{
+		Cap:       tenantQuotaToProto(s.adp.TenantCap(req.TenantUuid)),
+		Allocated: tenantQuotaToProto(s.adp.TenantAllocation(req.TenantUuid)),
+	}, nil
 }
 
-func (s *weftServer) SetTenantQuota(ctx context.Context, _ *weftv1.SetTenantQuotaRequest) (*weftv1.SetTenantQuotaResponse, error) {
+// SetTenantQuota atomically replaces the tenant-level cap. The
+// Allocated field in the response reflects the sum across projects
+// AFTER the write — operators reading the response can spot when
+// they've set Cap below the current Allocated (a common mistake
+// post-tenant-restructure ; the scheduler will refuse new placements
+// even though existing ones keep running).
+func (s *weftServer) SetTenantQuota(ctx context.Context, req *weftv1.SetTenantQuotaRequest) (*weftv1.SetTenantQuotaResponse, error) {
 	if err := weft.RequireAdmin(ctx, "set tenant quota"); err != nil {
 		return nil, err
 	}
-	return nil, status.Error(codes.Unimplemented,
-		"tenant-scoped quotas need a project→tenant linkage that doesn't exist yet ; "+
-			"use `weft quota project get/set` until the Project struct grows a TenantUUID field")
+	if req.TenantUuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_uuid is required")
+	}
+	q := protoToTenantQuota(req.Cap)
+	// Preserve local-only dimensions (GPU/PCI) from the prior cap,
+	// same convention as SetProjectQuota — wire-driven Set without
+	// a proto field for those mustn't quietly zero them.
+	prior := s.adp.TenantCap(req.TenantUuid)
+	q.GPUCount = prior.GPUCount
+	q.GPUMemoryGiB = prior.GPUMemoryGiB
+	q.PCICount = prior.PCICount
+	if err := s.adp.SetTenantCap(req.TenantUuid, q); err != nil {
+		return nil, status.Errorf(codes.Internal, "set tenant quota: %v", err)
+	}
+	return &weftv1.SetTenantQuotaResponse{
+		Cap:       tenantQuotaToProto(q),
+		Allocated: tenantQuotaToProto(s.adp.TenantAllocation(req.TenantUuid)),
+	}, nil
 }

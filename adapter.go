@@ -83,6 +83,9 @@ type VZAdapter interface {
 	ProjectByUUID(uuid string) (Project, bool)
 	ProjectsByTenant(tenantUUID string) []Project
 	SetProjectTenant(projectUUID, tenantUUID string) error
+	TenantCap(tenantUUID string) TenantQuota
+	SetTenantCap(tenantUUID string, q TenantQuota) error
+	TenantAllocation(tenantUUID string) TenantQuota
 	CreateProject(name string) (Project, bool, error)
 	RenameProject(uuid, newName string) error
 	DeleteProject(uuid string) error
@@ -469,6 +472,12 @@ type Adapter struct {
 	// Empty cap = unlimited on that dimension. See
 	// tenant_quotas.go + docs/operations/tenant-quotas.md.
 	tenantQuotas *tenantQuotaRegistry
+	// tenantCaps holds the tenant-level hard caps that
+	// GetTenantQuota / SetTenantQuota read+write. Distinct from
+	// tenantQuotas (project-keyed) ; lives in its own "tenant-caps"
+	// storage blob so the two registries don't share state. See
+	// tenant_caps.go.
+	tenantCaps *tenantCapRegistry
 	// scheduler picks which Host runs a new VM. Defaults to
 	// FirstFitScheduler; swappable via SetScheduler. See
 	// scheduler.go for the interface + the default policy's
@@ -743,6 +752,7 @@ func (a *Adapter) afterStorageWired() VZAdapter {
 	a.initHosts()
 	a.initVMs()
 	a.initTenantQuotas()
+	a.initTenantCaps()
 	a.initResources()
 	a.scheduler = FirstFitScheduler{} // operator-overridable via SetScheduler
 	if err := a.selfRegisterHost(); err != nil {
