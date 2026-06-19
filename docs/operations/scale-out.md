@@ -160,6 +160,104 @@ re-registers safe across host reboots.
 - `etcdctl member list` is unaffected ; explicit registration never
   touches etcd voting membership.
 
+## Pinning the control plane
+
+By default `weft up` round-robins the infra services (etcd, nats, coredns,
+dex, zot, webui, irods …) across **every** host in `cluster.hcl`. When the
+fleet mixes hardware tiers — a couple of NVMe-backed boxes alongside cheaper
+HDD compute nodes, or a security-isolated rack alongside the general pool —
+you usually want the control plane confined to the trusted subset.
+
+Two ingredients :
+
+1. **Label the chosen hosts** in `cluster.hcl` :
+
+    ```hcl
+    host "h1" {
+      address    = "10.0.0.11"
+      dc         = "dc1"
+      hypervisor = "qemu"
+      properties = { role = "control-plane", storage = "nvme" }
+    }
+    host "h2" {
+      address    = "10.0.0.12"
+      dc         = "dc2"
+      hypervisor = "qemu"
+      properties = { role = "control-plane", storage = "nvme" }
+    }
+    host "h3" {
+      address    = "10.0.0.13"
+      dc         = "dc3"
+      hypervisor = "qemu"
+      # No control-plane label : h3 is workload-only.
+    }
+    ```
+
+    The `labels` map flows through to the runtime host registry — the same
+    table `weft host set-labels` writes to and `SchedulingRule` consults
+    for user VMs. `cluster.hcl` is now the source of truth ; the agent
+    converges the registry to match each time `weft up --apply` runs.
+
+2. **Declare the placement constraint** on the cluster :
+
+    ```hcl
+    cluster "prod" {
+      # ... existing overlay, agent_config, hosts
+
+      control_plane {
+        require_properties = ["role=control-plane"]
+        # each entry is "key=value" ; ALL must match for a host to be eligible.
+      }
+    }
+    ```
+
+    With this block, every `place-replica` action emitted by `weft up`
+    selects from the **subset of hosts** whose `labels` satisfy every
+    entry. h3 above joins the mesh, runs user microVMs, but no infra
+    replica is ever scheduled on it.
+
+3. **Apply** :
+
+    ```sh
+    weft up -f cluster.hcl --apply
+    ```
+
+    The dry-run plan (`weft up -f cluster.hcl` without `--apply`) shows
+    the `place-replica` targets — verify they all land on the labelled
+    hosts before applying.
+
+### Wrap-around when there are fewer eligible hosts than replicas
+
+A 3-replica service (etcd, nats) against 2 control-plane hosts is a
+degenerate case for quorum, but the planner accepts it : replica 1 lands
+on `eligible[0]`, replica 2 on `eligible[1]`, replica 3 wraps back to
+`eligible[0]`. Two replicas of etcd on the same host gives no fault
+tolerance — promote a third host to control-plane (label it + re-apply)
+before treating that as a real production topology. For a single-DC dev
+cluster the wrap-around is fine.
+
+### Failure mode : nothing matches
+
+If `require_properties` references a key/value that no host satisfies,
+`weft up` fails loud with an error like :
+
+```
+cluster "prod": control_plane.require_properties = [role=control-plane] but no
+host satisfies them ; add `properties = { role=control-plane }` to at least one
+host block
+```
+
+This is intentional — silently spilling onto a workload host would defeat
+the point of declaring the constraint. The fix is in the operator's
+hands : either add the label to a host block, or drop the constraint.
+
+### Updating labels on a running cluster
+
+Editing the `properties = { … }` map for an existing host and re-running
+`weft up --apply` pushes the new label set to the runtime host registry
+(via the same `SetHostLabels` RPC the CLI uses). The convergent pass is
+idempotent — a host whose label map already matches generates no action.
+
 ## Common pitfalls
 
 **Forgetting to bump etcd member count when AZ count rises.** A 3-DC

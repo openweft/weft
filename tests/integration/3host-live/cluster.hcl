@@ -14,6 +14,15 @@ cluster "openweft-live-3dc" {
   }
   overlay { subnet = "10.9.0.0/24" }
 
+  # Pin the infra services (etcd / nats / coredns / dex / zot / webui …) to
+  # the two hosts explicitly labelled `role=control-plane` below. h3 stays
+  # general-purpose : it joins the mesh, runs user microVMs, but no infra
+  # replica lands on it. See docs/operations/scale-out.md (« Pinning the
+  # control plane »).
+  control_plane {
+    require_properties = ["role=control-plane"]
+  }
+
   agent_config {
     socket = "/home/admin/.weft/weft.sock"
     storage {
@@ -32,6 +41,7 @@ cluster "openweft-live-3dc" {
     address    = "192.168.105.11"
     dc         = "dc1"
     hypervisor = "qemu"
+    properties = { role = "control-plane", storage = "nvme" }
     ssh {
       user = "admin"
       key  = "~/.ssh/id_ed25519"
@@ -42,6 +52,7 @@ cluster "openweft-live-3dc" {
     address    = "192.168.105.12"
     dc         = "dc2"
     hypervisor = "qemu"
+    properties = { role = "control-plane", storage = "nvme" }
     ssh {
       user = "admin"
       key  = "~/.ssh/id_ed25519"
@@ -52,6 +63,9 @@ cluster "openweft-live-3dc" {
     address    = "192.168.105.13"
     dc         = "dc3"
     hypervisor = "qemu"
+    # No `role = control-plane` label : h3 is workload-only. Add the label
+    # here (and keep the cluster at 3 control-plane hosts for HA) once a
+    # second NVMe host is provisioned in dc3.
     ssh {
       user = "admin"
       key  = "~/.ssh/id_ed25519"

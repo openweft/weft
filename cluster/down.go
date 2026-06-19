@@ -57,12 +57,24 @@ func BuildDownPlan(c *Cluster, infraOrder []*infra.Plan, opts DownOptions) (*Pla
 
 	// 1. Stop replicas in reverse dependency order so dependents come down
 	//    first and quorum services (etcd) die last. Same host placement
-	//    formula as Build: replica r → c.Hosts[(r-1)%hostCount].
+	//    formula as Build: replica r → placementHosts[(r-1)%len(pool)].
+	//    Using the same pool keeps `weft down` honest about which host each
+	//    replica was ever scheduled to ; mismatched formulas would leave
+	//    orphaned microVMs on the control-plane hosts after a teardown.
+	placementHosts, err := c.EligibleControlPlaneHosts()
+	if err != nil {
+		return nil, err
+	}
+	if len(placementHosts) == 0 {
+		// A constraint that excludes every host can't have placed
+		// anything ; nothing to stop.
+		placementHosts = c.Hosts
+	}
 	for i := len(infraOrder) - 1; i >= 0; i-- {
 		plan := infraOrder[i]
 		eff := effectiveReplicas(plan, hostCount)
 		for r := 1; r <= eff; r++ {
-			h := c.Hosts[(r-1)%hostCount]
+			h := placementHosts[(r-1)%len(placementHosts)]
 			p.Actions = append(p.Actions, Action{
 				Kind:    StopReplica,
 				Service: plan.Service,
