@@ -88,10 +88,39 @@ func (s *weftServer) GetProjectQuota(ctx context.Context, req *weftv1.GetProject
 		return nil, status.Error(codes.InvalidArgument, "project_uuid is required")
 	}
 	cap := s.adp.TenantQuota(req.ProjectUuid)
-	return &weftv1.GetProjectQuotaResponse{
+	resp := &weftv1.GetProjectQuotaResponse{
 		Project: tenantQuotaToProto(cap),
-		// TenantCap + SiblingsTotal omitted (no project→tenant linkage).
-	}, nil
+	}
+	// Aggregate siblings_total when the project is bound to a
+	// tenant. siblings = every OTHER project in the same tenant ;
+	// we sum their quotas (proto-aligned dimensions only) into the
+	// response. Untenanted projects (TenantUUID=="") keep
+	// SiblingsTotal nil so clients can distinguish "no aggregation
+	// possible" from "tenant exists but has no siblings".
+	proj, ok := s.adp.ProjectByUUID(req.ProjectUuid)
+	if ok && proj.TenantUUID != "" {
+		sum := weft.TenantQuota{}
+		for _, sib := range s.adp.ProjectsByTenant(proj.TenantUUID) {
+			if sib.UUID == req.ProjectUuid {
+				continue
+			}
+			q := s.adp.TenantQuota(sib.UUID)
+			sum.CPUCount += q.CPUCount
+			sum.MemoryGiB += q.MemoryGiB
+			sum.VolumeCount += q.VolumeCount
+			sum.VolumeGiB += q.VolumeGiB
+			sum.ShareCount += q.ShareCount
+			sum.ShareGiB += q.ShareGiB
+			sum.BucketCount += q.BucketCount
+			sum.BucketGiB += q.BucketGiB
+			sum.RegistryGiB += q.RegistryGiB
+			sum.FloatingIPs += q.FloatingIPs
+		}
+		resp.SiblingsTotal = tenantQuotaToProto(sum)
+		// TenantCap stays nil until a tenant-level cap registry lands ;
+		// that's the next milestone after this linkage ships.
+	}
+	return resp, nil
 }
 
 // SetProjectQuota replaces the project's quota cap atomically.

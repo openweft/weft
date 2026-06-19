@@ -63,6 +63,20 @@ type Project struct {
 	CreatedAt time.Time `json:"created_at"`
 	Members   []string  `json:"members,omitempty"`
 
+	// TenantUUID optionally binds this project to a parent Tenant.
+	// Empty = untenanted (the historical default ; backwards-compat
+	// for every Project minted before this field landed). When set,
+	// it enables :
+	//   * GetTenantQuota.siblings_total — aggregation across the
+	//     other projects in the same tenant (proto v0.12.0 path).
+	//   * GetProjectQuota.tenant_cap — the parent's hard cap that
+	//     the scheduler must honour for cross-project capacity.
+	//   * DeleteTenant cascade refusal — operator must clear the
+	//     linkage or delete the projects first (today's path is
+	//     unconditional, see tenants.go top-of-file).
+	// Set at CreateProject time via the optional --tenant-uuid flag.
+	TenantUUID string `json:"tenant_uuid,omitempty"`
+
 	// NATSUserSeed is the project's NATS user NKey seed ("SU…"),
 	// minted lazily on first RegisterMicroVM for the project and
 	// materialised into each microVM under <vmDir>/nats/nats.nkey.
@@ -93,6 +107,7 @@ type projectBlock struct {
 	Name         string   `hcl:"name"`
 	CreatedAt    string   `hcl:"created_at"`
 	Members      []string `hcl:"members,optional"`
+	TenantUUID   string   `hcl:"tenant_uuid,optional"`
 	NATSUserSeed string   `hcl:"nats_user_seed,optional"`
 }
 
@@ -139,6 +154,7 @@ func loadProjectRegistry(ctx context.Context, storage Storage) (*projectRegistry
 			Name:         b.Name,
 			CreatedAt:    ts,
 			Members:      append([]string(nil), b.Members...),
+			TenantUUID:   b.TenantUUID,
 			NATSUserSeed: b.NATSUserSeed,
 		}
 		reg.byUUID[p.UUID] = p
@@ -172,6 +188,9 @@ func (r *projectRegistry) saveLocked() error {
 		bb := block.Body()
 		bb.SetAttributeValue("name", cty.StringVal(p.Name))
 		bb.SetAttributeValue("created_at", cty.StringVal(p.CreatedAt.Format(time.RFC3339Nano)))
+		if p.TenantUUID != "" {
+			bb.SetAttributeValue("tenant_uuid", cty.StringVal(p.TenantUUID))
+		}
 		if p.NATSUserSeed != "" {
 			bb.SetAttributeValue("nats_user_seed", cty.StringVal(p.NATSUserSeed))
 		}
@@ -226,6 +245,46 @@ func (r *projectRegistry) list() []Project {
 		out = append(out, p)
 	}
 	// Sort by display name; stable enough since names are unique.
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j-1].Name > out[j].Name; j-- {
+			out[j-1], out[j] = out[j], out[j-1]
+		}
+	}
+	return out
+}
+
+// setTenant binds (or unbinds when tenantUUID == "") the project
+// to a parent Tenant. Returns an error for unknown project UUIDs ;
+// idempotent for same-binding writes (no persistence churn).
+func (r *projectRegistry) setTenant(projectUUID, tenantUUID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p, ok := r.byUUID[projectUUID]
+	if !ok {
+		return fmt.Errorf("project %q not found", projectUUID)
+	}
+	if p.TenantUUID == tenantUUID {
+		return nil
+	}
+	p.TenantUUID = tenantUUID
+	r.byUUID[projectUUID] = p
+	return r.saveLocked()
+}
+
+// listByTenant returns every project whose TenantUUID matches the
+// given UUID. Empty argument returns every UNTENANTED project (the
+// historical pre-linkage cohort). Used by the tenant-quota
+// aggregation path to compute `siblings_total` on
+// GetProjectQuotaResponse + `allocated` on GetTenantQuotaResponse.
+func (r *projectRegistry) listByTenant(tenantUUID string) []Project {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]Project, 0)
+	for _, p := range r.byUUID {
+		if p.TenantUUID == tenantUUID {
+			out = append(out, p)
+		}
+	}
 	for i := 1; i < len(out); i++ {
 		for j := i; j > 0 && out[j-1].Name > out[j].Name; j-- {
 			out[j-1], out[j] = out[j], out[j-1]
