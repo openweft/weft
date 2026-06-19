@@ -93,28 +93,27 @@ cluster "prod" {
 }
 ```
 
-Remplace les IPs / domaines / IdP par les tiens. Le block `proxy` active
-Caddy en supervisor avec ACME — il faut que tes 3 hôtes soient joignables
-en TCP 80/443 pour la validation HTTP-01, sinon utilise un challenge DNS
-(voir `../operations/proxy.md`).
+Substitute your own IPs / domains / IdP. The `proxy` block activates
+Caddy as a supervisor with ACME — your 3 hosts must be reachable on
+TCP 80/443 for HTTP-01 validation, otherwise use a DNS challenge
+(see `../operations/proxy.md`).
 
-Pour piloter l'`hypervisor` : `qemu` est le défaut Linux/KVM portable.
-`vz` n'a de sens que pour un hôte macOS (Apple Virtualization) — pas
-recommandé en prod, voir mémoire `env_no_nested_virt`.
+For the `hypervisor` field: `qemu` is the portable Linux/KVM default.
+`vz` only makes sense on a macOS host (Apple Virtualization) — not
+recommended in production, see the `env_no_nested_virt` memory.
 
-## Étape 4 — `weft up`
+## Step 4 — `weft up`
 
 ```sh
 weft up -f cluster.hcl --apply
 ```
 
-Le planner fait : provisionner SSH key vers chaque hôte → pousser
-`/etc/weft/weft.hcl` → pull les images OCI (`weft-microvm-kernel`,
-drivers, `weft-proxy`) sur chaque hôte → démarrer `weft.service` → former
-le quorum etcd → activer Caddy → enregistrer chaque hôte dans la
-registry.
+The planner runs: provision SSH key to each host → push
+`/etc/weft/weft.hcl` → pull the OCI images (`weft-microvm-kernel`,
+drivers, `weft-proxy`) on each host → start `weft.service` → form the
+etcd quorum → enable Caddy → register each host in the registry.
 
-Sortie attendue (~3-5 min) :
+Expected output (~3-5 min):
 
 ```
 [1/3] h1: weft.hcl pushed, agent started, joined cluster
@@ -123,10 +122,10 @@ Sortie attendue (~3-5 min) :
 cluster prod ready (3 hosts, quorum: 3/3, proxy: enabled)
 ```
 
-Si un hôte refuse de rejoindre, voir
+If a host refuses to join, see
 [../operations/ha-failover.md](../operations/ha-failover.md#partition).
 
-## Étape 5 — valider la convergence
+## Step 5 — verify convergence
 
 ```sh
 weft host ls
@@ -141,11 +140,11 @@ curl -s https://prod.example.com:9101/metrics | head -10
 # expected: prometheus exposition format, grpc_server_* family present
 ```
 
-Si Prometheus est déjà déployé, scrape les 3 endpoints avec le label
-`instance=<dc>`. Import du dashboard :
+If Prometheus is already deployed, scrape the 3 endpoints with the
+`instance=<dc>` label. Dashboard import:
 [../operations/grafana/README.md](../operations/grafana/README.md).
 
-## Étape 6 — provisionner le premier VM
+## Step 6 — provision the first VM
 
 ```sh
 weft instance start \
@@ -156,7 +155,7 @@ weft instance start \
   --network default
 ```
 
-Une fois Running :
+Once Running:
 
 ```sh
 weft instance ls
@@ -164,29 +163,31 @@ weft instance status canary
 weft instance logs canary --follow
 ```
 
-Le scheduler a posé le VM sur l'un des 3 hôtes selon contraintes (aucune
-SchedulingRule par défaut → équilibrage simple par CPU disponible).
+The scheduler placed the VM on one of the 3 hosts according to
+constraints (no default SchedulingRule → simple balancing by available
+CPU).
 
-## Étape 7 — déployer la webui
+## Step 7 — deploy the webui
 
-La webui (HuMA + Svelte) est un binaire séparé. Trois choix de déploiement :
+The webui (HuMA + Svelte) is a separate binary. Three deployment
+options:
 
-1. **Bare metal**, à côté de chaque agent (systemd unit fournie dans
+1. **Bare metal**, alongside each agent (systemd unit shipped in
    `examples/cloud-init/`).
-2. **Kubernetes**, via le Helm chart de
-   [../../charts/weft-agent/](../../charts/weft-agent/) qui démarre aussi
-   la webui en sidecar.
-3. **Container standalone** :
+2. **Kubernetes**, via the Helm chart at
+   [../../charts/weft-agent/](../../charts/weft-agent/) which also
+   starts the webui as a sidecar.
+3. **Standalone container**:
    `docker run -p 8088:8088 ghcr.io/openweft/weft-webui:v0.1.0 \
      -e WEBUI_OIDC_ISSUER=... -e WEBUI_OIDC_CLIENT_ID=... \
      -e WEBUI_AGENT_ADDR=10.9.0.11:9090`
 
-Configure une route Caddy pour `https://weft.example.com` → webui
-(éditée via la registry route ; voir `../operations/proxy.md`).
+Configure a Caddy route for `https://weft.example.com` → webui
+(edited through the registry route; see `../operations/proxy.md`).
 
-## Étape 8 — câbler Terraform pour les workloads
+## Step 8 — wire up Terraform for workloads
 
-Sur la station ou le poste developer :
+On the workstation or developer machine:
 
 ```hcl
 terraform {
@@ -197,7 +198,7 @@ terraform {
 
 provider "weft" {
   agent_addr = "10.9.0.11:9090"
-  # OIDC token de service-account, voir docs/operations/rbac.md
+  # service-account OIDC token, see docs/operations/rbac.md
 }
 
 resource "weft_volume" "data" {
@@ -207,14 +208,14 @@ resource "weft_volume" "data" {
 }
 ```
 
-`terraform init && terraform apply` provisionne ressources comme du
-plain IaC. 33 RPCs sur 98 sont aujourd'hui exposés via le provider —
-le reste tombe sous la CLI ou la webui (voir
+`terraform init && terraform apply` provisions resources as plain
+IaC. 33 of 98 RPCs are currently exposed through the provider — the
+rest live under the CLI or the webui (see
 `../../GAPS.md`).
 
-## Étape 9 — installer un premier plugin du catalogue (optionnel)
+## Step 9 — install a first catalogue plugin (optional)
 
-Si tu as besoin de runners CI immédiatement :
+If you need CI runners right away:
 
 ```sh
 weft plugin list
@@ -223,65 +224,66 @@ weft plugin install gitlab-runners-ha \
   --input gitlab_url=https://gitlab.example.com
 ```
 
-Le plugin lance 3 runner VMs spread sur les 3 DCs avec anti-affinity
-forte. Voir [../catalogue/README.md](../catalogue/README.md) pour les
-autres plugins (github-runners-ha, forgejo-runners-ha, jupyterhub-ha).
+The plugin starts 3 runner VMs spread across the 3 DCs with strong
+anti-affinity. See [../catalogue/README.md](../catalogue/README.md)
+for the other plugins (github-runners-ha, forgejo-runners-ha,
+jupyterhub-ha).
 
-## Checklist day-0 finale
+## Final day-0 checklist
 
-Tu cliques `OK` quand chaque ligne est verte :
+Tick `OK` when each line is green:
 
-- [ ] 3 hôtes `weft host ls` state=Running
-- [ ] Quorum etcd = 3/3 (`etcdctl endpoint health --cluster`)
-- [ ] Caddy répond 200 sur `https://<your-domain>/`
-- [ ] OIDC login web fonctionne (`https://weft.example.com/` → IdP → callback)
-- [ ] `/metrics` répond sur chaque hôte
-- [ ] Prometheus scrape les 3 endpoints
-- [ ] Grafana dashboard importé et populated
-- [ ] 1 VM canary démarre, ping survit
-- [ ] Snapshot reflink fonctionne (`weft volume snapshot create --volume=<uuid> --name=test`)
-- [ ] Premier backup etcd pris (`docs/operations/etcd-backup.md` step 1)
-- [ ] Audit log écrit dans `/var/log/weft/audit.jsonl` à chaque login
+- [ ] 3 hosts `weft host ls` state=Running
+- [ ] etcd quorum = 3/3 (`etcdctl endpoint health --cluster`)
+- [ ] Caddy returns 200 on `https://<your-domain>/`
+- [ ] OIDC web login works (`https://weft.example.com/` → IdP → callback)
+- [ ] `/metrics` responds on each host
+- [ ] Prometheus scrapes the 3 endpoints
+- [ ] Grafana dashboard imported and populated
+- [ ] 1 canary VM starts, ping survives
+- [ ] Reflink snapshot works (`weft volume snapshot create --volume=<uuid> --name=test`)
+- [ ] First etcd backup taken (`docs/operations/etcd-backup.md` step 1)
+- [ ] Audit log written to `/var/log/weft/audit.jsonl` on every login
 
-## Day-1 et au-delà
+## Day-1 and beyond
 
-Les bouclages suivants sont documentés dans des runbooks séparés :
+The follow-up loops are documented in separate runbooks:
 
-- Backup / restore etcd — [../operations/etcd-backup.md](../operations/etcd-backup.md)
-- Backup off-host des snapshots — [../operations/backup.md](../operations/backup.md)
-- Failover HA — [../operations/ha-failover.md](../operations/ha-failover.md)
-- Disaster recovery (quorum perdu) — [../operations/disaster-recovery.md](../operations/disaster-recovery.md)
-- Upgrade rolling v0.X → v0.Y — [../operations/upgrade.md](../operations/upgrade.md)
+- etcd backup / restore — [../operations/etcd-backup.md](../operations/etcd-backup.md)
+- Off-host snapshot backup — [../operations/backup.md](../operations/backup.md)
+- HA failover — [../operations/ha-failover.md](../operations/ha-failover.md)
+- Disaster recovery (lost quorum) — [../operations/disaster-recovery.md](../operations/disaster-recovery.md)
+- Rolling upgrade v0.X → v0.Y — [../operations/upgrade.md](../operations/upgrade.md)
 - GPU scheduling H200 / RTX 6000 Ada — [../operations/gpu-scheduling.md](../operations/gpu-scheduling.md)
 - Tenant quotas — [../operations/tenant-quotas.md](../operations/tenant-quotas.md)
 - RBAC + audit log — [../operations/rbac.md](../operations/rbac.md)
 - Cosign verification — [../operations/cosign-verify.md](../operations/cosign-verify.md)
 - Observability — [../operations/observability.md](../operations/observability.md)
 
-## Next steps — faire évoluer le cluster
+## Next steps — growing the cluster
 
-Une fois le 3-DC en place, le cluster vit :
+Once the 3-DC is in place, the cluster keeps evolving:
 
-- **Scale-out** — ajouter un 4e (ou Ne) hôte : voir
-  [../operations/scale-out.md](../operations/scale-out.md). Couvre
-  les deux chemins (convergent `weft up --apply` vs explicite
-  `weft host register`) et le grow etcd 3 → 5 → 7.
-- **Drain + retrait** — sortir un hôte du cluster (panne hardware,
-  remplacement, décommission) : voir
+- **Scale-out** — adding a 4th (or Nth) host: see
+  [../operations/scale-out.md](../operations/scale-out.md). Covers
+  both paths (convergent `weft up --apply` vs. explicit
+  `weft host register`) and growing etcd 3 → 5 → 7.
+- **Drain + remove** — taking a host out of the cluster (hardware
+  failure, replacement, decommission): see
   [../operations/drain-remove-host.md](../operations/drain-remove-host.md).
-  Cordon → drain → `weft host rm` → clean-up HCL → `etcdctl member remove`.
+  Cordon → drain → `weft host rm` → HCL clean-up → `etcdctl member remove`.
 
-## Ce qui n'est pas (encore) couvert
+## What is not (yet) covered
 
-- Tests bare-metal hors Tart : le harness 3-host
-  (`tests/integration/3host/`) compile, mais n'a jamais été exécuté
-  contre du métal réel — les manifestations de bug spécifiques au métal
-  sont un découvertes-pour-l'opérateur.
-- Per-VM device passthrough fin (PCI, USB) : la base est prête côté
-  driver QEMU, le bonnement de l'API est à venir.
-- Multi-cluster fédération : un seul cluster (1-host ou 3-DC) en V1.
+- Bare-metal testing outside Tart: the 3-host harness
+  (`tests/integration/3host/`) compiles but has never been run
+  against real metal — metal-specific bug manifestations are
+  operator-side discoveries.
+- Fine-grained per-VM device passthrough (PCI, USB): the groundwork
+  is in place on the QEMU driver side, the API surface is still to come.
+- Multi-cluster federation: a single cluster (1-host or 3-DC) in V1.
 
-Si tu butes : ouvre une issue sur
-[github.com/openweft/weft](https://github.com/openweft/weft) avec le
-output de `weft cluster status -o json` + `journalctl -u weft.service`
-des hôtes affectés.
+If you get stuck: open an issue on
+[github.com/openweft/weft](https://github.com/openweft/weft) with the
+output of `weft cluster status -o json` plus `journalctl -u weft.service`
+from the affected hosts.
