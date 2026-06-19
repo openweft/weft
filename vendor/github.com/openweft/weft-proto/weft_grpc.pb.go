@@ -23,6 +23,7 @@ const (
 	WeftAgent_VMStatus_FullMethodName                        = "/weft.v1.WeftAgent/VMStatus"
 	WeftAgent_StartVM_FullMethodName                         = "/weft.v1.WeftAgent/StartVM"
 	WeftAgent_StopVM_FullMethodName                          = "/weft.v1.WeftAgent/StopVM"
+	WeftAgent_RestartVM_FullMethodName                       = "/weft.v1.WeftAgent/RestartVM"
 	WeftAgent_CreateVM_FullMethodName                        = "/weft.v1.WeftAgent/CreateVM"
 	WeftAgent_DeleteVM_FullMethodName                        = "/weft.v1.WeftAgent/DeleteVM"
 	WeftAgent_ProvisionVM_FullMethodName                     = "/weft.v1.WeftAgent/ProvisionVM"
@@ -94,8 +95,8 @@ const (
 	WeftAgent_GetHost_FullMethodName                         = "/weft.v1.WeftAgent/GetHost"
 	WeftAgent_HeartbeatHost_FullMethodName                   = "/weft.v1.WeftAgent/HeartbeatHost"
 	WeftAgent_SetHostState_FullMethodName                    = "/weft.v1.WeftAgent/SetHostState"
-	WeftAgent_SetHostLabels_FullMethodName                   = "/weft.v1.WeftAgent/SetHostLabels"
-	WeftAgent_SetVMLabels_FullMethodName                     = "/weft.v1.WeftAgent/SetVMLabels"
+	WeftAgent_SetHostProperties_FullMethodName               = "/weft.v1.WeftAgent/SetHostProperties"
+	WeftAgent_SetVMProperties_FullMethodName                 = "/weft.v1.WeftAgent/SetVMProperties"
 	WeftAgent_GetZombieReport_FullMethodName                 = "/weft.v1.WeftAgent/GetZombieReport"
 	WeftAgent_TriggerZombieSweep_FullMethodName              = "/weft.v1.WeftAgent/TriggerZombieSweep"
 	WeftAgent_SetHostCordoned_FullMethodName                 = "/weft.v1.WeftAgent/SetHostCordoned"
@@ -196,6 +197,7 @@ type WeftAgentClient interface {
 	VMStatus(ctx context.Context, in *VMStatusRequest, opts ...grpc.CallOption) (*VMStatusResponse, error)
 	StartVM(ctx context.Context, in *StartVMRequest, opts ...grpc.CallOption) (*StartVMResponse, error)
 	StopVM(ctx context.Context, in *StopVMRequest, opts ...grpc.CallOption) (*StopVMResponse, error)
+	RestartVM(ctx context.Context, in *RestartVMRequest, opts ...grpc.CallOption) (*RestartVMResponse, error)
 	CreateVM(ctx context.Context, in *CreateVMRequest, opts ...grpc.CallOption) (*CreateVMResponse, error)
 	DeleteVM(ctx context.Context, in *DeleteVMRequest, opts ...grpc.CallOption) (*DeleteVMResponse, error)
 	ProvisionVM(ctx context.Context, in *ProvisionVMRequest, opts ...grpc.CallOption) (*ProvisionVMResponse, error)
@@ -331,8 +333,8 @@ type WeftAgentClient interface {
 	GetHost(ctx context.Context, in *GetHostRequest, opts ...grpc.CallOption) (*GetHostResponse, error)
 	HeartbeatHost(ctx context.Context, in *HeartbeatHostRequest, opts ...grpc.CallOption) (*HeartbeatHostResponse, error)
 	SetHostState(ctx context.Context, in *SetHostStateRequest, opts ...grpc.CallOption) (*SetHostStateResponse, error)
-	SetHostLabels(ctx context.Context, in *SetHostLabelsRequest, opts ...grpc.CallOption) (*SetHostLabelsResponse, error)
-	SetVMLabels(ctx context.Context, in *SetVMLabelsRequest, opts ...grpc.CallOption) (*SetVMLabelsResponse, error)
+	SetHostProperties(ctx context.Context, in *SetHostPropertiesRequest, opts ...grpc.CallOption) (*SetHostPropertiesResponse, error)
+	SetVMProperties(ctx context.Context, in *SetVMPropertiesRequest, opts ...grpc.CallOption) (*SetVMPropertiesResponse, error)
 	GetZombieReport(ctx context.Context, in *GetZombieReportRequest, opts ...grpc.CallOption) (*GetZombieReportResponse, error)
 	TriggerZombieSweep(ctx context.Context, in *TriggerZombieSweepRequest, opts ...grpc.CallOption) (*GetZombieReportResponse, error)
 	SetHostCordoned(ctx context.Context, in *SetHostCordonedRequest, opts ...grpc.CallOption) (*SetHostCordonedResponse, error)
@@ -517,6 +519,16 @@ func (c *weftAgentClient) StopVM(ctx context.Context, in *StopVMRequest, opts ..
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StopVMResponse)
 	err := c.cc.Invoke(ctx, WeftAgent_StopVM_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) RestartVM(ctx context.Context, in *RestartVMRequest, opts ...grpc.CallOption) (*RestartVMResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestartVMResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_RestartVM_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1242,20 +1254,20 @@ func (c *weftAgentClient) SetHostState(ctx context.Context, in *SetHostStateRequ
 	return out, nil
 }
 
-func (c *weftAgentClient) SetHostLabels(ctx context.Context, in *SetHostLabelsRequest, opts ...grpc.CallOption) (*SetHostLabelsResponse, error) {
+func (c *weftAgentClient) SetHostProperties(ctx context.Context, in *SetHostPropertiesRequest, opts ...grpc.CallOption) (*SetHostPropertiesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetHostLabelsResponse)
-	err := c.cc.Invoke(ctx, WeftAgent_SetHostLabels_FullMethodName, in, out, cOpts...)
+	out := new(SetHostPropertiesResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetHostProperties_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *weftAgentClient) SetVMLabels(ctx context.Context, in *SetVMLabelsRequest, opts ...grpc.CallOption) (*SetVMLabelsResponse, error) {
+func (c *weftAgentClient) SetVMProperties(ctx context.Context, in *SetVMPropertiesRequest, opts ...grpc.CallOption) (*SetVMPropertiesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetVMLabelsResponse)
-	err := c.cc.Invoke(ctx, WeftAgent_SetVMLabels_FullMethodName, in, out, cOpts...)
+	out := new(SetVMPropertiesResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetVMProperties_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2152,6 +2164,7 @@ type WeftAgentServer interface {
 	VMStatus(context.Context, *VMStatusRequest) (*VMStatusResponse, error)
 	StartVM(context.Context, *StartVMRequest) (*StartVMResponse, error)
 	StopVM(context.Context, *StopVMRequest) (*StopVMResponse, error)
+	RestartVM(context.Context, *RestartVMRequest) (*RestartVMResponse, error)
 	CreateVM(context.Context, *CreateVMRequest) (*CreateVMResponse, error)
 	DeleteVM(context.Context, *DeleteVMRequest) (*DeleteVMResponse, error)
 	ProvisionVM(context.Context, *ProvisionVMRequest) (*ProvisionVMResponse, error)
@@ -2287,8 +2300,8 @@ type WeftAgentServer interface {
 	GetHost(context.Context, *GetHostRequest) (*GetHostResponse, error)
 	HeartbeatHost(context.Context, *HeartbeatHostRequest) (*HeartbeatHostResponse, error)
 	SetHostState(context.Context, *SetHostStateRequest) (*SetHostStateResponse, error)
-	SetHostLabels(context.Context, *SetHostLabelsRequest) (*SetHostLabelsResponse, error)
-	SetVMLabels(context.Context, *SetVMLabelsRequest) (*SetVMLabelsResponse, error)
+	SetHostProperties(context.Context, *SetHostPropertiesRequest) (*SetHostPropertiesResponse, error)
+	SetVMProperties(context.Context, *SetVMPropertiesRequest) (*SetVMPropertiesResponse, error)
 	GetZombieReport(context.Context, *GetZombieReportRequest) (*GetZombieReportResponse, error)
 	TriggerZombieSweep(context.Context, *TriggerZombieSweepRequest) (*GetZombieReportResponse, error)
 	SetHostCordoned(context.Context, *SetHostCordonedRequest) (*SetHostCordonedResponse, error)
@@ -2450,6 +2463,9 @@ func (UnimplementedWeftAgentServer) StartVM(context.Context, *StartVMRequest) (*
 }
 func (UnimplementedWeftAgentServer) StopVM(context.Context, *StopVMRequest) (*StopVMResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StopVM not implemented")
+}
+func (UnimplementedWeftAgentServer) RestartVM(context.Context, *RestartVMRequest) (*RestartVMResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestartVM not implemented")
 }
 func (UnimplementedWeftAgentServer) CreateVM(context.Context, *CreateVMRequest) (*CreateVMResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateVM not implemented")
@@ -2664,11 +2680,11 @@ func (UnimplementedWeftAgentServer) HeartbeatHost(context.Context, *HeartbeatHos
 func (UnimplementedWeftAgentServer) SetHostState(context.Context, *SetHostStateRequest) (*SetHostStateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetHostState not implemented")
 }
-func (UnimplementedWeftAgentServer) SetHostLabels(context.Context, *SetHostLabelsRequest) (*SetHostLabelsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method SetHostLabels not implemented")
+func (UnimplementedWeftAgentServer) SetHostProperties(context.Context, *SetHostPropertiesRequest) (*SetHostPropertiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetHostProperties not implemented")
 }
-func (UnimplementedWeftAgentServer) SetVMLabels(context.Context, *SetVMLabelsRequest) (*SetVMLabelsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method SetVMLabels not implemented")
+func (UnimplementedWeftAgentServer) SetVMProperties(context.Context, *SetVMPropertiesRequest) (*SetVMPropertiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetVMProperties not implemented")
 }
 func (UnimplementedWeftAgentServer) GetZombieReport(context.Context, *GetZombieReportRequest) (*GetZombieReportResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetZombieReport not implemented")
@@ -3023,6 +3039,24 @@ func _WeftAgent_StopVM_Handler(srv interface{}, ctx context.Context, dec func(in
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeftAgentServer).StopVM(ctx, req.(*StopVMRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_RestartVM_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestartVMRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).RestartVM(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_RestartVM_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).RestartVM(ctx, req.(*RestartVMRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -4298,38 +4332,38 @@ func _WeftAgent_SetHostState_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _WeftAgent_SetHostLabels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetHostLabelsRequest)
+func _WeftAgent_SetHostProperties_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetHostPropertiesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(WeftAgentServer).SetHostLabels(ctx, in)
+		return srv.(WeftAgentServer).SetHostProperties(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: WeftAgent_SetHostLabels_FullMethodName,
+		FullMethod: WeftAgent_SetHostProperties_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WeftAgentServer).SetHostLabels(ctx, req.(*SetHostLabelsRequest))
+		return srv.(WeftAgentServer).SetHostProperties(ctx, req.(*SetHostPropertiesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _WeftAgent_SetVMLabels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetVMLabelsRequest)
+func _WeftAgent_SetVMProperties_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetVMPropertiesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(WeftAgentServer).SetVMLabels(ctx, in)
+		return srv.(WeftAgentServer).SetVMProperties(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: WeftAgent_SetVMLabels_FullMethodName,
+		FullMethod: WeftAgent_SetVMProperties_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WeftAgentServer).SetVMLabels(ctx, req.(*SetVMLabelsRequest))
+		return srv.(WeftAgentServer).SetVMProperties(ctx, req.(*SetVMPropertiesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -5942,6 +5976,10 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _WeftAgent_StopVM_Handler,
 		},
 		{
+			MethodName: "RestartVM",
+			Handler:    _WeftAgent_RestartVM_Handler,
+		},
+		{
 			MethodName: "CreateVM",
 			Handler:    _WeftAgent_CreateVM_Handler,
 		},
@@ -6222,12 +6260,12 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _WeftAgent_SetHostState_Handler,
 		},
 		{
-			MethodName: "SetHostLabels",
-			Handler:    _WeftAgent_SetHostLabels_Handler,
+			MethodName: "SetHostProperties",
+			Handler:    _WeftAgent_SetHostProperties_Handler,
 		},
 		{
-			MethodName: "SetVMLabels",
-			Handler:    _WeftAgent_SetVMLabels_Handler,
+			MethodName: "SetVMProperties",
+			Handler:    _WeftAgent_SetVMProperties_Handler,
 		},
 		{
 			MethodName: "GetZombieReport",

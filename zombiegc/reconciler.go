@@ -75,7 +75,7 @@ type Zombie struct {
 	Kind            ZombieKind
 	Reason          string
 	DetectedAt      time.Time
-	DeploymentType  string // labels["deployment.type"], for the action policy
+	DeploymentType  string // properties["deployment.type"], for the action policy
 	HostDownSince   time.Time
 }
 
@@ -299,7 +299,7 @@ func (r *Reconciler) Sweep(ctx context.Context) Report {
 		// crashed locally, no investigation value for a disposable
 		// build runner).
 		if (z.Kind == ZombieCICrossHost ||
-			(z.Kind == ZombieLocal && vm.Labels["deployment.type"] == "ci")) &&
+			(z.Kind == ZombieLocal && vm.Properties["deployment.type"] == "ci")) &&
 			r.ciGraceExpired(vm, z, now) {
 			if err := r.adp.DeleteVM(vm.Name); err != nil {
 				r.log.Warn("zombiegc : delete ci zombie failed",
@@ -394,7 +394,7 @@ func (r *Reconciler) classify(vm weft.VM, hostByUUID map[string]weft.Host, proje
 			Kind:           ZombieOrphanProject,
 			Reason:         fmt.Sprintf("project %q no longer exists in registry", vm.ProjectUUID),
 			DetectedAt:     now,
-			DeploymentType: vm.Labels["deployment.type"],
+			DeploymentType: vm.Properties["deployment.type"],
 		}, true
 	}
 
@@ -431,7 +431,7 @@ func (r *Reconciler) classify(vm weft.VM, hostByUUID map[string]weft.Host, proje
 			Kind:           ZombieLocal,
 			Reason:         "host is local but no process found for VM",
 			DetectedAt:     now,
-			DeploymentType: vm.Labels["deployment.type"],
+			DeploymentType: vm.Properties["deployment.type"],
 		}, true
 	}
 
@@ -445,7 +445,7 @@ func (r *Reconciler) classify(vm weft.VM, hostByUUID map[string]weft.Host, proje
 			Kind:           ZombieHACrossHost,
 			Reason:         fmt.Sprintf("host %q no longer exists in registry", vm.HostUUID),
 			DetectedAt:     now,
-			DeploymentType: vm.Labels["deployment.type"],
+			DeploymentType: vm.Properties["deployment.type"],
 		}, true
 	}
 	hostDownFor := now.Sub(host.LastSeenAt)
@@ -455,7 +455,7 @@ func (r *Reconciler) classify(vm weft.VM, hostByUUID map[string]weft.Host, proje
 	}
 	// Cross-host zombie. Disambiguate CI vs HA.
 	kind := ZombieHACrossHost
-	if vm.Labels["deployment.type"] == "ci" {
+	if vm.Properties["deployment.type"] == "ci" {
 		kind = ZombieCICrossHost
 	}
 	return Zombie{
@@ -466,7 +466,7 @@ func (r *Reconciler) classify(vm weft.VM, hostByUUID map[string]weft.Host, proje
 		Kind:           kind,
 		Reason:         fmt.Sprintf("host %q down for %s (state=%s)", host.UUID, hostDownFor.Truncate(time.Second), host.State),
 		DetectedAt:     now,
-		DeploymentType: vm.Labels["deployment.type"],
+		DeploymentType: vm.Properties["deployment.type"],
 		HostDownSince:  host.LastSeenAt,
 	}, true
 }
@@ -477,7 +477,7 @@ func (r *Reconciler) classify(vm weft.VM, hostByUUID map[string]weft.Host, proje
 func (r *Reconciler) classifyExistingZombie(vm weft.VM, hostByUUID map[string]weft.Host, now time.Time) Zombie {
 	host, hostKnown := hostByUUID[vm.HostUUID]
 	kind := ZombieHACrossHost
-	if vm.Labels["deployment.type"] == "ci" {
+	if vm.Properties["deployment.type"] == "ci" {
 		kind = ZombieCICrossHost
 	} else if vm.HostUUID == r.localHostUUID {
 		kind = ZombieLocal
@@ -494,7 +494,7 @@ func (r *Reconciler) classifyExistingZombie(vm weft.VM, hostByUUID map[string]we
 		Kind:           kind,
 		Reason:         "VM already marked state=zombie ; awaiting delete (CI) or operator action",
 		DetectedAt:     now,
-		DeploymentType: vm.Labels["deployment.type"],
+		DeploymentType: vm.Properties["deployment.type"],
 		HostDownSince:  since,
 	}
 }

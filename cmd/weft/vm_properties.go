@@ -1,7 +1,7 @@
 package main
 
-// vm_labels.go implements the V0.1.8 SetVMLabels gRPC RPC. Labels
-// drive SchedulingRule label-based selectors + reserved-key system
+// vm_properties.go implements the V0.1.8 SetVMProperties gRPC RPC. Properties
+// drive SchedulingRule property-based selectors + reserved-key system
 // gates (`deployment.type=ci|ha` etc.).
 
 import (
@@ -13,33 +13,33 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (s *weftServer) SetVMLabels(ctx context.Context, req *weftv1.SetVMLabelsRequest) (*weftv1.SetVMLabelsResponse, error) {
+func (s *weftServer) SetVMProperties(ctx context.Context, req *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error) {
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
 	// Project-scoped admin check : either admin globally OR member
 	// of the project (same RBAC seam as the V0.1 mutators).
-	if err := weft.RequireAdmin(ctx, "set vm labels"); err != nil {
+	if err := weft.RequireAdmin(ctx, "set vm properties"); err != nil {
 		return nil, err
 	}
-	var labels map[string]string
-	if len(req.Labels) > 0 {
-		labels = make(map[string]string, len(req.Labels))
-		for k, v := range req.Labels {
-			labels[k] = v
+	var properties map[string]string
+	if len(req.Properties) > 0 {
+		properties = make(map[string]string, len(req.Properties))
+		for k, v := range req.Properties {
+			properties[k] = v
 		}
 	}
-	v, err := s.adp.SetVMLabels(req.Project, req.Name, labels)
+	v, err := s.adp.SetVMProperties(req.Project, req.Name, properties)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "set vm labels: %v", err)
+		return nil, status.Errorf(codes.NotFound, "set vm properties: %v", err)
 	}
-	return &weftv1.SetVMLabelsResponse{
+	return &weftv1.SetVMPropertiesResponse{
 		Vm: &weftv1.VMInfo{
 			Name:        v.Name,
 			Uuid:        v.UUID,
 			Project:     req.Project,
 			ProjectUuid: v.ProjectUUID,
-			Labels:      cloneStringMap(v.Labels),
+			Properties:  cloneStringMap(v.Properties),
 		},
 	}, nil
 }

@@ -154,12 +154,12 @@ type VMSpec struct {
 	// disproportionate.
 	Runtime string `hcl:"runtime,optional"`
 
-	// Labels stamps the V0.1.8 label map on the freshly-installed
+	// Properties stamps the V0.1.8 property map on the freshly-installed
 	// VM. Typical pattern : `deployment.type = "ha"` + `role = "X"`
 	// so the platform's V0.1.10 respawn gate + V0.1.15 zombiegc see
 	// the workload as long-lived and a future SchedulingRule pin
 	// finds it by role.
-	Labels map[string]string `hcl:"labels,optional"`
+	Properties map[string]string `hcl:"properties,optional"`
 
 	// Network references one of the manifest's Networks by name.
 	// Empty defaults to the project's default network.

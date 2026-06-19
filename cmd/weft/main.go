@@ -1021,15 +1021,15 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 		if v, ok := props["os"].(string); ok {
 			info.Os = v
 		}
-		// V0.1.9 : surface VM labels by cross-referencing the
+		// V0.1.9 : surface VM properties by cross-referencing the
 		// inventory registry. The local-list path doesn't carry
-		// Labels in `props` ; the inventory does. Empty for VMs
+		// Properties in `props` ; the inventory does. Empty for VMs
 		// not in the registry (legacy local-only dev path).
 		if rec, ok := s.adp.VMByName(projectUUID, name); ok {
-			if len(rec.Labels) > 0 {
-				info.Labels = make(map[string]string, len(rec.Labels))
-				for k, lv := range rec.Labels {
-					info.Labels[k] = lv
+			if len(rec.Properties) > 0 {
+				info.Properties = make(map[string]string, len(rec.Properties))
+				for k, lv := range rec.Properties {
+					info.Properties[k] = lv
 				}
 			}
 			if info.Uuid == "" {
@@ -1106,10 +1106,10 @@ func (s *weftServer) VMStatus(ctx context.Context, req *weftv1.VMStatusRequest) 
 		info.Os = v
 	}
 	if rec, ok := s.adp.VMByName(projectUUID, req.Name); ok {
-		if len(rec.Labels) > 0 {
-			info.Labels = make(map[string]string, len(rec.Labels))
-			for k, lv := range rec.Labels {
-				info.Labels[k] = lv
+		if len(rec.Properties) > 0 {
+			info.Properties = make(map[string]string, len(rec.Properties))
+			for k, lv := range rec.Properties {
+				info.Properties[k] = lv
 			}
 		}
 		if info.Uuid == "" {

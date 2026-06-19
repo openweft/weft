@@ -58,7 +58,7 @@ func TestGRPCControlPlane_RegisterHost(t *testing.T) {
 		Architecture:   "arm64",
 		NetworkTypes:   []string{"nat", "bridged"},
 		VolumeBackends: []string{"file"},
-		Labels:         map[string]string{"gpu": "h100"},
+		Properties:     map[string]string{"gpu": "h100"},
 	}
 	got, err := cp.RegisterHost(context.Background(), reg)
 	if err != nil {
@@ -79,8 +79,8 @@ func TestGRPCControlPlane_RegisterHost(t *testing.T) {
 	if len(r.NetworkTypes) != 2 || r.NetworkTypes[0] != "nat" || r.NetworkTypes[1] != "bridged" {
 		t.Errorf("NetworkTypes = %v", r.NetworkTypes)
 	}
-	if r.Labels["gpu"] != "h100" {
-		t.Errorf("Labels missing gpu=h100: %+v", r.Labels)
+	if r.Properties["gpu"] != "h100" {
+		t.Errorf("Properties missing gpu=h100: %+v", r.Properties)
 	}
 }
 

@@ -88,12 +88,12 @@ func encodeHostRecord(h Host) []byte {
 			pb.SetAttributeValue("driver", cty.StringVal(p.Driver))
 		}
 	}
-	if len(h.Labels) > 0 {
-		ctyMap := make(map[string]cty.Value, len(h.Labels))
-		for k, v := range h.Labels {
+	if len(h.Properties) > 0 {
+		ctyMap := make(map[string]cty.Value, len(h.Properties))
+		for k, v := range h.Properties {
 			ctyMap[k] = cty.StringVal(v)
 		}
-		bb.SetAttributeValue("labels", cty.MapVal(ctyMap))
+		bb.SetAttributeValue("properties", cty.MapVal(ctyMap))
 	}
 	if h.State != "" {
 		bb.SetAttributeValue("state", cty.StringVal(string(h.State)))
@@ -136,11 +136,11 @@ func hostFromBlock(b hostBlock) Host {
 	if state == "" {
 		state = HostStateActive
 	}
-	var labels map[string]string
-	if len(b.Labels) > 0 {
-		labels = make(map[string]string, len(b.Labels))
-		for k, v := range b.Labels {
-			labels[k] = v
+	var properties map[string]string
+	if len(b.Properties) > 0 {
+		properties = make(map[string]string, len(b.Properties))
+		for k, v := range b.Properties {
+			properties[k] = v
 		}
 	}
 	var drivers []HostDriver
@@ -176,7 +176,7 @@ func hostFromBlock(b hostBlock) Host {
 		VolumeBackends: append([]string(nil), b.VolumeBackends...),
 		GPUs:           gpus,
 		PCIDevices:     pciDevs,
-		Labels:         labels,
+		Properties:     properties,
 		State:          state,
 		Cordoned:       b.Cordoned,
 		LastSeenAt:     lastSeen,

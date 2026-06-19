@@ -201,8 +201,8 @@ func TestServer_DefaultsReturnZeroValueResponses(t *testing.T) {
 	if _, err := c.SetHostState(ctx, &weftv1.SetHostStateRequest{}); err != nil {
 		t.Errorf("SetHostState: %v", err)
 	}
-	if _, err := c.SetHostLabels(ctx, &weftv1.SetHostLabelsRequest{}); err != nil {
-		t.Errorf("SetHostLabels: %v", err)
+	if _, err := c.SetHostProperties(ctx, &weftv1.SetHostPropertiesRequest{}); err != nil {
+		t.Errorf("SetHostProperties: %v", err)
 	}
 	if _, err := c.DeleteHost(ctx, &weftv1.DeleteHostRequest{}); err != nil {
 		t.Errorf("DeleteHost: %v", err)
@@ -399,7 +399,7 @@ func TestServer_OverridesDispatch(t *testing.T) {
 	s.SetHostStateFn = func(context.Context, *weftv1.SetHostStateRequest) (*weftv1.SetHostStateResponse, error) {
 		return nil, want
 	}
-	s.SetHostLabelsFn = func(context.Context, *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error) {
+	s.SetHostPropertiesFn = func(context.Context, *weftv1.SetHostPropertiesRequest) (*weftv1.SetHostPropertiesResponse, error) {
 		return nil, want
 	}
 	s.DeleteHostFn = func(context.Context, *weftv1.DeleteHostRequest) (*weftv1.DeleteHostResponse, error) {
@@ -517,8 +517,8 @@ func TestServer_OverridesDispatch(t *testing.T) {
 	expectErr(t, "HeartbeatHost", err)
 	_, err = c.SetHostState(ctx, &weftv1.SetHostStateRequest{})
 	expectErr(t, "SetHostState", err)
-	_, err = c.SetHostLabels(ctx, &weftv1.SetHostLabelsRequest{})
-	expectErr(t, "SetHostLabels", err)
+	_, err = c.SetHostProperties(ctx, &weftv1.SetHostPropertiesRequest{})
+	expectErr(t, "SetHostProperties", err)
 	_, err = c.DeleteHost(ctx, &weftv1.DeleteHostRequest{})
 	expectErr(t, "DeleteHost", err)
 

@@ -37,7 +37,7 @@ func TestCommand_Structure(t *testing.T) {
 	if cmd.Use != "host" {
 		t.Errorf("Use = %q", cmd.Use)
 	}
-	want := []string{"register", "ls", "show", "set-state", "set-labels", "rm"}
+	want := []string{"register", "ls", "show", "set-state", "set-properties", "rm"}
 	got := map[string]bool{}
 	for _, c := range cmd.Commands() {
 		parts := strings.SplitN(c.Use, " ", 2)
@@ -74,7 +74,7 @@ func TestAllSubcommands_DialError(t *testing.T) {
 		{"ls", []string{"ls"}},
 		{"show", []string{"show", "u1"}},
 		{"set-state", []string{"set-state", "u1", "active"}},
-		{"set-labels", []string{"set-labels", "u1", "k=v"}},
+		{"set-properties", []string{"set-properties", "u1", "k=v"}},
 		{"rm", []string{"rm", "u1"}},
 	}
 	for _, c := range cases {
@@ -106,7 +106,7 @@ func TestRegister_Success(t *testing.T) {
 			"--hypervisor", "apple-vz", "--architecture", "arm64",
 			"--network-types", "nat,bridged",
 			"--volume-backends", "file",
-			"--labels", "k1=v1,k2 = v2"})
+			"--properties", "k1=v1,k2 = v2"})
 		if err := cmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
@@ -114,18 +114,37 @@ func TestRegister_Success(t *testing.T) {
 	if !strings.Contains(out, "registered host h1") {
 		t.Errorf("expected confirmation in %q", out)
 	}
-	if got.Hostname != "h1" || got.Labels["k1"] != "v1" || got.Labels["k2"] != "v2" {
+	if got.Hostname != "h1" || got.Properties["k1"] != "v1" || got.Properties["k2"] != "v2" {
 		t.Errorf("got = %+v", got)
 	}
 }
 
-func TestRegister_LabelsParseError(t *testing.T) {
+func TestRegister_PropertiesParseError(t *testing.T) {
 	srv := testutil.NewServer(t)
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"register", "--hostname", "h1", "--labels", "broken"})
+	cmd.SetArgs([]string{"register", "--hostname", "h1", "--properties", "broken"})
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "is not k=v shape") {
-		t.Errorf("expected label parse error, got %v", err)
+		t.Errorf("expected property parse error, got %v", err)
+	}
+}
+
+// TestRegister_LabelsDeprecatedAlias verifies the legacy --labels flag still
+// works (forwarded to --properties) for one deprecation cycle.
+func TestRegister_LabelsDeprecatedAlias(t *testing.T) {
+	srv := testutil.NewServer(t)
+	var got *weftv1.RegisterHostRequest
+	srv.RegisterHostFn = func(_ context.Context, in *weftv1.RegisterHostRequest) (*weftv1.RegisterHostResponse, error) {
+		got = in
+		return &weftv1.RegisterHostResponse{Host: &weftv1.HostInfo{Uuid: "u1", Hostname: in.Hostname}}, nil
+	}
+	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
+	cmd.SetArgs([]string{"register", "--hostname", "h1", "--labels", "k=v"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got == nil || got.Properties["k"] != "v" {
+		t.Errorf("legacy --labels flag did not populate Properties: %+v", got)
 	}
 }
 
@@ -281,59 +300,78 @@ func TestSetState_RPCError(t *testing.T) {
 	}
 }
 
-// ── set-labels ──────────────────────────────────────────────────────────────
+// ── set-properties ──────────────────────────────────────────────────────────
 
-func TestSetLabels_BadParse(t *testing.T) {
+func TestSetProperties_BadParse(t *testing.T) {
 	cmd := Command(strPtr("/sock"), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"set-labels", "u1", "broken"})
+	cmd.SetArgs([]string{"set-properties", "u1", "broken"})
 	if err := cmd.Execute(); err == nil {
-		t.Fatal("expected label parse error")
+		t.Fatal("expected property parse error")
 	}
 }
 
-func TestSetLabels_Success(t *testing.T) {
+func TestSetProperties_Success(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *weftv1.SetHostLabelsRequest
-	srv.SetHostLabelsFn = func(_ context.Context, in *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error) {
+	var got *weftv1.SetHostPropertiesRequest
+	srv.SetHostPropertiesFn = func(_ context.Context, in *weftv1.SetHostPropertiesRequest) (*weftv1.SetHostPropertiesResponse, error) {
 		got = in
-		return &weftv1.SetHostLabelsResponse{}, nil
+		return &weftv1.SetHostPropertiesResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"set-labels", "u1", "k1=v1,k2=v2"})
+	cmd.SetArgs([]string{"set-properties", "u1", "k1=v1,k2=v2"})
 	if err := cmd.Execute(); err != nil {
 		t.Errorf("Execute: %v", err)
 	}
-	if got.Labels["k1"] != "v1" || got.Labels["k2"] != "v2" {
-		t.Errorf("labels = %+v", got.Labels)
+	if got.Properties["k1"] != "v1" || got.Properties["k2"] != "v2" {
+		t.Errorf("properties = %+v", got.Properties)
 	}
 }
 
-func TestSetLabels_EmptyClears(t *testing.T) {
+func TestSetProperties_EmptyClears(t *testing.T) {
 	srv := testutil.NewServer(t)
-	var got *weftv1.SetHostLabelsRequest
-	srv.SetHostLabelsFn = func(_ context.Context, in *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error) {
+	var got *weftv1.SetHostPropertiesRequest
+	srv.SetHostPropertiesFn = func(_ context.Context, in *weftv1.SetHostPropertiesRequest) (*weftv1.SetHostPropertiesResponse, error) {
 		got = in
-		return &weftv1.SetHostLabelsResponse{}, nil
+		return &weftv1.SetHostPropertiesResponse{}, nil
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"set-labels", "u1", ""})
+	cmd.SetArgs([]string{"set-properties", "u1", ""})
 	if err := cmd.Execute(); err != nil {
 		t.Errorf("Execute: %v", err)
 	}
-	if len(got.Labels) != 0 {
-		t.Errorf("expected empty labels, got %v", got.Labels)
+	if len(got.Properties) != 0 {
+		t.Errorf("expected empty properties, got %v", got.Properties)
 	}
 }
 
-func TestSetLabels_RPCError(t *testing.T) {
+func TestSetProperties_RPCError(t *testing.T) {
 	srv := testutil.NewServer(t)
-	srv.SetHostLabelsFn = func(_ context.Context, _ *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error) {
+	srv.SetHostPropertiesFn = func(_ context.Context, _ *weftv1.SetHostPropertiesRequest) (*weftv1.SetHostPropertiesResponse, error) {
 		return nil, errors.New("boom")
 	}
 	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
-	cmd.SetArgs([]string{"set-labels", "u1", "k=v"})
+	cmd.SetArgs([]string{"set-properties", "u1", "k=v"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// TestSetLabels_DeprecatedAlias verifies the legacy `set-labels` cobra alias
+// still drives the new SetHostProperties RPC for one deprecation cycle.
+func TestSetLabels_DeprecatedAlias(t *testing.T) {
+	srv := testutil.NewServer(t)
+	var got *weftv1.SetHostPropertiesRequest
+	srv.SetHostPropertiesFn = func(_ context.Context, in *weftv1.SetHostPropertiesRequest) (*weftv1.SetHostPropertiesResponse, error) {
+		got = in
+		return &weftv1.SetHostPropertiesResponse{}, nil
+	}
+	cmd := Command(strPtr(srv.Socket()), strPtr(""), strPtr(""))
+	cmd.SetArgs([]string{"set-labels", "u1", "k=v"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got == nil || got.Properties["k"] != "v" {
+		t.Errorf("legacy set-labels alias did not drive SetHostProperties: %+v", got)
 	}
 }
 
@@ -362,22 +400,22 @@ func TestRm_RPCError(t *testing.T) {
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-func TestParseLabels_VariousShapes(t *testing.T) {
-	got, err := parseLabels("")
+func TestParseProperties_VariousShapes(t *testing.T) {
+	got, err := parseProperties("")
 	if err != nil || len(got) != 0 {
 		t.Errorf("empty: got=%v err=%v", got, err)
 	}
-	got, err = parseLabels("a=b, c = d ")
+	got, err = parseProperties("a=b, c = d ")
 	if err != nil {
 		t.Errorf("err = %v", err)
 	}
 	if got["a"] != "b" || got["c"] != "d" {
 		t.Errorf("trim failed: %v", got)
 	}
-	if _, err := parseLabels("noeq"); err == nil {
+	if _, err := parseProperties("noeq"); err == nil {
 		t.Error("expected error for non k=v entry")
 	}
-	if _, err := parseLabels(" =empty-key"); err == nil {
+	if _, err := parseProperties(" =empty-key"); err == nil {
 		t.Error("expected empty-key error")
 	}
 }

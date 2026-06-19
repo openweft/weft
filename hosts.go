@@ -21,7 +21,7 @@ package weft
 //     architecture    = "arm64"
 //     network_types   = ["nat", "bridged", "mesh"]
 //     volume_backends = ["file"]
-//     labels = {
+//     properties = {
 //       gpu = "none"
 //       ssd = "true"
 //     }
@@ -115,7 +115,7 @@ type Host struct {
 	// The scheduler reads this when matching ScheduleRequest.RequestedPCI
 	// (see pci.go's pciRequestSatisfied).
 	PCIDevices []PCIDevice       `json:"pci_devices,omitempty"`
-	Labels     map[string]string `json:"labels,omitempty"`
+	Properties map[string]string `json:"properties,omitempty"`
 	State      HostState         `json:"state"`
 	// Cordoned, when true, takes this host out of the scheduler's
 	// candidate set for **new** placements ; already-running VMs stay
@@ -201,7 +201,7 @@ type hostBlock struct {
 	VolumeBackends []string          `hcl:"volume_backends,optional"`
 	GPUs           []gpuBlock        `hcl:"gpu,block"`
 	PCIDevices     []pciBlock        `hcl:"pci,block"`
-	Labels         map[string]string `hcl:"labels,optional"`
+	Properties     map[string]string `hcl:"properties,optional"`
 	State          string            `hcl:"state,optional"`
 	Cordoned       bool              `hcl:"cordoned,optional"`
 	LastSeenAt     string            `hcl:"last_seen_at,optional"`
@@ -261,11 +261,11 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 		if state == "" {
 			state = HostStateActive
 		}
-		var labels map[string]string
-		if len(b.Labels) > 0 {
-			labels = make(map[string]string, len(b.Labels))
-			for k, v := range b.Labels {
-				labels[k] = v
+		var properties map[string]string
+		if len(b.Properties) > 0 {
+			properties = make(map[string]string, len(b.Properties))
+			for k, v := range b.Properties {
+				properties[k] = v
 			}
 		}
 		var drivers []HostDriver
@@ -315,7 +315,7 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			VolumeBackends: append([]string(nil), b.VolumeBackends...),
 			GPUs:           gpus,
 			PCIDevices:     pciDevs,
-			Labels:         labels,
+			Properties:     properties,
 			State:          state,
 			Cordoned:       b.Cordoned,
 			LastSeenAt:     lastSeen,
@@ -427,12 +427,12 @@ func (r *hostRegistry) saveLocked() error {
 				pb.SetAttributeValue("driver", cty.StringVal(p.Driver))
 			}
 		}
-		if len(h.Labels) > 0 {
-			ctyMap := make(map[string]cty.Value, len(h.Labels))
-			for k, v := range h.Labels {
+		if len(h.Properties) > 0 {
+			ctyMap := make(map[string]cty.Value, len(h.Properties))
+			for k, v := range h.Properties {
 				ctyMap[k] = cty.StringVal(v)
 			}
-			bb.SetAttributeValue("labels", cty.MapVal(ctyMap))
+			bb.SetAttributeValue("properties", cty.MapVal(ctyMap))
 		}
 		if h.State != "" {
 			bb.SetAttributeValue("state", cty.StringVal(string(h.State)))
@@ -561,7 +561,7 @@ type RegisterHostSpec struct {
 	// operators can also seed it statically through cluster.hcl's
 	// `pci { … }` blocks during the stub era.
 	PCIDevices []PCIDevice
-	Labels     map[string]string
+	Properties map[string]string
 	// AKName is the TPM Attestation Key Name the registering node proved
 	// at admission (set only on the attested path ; empty on the default
 	// OIDC-only path). Stamped onto the Host registry entry. See
@@ -590,7 +590,7 @@ type RegisterHostSpec struct {
 //     with the provided UUID; same hostname-uniqueness check.
 //   - spec.UUID set, host already exists : refresh AZ, Endpoint,
 //     Hypervisor, Architecture, NetworkTypes, VolumeBackends,
-//     Labels; bump LastSeenAt; revive State if Down (operator
+//     Properties; bump LastSeenAt; revive State if Down (operator
 //     Draining is preserved). Hostname must match the existing
 //     entry — changing it requires explicit Delete+register.
 func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
@@ -617,13 +617,13 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 			existing.VolumeBackends = append([]string(nil), spec.VolumeBackends...)
 			existing.GPUs = cloneGPUs(spec.GPUs)
 			existing.PCIDevices = clonePCIDevices(spec.PCIDevices)
-			if len(spec.Labels) > 0 {
-				existing.Labels = make(map[string]string, len(spec.Labels))
-				for k, v := range spec.Labels {
-					existing.Labels[k] = v
+			if len(spec.Properties) > 0 {
+				existing.Properties = make(map[string]string, len(spec.Properties))
+				for k, v := range spec.Properties {
+					existing.Properties[k] = v
 				}
 			} else {
-				existing.Labels = nil
+				existing.Properties = nil
 			}
 			existing.LastSeenAt = now
 			if existing.State == HostStateDown {
@@ -662,11 +662,11 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 	if uuid == "" {
 		uuid = newUUID()
 	}
-	var labels map[string]string
-	if len(spec.Labels) > 0 {
-		labels = make(map[string]string, len(spec.Labels))
-		for k, v := range spec.Labels {
-			labels[k] = v
+	var properties map[string]string
+	if len(spec.Properties) > 0 {
+		properties = make(map[string]string, len(spec.Properties))
+		for k, v := range spec.Properties {
+			properties[k] = v
 		}
 	}
 	h := Host{
@@ -682,7 +682,7 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		VolumeBackends: append([]string(nil), spec.VolumeBackends...),
 		GPUs:           cloneGPUs(spec.GPUs),
 		PCIDevices:     clonePCIDevices(spec.PCIDevices),
-		Labels:         labels,
+		Properties:     properties,
 		State:          HostStateActive,
 		LastSeenAt:     now,
 		CreatedAt:      now,
@@ -781,22 +781,22 @@ func (r *hostRegistry) setCordoned(uuid string, cordoned bool) error {
 	return r.persistOne(h)
 }
 
-// setLabels replaces the labels map atomically.
-func (r *hostRegistry) setLabels(uuid string, labels map[string]string) error {
+// setProperties replaces the properties map atomically.
+func (r *hostRegistry) setProperties(uuid string, properties map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	h, ok := r.byUUID[uuid]
 	if !ok {
 		return fmt.Errorf("host %q not found", uuid)
 	}
-	if len(labels) > 0 {
-		copy := make(map[string]string, len(labels))
-		for k, v := range labels {
+	if len(properties) > 0 {
+		copy := make(map[string]string, len(properties))
+		for k, v := range properties {
 			copy[k] = v
 		}
-		h.Labels = copy
+		h.Properties = copy
 	} else {
-		h.Labels = nil
+		h.Properties = nil
 	}
 	r.byUUID[uuid] = h
 	return r.persistOne(h)

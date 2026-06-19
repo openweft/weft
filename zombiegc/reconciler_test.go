@@ -116,7 +116,7 @@ func TestSweep_CIZombie_MarkedThenDeletedAfterGrace(t *testing.T) {
 	adp.hosts = append(adp.hosts, weft.Host{UUID: deadHost, State: weft.HostStateDown, LastSeenAt: hostDownTime})
 	adp.vms = []weft.VM{
 		{UUID: "vm-ci", Name: "runner", ProjectUUID: "p-1", HostUUID: deadHost,
-			State: weft.VMStateRunning, Labels: map[string]string{"deployment.type": "ci"}},
+			State: weft.VMStateRunning, Properties: map[string]string{"deployment.type": "ci"}},
 	}
 	r := New(adp, probe, localHost, Options{CIGracePeriod: 1 * time.Hour})
 
@@ -140,7 +140,7 @@ func TestSweep_CIZombie_GraceNotElapsed_MarksOnly(t *testing.T) {
 	adp.hosts = append(adp.hosts, weft.Host{UUID: deadHost, State: weft.HostStateDown, LastSeenAt: hostDownTime})
 	adp.vms = []weft.VM{
 		{UUID: "vm-ci", Name: "runner", ProjectUUID: "p-1", HostUUID: deadHost,
-			State: weft.VMStateRunning, Labels: map[string]string{"deployment.type": "ci"}},
+			State: weft.VMStateRunning, Properties: map[string]string{"deployment.type": "ci"}},
 	}
 	r := New(adp, probe, localHost, Options{CIGracePeriod: 1 * time.Hour})
 
@@ -160,7 +160,7 @@ func TestSweep_HAZombie_NeverAutoDeleted(t *testing.T) {
 	adp.hosts = append(adp.hosts, weft.Host{UUID: deadHost, State: weft.HostStateDown, LastSeenAt: hostDownTime})
 	adp.vms = []weft.VM{
 		{UUID: "vm-ha", Name: "postgres-1", ProjectUUID: "p-1", HostUUID: deadHost,
-			State: weft.VMStateRunning, Labels: map[string]string{"deployment.type": "ha"}},
+			State: weft.VMStateRunning, Properties: map[string]string{"deployment.type": "ha"}},
 	}
 	r := New(adp, probe, localHost, Options{CIGracePeriod: 1 * time.Hour})
 
@@ -223,7 +223,7 @@ func TestSweep_LocalCIZombie_AutoDeleted(t *testing.T) {
 	adp.vms = []weft.VM{
 		{UUID: "vm-ci-local", Name: "ci-runner-7", ProjectUUID: "p-1", HostUUID: localHost,
 			State: weft.VMStateCreated, CreatedAt: createdLong,
-			Labels: map[string]string{"deployment.type": "ci"}},
+			Properties: map[string]string{"deployment.type": "ci"}},
 	}
 	// probe.alive["ci-runner-7"] not set → IsVMRunning=false → local zombie
 	r := New(adp, probe, localHost, Options{CIGracePeriod: 1 * time.Hour})
@@ -246,7 +246,7 @@ func TestSweep_LocalNonCIZombie_NeverDeleted(t *testing.T) {
 	adp.vms = []weft.VM{
 		{UUID: "vm-ha-local", Name: "web", ProjectUUID: "p-1", HostUUID: localHost,
 			State: weft.VMStateCreated, CreatedAt: createdLong,
-			Labels: map[string]string{"deployment.type": "ha"}},
+			Properties: map[string]string{"deployment.type": "ha"}},
 	}
 	r := New(adp, probe, localHost, Options{CIGracePeriod: 1 * time.Hour})
 
@@ -263,7 +263,7 @@ func TestSweep_OrphanHost(t *testing.T) {
 	adp, probe := setup()
 	adp.vms = []weft.VM{
 		{UUID: "vm-h", Name: "wanderer", ProjectUUID: "p-1", HostUUID: "host-never-existed",
-			State: weft.VMStateRunning, Labels: map[string]string{"deployment.type": "ha"}},
+			State: weft.VMStateRunning, Properties: map[string]string{"deployment.type": "ha"}},
 	}
 	r := New(adp, probe, localHost, Options{CIGracePeriod: 1 * time.Hour})
 	rep := r.Sweep(context.Background())

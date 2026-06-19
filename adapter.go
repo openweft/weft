@@ -290,8 +290,8 @@ type VZAdapter interface {
 	RegisterHost(spec RegisterHostSpec) (Host, error)
 	HeartbeatHost(uuid string) error
 	SetHostState(uuid string, state HostState) error
-	SetHostLabels(uuid string, labels map[string]string) error
-	SetVMLabels(projectUUID, name string, labels map[string]string) (VM, error)
+	SetHostProperties(uuid string, properties map[string]string) error
+	SetVMProperties(projectUUID, name string, properties map[string]string) (VM, error)
 	SetHostCordoned(uuid string, cordoned bool) error
 	DeleteHost(uuid string) error
 	// ScheduleVMGroup picks `req.Replicas` hosts honouring the
@@ -1484,28 +1484,28 @@ func (a *Adapter) SetHostState(uuid string, state HostState) error {
 	return nil
 }
 
-// SetHostLabels replaces the host's label map.
-func (a *Adapter) SetHostLabels(uuid string, labels map[string]string) error {
+// SetHostProperties replaces the host's property map.
+func (a *Adapter) SetHostProperties(uuid string, properties map[string]string) error {
 	if a.hostReg == nil {
 		return fmt.Errorf("host registry not initialised")
 	}
-	if err := a.hostReg.setLabels(uuid, labels); err != nil {
+	if err := a.hostReg.setProperties(uuid, properties); err != nil {
 		return err
 	}
 	a.bus.Publish(PlatformEvent{
-		Kind:    "host.labels_updated",
+		Kind:    "host.properties_updated",
 		Subject: uuid,
-		Meta:    map[string]string{"label_count": strconv.Itoa(len(labels))},
+		Meta:    map[string]string{"property_count": strconv.Itoa(len(properties))},
 	})
 	return nil
 }
 
-// SetVMLabels replaces a VM's label set atomically. V0.1.8 :
-// drives SchedulingRule label-based selectors + reserved-key system
+// SetVMProperties replaces a VM's property set atomically. V0.1.8 :
+// drives SchedulingRule property-based selectors + reserved-key system
 // gates (deployment.type=ci|ha, etc.). Returns the updated VM record.
 // projectUUID can be the project display name or UUID ;
 // ResolveProjectUUID handles both.
-func (a *Adapter) SetVMLabels(projectUUID, name string, labels map[string]string) (VM, error) {
+func (a *Adapter) SetVMProperties(projectUUID, name string, properties map[string]string) (VM, error) {
 	if a.vmReg == nil {
 		return VM{}, fmt.Errorf("vm registry not initialised")
 	}
@@ -1514,16 +1514,16 @@ func (a *Adapter) SetVMLabels(projectUUID, name string, labels map[string]string
 	if !ok {
 		return VM{}, fmt.Errorf("vm %q not found in project %s", name, puuid)
 	}
-	if err := a.vmReg.setLabels(v.UUID, labels); err != nil {
+	if err := a.vmReg.setProperties(v.UUID, properties); err != nil {
 		return VM{}, err
 	}
-	// Reload the record to surface the post-set labels.
+	// Reload the record to surface the post-set properties.
 	updated, _ := a.vmReg.lookupByUUID(v.UUID)
 	a.bus.Publish(PlatformEvent{
-		Kind:        "vm.labels_updated",
+		Kind:        "vm.properties_updated",
 		Subject:     updated.UUID,
 		ProjectUUID: updated.ProjectUUID,
-		Meta:        map[string]string{"label_count": strconv.Itoa(len(labels))},
+		Meta:        map[string]string{"property_count": strconv.Itoa(len(properties))},
 	})
 	return updated, nil
 }

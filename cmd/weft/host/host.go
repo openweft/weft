@@ -8,7 +8,7 @@
 //	weft host ls [--az <az>]                                       list hosts
 //	weft host show <uuid|hostname>                                 fetch one host
 //	weft host set-state <uuid> active|draining|down                gate scheduling
-//	weft host set-labels <uuid> k=v[,k=v…]                         replace labels
+//	weft host set-properties <uuid> k=v[,k=v…]                     replace properties (aliased "set-labels")
 //	weft host rm <uuid>                                            delete (operator-managed drain first)
 package host
 
@@ -33,7 +33,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		Short: "Manage the Host inventory (hypervisor instances scheduled against)",
 		Long: `The Host registry tracks every hypervisor instance in the cluster.
 Each entry carries its AZ, rack, hypervisor kind, architecture, and
-capability lists (network types, volume backends, labels) — the
+capability lists (network types, volume backends, properties) — the
 scheduler consumes these when honouring placement rules from infra
 plans or VM CreateSpecs.
 
@@ -45,7 +45,7 @@ also register them explicitly with "weft host register".`,
 		lsCmd(socket, sshSocket, sshKey),
 		showCmd(socket, sshSocket, sshKey),
 		setStateCmd(socket, sshSocket, sshKey),
-		setLabelsCmd(socket, sshSocket, sshKey),
+		setPropertiesCmd(socket, sshSocket, sshKey),
 		cordonCmd(socket, sshSocket, sshKey),
 		uncordonCmd(socket, sshSocket, sshKey),
 		rmCmd(socket, sshSocket, sshKey),
@@ -128,22 +128,30 @@ func runCordon(socket, sshSocket, sshKey, ident string, byHostname, cordoned boo
 
 func registerCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var hostname, az, rack, endpoint, hypervisor, architecture, uuid string
-	var labelsRaw string
+	var propertiesRaw, labelsRaw string
 	var networkTypes, volumeBackends []string
 	cmd := &cobra.Command{
 		Use:   "register",
 		Short: "Register a host (or refresh its metadata; idempotent by UUID)",
 		Long: `Register a hypervisor instance in the Host registry. Idempotent: if
-the UUID already exists, the entry is refreshed (AZ/rack/labels/etc.
+the UUID already exists, the entry is refreshed (AZ/rack/properties/etc.
 overwritten ; CreatedAt preserved). Without --uuid the server mints
 a fresh one.
 
 The rack tag carves a sub-AZ failure domain — set it on every host
 in multi-rack clusters so the scheduler's "rack: different" rule can
 actually succeed.`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if hostname == "" {
 				return fmt.Errorf("--hostname is required")
+			}
+			// Deprecation seam : --labels was renamed to --properties. Honour
+			// the legacy flag when set, but print a stderr notice so scripts
+			// migrate. --properties wins if both are supplied.
+			raw := propertiesRaw
+			if raw == "" && labelsRaw != "" {
+				fmt.Fprintln(os.Stderr, "weft host register: --labels is deprecated, use --properties")
+				raw = labelsRaw
 			}
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
@@ -161,12 +169,12 @@ actually succeed.`,
 				NetworkTypes:   networkTypes,
 				VolumeBackends: volumeBackends,
 			}
-			if labelsRaw != "" {
-				labels, err := parseLabels(labelsRaw)
+			if raw != "" {
+				properties, err := parseProperties(raw)
 				if err != nil {
 					return err
 				}
-				req.Labels = labels
+				req.Properties = properties
 			}
 			resp, err := c.RegisterHost(context.Background(), req)
 			if err != nil {
@@ -185,7 +193,9 @@ actually succeed.`,
 	cmd.Flags().StringVar(&architecture, "architecture", "", "arm64 | amd64 | riscv64 | loongarch64")
 	cmd.Flags().StringSliceVar(&networkTypes, "network-types", nil, "Supported network types (comma-separated): nat,bridged,mesh,…")
 	cmd.Flags().StringSliceVar(&volumeBackends, "volume-backends", nil, "Supported volume backends (comma-separated): file,ceph,…")
-	cmd.Flags().StringVar(&labelsRaw, "labels", "", "Comma-separated k=v label pairs (e.g. gpu=h100,zone=secure)")
+	cmd.Flags().StringVar(&propertiesRaw, "properties", "", "Comma-separated k=v property pairs (e.g. gpu=h100,zone=secure)")
+	cmd.Flags().StringVar(&labelsRaw, "labels", "", "Deprecated alias for --properties")
+	_ = cmd.Flags().MarkHidden("labels")
 	return cmd
 }
 
@@ -282,13 +292,17 @@ Down     — heartbeat aged past TTL OR explicit operator decommission.`,
 	}
 }
 
-func setLabelsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
+func setPropertiesCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	return &cobra.Command{
-		Use:   "set-labels <uuid> k=v[,k=v…]",
-		Short: "Replace a host's labels atomically (pass empty to clear)",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			labels, err := parseLabels(args[1])
+		Use:     "set-properties <uuid> k=v[,k=v…]",
+		Aliases: []string{"set-labels"},
+		Short:   "Replace a host's properties atomically (pass empty to clear)",
+		Args:    cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.CalledAs() == "set-labels" {
+				fmt.Fprintln(os.Stderr, "weft host set-labels: deprecated, use 'set-properties'")
+			}
+			properties, err := parseProperties(args[1])
 			if err != nil {
 				return err
 			}
@@ -297,11 +311,11 @@ func setLabelsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			_, err = c.SetHostLabels(context.Background(), &weftv1.SetHostLabelsRequest{Uuid: args[0], Labels: labels})
+			_, err = c.SetHostProperties(context.Background(), &weftv1.SetHostPropertiesRequest{Uuid: args[0], Properties: properties})
 			if err != nil {
-				return fmt.Errorf("SetHostLabels: %w", err)
+				return fmt.Errorf("SetHostProperties: %w", err)
 			}
-			fmt.Printf("host %s labels updated (%d entries)\n", args[0], len(labels))
+			fmt.Printf("host %s properties updated (%d entries)\n", args[0], len(properties))
 			return nil
 		},
 	}
@@ -328,9 +342,9 @@ func rmCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	}
 }
 
-// parseLabels accepts "k=v,k=v,..." (or empty for no labels).
+// parseProperties accepts "k=v,k=v,..." (or empty for no properties).
 // Whitespace around keys/values is trimmed.
-func parseLabels(raw string) (map[string]string, error) {
+func parseProperties(raw string) (map[string]string, error) {
 	out := map[string]string{}
 	if raw == "" {
 		return out, nil
@@ -338,12 +352,12 @@ func parseLabels(raw string) (map[string]string, error) {
 	for _, pair := range strings.Split(raw, ",") {
 		kv := strings.SplitN(pair, "=", 2)
 		if len(kv) != 2 {
-			return nil, fmt.Errorf("label %q is not k=v shape", pair)
+			return nil, fmt.Errorf("property %q is not k=v shape", pair)
 		}
 		k := strings.TrimSpace(kv[0])
 		v := strings.TrimSpace(kv[1])
 		if k == "" {
-			return nil, fmt.Errorf("empty label key in %q", pair)
+			return nil, fmt.Errorf("empty property key in %q", pair)
 		}
 		out[k] = v
 	}

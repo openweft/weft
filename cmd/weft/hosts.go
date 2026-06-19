@@ -2,7 +2,7 @@ package main
 
 // hosts.go owns the server-side Host registry RPCs. The Adapter
 // surface (`Hosts() / HostByUUID / HostByHostname / RegisterHost
-// / HeartbeatHost / SetHostState / SetHostLabels / DeleteHost`)
+// / HeartbeatHost / SetHostState / SetHostProperties / DeleteHost`)
 // already exists ; this file just translates between the gRPC
 // wire types and the Adapter calls + applies the standard admin
 // gate.
@@ -40,10 +40,10 @@ func toHostInfo(h weft.Host) *weftv1.HostInfo {
 	if !h.LastSeenAt.IsZero() {
 		hi.LastSeenAtUnixNs = h.LastSeenAt.UnixNano()
 	}
-	if len(h.Labels) > 0 {
-		hi.Labels = make(map[string]string, len(h.Labels))
-		for k, v := range h.Labels {
-			hi.Labels[k] = v
+	if len(h.Properties) > 0 {
+		hi.Properties = make(map[string]string, len(h.Properties))
+		for k, v := range h.Properties {
+			hi.Properties[k] = v
 		}
 	}
 	return hi
@@ -67,16 +67,16 @@ func (s *weftServer) RegisterHost(ctx context.Context, req *weftv1.RegisterHostR
 		NetworkTypes:   append([]string(nil), req.NetworkTypes...),
 		VolumeBackends: append([]string(nil), req.VolumeBackends...),
 	}
-	if len(req.Labels) > 0 {
-		spec.Labels = make(map[string]string, len(req.Labels))
-		for k, v := range req.Labels {
-			spec.Labels[k] = v
+	if len(req.Properties) > 0 {
+		spec.Properties = make(map[string]string, len(req.Properties))
+		for k, v := range req.Properties {
+			spec.Properties[k] = v
 		}
 	}
 	// Attestation gate (feature-flagged, default OFF). When the flag is
 	// off (s.attest nil or disabled) this block is skipped entirely and
 	// the path below is exactly the legacy OIDC-only flow. When ON, the
-	// caller's AK Name (carried in the labels under attestAKLabel) must
+	// caller's AK Name (carried in the properties under attestAKLabel) must
 	// have a fresh successful Admit, and the admitted AK Name is stamped
 	// onto the Host registry entry.
 	if s.attestGateEnabled() {
@@ -93,25 +93,25 @@ func (s *weftServer) RegisterHost(ctx context.Context, req *weftv1.RegisterHostR
 	return &weftv1.RegisterHostResponse{Host: toHostInfo(h)}, nil
 }
 
-// attestAKLabel is the reserved RegisterHostRequest.labels key carrying
+// attestAKLabel is the reserved RegisterHostRequest.properties key carrying
 // the node's TPM AK Name (the value the Admit handler keyed on) when
-// attestation is enabled. Using the existing labels map avoids a proto
+// attestation is enabled. Using the existing properties map avoids a proto
 // change to RegisterHostRequest ; the key is namespaced under weft.attest/
-// so it can't collide with an operator label. The value is the raw AK
+// so it can't collide with an operator property. The value is the raw AK
 // Name bytes rendered as the same string key the gate's admitted-set
 // uses (the node sends string(akName)).
 const attestAKLabel = "weft.attest/ak-name"
 
-// attestAKNameFromReq pulls the node's AK Name out of the request labels.
-// Returns nil when absent (requireAdmittedAK then denies). The label is
-// removed from the spec's labels by the caller path implicitly — we read
-// it here and do NOT strip it from spec.Labels, so it is also visible on
+// attestAKNameFromReq pulls the node's AK Name out of the request properties.
+// Returns nil when absent (requireAdmittedAK then denies). The property is
+// removed from the spec's properties by the caller path implicitly — we read
+// it here and do NOT strip it from spec.Properties, so it is also visible on
 // the Host entry for diagnostics ; AKName is the authoritative field.
 func attestAKNameFromReq(req *weftv1.RegisterHostRequest) []byte {
-	if req == nil || len(req.Labels) == 0 {
+	if req == nil || len(req.Properties) == 0 {
 		return nil
 	}
-	v, ok := req.Labels[attestAKLabel]
+	v, ok := req.Properties[attestAKLabel]
 	if !ok || v == "" {
 		return nil
 	}
@@ -199,24 +199,24 @@ func (s *weftServer) SetHostState(ctx context.Context, req *weftv1.SetHostStateR
 	return &weftv1.SetHostStateResponse{}, nil
 }
 
-func (s *weftServer) SetHostLabels(ctx context.Context, req *weftv1.SetHostLabelsRequest) (*weftv1.SetHostLabelsResponse, error) {
-	if err := weft.RequireAdmin(ctx, "set host labels"); err != nil {
+func (s *weftServer) SetHostProperties(ctx context.Context, req *weftv1.SetHostPropertiesRequest) (*weftv1.SetHostPropertiesResponse, error) {
+	if err := weft.RequireAdmin(ctx, "set host properties"); err != nil {
 		return nil, err
 	}
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	var labels map[string]string
-	if len(req.Labels) > 0 {
-		labels = make(map[string]string, len(req.Labels))
-		for k, v := range req.Labels {
-			labels[k] = v
+	var properties map[string]string
+	if len(req.Properties) > 0 {
+		properties = make(map[string]string, len(req.Properties))
+		for k, v := range req.Properties {
+			properties[k] = v
 		}
 	}
-	if err := s.adp.SetHostLabels(req.Uuid, labels); err != nil {
-		return nil, status.Errorf(codes.Internal, "set host labels: %v", err)
+	if err := s.adp.SetHostProperties(req.Uuid, properties); err != nil {
+		return nil, status.Errorf(codes.Internal, "set host properties: %v", err)
 	}
-	return &weftv1.SetHostLabelsResponse{}, nil
+	return &weftv1.SetHostPropertiesResponse{}, nil
 }
 
 // SetHostCordoned toggles the per-host cordon flag. Idempotent —

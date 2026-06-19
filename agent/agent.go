@@ -54,9 +54,9 @@ type Options struct {
 	AZ       string
 	Rack     string
 	Endpoint string
-	// Labels are operator-set free-form tags propagated to the
+	// Properties are operator-set free-form tags propagated to the
 	// host registry.
-	Labels map[string]string
+	Properties map[string]string
 	// HeartbeatInterval defaults to 30s when zero.
 	HeartbeatInterval time.Duration
 	// ControlPlane is the surface the agent registers with.
@@ -87,7 +87,7 @@ type Options struct {
 	// Enroll→CompleteEnroll→RequestAdmission→Admit dance against the
 	// control-plane AttestationService (AttestClient). Only on a granted
 	// admission does it proceed to RegisterHost, stamping the admitted AK
-	// Name onto reg.Labels[AttestLabelKey] (the key the control plane's
+	// Name onto reg.Properties[AttestLabelKey] (the key the control plane's
 	// flag-gated RegisterHost reads). On any handshake failure the agent
 	// bring-up fails : when the operator turns attestation on, it is
 	// required, not best-effort.
@@ -248,25 +248,25 @@ func (a *Agent) start(ctx context.Context) error {
 
 	// Attestation gate (feature-flagged, default OFF). When AttestTPM is
 	// false this block is skipped entirely and the path below is exactly
-	// the legacy RegisterHost flow — no TPM is opened, no extra label is
+	// the legacy RegisterHost flow — no TPM is opened, no extra property is
 	// set. When ON, the agent opens the local TPM, runs the four-RPC
 	// handshake against the control-plane AttestationService, and only on
-	// a granted admission stamps the admitted AK Name onto the labels the
+	// a granted admission stamps the admitted AK Name onto the properties the
 	// control-plane gate (requireAdmittedAK) consumes. Any failure aborts
 	// the bring-up : with the flag on, attestation is required.
-	attestLabels := a.opts.Labels
+	attestProperties := a.opts.Properties
 	if a.opts.AttestTPM {
 		akName, err := runNodeAttestationFn(ctx, a.opts.AttestTPMDevice, a.opts.AttestClient)
 		if err != nil {
 			return fmt.Errorf("weft-agent: attestation handshake: %w", err)
 		}
-		// Copy-on-write : never mutate the operator's Options.Labels map.
-		merged := make(map[string]string, len(a.opts.Labels)+1)
-		for k, v := range a.opts.Labels {
+		// Copy-on-write : never mutate the operator's Options.Properties map.
+		merged := make(map[string]string, len(a.opts.Properties)+1)
+		for k, v := range a.opts.Properties {
 			merged[k] = v
 		}
 		merged[AttestLabelKey] = string(akName)
-		attestLabels = merged
+		attestProperties = merged
 	}
 
 	reg := HostRegistration{
@@ -286,7 +286,7 @@ func (a *Agent) start(ctx context.Context) error {
 		Drivers:        driverCaps,
 		NetworkTypes:   []string{"nat", "bridged", "isolated", "mesh"},
 		VolumeBackends: []string{"file"},
-		Labels:         attestLabels,
+		Properties:     attestProperties,
 	}
 	if _, err := a.opts.ControlPlane.RegisterHost(ctx, reg); err != nil {
 		return fmt.Errorf("weft-agent: RegisterHost: %w", err)

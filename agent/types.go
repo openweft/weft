@@ -51,9 +51,9 @@ type HostRegistration struct {
 	// the scheduler matches against.
 	NetworkTypes   []string
 	VolumeBackends []string
-	// Labels are operator-set free-form tags ("gpu=h100",
-	// "ssd=true"). Used by ScheduleRequest's label selectors.
-	Labels map[string]string
+	// Properties are operator-set free-form tags ("gpu=h100",
+	// "ssd=true"). Used by ScheduleRequest's property selectors.
+	Properties map[string]string
 }
 
 // HostDriverCapability is one driver subprocess running on a host,

@@ -24,7 +24,7 @@ type fakeClient struct {
 	createVolume                    func(in *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error)
 	deleteVolume                    func(in *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error)
 	microvmRun                      func(image, project string) error
-	setVMLabels                     func(in *weftv1.SetVMLabelsRequest) (*weftv1.SetVMLabelsResponse, error)
+	setVMProperties                 func(in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error)
 
 	// Call counters
 	creates     int
@@ -38,7 +38,7 @@ type fakeClient struct {
 	delSGs      []*weftv1.DeleteSecurityGroupRequest
 	delVols     []*weftv1.DeleteVolumeRequest
 	microvmRuns []microvmCall
-	setLabels   []*weftv1.SetVMLabelsRequest
+	setProperties []*weftv1.SetVMPropertiesRequest
 }
 
 func (f *fakeClient) CreateNetwork(_ context.Context, in *weftv1.CreateNetworkRequest) (*weftv1.CreateNetworkResponse, error) {
@@ -116,12 +116,12 @@ func (f *fakeClient) MicroVMRun(_ context.Context, image, project string) error 
 	}
 	return nil
 }
-func (f *fakeClient) SetVMLabels(_ context.Context, in *weftv1.SetVMLabelsRequest) (*weftv1.SetVMLabelsResponse, error) {
-	f.setLabels = append(f.setLabels, in)
-	if f.setVMLabels != nil {
-		return f.setVMLabels(in)
+func (f *fakeClient) SetVMProperties(_ context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error) {
+	f.setProperties = append(f.setProperties, in)
+	if f.setVMProperties != nil {
+		return f.setVMProperties(in)
 	}
-	return &weftv1.SetVMLabelsResponse{}, nil
+	return &weftv1.SetVMPropertiesResponse{}, nil
 }
 
 type microvmCall struct {

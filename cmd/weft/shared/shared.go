@@ -72,9 +72,9 @@ func PrintJSON(vms []*weftv1.VMInfo) error {
 func PrintJSONTo(w io.Writer, vms []*weftv1.VMInfo) error {
 	for _, vm := range vms {
 		if _, err := fmt.Fprintf(w,
-			"{\"name\":%q,\"uuid\":%q,\"project_uuid\":%q,\"state\":%q,\"os\":%q,\"cpu\":%d,\"mem_mb\":%d,\"disk_gb\":%d,\"ip\":%q,\"labels\":%s}\n",
+			"{\"name\":%q,\"uuid\":%q,\"project_uuid\":%q,\"state\":%q,\"os\":%q,\"cpu\":%d,\"mem_mb\":%d,\"disk_gb\":%d,\"ip\":%q,\"properties\":%s}\n",
 			vm.Name, vm.Uuid, vm.ProjectUuid, ProtoStateStr(vm.State), vm.Os,
-			vm.Cpu, vm.MemMb, vm.DiskGb, vm.Ip, jsonLabels(vm.Labels),
+			vm.Cpu, vm.MemMb, vm.DiskGb, vm.Ip, jsonProperties(vm.Properties),
 		); err != nil {
 			return err
 		}
@@ -82,9 +82,9 @@ func PrintJSONTo(w io.Writer, vms []*weftv1.VMInfo) error {
 	return nil
 }
 
-// jsonLabels emits a string-string map as a JSON object. Falls back
+// jsonProperties emits a string-string map as a JSON object. Falls back
 // to "{}" on empty / nil so consumers don't have to special-case it.
-func jsonLabels(in map[string]string) string {
+func jsonProperties(in map[string]string) string {
 	if len(in) == 0 {
 		return "{}"
 	}
