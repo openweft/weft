@@ -1,22 +1,22 @@
-# Day-0 : déployer un cluster weft 3-DC en production
+# Day-0: deploy a weft 3-DC cluster in production
 
-Walkthrough orienté opérateur : zéro à 3 hôtes Debian convergés, fronted
-par Caddy, OIDC en place, observabilité câblée, premier VM provisionné.
+Operator-focused walkthrough: zero to 3 converged Debian hosts, fronted
+by Caddy, OIDC in place, observability wired up, first VM provisioned.
 
-Prérequis fixes :
-- 3 machines bare-metal ou IaaS (Debian 12+, KVM activé dans le BIOS, 1 IP
-  routable par hôte, 1 disque dédié pour `/var/lib/weft/`).
-- 1 station de travail (Linux ou macOS) avec accès SSH vers les 3 hôtes,
-  où vit le binaire `weft` côté opérateur.
-- 1 IdP OIDC reachable depuis les 3 hôtes (Dex, Keycloak, Okta, Auth0 —
-  voir `../operations/sso/`).
-- 1 nom de domaine sous ton contrôle (DNS A vers chaque hôte ou wildcard
-  vers un VIP — au choix).
+Fixed prerequisites:
+- 3 bare-metal or IaaS machines (Debian 12+, KVM enabled in BIOS, 1
+  routable IP per host, 1 dedicated disk for `/var/lib/weft/`).
+- 1 workstation (Linux or macOS) with SSH access to the 3 hosts,
+  where the operator-side `weft` binary lives.
+- 1 OIDC IdP reachable from the 3 hosts (Dex, Keycloak, Okta, Auth0 —
+  see `../operations/sso/`).
+- 1 domain name under your control (DNS A record per host or wildcard
+  to a VIP — your call).
 
-Volume horaire estimé : 2 h si l'IdP est déjà configuré, 4 h si tu
-provisionnes Keycloak en même temps.
+Estimated time budget: 2 h if the IdP is already configured, 4 h if
+you provision Keycloak alongside.
 
-## Étape 1 — installer la CLI sur la station
+## Step 1 — install the CLI on the workstation
 
 ```sh
 gh release download v0.1.0 --repo openweft/weft \
@@ -26,23 +26,23 @@ sudo mv weft /usr/local/bin/
 weft version
 ```
 
-Vérifie la signature avant d'exécuter — voir
-[../operations/cosign-verify.md](../operations/cosign-verify.md) pour la
-commande `cosign verify-blob` à passer en amont.
+Verify the signature before executing — see
+[../operations/cosign-verify.md](../operations/cosign-verify.md) for
+the `cosign verify-blob` command to run beforehand.
 
-## Étape 2 — provisionner les 3 hôtes
+## Step 2 — provision the 3 hosts
 
-Pose `examples/cloud-init/debian-host.yaml` dans ta seed d'installation
-(ISO custom, PXE, ou drop dans Tart/Proxmox). Le fichier installe le
-binaire `weft` côté agent, crée le service systemd, ouvre les ports
-firewall (etcd 2379/2380, mesh WireGuard UDP, gRPC 9090, metrics 9101) et
-laisse l'agent en attente de configuration.
+Drop `examples/cloud-init/debian-host.yaml` into your install seed
+(custom ISO, PXE, or drop into Tart/Proxmox). The file installs the
+agent-side `weft` binary, creates the systemd service, opens the
+firewall ports (etcd 2379/2380, WireGuard mesh UDP, gRPC 9090, metrics
+9101) and leaves the agent waiting for configuration.
 
-À la sortie de cloud-init, chaque hôte est joignable en SSH (clé que tu
-as déposée via `ssh_authorized_keys`) mais l'agent n'a pas encore de
-config — il logue `awaiting /etc/weft/weft.hcl`.
+When cloud-init finishes, each host is reachable via SSH (using the key
+you supplied through `ssh_authorized_keys`) but the agent has no config
+yet — it logs `awaiting /etc/weft/weft.hcl`.
 
-Vérifie depuis la station :
+Verify from the workstation:
 
 ```sh
 for ip in 10.0.0.11 10.0.0.12 10.0.0.13; do
@@ -51,9 +51,9 @@ done
 # expected: 3× "activating" (waiting for config)
 ```
 
-## Étape 3 — écrire `cluster.hcl`
+## Step 3 — write `cluster.hcl`
 
-Sur la station, dans un dossier dédié :
+On the workstation, in a dedicated directory:
 
 ```hcl
 cluster "prod" {
@@ -257,6 +257,19 @@ Les bouclages suivants sont documentés dans des runbooks séparés :
 - RBAC + audit log — [../operations/rbac.md](../operations/rbac.md)
 - Cosign verification — [../operations/cosign-verify.md](../operations/cosign-verify.md)
 - Observability — [../operations/observability.md](../operations/observability.md)
+
+## Next steps — faire évoluer le cluster
+
+Une fois le 3-DC en place, le cluster vit :
+
+- **Scale-out** — ajouter un 4e (ou Ne) hôte : voir
+  [../operations/scale-out.md](../operations/scale-out.md). Couvre
+  les deux chemins (convergent `weft up --apply` vs explicite
+  `weft host register`) et le grow etcd 3 → 5 → 7.
+- **Drain + retrait** — sortir un hôte du cluster (panne hardware,
+  remplacement, décommission) : voir
+  [../operations/drain-remove-host.md](../operations/drain-remove-host.md).
+  Cordon → drain → `weft host rm` → clean-up HCL → `etcdctl member remove`.
 
 ## Ce qui n'est pas (encore) couvert
 
