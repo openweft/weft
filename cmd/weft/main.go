@@ -1200,6 +1200,33 @@ func (s *weftServer) StopVM(ctx context.Context, req *weftv1.StopVMRequest) (*we
 	return &weftv1.StopVMResponse{}, nil
 }
 
+// RestartVM is the atomic Stop-then-Start RPC the TUI calls on `R`
+// and the CLI on `weft instance restart`. We deliberately do not
+// dispatch separately for the two legs : the VM stays pinned to the
+// same host (the legacy on-disk VM lookup does this implicitly ; the
+// inventory lookup goes through s.adp.StartVM which redrives the
+// same hypervisor). If StopVM fails we surface the error verbatim.
+// If StartVM fails we leave the VM stopped — the operator sees the
+// error in the status bar and can retry start ; this beats the
+// previous client-side chain which left a half-state with no
+// rollback signal.
+func (s *weftServer) RestartVM(ctx context.Context, req *weftv1.RestartVMRequest) (*weftv1.RestartVMResponse, error) {
+	logger.Printf("RestartVM name=%s project=%s", req.Name, req.Project)
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
+		return nil, err
+	}
+	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	if err := s.adp.StopVM(req.Name); err != nil {
+		logger.Printf("RestartVM %s: stop leg error: %v", req.Name, err)
+		return nil, status.Errorf(codes.Internal, "restart vm (stop): %v", err)
+	}
+	if err := s.adp.StartVM(req.Name, ""); err != nil {
+		logger.Printf("RestartVM %s: start leg error: %v", req.Name, err)
+		return nil, status.Errorf(codes.Internal, "restart vm (start): %v", err)
+	}
+	return &weftv1.RestartVMResponse{}, nil
+}
+
 func (s *weftServer) CreateVM(ctx context.Context, req *weftv1.CreateVMRequest) (*weftv1.CreateVMResponse, error) {
 	logger.Printf("CreateVM name=%s image=%s project=%s", req.Name, req.Image, req.Project)
 	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
