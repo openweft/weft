@@ -58,6 +58,19 @@ type TenantQuota struct {
 	// cardinality dimension, not the count + memory pair GPUs
 	// got.
 	PCICount int `json:"pci_count,omitempty"`
+
+	// Proto-aligned dimensions (weftv1.Quotas v0.12.0+). Storage +
+	// round-trip via Get/SetProjectQuota are wired today ;
+	// enforcement at CreateVolume / CreateShare / CreateBucket /
+	// AllocateFloatingIP is a follow-up that needs each registry's
+	// projectAllocation helper to grow a count/size sum.
+	VolumeCount int `json:"volume_count,omitempty"` // proto: volumes
+	ShareCount  int `json:"share_count,omitempty"`  // proto: shares
+	ShareGiB    int `json:"share_gib,omitempty"`    // proto: shares_gib
+	BucketCount int `json:"bucket_count,omitempty"` // proto: buckets
+	BucketGiB   int `json:"bucket_gib,omitempty"`   // proto: buckets_gib
+	RegistryGiB int `json:"registry_gib,omitempty"` // proto: registry_gib
+	FloatingIPs int `json:"floating_ips,omitempty"` // proto: floating_ips
 }
 
 // tenantQuotaDoc is the HCL on-disk shape. One `tenant_quota
@@ -75,6 +88,13 @@ type tenantQuotaBlock struct {
 	GPUCount     int    `hcl:"gpu_count,optional"`
 	GPUMemoryGiB int    `hcl:"gpu_memory_gib,optional"`
 	PCICount     int    `hcl:"pci_count,optional"`
+	VolumeCount  int    `hcl:"volume_count,optional"`
+	ShareCount   int    `hcl:"share_count,optional"`
+	ShareGiB     int    `hcl:"share_gib,optional"`
+	BucketCount  int    `hcl:"bucket_count,optional"`
+	BucketGiB    int    `hcl:"bucket_gib,optional"`
+	RegistryGiB  int    `hcl:"registry_gib,optional"`
+	FloatingIPs  int    `hcl:"floating_ips,optional"`
 }
 
 // tenantQuotaRegistry is the in-memory cache of the on-disk
@@ -110,6 +130,13 @@ func loadTenantQuotaRegistry(ctx context.Context, storage Storage) (*tenantQuota
 			GPUCount:     b.GPUCount,
 			GPUMemoryGiB: b.GPUMemoryGiB,
 			PCICount:     b.PCICount,
+			VolumeCount:  b.VolumeCount,
+			ShareCount:   b.ShareCount,
+			ShareGiB:     b.ShareGiB,
+			BucketCount:  b.BucketCount,
+			BucketGiB:    b.BucketGiB,
+			RegistryGiB:  b.RegistryGiB,
+			FloatingIPs:  b.FloatingIPs,
 		}
 	}
 	return reg, nil
@@ -146,6 +173,27 @@ func (r *tenantQuotaRegistry) saveLocked() error {
 		}
 		if q.PCICount > 0 {
 			bb.SetAttributeValue("pci_count", cty.NumberIntVal(int64(q.PCICount)))
+		}
+		if q.VolumeCount > 0 {
+			bb.SetAttributeValue("volume_count", cty.NumberIntVal(int64(q.VolumeCount)))
+		}
+		if q.ShareCount > 0 {
+			bb.SetAttributeValue("share_count", cty.NumberIntVal(int64(q.ShareCount)))
+		}
+		if q.ShareGiB > 0 {
+			bb.SetAttributeValue("share_gib", cty.NumberIntVal(int64(q.ShareGiB)))
+		}
+		if q.BucketCount > 0 {
+			bb.SetAttributeValue("bucket_count", cty.NumberIntVal(int64(q.BucketCount)))
+		}
+		if q.BucketGiB > 0 {
+			bb.SetAttributeValue("bucket_gib", cty.NumberIntVal(int64(q.BucketGiB)))
+		}
+		if q.RegistryGiB > 0 {
+			bb.SetAttributeValue("registry_gib", cty.NumberIntVal(int64(q.RegistryGiB)))
+		}
+		if q.FloatingIPs > 0 {
+			bb.SetAttributeValue("floating_ips", cty.NumberIntVal(int64(q.FloatingIPs)))
 		}
 		body.AppendNewline()
 	}
