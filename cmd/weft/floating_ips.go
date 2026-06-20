@@ -62,6 +62,9 @@ func (s *weftServer) AllocateFloatingIP(ctx context.Context, req *weftv1.Allocat
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "network %q: %v", req.Network, err)
 	}
+	if err := s.adp.EnforceTenantQuotaForFloatingIP(projUUID); err != nil {
+		return nil, err
+	}
 	fip, err := s.adp.AllocateFloatingIP(projUUID, networkUUID, "")
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "allocate floating ip: %v", err)

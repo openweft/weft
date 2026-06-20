@@ -2907,6 +2907,9 @@ func (s *weftServer) CreateShare(ctx context.Context, req *weftv1.CreateShareReq
 	if err != nil {
 		return nil, err
 	}
+	if err := s.adp.EnforceTenantQuotaForShare(projUUID, int(req.SizeGb)); err != nil {
+		return nil, err
+	}
 	sh, created, err := s.adp.CreateShare(projUUID, req.Name, req.SizeGb, req.Readonly, req.Backend)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create share: %v", err)
@@ -2999,6 +3002,9 @@ func (s *weftServer) CreateBucket(ctx context.Context, req *weftv1.CreateBucketR
 	}
 	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.adp.EnforceTenantQuotaForBucket(projUUID); err != nil {
 		return nil, err
 	}
 	b, created, err := s.adp.CreateBucket(projUUID, req.Name, req.Endpoint, req.Region, req.AccessKeyId, req.SecretAccessKey)
