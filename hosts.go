@@ -433,6 +433,9 @@ func (r *hostRegistry) saveLocked() error {
 			if g.MIGCapable {
 				gb.SetAttributeValue("mig_capable", cty.BoolVal(true))
 			}
+			if g.NVLinkDomain != "" {
+				gb.SetAttributeValue("nvlink_domain", cty.StringVal(g.NVLinkDomain))
+			}
 		}
 		// PCIDevices : one nested `pci "<bdf>" { vendor_id, device_id, driver }`
 		// per device. The BDF (bus:device.function) is the block label
