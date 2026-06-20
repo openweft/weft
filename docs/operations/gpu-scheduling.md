@@ -99,6 +99,14 @@ SchedulingRule count caps, and driver-level MIG partitioning
 (nvidia-smi `mig` config). A future commit will add a claim
 layer tracking `(host, slot, slice)` per running VM.
 
+> **Update** — the claim layer's *model* has landed : `gpu_alloc.go`
+> implements an exclusive `gpuAllocTable` (whole-card claims by PCI
+> BDF, MIG claims by mdev UUID) and the exclusivity-aware matcher
+> `gpuRequestSatisfiedExcl`. Wiring it into `ScheduleVM` /
+> `DeprovisionVM` and persisting it to etcd are the remaining steps.
+> See [gpu-sharing.md](./gpu-sharing.md) for the full design, the
+> MIG-instance + NVLink-domain inventory, and the phased rollout.
+
 ## Real detection (follow-up)
 
 `detectGPUs()` in `gpu.go` is **a static stub returning nil

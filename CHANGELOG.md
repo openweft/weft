@@ -7,6 +7,24 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Added
+- **GPU sharing — inventory model + counted allocation** (first of a
+  phased series, see `docs/operations/gpu-sharing.md`). `GPU` now
+  carries an `NVLinkDomain` label (operator-seedable via the host
+  `gpu { nvlink_domain = … }` HCL block, round-tripped through the KV
+  host record) and a runtime-detected `MIGInstances []MIGInstance`
+  slice — the allocatable units behind a MIG-sliced request. New
+  `gpu_alloc.go` adds an exclusive, in-memory `gpuAllocTable`
+  (whole-card claims keyed by PCI BDF, MIG claims by mdev UUID) with
+  idempotent `Claim` / `Release` / `ReleaseVM`, plus the
+  exclusivity-aware matcher `gpuRequestSatisfiedExcl` that counts only
+  *unclaimed* matching resources. This closes the modelling half of
+  the "Exclusivity boundary" gap noted in
+  `docs/operations/gpu-scheduling.md`. The scheduler and the QEMU
+  driver are **not** rewired yet — selection still uses the
+  non-exclusive matcher; scheduler wiring, etcd persistence, MIG
+  `sysfsdev=` attach, and NVLink affinity are tracked follow-ups.
+
 ## [0.4.27] - 2026-06-15
 
 ### Changed
