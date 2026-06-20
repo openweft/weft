@@ -162,6 +162,18 @@ message GuestHello {
   string init_version = 2;   // build SHA / semver of weft-init
   string kernel     = 3;     // uname -r
   string architecture = 4;   // "amd64" | "arm64"
+  // reported_cid is the AF_VSOCK guest CID the guest reads from its
+  // own kernel via IOCTL_VM_SOCKETS_GET_LOCAL_CID on /dev/vsock.
+  // The host cross-checks it against the peer's actual CID (from
+  // the gRPC peer.Addr) and refuses the stream when the two
+  // disagree — defense-in-depth against a malicious guest trying
+  // to claim a different pod's CID. Also lifts the v0.4.46 VZ
+  // readback limitation : on Apple-VZ-backed microVMs the host
+  // can't query the framework for the assigned CID, but the GUEST
+  // can read it from its own kernel and report it here, letting
+  // the host populate its podCIDs registry on first Hello. 0 =
+  // not reported (older guests / non-Linux builds).
+  uint32 reported_cid = 5;
 }
 
 message GuestHelloAck {

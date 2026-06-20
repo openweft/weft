@@ -1106,11 +1106,23 @@ func (*GuestFrame_ControlReq) isGuestFrame_Body() {}
 func (*GuestFrame_ControlResp) isGuestFrame_Body() {}
 
 type GuestHello struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PodId         string                 `protobuf:"bytes,1,opt,name=pod_id,json=podId,proto3" json:"pod_id,omitempty"`
-	InitVersion   string                 `protobuf:"bytes,2,opt,name=init_version,json=initVersion,proto3" json:"init_version,omitempty"` // build SHA / semver of weft-init
-	Kernel        string                 `protobuf:"bytes,3,opt,name=kernel,proto3" json:"kernel,omitempty"`                              // uname -r
-	Architecture  string                 `protobuf:"bytes,4,opt,name=architecture,proto3" json:"architecture,omitempty"`                  // "amd64" | "arm64"
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	PodId        string                 `protobuf:"bytes,1,opt,name=pod_id,json=podId,proto3" json:"pod_id,omitempty"`
+	InitVersion  string                 `protobuf:"bytes,2,opt,name=init_version,json=initVersion,proto3" json:"init_version,omitempty"` // build SHA / semver of weft-init
+	Kernel       string                 `protobuf:"bytes,3,opt,name=kernel,proto3" json:"kernel,omitempty"`                              // uname -r
+	Architecture string                 `protobuf:"bytes,4,opt,name=architecture,proto3" json:"architecture,omitempty"`                  // "amd64" | "arm64"
+	// reported_cid is the AF_VSOCK guest CID the guest reads from its
+	// own kernel via IOCTL_VM_SOCKETS_GET_LOCAL_CID on /dev/vsock.
+	// The host cross-checks it against the peer's actual CID (from
+	// the gRPC peer.Addr) and refuses the stream when the two
+	// disagree — defense-in-depth against a malicious guest trying
+	// to claim a different pod's CID. Also lifts the v0.4.46 VZ
+	// readback limitation : on Apple-VZ-backed microVMs the host
+	// can't query the framework for the assigned CID, but the GUEST
+	// can read it from its own kernel and report it here, letting
+	// the host populate its podCIDs registry on first Hello. 0 =
+	// not reported (older guests / non-Linux builds).
+	ReportedCid   uint32 `protobuf:"varint,5,opt,name=reported_cid,json=reportedCid,proto3" json:"reported_cid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1171,6 +1183,13 @@ func (x *GuestHello) GetArchitecture() string {
 		return x.Architecture
 	}
 	return ""
+}
+
+func (x *GuestHello) GetReportedCid() uint32 {
+	if x != nil {
+		return x.ReportedCid
+	}
+	return 0
 }
 
 type GuestHelloAck struct {
@@ -2127,13 +2146,14 @@ const file_guest_proto_rawDesc = "" +
 	"\vcontrol_req\x18\x06 \x01(\v2\x1d.weft.guest.v1.ControlRequestH\x00R\n" +
 	"controlReq\x12C\n" +
 	"\fcontrol_resp\x18\a \x01(\v2\x1e.weft.guest.v1.ControlResponseH\x00R\vcontrolRespB\x06\n" +
-	"\x04body\"\x82\x01\n" +
+	"\x04body\"\xa5\x01\n" +
 	"\n" +
 	"GuestHello\x12\x15\n" +
 	"\x06pod_id\x18\x01 \x01(\tR\x05podId\x12!\n" +
 	"\finit_version\x18\x02 \x01(\tR\vinitVersion\x12\x16\n" +
 	"\x06kernel\x18\x03 \x01(\tR\x06kernel\x12\"\n" +
-	"\farchitecture\x18\x04 \x01(\tR\farchitecture\";\n" +
+	"\farchitecture\x18\x04 \x01(\tR\farchitecture\x12!\n" +
+	"\freported_cid\x18\x05 \x01(\rR\vreportedCid\";\n" +
 	"\rGuestHelloAck\x12*\n" +
 	"\x04spec\x18\x01 \x01(\v2\x16.weft.guest.v1.PodSpecR\x04spec\"\x7f\n" +
 	"\tPodStatus\x12\x15\n" +

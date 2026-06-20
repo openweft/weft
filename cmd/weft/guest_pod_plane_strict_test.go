@@ -47,6 +47,20 @@ func (f *fakeAdapter) PodSpec(podID string) (*guestv1.PodSpec, bool) {
 	return s, ok
 }
 
+// RegisterPodCID lets the GuestPodPlane handler's autoregister
+// branch update the registry the same way the production adapter
+// would. Tests assert on f.cids to verify the autoregister fired.
+func (f *fakeAdapter) RegisterPodCID(podID string, cid uint32) {
+	if f.cids == nil {
+		f.cids = map[string]uint32{}
+	}
+	if cid == 0 {
+		delete(f.cids, podID)
+		return
+	}
+	f.cids[podID] = cid
+}
+
 // makeServerWithPeer launches a bufconn-served gRPC stack that
 // stamps the supplied vsockAddr onto every incoming RPC's peer
 // info, so the GuestPodPlane handler sees the same shape it would
@@ -223,6 +237,109 @@ func TestGuestPodPlane_HelloAckCarriesPodSpec(t *testing.T) {
 	got := ack.HelloAck.GetSpec()
 	if got == nil || got.PodId != "pod-1" || len(got.Containers) != 1 || got.Containers[0].Id != "c1" {
 		t.Errorf("HelloAck spec mismatch : %+v", got)
+	}
+}
+
+// TestGuestPodPlane_AutoRegisterOnFirstHello pins the v0.4.51
+// autoregister path : an empty registry + a valid peer CID + a
+// matching reported_cid causes the host to stamp the registry
+// with the peer's CID so subsequent Hellos enforce strict-when-known.
+// Closes the Apple-VZ readback gap.
+func TestGuestPodPlane_AutoRegisterOnFirstHello(t *testing.T) {
+	adp := &fakeAdapter{
+		cids:  map[string]uint32{}, // empty — no pre-allocation
+		specs: map[string]*guestv1.PodSpec{},
+	}
+	h := &strictPodPlaneServer{adp: adp}
+	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 4242})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := client.Attach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&guestv1.GuestFrame{
+		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{
+			PodId:       "vz-pod",
+			ReportedCid: 4242, // matches peer.CID()
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); err != nil {
+		t.Fatalf("recv ack: %v", err)
+	}
+	// The handler should have stamped the registry.
+	if got, ok := adp.cids["vz-pod"]; !ok || got != 4242 {
+		t.Errorf("autoregister failed : cids[vz-pod] = (%d,%v), want (4242,true)", got, ok)
+	}
+}
+
+// TestGuestPodPlane_ReportedCIDMismatchRejected pins the
+// guest-reported vs. peer-observed cross-check. A guest that lies
+// about its CID (reported_cid != peer.CID()) is refused before any
+// autoregister or strict-when-known logic runs.
+func TestGuestPodPlane_ReportedCIDMismatchRejected(t *testing.T) {
+	adp := &fakeAdapter{cids: map[string]uint32{}}
+	h := &strictPodPlaneServer{adp: adp}
+	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 4242})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := client.Attach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&guestv1.GuestFrame{
+		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{
+			PodId:       "spoofer",
+			ReportedCid: 9999, // claims a different CID than peer.CID()=4242
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = stream.Recv()
+	if err == nil {
+		t.Fatal("expected PermissionDenied on reported/peer mismatch")
+	}
+	if got := status.Code(err); got != codes.PermissionDenied {
+		t.Errorf("status=%v, want PermissionDenied (err=%v)", got, err)
+	}
+	// And no autoregister should have happened.
+	if _, ok := adp.cids["spoofer"]; ok {
+		t.Error("a rejected Hello must not stamp the registry")
+	}
+}
+
+// TestGuestPodPlane_AutoRegisterMatchesPeerNotReported pins that
+// zero reported_cid is tolerated (older guests don't fill it) and
+// the host stamps the registry with peer.CID() alone. Confirms
+// backwards compat with v0.4.46-era weft-microvm-agent builds.
+func TestGuestPodPlane_AutoRegisterMatchesPeerNotReported(t *testing.T) {
+	adp := &fakeAdapter{cids: map[string]uint32{}}
+	h := &strictPodPlaneServer{adp: adp}
+	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 555})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := client.Attach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&guestv1.GuestFrame{
+		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{
+			PodId: "legacy-guest",
+			// ReportedCid = 0 (older build that doesn't populate)
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); err != nil {
+		t.Fatalf("recv ack: %v", err)
+	}
+	if got, ok := adp.cids["legacy-guest"]; !ok || got != 555 {
+		t.Errorf("autoregister with zero reported_cid : cids[legacy-guest] = (%d,%v), want (555,true)", got, ok)
 	}
 }
 

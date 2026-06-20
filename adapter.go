@@ -69,8 +69,14 @@ type VZAdapter interface {
 	// pod_id (= VM.Name). Used by GuestPodPlane.Attach to verify
 	// the announced pod_id against the peer's actual CID. Unknown
 	// pods return (0, false) ; the handler interprets that as
-	// "no strict expectation, fall through to the generic guard".
+	// "no strict expectation, autoregister from peer.CID()".
 	PodCID(podID string) (uint32, bool)
+	// RegisterPodCID stamps a new (pod_id, cid) entry in the host's
+	// podCIDs registry. The GuestPodPlane.Attach handler uses this
+	// for the v0.4.51 autoregister-on-first-Hello path that lifts
+	// the Apple-VZ readback gap : the host can't pre-allocate the
+	// CID on VZ, but learns it from the first live stream.
+	RegisterPodCID(podID string, cid uint32)
 	// PodSpec returns the operator-supplied desired pod state, used
 	// by GuestPodPlane.Attach to populate the HelloAck. Empty + ok=
 	// false on unknown pods.
@@ -3623,19 +3629,24 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
 		} else {
 			// AF_VSOCK CID allocation : deterministic hash of
-			// (projectUUID, name). MUST match the value already
-			// written into config.json above (the qemu driver reads
-			// it from there to emit `-device vhost-vsock-pci,
-			// guest-cid=N`). We re-compute here rather than threading
-			// preCID down so the persistence-site code path is
-			// resilient to refactors that change the dirset order.
-			// The hash is pure so the recomputation is safe.
+			// (projectUUID, name). Written into config.json (above)
+			// + the VM record so the QEMU driver binds the device
+			// at StartVM. Re-computed here from the same hash inputs
+			// — pure, no need to thread preCID down.
+			//
+			// Note (v0.4.51) : the in-memory podCIDs registry is NOT
+			// stamped here anymore. It self-populates via the
+			// GuestPodPlane.Attach autoregister-on-first-Hello path
+			// using peer.CID() from the kernel — which is the truth
+			// for both backends (QEMU binds the CID we asked for ;
+			// Apple VZ picks its own CID we can't query). This
+			// removes the v0.4.46-era bug where VZ-backed VMs got
+			// rejected by strict-when-known because the allocator's
+			// pick disagreed with VZ's kernel assignment.
 			cid := AllocateVsockCID(projectUUID, name)
 			if cid != 0 {
 				if err := a.vmReg.setVsockCID(registered.UUID, cid); err != nil {
 					fmt.Fprintf(os.Stderr, "weft: register-microvm: persist vsock_cid: %v\n", err)
-				} else {
-					a.RegisterPodCID(name, cid)
 				}
 			}
 		}

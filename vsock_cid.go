@@ -112,22 +112,18 @@ func (r *podCIDRegistry) Delete(podID string) {
 	delete(r.m, podID)
 }
 
-// initPodCIDs builds a fresh in-memory registry and rehydrates it
-// from the persistent VM inventory. VMs that pre-date the allocator
-// (VsockCID == 0) are left out — GuestPodPlane.Attach treats them
-// as "unknown pod, no expectation" and falls back to the existing
-// non-reserved CID check.
+// initPodCIDs builds a fresh, empty in-memory registry. v0.4.51 :
+// the registry is now strict runtime truth — populated by
+// GuestPodPlane.Attach's autoregister-on-first-Hello path using
+// peer.CID() from the kernel. No more rehydration from VM
+// inventory, which previously baked the allocator's pick into
+// the registry and (silently) rejected Apple-VZ guests whose
+// kernel-assigned CID differed from the allocator's hash. After
+// an agent restart there's a brief window where strict-when-known
+// is dormant for each pod, until the guest's first Hello self-
+// announces ; that's the documented tradeoff.
 func (a *Adapter) initPodCIDs() {
-	r := newPodCIDRegistry()
-	if a.vmReg != nil {
-		for _, v := range a.vmReg.list() {
-			if v.VsockCID == 0 || v.Name == "" {
-				continue
-			}
-			r.Set(v.Name, v.VsockCID)
-		}
-	}
-	a.podCIDs = r
+	a.podCIDs = newPodCIDRegistry()
 }
 
 // PodCID returns the registered AF_VSOCK CID for a pod_id (the VM
