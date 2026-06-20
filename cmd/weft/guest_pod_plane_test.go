@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
 	guestv1 "github.com/openweft/weft-proto/guestv1"
@@ -21,7 +23,7 @@ import (
 func TestGuestPodPlane_AttachHelloAck(t *testing.T) {
 	lis := bufconn.Listen(1 << 16)
 	srv := grpc.NewServer()
-	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{})
+	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{allowNonGuestCallers: true})
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 
@@ -84,7 +86,7 @@ func TestGuestPodPlane_AttachHelloAck(t *testing.T) {
 func TestGuestPodPlane_RejectsNonHelloFirstFrame(t *testing.T) {
 	lis := bufconn.Listen(1 << 16)
 	srv := grpc.NewServer()
-	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{})
+	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{allowNonGuestCallers: true})
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 
@@ -112,5 +114,65 @@ func TestGuestPodPlane_RejectsNonHelloFirstFrame(t *testing.T) {
 	_, err = stream.Recv()
 	if err == nil {
 		t.Errorf("expected error on protocol violation, got nil")
+	}
+}
+
+// TestGuestPodPlane_RejectsNonVsockCaller pins the peer-CID guard :
+// the production server (allowNonGuestCallers=false) refuses any
+// caller that isn't on AF_VSOCK. bufconn looks like a generic
+// net.Conn, no vsockAddr, so the guard trips with PermissionDenied.
+func TestGuestPodPlane_RejectsNonVsockCaller(t *testing.T) {
+	lis := bufconn.Listen(1 << 16)
+	srv := grpc.NewServer()
+	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{}) // production : guard ON
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+
+	dial := func(context.Context, string) (net.Conn, error) { return lis.Dial() }
+	conn, err := grpc.NewClient("passthrough://bufconn",
+		grpc.WithContextDialer(dial),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	client := guestv1.NewGuestPodPlaneClient(conn)
+	stream, err := client.Attach(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&guestv1.GuestFrame{
+		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{PodId: "p"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = stream.Recv()
+	if err == nil {
+		t.Fatalf("expected PermissionDenied, got nil")
+	}
+	if got := status.Code(err); got != codes.PermissionDenied {
+		t.Errorf("expected PermissionDenied, got %v", got)
+	}
+}
+
+// TestIsGuestCID covers the boundary : reserved CIDs (0/1/2 +
+// 0xffffffff) must reject ; 3+ accept.
+func TestIsGuestCID(t *testing.T) {
+	for _, tc := range []struct {
+		cid  uint32
+		want bool
+	}{
+		{0, false},          // HYPERVISOR
+		{1, false},          // LOCAL
+		{2, false},          // HOST
+		{3, true},           // first real guest
+		{4242, true},        // any guest
+		{0xffffffff, false}, // ANY (-1)
+	} {
+		if got := IsGuestCID(tc.cid); got != tc.want {
+			t.Errorf("IsGuestCID(%d) = %v, want %v", tc.cid, got, tc.want)
+		}
 	}
 }
