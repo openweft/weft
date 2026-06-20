@@ -40,9 +40,10 @@ import (
 // actually depends on. Defined here (not lifted from weft.VZAdapter)
 // so tests can stub it without dragging the full adapter surface in.
 // The production handler is constructed with the real adapter ; tests
-// inject a tiny fake that only fills PodCID.
+// inject a tiny fake that only fills PodCID + PodSpec.
 type podCIDLookup interface {
 	PodCID(podID string) (uint32, bool)
+	PodSpec(podID string) (*guestv1.PodSpec, bool)
 }
 
 type guestPodPlaneServer struct {
@@ -143,15 +144,23 @@ func (s *guestPodPlaneServer) Attach(stream guestv1.GuestPodPlane_AttachServer) 
 	logger.Printf("GuestPodPlane attached : pod=%s init=%s kernel=%s",
 		hello.Hello.PodId, hello.Hello.InitVersion, hello.Hello.Kernel)
 
-	// Send HelloAck. Empty PodSpec for now ; operator-side pod
-	// registration lands the spec into the agent's pod registry,
-	// and the next iteration of this handler reads from that
-	// registry to populate the ack.
+	// Send HelloAck carrying the operator's desired PodSpec when one
+	// has been published, otherwise a minimal {pod_id} stub so the
+	// guest still sees a valid ack. PodSpec lookup is opt-in : the
+	// guest reconciler treats a stub-only ack as "no work, just stay
+	// attached for ControlRequest frames".
+	var ackSpec *guestv1.PodSpec
+	if s.adp != nil {
+		if spec, ok := s.adp.PodSpec(hello.Hello.PodId); ok && spec != nil {
+			ackSpec = spec
+		}
+	}
+	if ackSpec == nil {
+		ackSpec = &guestv1.PodSpec{PodId: hello.Hello.PodId}
+	}
 	ack := &guestv1.GuestFrame{
 		Body: &guestv1.GuestFrame_HelloAck{
-			HelloAck: &guestv1.GuestHelloAck{
-				Spec: &guestv1.PodSpec{PodId: hello.Hello.PodId},
-			},
+			HelloAck: &guestv1.GuestHelloAck{Spec: ackSpec},
 		},
 	}
 	if err := stream.Send(ack); err != nil {

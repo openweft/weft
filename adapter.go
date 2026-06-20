@@ -24,6 +24,7 @@ import (
 	weftplugin "github.com/openweft/weft-driver-plugin"
 	driversAPI "github.com/openweft/weft-drivers"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
+	guestv1 "github.com/openweft/weft-proto/guestv1"
 	"github.com/openweft/weft/driverplugins"
 	"github.com/openweft/weft/imagestore"
 	"golang.org/x/crypto/ssh"
@@ -70,6 +71,10 @@ type VZAdapter interface {
 	// pods return (0, false) ; the handler interprets that as
 	// "no strict expectation, fall through to the generic guard".
 	PodCID(podID string) (uint32, bool)
+	// PodSpec returns the operator-supplied desired pod state, used
+	// by GuestPodPlane.Attach to populate the HelloAck. Empty + ok=
+	// false on unknown pods.
+	PodSpec(podID string) (*guestv1.PodSpec, bool)
 	SetVMUser(name, user string)
 	SetSSHKeyPath(path string)
 	SetChecksums(checksums map[string]string)
@@ -492,6 +497,11 @@ type Adapter struct {
 	// VM.VsockCID ; this is a hot-path cache rebuilt on agent boot
 	// from the inventory.
 	podCIDs *podCIDRegistry
+	// podSpecs holds the operator-supplied GuestPodPlane PodSpec
+	// for each microVM. GuestPodPlane.Attach reads through it to
+	// populate HelloAck ; without an entry the guest receives an
+	// empty PodSpec and the in-guest reconciler stays idle.
+	podSpecs *podSpecRegistry
 	// scheduler picks which Host runs a new VM. Defaults to
 	// FirstFitScheduler; swappable via SetScheduler. See
 	// scheduler.go for the interface + the default policy's
@@ -768,6 +778,7 @@ func (a *Adapter) afterStorageWired() VZAdapter {
 	a.initTenantQuotas()
 	a.initTenantCaps()
 	a.initPodCIDs()
+	a.initPodSpecs()
 	a.initResources()
 	a.scheduler = FirstFitScheduler{} // operator-overridable via SetScheduler
 	if err := a.selfRegisterHost(); err != nil {

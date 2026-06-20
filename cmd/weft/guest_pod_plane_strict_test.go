@@ -33,12 +33,18 @@ func (a fakeVsockAddr) CID() uint32     { return a.cid }
 // safely left at zero-value because guest_pod_plane.go's strict path
 // only invokes PodCID.
 type fakeAdapter struct {
-	cids map[string]uint32
+	cids  map[string]uint32
+	specs map[string]*guestv1.PodSpec
 }
 
 func (f *fakeAdapter) PodCID(podID string) (uint32, bool) {
 	c, ok := f.cids[podID]
 	return c, ok
+}
+
+func (f *fakeAdapter) PodSpec(podID string) (*guestv1.PodSpec, bool) {
+	s, ok := f.specs[podID]
+	return s, ok
 }
 
 // makeServerWithPeer launches a bufconn-served gRPC stack that
@@ -173,6 +179,50 @@ func TestGuestPodPlane_UnknownPod_FallsBackToCIDGuard(t *testing.T) {
 	}
 	if _, ok := resp.Body.(*guestv1.GuestFrame_HelloAck); !ok {
 		t.Errorf("got %T, want HelloAck for unknown pod (permissive path)", resp.Body)
+	}
+}
+
+// TestGuestPodPlane_HelloAckCarriesPodSpec is the contract pin for
+// the operator-published-spec path : when the adapter has a PodSpec
+// recorded for the announced pod_id, the HelloAck frame echoes it
+// back to the guest. Without that the in-guest container reconciler
+// never gets its desired state.
+func TestGuestPodPlane_HelloAckCarriesPodSpec(t *testing.T) {
+	want := &guestv1.PodSpec{
+		PodId: "pod-1",
+		Containers: []*guestv1.Container{
+			{Id: "c1", RootfsTag: "rootfs-c1", Command: []string{"/bin/sleep", "infinity"}},
+		},
+	}
+	adp := &fakeAdapter{
+		cids:  map[string]uint32{"pod-1": 4242},
+		specs: map[string]*guestv1.PodSpec{"pod-1": want},
+	}
+	h := &strictPodPlaneServer{adp: adp}
+	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 4242})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := client.Attach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&guestv1.GuestFrame{
+		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{PodId: "pod-1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv ack: %v", err)
+	}
+	ack, ok := resp.Body.(*guestv1.GuestFrame_HelloAck)
+	if !ok {
+		t.Fatalf("got %T, want HelloAck", resp.Body)
+	}
+	got := ack.HelloAck.GetSpec()
+	if got == nil || got.PodId != "pod-1" || len(got.Containers) != 1 || got.Containers[0].Id != "c1" {
+		t.Errorf("HelloAck spec mismatch : %+v", got)
 	}
 }
 
