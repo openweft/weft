@@ -600,6 +600,44 @@ func (a *Adapter) ScheduleVMExclusive(ctx context.Context, req ScheduleRequest, 
 		req.GPU, len(req.RequestedGPUs)))
 }
 
+// claimGPUsForVM claims the concrete GPU resources for `reqs` on the
+// LOCAL host, keyed by vmUUID, and returns the claims so the caller can
+// write their resource ids into the VM's driver config.json. This is the
+// single-host counterpart of ScheduleVMExclusive (which also picks the
+// host) : RegisterMicroVM already knows the VM runs on the local host, so
+// it only needs the claim half. Released later by UnregisterVM(vmUUID).
+//
+// Returns (nil, nil) for an empty request. Returns a ResourceExhausted
+// error when the local host can't satisfy the request from its UNCLAIMED
+// inventory — the caller fails the VM registration rather than booting a
+// GPU VM with no GPU.
+func (a *Adapter) claimGPUsForVM(vmUUID string, reqs []GPURequest, nowUnixNs int64) ([]GPUClaim, error) {
+	if len(reqs) == 0 {
+		return nil, nil
+	}
+	if vmUUID == "" {
+		return nil, fmt.Errorf("claim-gpus: vm uuid required")
+	}
+	if a.gpuClaims == nil {
+		a.gpuClaims = newGPUAllocTable()
+	}
+	host, ok := a.HostByUUID(a.localHostUUID())
+	if !ok {
+		return nil, errGPUUnsatisfied("local host not in registry — cannot claim GPUs")
+	}
+	claimed := a.gpuClaims.hostClaimChecker(host.UUID)
+	claims, ok := selectGPUClaims(reqs, host, vmUUID, nowUnixNs, claimed)
+	if !ok {
+		return nil, errGPUUnsatisfied(fmt.Sprintf(
+			"local host %s cannot satisfy %d GPU request(s) from unclaimed inventory",
+			host.Hostname, len(reqs)))
+	}
+	if err := a.gpuClaims.ClaimAll(claims); err != nil {
+		return nil, err
+	}
+	return claims, nil
+}
+
 // pciRequestsSatisfied reports whether the host's PCI inventory satisfies
 // every generic-PCI request entry. Pulled out so ScheduleVMExclusive
 // mirrors hostMatches' RequestedPCI loop without duplicating the body.

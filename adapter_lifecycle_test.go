@@ -32,7 +32,7 @@ import (
 // dispatch_test.go because we also need AttachDisk to silently
 // succeed.
 type fakeHypervisorRecord struct {
-	hostUUID   string
+	hostUUID    string
 	createCalls []drivers.VMSpec
 	startCalls  []string
 	stopCalls   []string
@@ -381,7 +381,7 @@ func TestAdapter_RegisterMicroVM_DirectLinux(t *testing.T) {
 		Kernel:  kernel,
 		Initrd:  initrd,
 		Cmdline: "console=hvc0",
-	}, nil); err != nil {
+	}, nil, nil); err != nil {
 		t.Fatalf("RegisterMicroVM: %v", err)
 	}
 
@@ -413,7 +413,7 @@ func TestAdapter_RegisterMicroVM_UKI(t *testing.T) {
 		// clonefile may or may not support). Tag conflict reserved
 		// for weft-nats is exercised by a separate test.
 		{Tag: "rootfs", Path: src, ReadOnly: false},
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("RegisterMicroVM: %v", err)
 	}
 }
@@ -438,7 +438,7 @@ func TestAdapter_RegisterMicroVM_ErrorPaths(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
 		t.Fatalf("seed sentinel: %v", err)
 	}
-	if err := a.RegisterMicroVM(p.UUID, "exists", MicroVMBoot{BootISO: "/x"}, nil); err != nil {
+	if err := a.RegisterMicroVM(p.UUID, "exists", MicroVMBoot{BootISO: "/x"}, nil, nil); err != nil {
 		t.Errorf("existing dir should be idempotent (got %v)", err)
 	}
 	if _, err := os.Stat(sentinel); err != nil {
@@ -478,17 +478,17 @@ func TestAdapter_RegisterMicroVM_ErrorPaths(t *testing.T) {
 	}
 	if err := a.RegisterMicroVM(p.UUID, "bad-share-path", MicroVMBoot{BootISO: isoOk}, []MicroVMShare{
 		{Tag: "data"}, // Path empty
-	}); err == nil {
+	}, nil); err == nil {
 		t.Errorf("share with empty Path should error")
 	}
 
 	// Neither BootISO nor Kernel → reject.
-	if err := a.RegisterMicroVM(p.UUID, "neither", MicroVMBoot{}, nil); err == nil {
+	if err := a.RegisterMicroVM(p.UUID, "neither", MicroVMBoot{}, nil, nil); err == nil {
 		t.Errorf("missing both should error")
 	}
 
 	// Both BootISO AND Kernel → reject.
-	if err := a.RegisterMicroVM(p.UUID, "both", MicroVMBoot{BootISO: "/a", Kernel: "/b"}, nil); err == nil {
+	if err := a.RegisterMicroVM(p.UUID, "both", MicroVMBoot{BootISO: "/a", Kernel: "/b"}, nil, nil); err == nil {
 		t.Errorf("having both should error")
 	}
 
@@ -498,24 +498,24 @@ func TestAdapter_RegisterMicroVM_ErrorPaths(t *testing.T) {
 	_ = os.WriteFile(iso, []byte("x"), 0o600)
 	if err := a.RegisterMicroVM(p.UUID, "reserved-tag", MicroVMBoot{BootISO: iso}, []MicroVMShare{
 		{Tag: natsShareTag, Path: src},
-	}); err == nil {
+	}, nil); err == nil {
 		t.Errorf("reserved natsShareTag should be refused")
 	}
 
 	// Share missing Tag or Path.
 	if err := a.RegisterMicroVM(p.UUID, "bad-share", MicroVMBoot{BootISO: iso}, []MicroVMShare{
 		{Tag: ""}, // both empty
-	}); err == nil {
+	}, nil); err == nil {
 		t.Errorf("bad share should error")
 	}
 
 	// BootISO source missing → copy fails.
-	if err := a.RegisterMicroVM(p.UUID, "missing-iso", MicroVMBoot{BootISO: "/var/empty/missing"}, nil); err == nil {
+	if err := a.RegisterMicroVM(p.UUID, "missing-iso", MicroVMBoot{BootISO: "/var/empty/missing"}, nil, nil); err == nil {
 		t.Errorf("missing iso source should error")
 	}
 
 	// Kernel source missing → copy fails.
-	if err := a.RegisterMicroVM(p.UUID, "missing-kernel", MicroVMBoot{Kernel: "/var/empty/missing"}, nil); err == nil {
+	if err := a.RegisterMicroVM(p.UUID, "missing-kernel", MicroVMBoot{Kernel: "/var/empty/missing"}, nil, nil); err == nil {
 		t.Errorf("missing kernel source should error")
 	}
 }
@@ -531,7 +531,7 @@ func TestAdapter_RegisterMicroVM_UnknownProjectNATSSeedError(t *testing.T) {
 	iso := filepath.Join(src, "boot.iso")
 	_ = os.WriteFile(iso, []byte("iso"), 0o600)
 	unknownProj := "f47ac10b-58cc-4372-a567-0e02b2c3d479"
-	if err := a.RegisterMicroVM(unknownProj, "mvm", MicroVMBoot{BootISO: iso}, nil); err == nil {
+	if err := a.RegisterMicroVM(unknownProj, "mvm", MicroVMBoot{BootISO: iso}, nil, nil); err == nil {
 		t.Errorf("unknown project should fail at nats-seed mint")
 	}
 	// Dir cleaned up on failure.
@@ -554,7 +554,7 @@ func TestAdapter_RegisterMicroVM_MkdirError(t *testing.T) {
 	src := t.TempDir()
 	iso := filepath.Join(src, "boot.iso")
 	_ = os.WriteFile(iso, []byte("iso"), 0o600)
-	if err := a.RegisterMicroVM(p.UUID, "mvm", MicroVMBoot{BootISO: iso}, nil); err == nil {
+	if err := a.RegisterMicroVM(p.UUID, "mvm", MicroVMBoot{BootISO: iso}, nil, nil); err == nil {
 		t.Errorf("mkdir over a file should error")
 	}
 }

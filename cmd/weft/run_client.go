@@ -161,6 +161,11 @@ func buildDriverHandler(a weft.VZAdapter) func(context.Context, *weftv1.DriverRe
 					Cmdline: op.RegisterMicroVm.Cmdline,
 				},
 				toMicroVMShares(op.RegisterMicroVm.Shares),
+				// GPU requests: RegisterMicroVMOp carries no GPU field yet,
+				// so dispatched multi-host GPU passthrough needs a weft-proto
+				// addition (RequestedGpus on RegisterMicroVMOp). The local
+				// path (cmd/weft/main.go) already claims+attaches. Follow-up.
+				nil,
 			)
 			reply := &weftv1.DriverReply{
 				RequestId: req.RequestId,

@@ -51,7 +51,7 @@ func TestAdapter_RegisterMicroVM_CloneShare(t *testing.T) {
 	p, _, _ := a.CreateProject("p")
 	err := a.RegisterMicroVM(p.UUID, "clone-vm", MicroVMBoot{BootISO: iso}, []MicroVMShare{
 		{Tag: "rootfs0", Path: shareSrc, Clone: true},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("RegisterMicroVM with clone share: %v", err)
 	}
@@ -213,4 +213,3 @@ func TestListCachedImages_ReadDirError(t *testing.T) {
 		t.Errorf("ReadDir on a file should error")
 	}
 }
-

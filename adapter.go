@@ -63,7 +63,7 @@ type VZAdapter interface {
 	GetOSFromCache(image string) string
 
 	// VZ-specific extensions
-	RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare) error
+	RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare, requestedGPUs []GPURequest) error
 	SetVMUser(name, user string)
 	SetSSHKeyPath(path string)
 	SetChecksums(checksums map[string]string)
@@ -3395,7 +3395,7 @@ type MicroVMBoot struct {
 //
 // To force a full re-registration (re-copy boot artefacts) the
 // operator deletes the VM first (DeleteVM).
-func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare) error {
+func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare, requestedGPUs []GPURequest) error {
 	if a.VMExistsIn(project, name) {
 		projUUID := a.ResolveProjectUUID(project)
 		local := a.LocalHostUUID()
@@ -3541,6 +3541,61 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		_ = a.autoRenderNATSAuthorization()
 	}
 
+	// VM inventory entry — created BEFORE config.json so we have the
+	// UUID to key the GPU claim on (and so UnregisterVM can release it).
+	// Best-effort for non-GPU VMs: failure only loses the multi-host
+	// dispatch path (handled by the hypervisorForVM fallback). Microvm
+	// entries carry the boot mode as the Image field so audits can tell
+	// UKI/direct-Linux registrations from classic cloud-image clones.
+	mode := "uki"
+	if boot.Kernel != "" {
+		mode = "direct_linux"
+	}
+	var vmUUID string
+	var gpuPCI, gpuMIG []string
+	if a.vmReg != nil {
+		vm, err := a.RegisterVM(CreateVMSpec{
+			ProjectUUID:   a.ResolveProjectUUID(project),
+			Name:          name,
+			HostUUID:      a.localHostUUID(),
+			Image:         "microvm/" + mode,
+			RequestedGPUs: requestedGPUs,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
+		} else {
+			vmUUID = vm.UUID
+		}
+	}
+	// From here on an inventory entry (and, below, a GPU claim) may exist
+	// keyed by vmUUID, so every failure must release them too — not just
+	// remove the dir. UnregisterVM is a no-op for an empty/unknown UUID
+	// and also releases the VM's GPU claims (see UnregisterVM).
+	cleanupRegistered := func() {
+		if vmUUID != "" {
+			_ = a.UnregisterVM(vmUUID)
+		}
+		_ = os.RemoveAll(dir)
+	}
+	// GPU passthrough : claim the concrete cards / MIG instances on the
+	// local host and feed their resource ids into config.json so the
+	// driver emits the matching vfio-pci devices. A GPU VM MUST have an
+	// inventory UUID (the claim + release hang off it) and MUST get its
+	// resources — booting a GPU VM with no GPU is worse than failing, so
+	// both are hard errors that tear down the half-provisioned dir.
+	if len(requestedGPUs) > 0 {
+		if vmUUID == "" {
+			cleanupRegistered()
+			return fmt.Errorf("vz register-microvm: GPU request needs a VM inventory entry, but registration failed")
+		}
+		claims, err := a.claimGPUsForVM(vmUUID, requestedGPUs, time.Now().UnixNano())
+		if err != nil {
+			cleanupRegistered()
+			return fmt.Errorf("vz register-microvm: claim GPUs: %w", err)
+		}
+		gpuPCI, gpuMIG = splitClaimsForDriver(claims)
+	}
+
 	// config.json shape matching what runvm.go's vmCfgJSON decodes.
 	// Keep the JSON keys explicit so a future refactor of either
 	// side flags the schema mismatch loudly.
@@ -3552,7 +3607,7 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 	entries := make([]shareEntry, len(shares))
 	for i, s := range shares {
 		if s.Tag == "" || s.Path == "" {
-			_ = os.RemoveAll(dir)
+			cleanupRegistered()
 			return fmt.Errorf("vz register-microvm: share #%d needs both Tag and Path", i)
 		}
 		exposePath := s.Path
@@ -3565,7 +3620,7 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 			// so DeleteVM's RemoveAll handles cleanup automatically.
 			clonePath := filepath.Join(dir, s.Tag)
 			if err := cloneOrCopyTree(s.Path, clonePath); err != nil {
-				_ = os.RemoveAll(dir)
+				cleanupRegistered()
 				return fmt.Errorf("vz register-microvm: stage share %q -> %q: %w", s.Path, clonePath, err)
 			}
 			exposePath = clonePath
@@ -3573,42 +3628,24 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		entries[i] = shareEntry{Tag: s.Tag, Path: exposePath, ReadOnly: s.ReadOnly}
 	}
 	cfg := struct {
-		MicroVM bool         `json:"microvm"`
-		Cmdline string       `json:"cmdline,omitempty"`
-		Shares  []shareEntry `json:"shares,omitempty"`
-	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries}
+		MicroVM        bool         `json:"microvm"`
+		Cmdline        string       `json:"cmdline,omitempty"`
+		Shares         []shareEntry `json:"shares,omitempty"`
+		PCIPassthrough []string     `json:"pci_passthrough,omitempty"`
+		MIGDevices     []string     `json:"mig_devices,omitempty"`
+	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, PCIPassthrough: gpuPCI, MIGDevices: gpuMIG}
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
-		_ = os.RemoveAll(dir)
+		cleanupRegistered()
 		return fmt.Errorf("vz register-microvm: write config: %w", err)
 	}
 
 	// Lifecycle event: the VM dir is fully provisioned and ready
 	// for StartVM. Recorded *after* every artefact is on disk so
-	// the "registered" stamp truly marks "ready to boot".
-	mode := "uki"
-	if boot.Kernel != "" {
-		mode = "direct_linux"
-	}
+	// the "registered" stamp truly marks "ready to boot". The VM
+	// inventory entry (+ any GPU claim) was created earlier so its
+	// UUID could key the claim; see the block above.
 	RecordEvent(dir, "registered", map[string]string{"mode": mode})
-	// VM inventory entry — best-effort. Same rationale as in
-	// CloneVM: the VM is fully provisioned on disk; failure to
-	// register only loses the multi-host dispatch path (handled
-	// by the hypervisorForVM fallback). Microvm-flavoured
-	// entries carry the boot mode as the Image field so audits
-	// can distinguish UKI/direct-Linux registrations from
-	// classic cloud-image clones.
-	if a.vmReg != nil {
-		projectUUID := a.ResolveProjectUUID(project)
-		if _, err := a.RegisterVM(CreateVMSpec{
-			ProjectUUID: projectUUID,
-			Name:        name,
-			HostUUID:    a.localHostUUID(),
-			Image:       "microvm/" + mode,
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
-		}
-	}
 	return nil
 }
 

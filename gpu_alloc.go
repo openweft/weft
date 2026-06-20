@@ -26,6 +26,7 @@ package weft
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -284,6 +285,42 @@ func (t *gpuAllocTable) ClaimsForHost(hostUUID string) []GPUClaim {
 		}
 	}
 	return out
+}
+
+// ClaimsForVM returns the live claims held by one VM — the input to the
+// driver-attach plumbing (which resource ids does this VM's config.json
+// carry?). Order is unspecified; splitClaimsForDriver sorts for a
+// deterministic config.json.
+func (t *gpuAllocTable) ClaimsForVM(vmUUID string) []GPUClaim {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var out []GPUClaim
+	for _, key := range t.byVM[vmUUID] {
+		if c, ok := t.byResource[key]; ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// splitClaimsForDriver partitions a VM's claims into the two lists the
+// QEMU driver's config.json carries : whole-card PCI BDFs
+// (vfio-pci,host=<bdf>) and MIG-instance mdev UUIDs
+// (vfio-pci,sysfsdev=…/<uuid>). Both are sorted so the config.json — and
+// therefore the qemu argv — is byte-stable across registrations. Empty
+// input → two nil slices (the common no-GPU VM).
+func splitClaimsForDriver(claims []GPUClaim) (pci, mig []string) {
+	for _, c := range claims {
+		switch c.Kind {
+		case GPUClaimWholeCard:
+			pci = append(pci, c.ResourceID)
+		case GPUClaimMIG:
+			mig = append(mig, c.ResourceID)
+		}
+	}
+	sort.Strings(pci)
+	sort.Strings(mig)
+	return pci, mig
 }
 
 // hostClaimChecker returns a `claimed(resourceID) bool` closure bound to
