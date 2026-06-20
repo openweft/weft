@@ -30,6 +30,7 @@ import (
 	"io"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	guestv1 "github.com/openweft/weft-proto/guestv1"
@@ -37,6 +38,26 @@ import (
 
 type guestPodPlaneServer struct {
 	guestv1.UnimplementedGuestPodPlaneServer
+	// allowNonGuestCallers bypasses the peer-CID guard for tests
+	// that exercise the protocol over bufconn (not AF_VSOCK).
+	// Production never sets this — it's strictly a test escape
+	// hatch so the wire-level happy-path tests can run without
+	// faking up an AF_VSOCK transport.
+	allowNonGuestCallers bool
+}
+
+// IsGuestCID reports whether the AF_VSOCK CID is a real guest VM's
+// id (not a kernel-reserved value). The Linux kernel reserves
+// CID 0 (HYPERVISOR), 1 (LOCAL), 2 (HOST), and 0xffffffff (ANY) ;
+// real guest VMs are assigned CIDs from 3 upward.
+//
+// Defined here (not in vsock_listener_linux.go) so the handler is
+// portable across non-Linux builds — the listener itself is
+// Linux-only, but the gating logic should compile everywhere so the
+// agent's gRPC server can refuse misconfigured callers regardless
+// of platform.
+func IsGuestCID(cid uint32) bool {
+	return cid > 2 && cid != 0xffffffff
 }
 
 // Attach reads the mandatory GuestHello frame, replies with a
@@ -45,6 +66,34 @@ type guestPodPlaneServer struct {
 //   - send Ack fails : Internal (transport dropped)
 //   - subsequent recv error or EOF : nil (clean shutdown)
 func (s *guestPodPlaneServer) Attach(stream guestv1.GuestPodPlane_AttachServer) error {
+	// Peer-CID guard : refuse calls that didn't come from a guest VM.
+	// The vsock listener stamps the peer's CID on the conn's
+	// RemoteAddr() ; gRPC's peer.FromContext() surfaces that here.
+	// Reserved CIDs (HYPERVISOR=0, LOCAL=1, HOST=2) mean the conn
+	// arrived from the host itself (Unix socket / TCP / loopback
+	// vsock) — none of those should be impersonating a guest pod.
+	// On non-vsock transports peer.Addr is a *net.TCPAddr / *net.UnixAddr
+	// instead of a vsockAddr ; the guard short-circuits with an error
+	// in that case too — GuestPodPlane is vsock-only by design.
+	if s.allowNonGuestCallers {
+		// Test-only path : skip the guard so the protocol test can
+		// exercise Hello/Ack/drain over bufconn.
+	} else if pr, ok := peer.FromContext(stream.Context()); ok && pr.Addr != nil {
+		if va, ok := pr.Addr.(interface{ CID() uint32 }); ok {
+			if !IsGuestCID(va.CID()) {
+				return status.Errorf(codes.PermissionDenied,
+					"guest pod plane: reserved peer CID %d ; calls must originate from a guest microVM", va.CID())
+			}
+		} else {
+			// Non-vsock transport (Unix / TCP / SSH). Refuse —
+			// GuestPodPlane is vsock-only by design. Local
+			// integration tests that need to exercise the handler
+			// directly should call the server method itself rather
+			// than through the gRPC stack.
+			return status.Errorf(codes.PermissionDenied,
+				"guest pod plane: caller is not on AF_VSOCK ; transport=%s", pr.Addr.Network())
+		}
+	}
 	first, err := stream.Recv()
 	if err != nil {
 		if errors.Is(err, io.EOF) {

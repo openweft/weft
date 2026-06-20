@@ -79,9 +79,12 @@ func listenVsock(port uint32) (net.Listener, error) {
 }
 
 // Accept blocks until a guest connection lands + returns it wrapped
-// as net.Conn. Closes returned by raw accept() get bridged through
-// os.NewFile + net.FileConn so the grpc.Server stack can use them
-// without knowing about AF_VSOCK.
+// in a vsockConn that surfaces the peer's CID via RemoteAddr(). The
+// gRPC server stack then propagates that addr to handlers via the
+// standard peer.FromContext() machinery, so handlers like
+// GuestPodPlane.Attach can refuse calls that didn't come from a
+// guest VM (peer CID == CID_HYPERVISOR / CID_LOCAL / CID_HOST means
+// the conn isn't from a guest — those are reserved values).
 func (l *vsockListener) Accept() (net.Conn, error) {
 	if l.closed.Load() {
 		return nil, net.ErrClosed
@@ -105,7 +108,24 @@ func (l *vsockListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vsock fileconn: %w", err)
 	}
-	return conn, nil
+	return &vsockConn{Conn: conn, peerCID: sa.cid, peerPort: sa.port, localPort: l.port}, nil
+}
+
+// vsockConn wraps the net.FileConn so RemoteAddr() returns a
+// vsockAddr the gRPC handlers can read via peer.FromContext().
+type vsockConn struct {
+	net.Conn
+	peerCID   uint32
+	peerPort  uint32
+	localPort uint32
+}
+
+func (c *vsockConn) RemoteAddr() net.Addr {
+	return vsockAddr{cid: c.peerCID, port: c.peerPort}
+}
+
+func (c *vsockConn) LocalAddr() net.Addr {
+	return vsockAddr{cid: vsockCIDAny, port: c.localPort}
 }
 
 func (l *vsockListener) Close() error {
@@ -120,10 +140,21 @@ func (l *vsockListener) Close() error {
 // human-readable handle.
 func (l *vsockListener) Addr() net.Addr { return vsockAddr{port: l.port} }
 
-type vsockAddr struct{ port uint32 }
+// vsockAddr identifies one end of a vsock connection. CID is the
+// kernel's "context id" — VMADDR_CID_HYPERVISOR=0, CID_LOCAL=1,
+// CID_HOST=2 are reserved ; guest CIDs are 3+ (assigned at VM
+// launch by the hypervisor backend). Handlers cast a peer.Addr to
+// vsockAddr to read these.
+type vsockAddr struct {
+	cid  uint32
+	port uint32
+}
 
 func (a vsockAddr) Network() string { return "vsock" }
-func (a vsockAddr) String() string  { return fmt.Sprintf("vsock://any:%d", a.port) }
+func (a vsockAddr) String() string  { return fmt.Sprintf("vsock://%d:%d", a.cid, a.port) }
+func (a vsockAddr) CID() uint32     { return a.cid }
+func (a vsockAddr) Port() uint32    { return a.port }
+
 
 // vsockSupported reports whether the running kernel exposes AF_VSOCK
 // at all. Cheap probe : open + immediately close a socket. Returns
