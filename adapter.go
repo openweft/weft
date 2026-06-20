@@ -3559,11 +3559,22 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		}
 		entries[i] = shareEntry{Tag: s.Tag, Path: exposePath, ReadOnly: s.ReadOnly}
 	}
+	// Pre-allocate the guest's AF_VSOCK CID before writing config.json
+	// so the driver picks it up when it bakes its qemu argv (or wires
+	// the equivalent on Apple VZ). We can't read it back from the VM
+	// inventory yet — RegisterVM lower in this function is what
+	// persists the VsockCID on the VM record — but the CID is a pure
+	// function of (projectUUID, name) at this point, so we recompute
+	// it here. The downstream call to RegisterPodCID will store the
+	// same value on the registry, and setVsockCID persists it on the
+	// VM record. Three callers, one truth — guaranteed by the hash.
+	preCID := AllocateVsockCID(projectUUID, name)
 	cfg := struct {
-		MicroVM bool         `json:"microvm"`
-		Cmdline string       `json:"cmdline,omitempty"`
-		Shares  []shareEntry `json:"shares,omitempty"`
-	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries}
+		MicroVM  bool         `json:"microvm"`
+		Cmdline  string       `json:"cmdline,omitempty"`
+		Shares   []shareEntry `json:"shares,omitempty"`
+		VsockCID uint32       `json:"vsock_cid,omitempty"`
+	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, VsockCID: preCID}
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
 		_ = os.RemoveAll(dir)
@@ -3597,14 +3608,14 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
 		} else {
 			// AF_VSOCK CID allocation : deterministic hash of
-			// (projectUUID, vmUUID) so the CID is stable across
-			// agent restarts and across the VM's lifetime ; the
-			// caller will pass it to the driver via VMSpec on
-			// StartVM (driver-side wiring is a separate repo). The
-			// in-memory podCIDs index lets GuestPodPlane.Attach
-			// check peer.CID() against this value before trusting
-			// the announced pod_id.
-			cid := AllocateVsockCID(projectUUID, registered.UUID)
+			// (projectUUID, name). MUST match the value already
+			// written into config.json above (the qemu driver reads
+			// it from there to emit `-device vhost-vsock-pci,
+			// guest-cid=N`). We re-compute here rather than threading
+			// preCID down so the persistence-site code path is
+			// resilient to refactors that change the dirset order.
+			// The hash is pure so the recomputation is safe.
+			cid := AllocateVsockCID(projectUUID, name)
 			if cid != 0 {
 				if err := a.vmReg.setVsockCID(registered.UUID, cid); err != nil {
 					fmt.Fprintf(os.Stderr, "weft: register-microvm: persist vsock_cid: %v\n", err)

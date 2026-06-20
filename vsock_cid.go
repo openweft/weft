@@ -41,14 +41,28 @@ const (
 )
 
 // AllocateVsockCID derives a deterministic guest CID from the given
-// (projectUUID, vmUUID) pair. Same input → same output, same agent
-// restart or different. Empty inputs return 0 (unassigned) so the
-// caller can fall back to legacy "no vsock" behaviour.
-func AllocateVsockCID(projectUUID, vmUUID string) uint32 {
-	if vmUUID == "" {
+// (projectUUID, vmIdentifier) pair. Same input → same output, same
+// agent restart or different. Empty identifier returns 0 (unassigned)
+// so the caller can fall back to legacy "no vsock" behaviour.
+//
+// vmIdentifier must be a value that uniquely names the VM within the
+// project AND is available at every site that needs the CID :
+//   - weft writes the CID into <vmDir>/config.json BEFORE
+//     RegisterVM mints VM.UUID, so it has only `name` at that point.
+//   - The agent's podCIDs index keys on pod_id (= VM.Name in the
+//     GuestPodPlane wire contract).
+//   - The persistent VM record stores the CID on VM.VsockCID.
+//
+// All three sites use the VM name. The name is unique within its
+// project (vmRegistry refuses duplicates), so it's a safe identity
+// key — and using the name everywhere keeps the three persistence
+// sites in lockstep without threading the UUID through a layer that
+// doesn't have it yet.
+func AllocateVsockCID(projectUUID, vmIdentifier string) uint32 {
+	if vmIdentifier == "" {
 		return 0
 	}
-	key := projectUUID + "/" + vmUUID
+	key := projectUUID + "/" + vmIdentifier
 	h := sha256.Sum256([]byte(key))
 	// Take the first 4 bytes of the hash, fold into the window.
 	raw := binary.BigEndian.Uint32(h[:4])
