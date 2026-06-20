@@ -137,6 +137,14 @@ type VM struct {
 	State        VMState      `json:"state"`
 	CreatedAt    time.Time    `json:"created_at"`
 	LastStartAt  time.Time    `json:"last_start_at,omitempty"`
+	// VsockCID is the AF_VSOCK context-id the hypervisor assigns to
+	// this guest. Allocated deterministically from the VM UUID at
+	// RegisterMicroVM time ; consumed by GuestPodPlane.Attach to
+	// verify the announced pod_id matches the peer's actual CID.
+	// 0 = unassigned (legacy VMs that pre-date the CID allocator).
+	// Drivers that don't yet honour the field still produce working
+	// VMs ; the agent-side check just stays permissive for those.
+	VsockCID uint32 `json:"vsock_cid,omitempty"`
 }
 
 // vmsDoc / vmBlock mirror the HCL schema.
@@ -159,6 +167,7 @@ type vmBlock struct {
 	State        string              `hcl:"state,optional"`
 	CreatedAt    string              `hcl:"created_at"`
 	LastStartAt  string              `hcl:"last_start_at,optional"`
+	VsockCID     int                 `hcl:"vsock_cid,optional"`
 }
 
 // requestedGPUBlock is the HCL on-disk shape for one GPURequest
@@ -273,6 +282,7 @@ func loadVMRegistry(ctx context.Context, storage Storage) (*vmRegistry, error) {
 			State:         state,
 			CreatedAt:     created,
 			LastStartAt:   lastStart,
+			VsockCID:      uint32(b.VsockCID),
 		}
 		reg.indexLocked(v)
 	}
@@ -411,6 +421,9 @@ func (r *vmRegistry) saveLocked() error {
 		if !v.LastStartAt.IsZero() {
 			bb.SetAttributeValue("last_start_at", cty.StringVal(v.LastStartAt.Format(time.RFC3339Nano)))
 		}
+		if v.VsockCID != 0 {
+			bb.SetAttributeValue("vsock_cid", cty.NumberUIntVal(uint64(v.VsockCID)))
+		}
 		body.AppendNewline()
 	}
 	return r.storage.Save(context.Background(), f.Bytes())
@@ -547,6 +560,7 @@ func (r *vmRegistry) reloadFromStorage(ctx context.Context) error {
 				State:         state,
 				CreatedAt:     created,
 				LastStartAt:   lastStart,
+				VsockCID:      uint32(b.VsockCID),
 			}
 			byUUID[v.UUID] = v
 			nameIdx[vmNameKey(v.ProjectUUID, v.Name)] = v.UUID
@@ -782,6 +796,22 @@ func (r *vmRegistry) setProperties(uuid string, properties map[string]string) er
 		return fmt.Errorf("vm %q not found", uuid)
 	}
 	v.Properties = copyProperties(properties)
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
+// setVsockCID records the AF_VSOCK CID the hypervisor will (or
+// did) assign to the VM. Persisted alongside the rest of the VM
+// record so GuestPodPlane.Attach's strict check survives agent
+// restarts.
+func (r *vmRegistry) setVsockCID(uuid string, cid uint32) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	v.VsockCID = cid
 	r.byUUID[uuid] = v
 	return r.persistOne(v)
 }

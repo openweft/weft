@@ -36,8 +36,22 @@ import (
 	guestv1 "github.com/openweft/weft-proto/guestv1"
 )
 
+// podCIDLookup is the slice of the adapter the GuestPodPlane handler
+// actually depends on. Defined here (not lifted from weft.VZAdapter)
+// so tests can stub it without dragging the full adapter surface in.
+// The production handler is constructed with the real adapter ; tests
+// inject a tiny fake that only fills PodCID.
+type podCIDLookup interface {
+	PodCID(podID string) (uint32, bool)
+}
+
 type guestPodPlaneServer struct {
 	guestv1.UnimplementedGuestPodPlaneServer
+	// adp is the adapter the handler queries for the announced
+	// pod_id's expected AF_VSOCK CID. Optional in tests — when nil
+	// (or when the adapter has no entry for the pod_id) the handler
+	// falls back to the existing "any non-reserved CID" guard.
+	adp podCIDLookup
 	// allowNonGuestCallers bypasses the peer-CID guard for tests
 	// that exercise the protocol over bufconn (not AF_VSOCK).
 	// Production never sets this — it's strictly a test escape
@@ -104,6 +118,27 @@ func (s *guestPodPlaneServer) Attach(stream guestv1.GuestPodPlane_AttachServer) 
 	hello, ok := first.Body.(*guestv1.GuestFrame_Hello)
 	if !ok || hello.Hello == nil {
 		return status.Error(codes.InvalidArgument, "first frame must be GuestHello")
+	}
+	// Strict-when-known peer-CID check : if the agent has a recorded
+	// CID for this pod_id (allocated at RegisterMicroVM time and
+	// persisted on VM.VsockCID), the announced pod_id MUST come from
+	// that exact CID. Mismatch → PermissionDenied ; a hostile guest
+	// can't impersonate another VM's pod by guessing its name. Pods
+	// the agent doesn't know about (legacy VMs registered before the
+	// allocator landed, or tests that bypass the allocator) fall
+	// through to the existing non-reserved guard set earlier.
+	if !s.allowNonGuestCallers && s.adp != nil {
+		if expected, known := s.adp.PodCID(hello.Hello.PodId); known {
+			if pr, ok := peer.FromContext(stream.Context()); ok && pr.Addr != nil {
+				if va, ok := pr.Addr.(interface{ CID() uint32 }); ok {
+					if va.CID() != expected {
+						return status.Errorf(codes.PermissionDenied,
+							"guest pod plane: pod_id %q announced from CID %d but registered as %d",
+							hello.Hello.PodId, va.CID(), expected)
+					}
+				}
+			}
+		}
 	}
 	logger.Printf("GuestPodPlane attached : pod=%s init=%s kernel=%s",
 		hello.Hello.PodId, hello.Hello.InitVersion, hello.Hello.Kernel)

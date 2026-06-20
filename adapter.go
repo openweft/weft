@@ -64,6 +64,12 @@ type VZAdapter interface {
 
 	// VZ-specific extensions
 	RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare) error
+	// PodCID returns the AF_VSOCK CID the agent allocated for the
+	// pod_id (= VM.Name). Used by GuestPodPlane.Attach to verify
+	// the announced pod_id against the peer's actual CID. Unknown
+	// pods return (0, false) ; the handler interprets that as
+	// "no strict expectation, fall through to the generic guard".
+	PodCID(podID string) (uint32, bool)
 	SetVMUser(name, user string)
 	SetSSHKeyPath(path string)
 	SetChecksums(checksums map[string]string)
@@ -481,6 +487,11 @@ type Adapter struct {
 	// storage blob so the two registries don't share state. See
 	// tenant_caps.go.
 	tenantCaps *tenantCapRegistry
+	// podCIDs maps pod_id (VM.Name) → AF_VSOCK CID for in-process
+	// lookups by GuestPodPlane.Attach. Persistent state lives on
+	// VM.VsockCID ; this is a hot-path cache rebuilt on agent boot
+	// from the inventory.
+	podCIDs *podCIDRegistry
 	// scheduler picks which Host runs a new VM. Defaults to
 	// FirstFitScheduler; swappable via SetScheduler. See
 	// scheduler.go for the interface + the default policy's
@@ -756,6 +767,7 @@ func (a *Adapter) afterStorageWired() VZAdapter {
 	a.initVMs()
 	a.initTenantQuotas()
 	a.initTenantCaps()
+	a.initPodCIDs()
 	a.initResources()
 	a.scheduler = FirstFitScheduler{} // operator-overridable via SetScheduler
 	if err := a.selfRegisterHost(); err != nil {
@@ -1343,6 +1355,12 @@ func (a *Adapter) UnregisterVM(uuid string) error {
 	prev, _ := a.vmReg.lookupByUUID(uuid)
 	if err := a.vmReg.delete(uuid); err != nil {
 		return err
+	}
+	// Drop the in-memory pod_id→CID binding so a recycled VM
+	// name (same project + same name re-registered later) won't
+	// inherit the previous incarnation's CID expectation.
+	if prev.Name != "" {
+		a.UnregisterPodCID(prev.Name)
 	}
 	a.bus.Publish(PlatformEvent{
 		Kind:        "vm.unregistered",
@@ -3569,13 +3587,31 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 	// classic cloud-image clones.
 	if a.vmReg != nil {
 		projectUUID := a.ResolveProjectUUID(project)
-		if _, err := a.RegisterVM(CreateVMSpec{
+		registered, err := a.RegisterVM(CreateVMSpec{
 			ProjectUUID: projectUUID,
 			Name:        name,
 			HostUUID:    a.localHostUUID(),
 			Image:       "microvm/" + mode,
-		}); err != nil {
+		})
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
+		} else {
+			// AF_VSOCK CID allocation : deterministic hash of
+			// (projectUUID, vmUUID) so the CID is stable across
+			// agent restarts and across the VM's lifetime ; the
+			// caller will pass it to the driver via VMSpec on
+			// StartVM (driver-side wiring is a separate repo). The
+			// in-memory podCIDs index lets GuestPodPlane.Attach
+			// check peer.CID() against this value before trusting
+			// the announced pod_id.
+			cid := AllocateVsockCID(projectUUID, registered.UUID)
+			if cid != 0 {
+				if err := a.vmReg.setVsockCID(registered.UUID, cid); err != nil {
+					fmt.Fprintf(os.Stderr, "weft: register-microvm: persist vsock_cid: %v\n", err)
+				} else {
+					a.RegisterPodCID(name, cid)
+				}
+			}
 		}
 	}
 	return nil
