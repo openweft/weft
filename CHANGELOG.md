@@ -8,6 +8,14 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 ## [Unreleased]
 
 ### Added
+- **GPU sharing — MIG-instance detection** (phase 3, detection half).
+  The Linux `detectGPUs` now enumerates NVIDIA MIG instances from
+  `nvidia-smi -L` (`enumerateMIGFromSMIL`, a platform-neutral parser in
+  `gpu_mig.go`), populating `GPU.MIGInstances` with profile / mdev UUID
+  / parent BDF / per-slice memory. Enforces the EITHER/OR invariant: a
+  MIG-mode card has its whole-card `PCIBDF` cleared so it can't also be
+  claimed whole. The matching QEMU `sysfsdev=` attach lands in
+  `weft-driver-qemu`. See `docs/operations/gpu-sharing.md`.
 - **GPU sharing — inventory model + counted allocation** (first of a
   phased series, see `docs/operations/gpu-sharing.md`). `GPU` now
   carries an `NVLinkDomain` label (operator-seedable via the host

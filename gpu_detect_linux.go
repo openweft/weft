@@ -80,7 +80,17 @@ func detectGPUsImpl() []GPU {
 		fmt.Fprintf(os.Stderr, "weft: detectGPUs enrich: %v\n", err)
 		return gpus
 	}
-	return enriched
+	// MIG enumeration : `nvidia-smi -L` lists each MIG instance with its
+	// profile + UUID under its parent GPU. enumerateMIGFromSMIL attaches
+	// them to the matching card and (per the EITHER/OR invariant) clears
+	// the parent's whole-card BDF. Best-effort : a -L failure leaves the
+	// whole-card inventory intact rather than failing registration.
+	lout, err := exec.Command(smi, "-L").Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weft: detectGPUs nvidia-smi -L: %v\n", err)
+		return enriched
+	}
+	return enumerateMIGFromSMIL(enriched, strings.NewReader(string(lout)))
 }
 
 // detectGPUsFromSysfs walks the DRM subsystem looking for PCI

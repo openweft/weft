@@ -126,9 +126,16 @@ Matching under exclusivity (`gpuRequestSatisfiedExcl`) :
 2. **Scheduler wiring** — `ScheduleVM` consults the claim table, claims
    on success, releases on `DeprovisionVM`. etcd persistence of the
    table.
-3. **MIG attach** — `weft-driver-qemu` `sysfsdev=<uuid>` path ;
-   `detectGPUs` enumerates MIG instances (`nvidia-smi mig -lgi` +
-   `/sys/bus/mdev`).
+3. **This PR (MIG detect + attach)** — `detectGPUs` enumerates MIG
+   instances from `nvidia-smi -L` (`enumerateMIGFromSMIL`), populating
+   `GPU.MIGInstances` and **clearing the parent's whole-card BDF** so a
+   MIG-mode card is never also handed out whole (the EITHER/OR
+   invariant). `weft-driver-qemu` renders `-device
+   vfio-pci,sysfsdev=/sys/bus/mdev/devices/<uuid>` per MIG instance
+   (and `host=<BDF>` per whole card), fed from the VM `config.json`.
+   **Not yet** wired: weft-agent writing those config fields from the
+   phase-2 `GPUClaim`s — the seam between the claim and the driver.
+   (Scheduler claim wiring itself is the separate phase-2 PR.)
 4. **NVLink affinity** — `detectGPUs` fills `NVLinkDomain` from
    `nvidia-smi topo` ; scheduler keeps `count > 1` requests intra-domain.
 
