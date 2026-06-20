@@ -252,3 +252,16 @@ message ExecResult {
   bytes stdout    = 3;   // small payloads only ; streaming exec uses a future side-channel
   bytes stderr    = 4;
 }
+
+// UpdateContainer is the future live-restart op : swap a container's
+// env / command without a full pod restart. The body is intentionally
+// minimal today ; flesh out when the runtime grows the matching API
+// (weft-init has no live-update path yet).
+message UpdateContainer {
+  string container_id = 1;
+  // command, if non-empty, replaces the container's command line.
+  repeated string command = 2;
+  // env merges over the container's existing env ; empty value
+  // unsets a key.
+  map<string, string> env = 3;
+}
