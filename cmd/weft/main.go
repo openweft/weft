@@ -33,6 +33,7 @@ import (
 	"github.com/openweft/weft-microvm-init/pkg/pod"
 	weftv1 "github.com/openweft/weft-proto"
 	agentv1 "github.com/openweft/weft-proto/agentv1"
+	guestv1 "github.com/openweft/weft-proto/guestv1"
 	weftslognats "github.com/openweft/weft-slognats"
 	"github.com/openweft/weft/auditlog"
 	"github.com/openweft/weft/cmd/weft/admin"
@@ -828,6 +829,12 @@ func run(t fileConfigTargets) error {
 	// is wired but accepts-Init-then-drains until the federation work
 	// promotes it to the primary dispatch path.
 	agentv1.RegisterAgentControlPlaneServer(srv, &agentControlPlaneServer{adp: a})
+	// GuestPodPlane (weft-proto guestv1) : the bidi stream weft-init
+	// (PID 1 in microVMs) uses to report pod telemetry + receive
+	// control requests. Today over the agent's existing socket ; a
+	// future commit binds a per-VM AF_VSOCK listener for the
+	// production transport described in guest.proto.
+	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{})
 
 	// Top-level lifecycle ctx — cancelled on SIGINT/SIGTERM. The
 	// proxy plane (when --proxy is set) hangs off it so the
