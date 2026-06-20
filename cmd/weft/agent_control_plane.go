@@ -25,6 +25,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -98,6 +99,13 @@ func recordAttachResult(result string) {
 type agentControlPlaneServer struct {
 	agentv1.UnimplementedAgentControlPlaneServer
 	adp weft.VZAdapter
+	// attachSessions is the per-host AttachDrivers session registry.
+	// Mirrors agentDispatchServer.sessions for the new transport ;
+	// see agent_control_plane_dispatch.go for the full lifecycle.
+	// Empty until the first AttachDrivers stream lands ; Dispatch()
+	// returns Unavailable for hosts with no entry.
+	attachMu       sync.Mutex
+	attachSessions map[string]*attachDriversSession
 }
 
 // RegisterAgent translates the AgentControlPlane wire shape into the
@@ -148,47 +156,45 @@ func (s *agentControlPlaneServer) Heartbeat(ctx context.Context, req *agentv1.He
 	return &agentv1.HeartbeatResponse{}, nil
 }
 
-// AttachDrivers reads the agent's Init frame (capability
-// advertisement), logs the driver kinds the agent advertised, then
-// drains until the stream closes. The actual driver dispatch still
-// travels over AgentDispatch.Connect (weft.proto, already in
-// production) ; AttachDrivers exists for cross-cluster federation
-// work where a dedicated dispatch path with stricter auth is
-// desirable.
+// AttachDrivers is the dispatch transport. v0.4.50 promotes it from
+// "Init + observability drain" to a real dispatch path with the same
+// shape as the long-standing AgentDispatch.Connect : per-host session
+// registry, call_id correlation, sender/receiver goroutines, and a
+// public Dispatch() method on this server for other parts of the
+// agent to send DriverDispatchCall frames + await their matching
+// DriverDispatchResult.
 //
-// v0.4.49 — observability seam : the handler now stamps a
-// `weft_attach_drivers_calls_total{result=…}` Prometheus counter on
-// every Init-accept + every termination, and best-effort forwards
-// each inbound non-Init frame to the Adapter's EventBus as a
-// `agent.attach_drivers.event` PlatformEvent. Neither side is part of
-// the real dispatch path : the counter is purely so operators can see
-// whether anyone is calling AttachDrivers in the wild before we
-// commit to the full migration, and the bus forwarding lets existing
-// subscribers (TUI tail, weft-doctor) see frames flow without a new
-// proto-level wiring effort. The full migration from
-// AgentDispatch.Connect → AttachDrivers as the primary driver-
-// dispatch path is a separate ~800-line architectural change (call-id
-// correlation, per-driver-kind payload codec, integration with the
-// existing dispatchSrv registry) and is NOT in this slice.
+// Co-existence : the legacy AgentDispatch.Connect transport stays
+// live alongside this one. Operators choose per-deployment which
+// transport their agents open (by toggling the corresponding
+// control-plane URL flag on the agent client side). Migration off
+// AgentDispatch is a separate decision once AttachDrivers has
+// real-world burn-in.
 //
-// TODO(v0.5.x — federation track) :
-//   - introduce a per-call-id correlation table mirroring
-//     dispatchSrv.sessions so Result frames can route back to the
-//     issuing caller goroutine.
-//   - lift Dispatch payloads through the same multidriver fan-out
-//     dispatchSrv uses today, swapping the AgentDispatch transport
-//     for this bidi stream once parity is proven.
-//   - retire AgentDispatch.Connect in favour of AttachDrivers and
-//     delete the legacy session-down hook in main.go.
+// Implementation contract :
 //
-// Implementation contract (unchanged) :
-//   1. First frame MUST be Init ; anything else closes the stream
-//      with InvalidArgument.
-//   2. After Init, the server records the (host_uuid, driver_kinds)
-//      capability advertisement so future work has a hook.
-//   3. The server drains incoming frames (Dispatch / Result /
-//      Disconnect) without responding ; clients should treat
-//      AttachDrivers as "accepted, dispatch via AgentDispatch" today.
+//  1. First frame MUST be Init ; anything else closes the stream
+//     with InvalidArgument.
+//  2. After Init, the server registers an attachDriversSession
+//     keyed on host_uuid (supersede-by-reconnect semantics — same
+//     UUID re-connecting cancels the old session's goroutines first).
+//  3. Sender goroutine drains session.send → stream.Send. Receiver
+//     goroutine reads Result frames and routes them through the
+//     pending table to Dispatch() callers. Other frame kinds
+//     (Init re-advertisement, stray Dispatch, Disconnect) take the
+//     observability path (PlatformEvent forward) from v0.4.49.
+//  4. Stream end (EOF, Disconnect, transport error) tears down the
+//     goroutines and drains the pending table with synthetic
+//     "session aborted" Results so blocked Dispatch() callers
+//     unblock promptly.
+//
+// Observability (preserved from v0.4.49) :
+//   - weft_attach_drivers_calls_total{result=…} on every Init-accept
+//     + every termination.
+//   - agent.attach_drivers.event PlatformEvents on every Init,
+//     Disconnect, and stray Dispatch/Result frame (Result frames
+//     that match a pending call go straight to the caller and don't
+//     emit a bus event — would be noise).
 func (s *agentControlPlaneServer) AttachDrivers(stream agentv1.AgentControlPlane_AttachDriversServer) error {
 	if err := weft.RequireAdmin(stream.Context(), "attach drivers"); err != nil {
 		return err
@@ -196,8 +202,6 @@ func (s *agentControlPlaneServer) AttachDrivers(stream agentv1.AgentControlPlane
 	first, err := stream.Recv()
 	if err != nil {
 		if errors.Is(err, io.EOF) {
-			// Clean close before Init — count as init_error so it
-			// stands out separately from a no-frame-at-all stall.
 			recordAttachResult("init_error")
 			return nil
 		}
@@ -211,45 +215,68 @@ func (s *agentControlPlaneServer) AttachDrivers(stream agentv1.AgentControlPlane
 	}
 	recordAttachResult("opened")
 	hostUUID := init.Init.HostUuid
-	logger.Printf("AttachDrivers accepted : host=%s kinds=%v (dispatch via AgentDispatch)",
+	logger.Printf("AttachDrivers accepted : host=%s kinds=%v",
 		hostUUID, init.Init.DriverKinds)
-	// Best-effort PlatformEvent for the Init capability advertisement
-	// itself, so operators watching the bus see something on the
-	// first stream a host opens. Kind is "agent.attach_drivers.event"
-	// per the v0.4.49 forwarding contract ; raw_kind labels the
-	// oneof case so subscribers can fan-out later without a schema bump.
 	s.forwardFrameEvent(hostUUID, "init", nil)
-	for {
-		frame, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				recordAttachResult("client_eof")
-				return nil
-			}
-			recordAttachResult("error")
-			return status.Errorf(codes.Canceled, "attach drivers: recv: %v", err)
-		}
-		switch body := frame.Body.(type) {
-		case *agentv1.AttachDriversFrame_Init:
-			// Duplicate Init mid-stream : tolerated today (idempotent
-			// re-advertisement) ; we forward it so subscribers see
-			// the capability set bump.
-			s.forwardFrameEvent(hostUUID, "init", nil)
-		case *agentv1.AttachDriversFrame_Dispatch:
-			s.forwardFrameEvent(hostUUID, "dispatch", nil)
-		case *agentv1.AttachDriversFrame_Result:
-			s.forwardFrameEvent(hostUUID, "result", nil)
-		case *agentv1.AttachDriversFrame_Disconnect:
-			reason := ""
-			if body.Disconnect != nil {
-				reason = body.Disconnect.Reason
-			}
-			s.forwardFrameEvent(hostUUID, "disconnect", map[string]string{"reason": reason})
-			logger.Printf("AttachDrivers disconnect : host=%s reason=%s", hostUUID, reason)
-			recordAttachResult("server_eof")
-			return nil
+
+	// Register the session before launching the goroutines so a
+	// concurrent Dispatch() call sees it. supersede-by-reconnect :
+	// if a session already exists for this host, drain its pending
+	// table + cancel its context so its goroutines exit cleanly
+	// before we replace it in the map.
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+	sess := &attachDriversSession{
+		hostUUID:    hostUUID,
+		stream:      stream,
+		connectedAt: time.Now().UTC(),
+		send:        make(chan *agentv1.AttachDriversFrame, 16),
+		cancel:      cancel,
+	}
+	if existing := s.registerAttachSession(sess); existing != nil {
+		existing.pending.drainAll("AttachDrivers session superseded by reconnect")
+		if existing.cancel != nil {
+			existing.cancel()
 		}
 	}
+	defer func() {
+		removed := s.deregisterAttachSession(sess)
+		// Wake any Dispatch() callers blocked on a result from
+		// this now-dead session.
+		sess.pending.drainAll("AttachDrivers session ended")
+		_ = removed // future hook : onSessionDown analog to fire host-down
+	}()
+
+	// Sender + receiver goroutines. The receiver passes a per-host
+	// forwardFrame closure so non-Result frames still take the
+	// PlatformEvent path from v0.4.49 — operators keep their bus
+	// subscriptions intact.
+	errCh := make(chan error, 2)
+	forwardFrame := func(rawKind string, extra map[string]string) {
+		s.forwardFrameEvent(hostUUID, rawKind, extra)
+	}
+	go s.runAttachSender(ctx, sess, errCh)
+	go s.runAttachReceiver(sess, forwardFrame, errCh)
+
+	err = <-errCh
+	cancel()
+	if err == nil {
+		// Disconnect frame from the agent : observability path
+		// already logged + forwarded.
+		recordAttachResult("server_eof")
+		return nil
+	}
+	if errors.Is(err, io.EOF) {
+		recordAttachResult("client_eof")
+		return nil
+	}
+	if errors.Is(err, context.Canceled) {
+		// Supersede-by-reconnect cancelled us — not an error.
+		recordAttachResult("server_eof")
+		return nil
+	}
+	recordAttachResult("error")
+	return status.Errorf(codes.Canceled, "attach drivers: %v", err)
 }
 
 // forwardFrameEvent best-effort publishes one PlatformEvent on the
