@@ -95,5 +95,26 @@ their helpers but start empty.
 | `GuestPodPlane` (guestv1) | ✅ wired (weft v0.4.42 ; bidi stream handler + Hello/Ack/drain protocol) |
 
 Every gRPC service declared in weft-proto now has a server-side
-implementation. The AF_VSOCK transport binding for GuestPodPlane is
-a separate operator concern (the gRPC handler is transport-agnostic).
+implementation.
+
+## AF_VSOCK transport binding (v0.4.43)
+
+Closes the last GuestPodPlane follow-up. The agent's gRPC server
+now optionally binds an AF_VSOCK listener for the guest transport :
+
+```sh
+weft agent --vsock-port=7777
+# or in cluster.hcl :
+#   weft { vsock_port = 7777 }
+```
+
+Guests dial `VMADDR_CID_HOST=2` + the configured port. Every gRPC
+service the agent registers is reachable over vsock — GuestPodPlane
++ WeftAgent + AgentControlPlane all on the same listener.
+
+Linux-only by design (AF_VSOCK is a Linux address family). On
+darwin/freebsd hosts the agent logs that vsock was requested but
+unavailable + falls back to Unix/TCP/SSH listeners.
+
+Live-validated on the 6-host 3-DC cluster : all 6 agents log
+"AF_VSOCK gRPC listening on port=7777".
