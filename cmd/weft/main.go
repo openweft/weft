@@ -32,6 +32,7 @@ import (
 	wefthcl "github.com/openweft/weft-hcl"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
 	weftv1 "github.com/openweft/weft-proto"
+	agentv1 "github.com/openweft/weft-proto/agentv1"
 	weftslognats "github.com/openweft/weft-slognats"
 	"github.com/openweft/weft/auditlog"
 	"github.com/openweft/weft/cmd/weft/admin"
@@ -821,6 +822,12 @@ func run(t fileConfigTargets) error {
 	weftv1.RegisterWeftAgentServer(srv, srvImpl)
 	weftv1.RegisterAttestationServiceServer(srv, srvImpl)
 	weftv1.RegisterAgentDispatchServer(srv, dispatchSrv)
+	// AgentControlPlane (weft-proto agentv1) is the machine-to-machine
+	// surface remote agents use for RegisterAgent / Heartbeat. Driver
+	// dispatch still travels over AgentDispatch above ; AttachDrivers
+	// is wired but accepts-Init-then-drains until the federation work
+	// promotes it to the primary dispatch path.
+	agentv1.RegisterAgentControlPlaneServer(srv, &agentControlPlaneServer{adp: a})
 
 	// Top-level lifecycle ctx — cancelled on SIGINT/SIGTERM. The
 	// proxy plane (when --proxy is set) hangs off it so the
