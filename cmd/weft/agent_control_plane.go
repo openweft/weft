@@ -46,7 +46,10 @@ type agentControlPlaneServer struct {
 // mints a fresh one ; non-empty UUID re-registers (refreshes mutable
 // fields, preserves CreatedAt + the placement metadata when the spec
 // leaves them empty).
-func (s *agentControlPlaneServer) RegisterAgent(_ context.Context, req *agentv1.RegisterAgentRequest) (*agentv1.RegisterAgentResponse, error) {
+func (s *agentControlPlaneServer) RegisterAgent(ctx context.Context, req *agentv1.RegisterAgentRequest) (*agentv1.RegisterAgentResponse, error) {
+	if err := weft.RequireAdmin(ctx, "register agent"); err != nil {
+		return nil, err
+	}
 	if req.Registration == nil {
 		return nil, status.Error(codes.InvalidArgument, "registration is required")
 	}
@@ -72,7 +75,10 @@ func (s *agentControlPlaneServer) RegisterAgent(_ context.Context, req *agentv1.
 
 // Heartbeat bumps the host's LastSeenAt + flips Down → Active. Same
 // semantics as WeftAgent.HeartbeatHost.
-func (s *agentControlPlaneServer) Heartbeat(_ context.Context, req *agentv1.HeartbeatRequest) (*agentv1.HeartbeatResponse, error) {
+func (s *agentControlPlaneServer) Heartbeat(ctx context.Context, req *agentv1.HeartbeatRequest) (*agentv1.HeartbeatResponse, error) {
+	if err := weft.RequireAdmin(ctx, "heartbeat"); err != nil {
+		return nil, err
+	}
 	if req.HostUuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "host_uuid is required")
 	}
@@ -100,6 +106,9 @@ func (s *agentControlPlaneServer) Heartbeat(_ context.Context, req *agentv1.Hear
 //      without responding ; clients should treat AttachDrivers as
 //      "accepted, dispatch via AgentDispatch" today.
 func (s *agentControlPlaneServer) AttachDrivers(stream agentv1.AgentControlPlane_AttachDriversServer) error {
+	if err := weft.RequireAdmin(stream.Context(), "attach drivers"); err != nil {
+		return err
+	}
 	first, err := stream.Recv()
 	if err != nil {
 		if errors.Is(err, io.EOF) {
