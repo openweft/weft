@@ -50,7 +50,8 @@ func enumerateMIGFromSMIL(base []GPU, r io.Reader) []GPU {
 	}
 
 	sc := bufio.NewScanner(r)
-	cur := -1 // index into out of the GPU whose block we're inside
+	sc.Buffer(make([]byte, 0, 4096), 64*1024) // cap line length like the sibling parsers
+	cur := -1                                 // index into out of the GPU whose block we're inside
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if idx, ok := parseSMILGPUIndex(line); ok {
@@ -88,7 +89,9 @@ func parseSMILGPUIndex(line string) (int, bool) {
 		return 0, false
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(rest[:colon]))
-	if err != nil {
+	if err != nil || n < 0 {
+		// Reject a negative ordinal defensively — enumerateMIGFromSMIL
+		// bounds-checks the index too, but a GPU index is never negative.
 		return 0, false
 	}
 	return n, true
