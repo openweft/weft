@@ -1148,6 +1148,74 @@ message InstallPluginRequest {
 }
 message InstallPluginResponse { string instance_uuid = 1; }
 
+// --- PodSpec publish / read ------------------------------------------
+//
+// Operator-facing surface that lets clients (CLI, webui) push a
+// GuestPodPlane PodSpec into the agent's in-memory store, so the
+// subsequent GuestHelloAck served on the vsock stream carries the
+// operator-supplied desired state. The PodSpec wire format lives in
+// guest.proto (guestv1.PodSpec) ; this surface keeps weft.proto from
+// importing guestv1 by carrying the spec as a protojson-encoded byte
+// blob. The agent decodes via google.golang.org/protobuf/encoding/
+// protojson into a guestv1.PodSpec, then stores it via Adapter.SetPodSpec.
+//
+// Persistence : after a successful SetPodSpec, the agent dumps the
+// full registry to <stateDir>/podspecs.hcl (atomic replace) and
+// rehydrates at startup. Survives a daemon restart so operators
+// don't have to re-publish on every bounce.
+
+message SetPodSpecRequest {
+  // pod_id is the in-guest pod identifier the GuestPodPlane handler
+  // keys the registry on. Mirrors weft-microvm-init/pkg/pod.Spec.PodID
+  // and matches GuestHello.pod_id at attach time. Empty = the agent
+  // rejects with InvalidArgument.
+  string pod_id    = 1;
+  // spec_json is the protojson-encoded guestv1.PodSpec payload. The
+  // agent decodes via protojson + stores via Adapter.SetPodSpec.
+  // Passing the empty/JSON-null shape evicts the entry (same
+  // semantics as Adapter.SetPodSpec(nil)).
+  bytes  spec_json = 2;
+}
+message SetPodSpecResponse {}
+
+message GetPodSpecRequest  { string pod_id = 1; }
+message GetPodSpecResponse {
+  string pod_id    = 1;
+  bytes  spec_json = 2;  // empty when found = false
+  bool   found     = 3;
+}
+
+// --- MicroVM metrics --------------------------------------------------
+//
+// Per-VM metrology snapshot. Today the agent doesn't yet collect
+// per-VM CPU / mem / net / disk samples from the hypervisor driver
+// (Apple-VZ statistics surface, QEMU QMP query-blockstats, …) — the
+// RPC returns the zero value with sampled_at_unix_ns = 0 so the
+// webui Metrics tab can render real fields straight off the wire
+// without an Unimplemented fallback. Once the runtime telemetry
+// pipeline lands, the same response shape is populated with real
+// samples — no client change needed.
+
+message GetMicroVMMetricsRequest {
+  // Either vm_uuid OR (name + project) must be set. UUID-first
+  // lookup mirrors the rest of the per-VM RPC surface.
+  string vm_uuid = 1;
+  string name    = 2;
+  string project = 3;
+}
+message MicroVMMetricsResponse {
+  string vm_uuid             = 1;
+  int64  sampled_at_unix_ns  = 2;  // 0 = no sample taken yet
+  double cpu_percent          = 3;
+  uint64 mem_used_mib        = 4;
+  uint64 mem_total_mib       = 5;
+  uint64 net_rx_bps          = 6;
+  uint64 net_tx_bps          = 7;
+  uint64 disk_read_bps       = 8;
+  uint64 disk_write_bps      = 9;
+  uint64 uptime_ms           = 10;
+}
+
 // WeftService is the gRPC API exposed by weft.
 service WeftAgent {
   rpc ListVMs       (ListVMsRequest)       returns (ListVMsResponse);
@@ -1471,6 +1539,24 @@ service WeftAgent {
   rpc SetRegistryRemote    (SetRegistryRemoteRequest)    returns (SetRegistryRemoteResponse);   // upsert
   rpc DeleteRegistryRemote (DeleteRegistryRemoteRequest) returns (DeleteRegistryRemoteResponse);
   rpc SearchRegistryRemote (SearchRegistryRemoteRequest) returns (SearchRegistryRemoteResponse);
+
+  // --- PodSpec publish / read (operator-facing surface for GuestPodPlane) ---
+  // SetPodSpec records the operator's desired PodSpec for a pod_id ;
+  // the GuestPodPlane handler serves it back to weft-init in the
+  // HelloAck frame on the vsock stream. spec_json is a protojson-
+  // encoded guestv1.PodSpec ; an empty / JSON-null body evicts the
+  // entry. Persists across daemon restarts via <stateDir>/podspecs.hcl.
+  rpc SetPodSpec (SetPodSpecRequest) returns (SetPodSpecResponse);
+  // GetPodSpec returns the currently-published PodSpec for a pod_id
+  // (or found=false when no spec has been published yet).
+  rpc GetPodSpec (GetPodSpecRequest) returns (GetPodSpecResponse);
+
+  // --- MicroVM metrics (per-VM telemetry snapshot) ---
+  // Returns the latest per-VM sample : CPU/mem/net/disk + uptime.
+  // sampled_at_unix_ns = 0 when no sample exists yet — the rest of
+  // the fields stay zero ; the webui renders the empty shape natively
+  // rather than falling back to synthetic mock data.
+  rpc GetMicroVMMetrics (GetMicroVMMetricsRequest) returns (MicroVMMetricsResponse);
 }
 
 // --- Hosts -------------------------------------------------------

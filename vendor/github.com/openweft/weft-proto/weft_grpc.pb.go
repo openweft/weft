@@ -186,6 +186,9 @@ const (
 	WeftAgent_SetRegistryRemote_FullMethodName               = "/weft.v1.WeftAgent/SetRegistryRemote"
 	WeftAgent_DeleteRegistryRemote_FullMethodName            = "/weft.v1.WeftAgent/DeleteRegistryRemote"
 	WeftAgent_SearchRegistryRemote_FullMethodName            = "/weft.v1.WeftAgent/SearchRegistryRemote"
+	WeftAgent_SetPodSpec_FullMethodName                      = "/weft.v1.WeftAgent/SetPodSpec"
+	WeftAgent_GetPodSpec_FullMethodName                      = "/weft.v1.WeftAgent/GetPodSpec"
+	WeftAgent_GetMicroVMMetrics_FullMethodName               = "/weft.v1.WeftAgent/GetMicroVMMetrics"
 )
 
 // WeftAgentClient is the client API for WeftAgent service.
@@ -477,6 +480,22 @@ type WeftAgentClient interface {
 	SetRegistryRemote(ctx context.Context, in *SetRegistryRemoteRequest, opts ...grpc.CallOption) (*SetRegistryRemoteResponse, error)
 	DeleteRegistryRemote(ctx context.Context, in *DeleteRegistryRemoteRequest, opts ...grpc.CallOption) (*DeleteRegistryRemoteResponse, error)
 	SearchRegistryRemote(ctx context.Context, in *SearchRegistryRemoteRequest, opts ...grpc.CallOption) (*SearchRegistryRemoteResponse, error)
+	// --- PodSpec publish / read (operator-facing surface for GuestPodPlane) ---
+	// SetPodSpec records the operator's desired PodSpec for a pod_id ;
+	// the GuestPodPlane handler serves it back to weft-init in the
+	// HelloAck frame on the vsock stream. spec_json is a protojson-
+	// encoded guestv1.PodSpec ; an empty / JSON-null body evicts the
+	// entry. Persists across daemon restarts via <stateDir>/podspecs.hcl.
+	SetPodSpec(ctx context.Context, in *SetPodSpecRequest, opts ...grpc.CallOption) (*SetPodSpecResponse, error)
+	// GetPodSpec returns the currently-published PodSpec for a pod_id
+	// (or found=false when no spec has been published yet).
+	GetPodSpec(ctx context.Context, in *GetPodSpecRequest, opts ...grpc.CallOption) (*GetPodSpecResponse, error)
+	// --- MicroVM metrics (per-VM telemetry snapshot) ---
+	// Returns the latest per-VM sample : CPU/mem/net/disk + uptime.
+	// sampled_at_unix_ns = 0 when no sample exists yet — the rest of
+	// the fields stay zero ; the webui renders the empty shape natively
+	// rather than falling back to synthetic mock data.
+	GetMicroVMMetrics(ctx context.Context, in *GetMicroVMMetricsRequest, opts ...grpc.CallOption) (*MicroVMMetricsResponse, error)
 }
 
 type weftAgentClient struct {
@@ -2166,6 +2185,36 @@ func (c *weftAgentClient) SearchRegistryRemote(ctx context.Context, in *SearchRe
 	return out, nil
 }
 
+func (c *weftAgentClient) SetPodSpec(ctx context.Context, in *SetPodSpecRequest, opts ...grpc.CallOption) (*SetPodSpecResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetPodSpecResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetPodSpec_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetPodSpec(ctx context.Context, in *GetPodSpecRequest, opts ...grpc.CallOption) (*GetPodSpecResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPodSpecResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetPodSpec_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) GetMicroVMMetrics(ctx context.Context, in *GetMicroVMMetricsRequest, opts ...grpc.CallOption) (*MicroVMMetricsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MicroVMMetricsResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetMicroVMMetrics_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeftAgentServer is the server API for WeftAgent service.
 // All implementations must embed UnimplementedWeftAgentServer
 // for forward compatibility.
@@ -2455,6 +2504,22 @@ type WeftAgentServer interface {
 	SetRegistryRemote(context.Context, *SetRegistryRemoteRequest) (*SetRegistryRemoteResponse, error)
 	DeleteRegistryRemote(context.Context, *DeleteRegistryRemoteRequest) (*DeleteRegistryRemoteResponse, error)
 	SearchRegistryRemote(context.Context, *SearchRegistryRemoteRequest) (*SearchRegistryRemoteResponse, error)
+	// --- PodSpec publish / read (operator-facing surface for GuestPodPlane) ---
+	// SetPodSpec records the operator's desired PodSpec for a pod_id ;
+	// the GuestPodPlane handler serves it back to weft-init in the
+	// HelloAck frame on the vsock stream. spec_json is a protojson-
+	// encoded guestv1.PodSpec ; an empty / JSON-null body evicts the
+	// entry. Persists across daemon restarts via <stateDir>/podspecs.hcl.
+	SetPodSpec(context.Context, *SetPodSpecRequest) (*SetPodSpecResponse, error)
+	// GetPodSpec returns the currently-published PodSpec for a pod_id
+	// (or found=false when no spec has been published yet).
+	GetPodSpec(context.Context, *GetPodSpecRequest) (*GetPodSpecResponse, error)
+	// --- MicroVM metrics (per-VM telemetry snapshot) ---
+	// Returns the latest per-VM sample : CPU/mem/net/disk + uptime.
+	// sampled_at_unix_ns = 0 when no sample exists yet — the rest of
+	// the fields stay zero ; the webui renders the empty shape natively
+	// rather than falling back to synthetic mock data.
+	GetMicroVMMetrics(context.Context, *GetMicroVMMetricsRequest) (*MicroVMMetricsResponse, error)
 	mustEmbedUnimplementedWeftAgentServer()
 }
 
@@ -2965,6 +3030,15 @@ func (UnimplementedWeftAgentServer) DeleteRegistryRemote(context.Context, *Delet
 }
 func (UnimplementedWeftAgentServer) SearchRegistryRemote(context.Context, *SearchRegistryRemoteRequest) (*SearchRegistryRemoteResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SearchRegistryRemote not implemented")
+}
+func (UnimplementedWeftAgentServer) SetPodSpec(context.Context, *SetPodSpecRequest) (*SetPodSpecResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetPodSpec not implemented")
+}
+func (UnimplementedWeftAgentServer) GetPodSpec(context.Context, *GetPodSpecRequest) (*GetPodSpecResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPodSpec not implemented")
+}
+func (UnimplementedWeftAgentServer) GetMicroVMMetrics(context.Context, *GetMicroVMMetricsRequest) (*MicroVMMetricsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMicroVMMetrics not implemented")
 }
 func (UnimplementedWeftAgentServer) mustEmbedUnimplementedWeftAgentServer() {}
 func (UnimplementedWeftAgentServer) testEmbeddedByValue()                   {}
@@ -5986,6 +6060,60 @@ func _WeftAgent_SearchRegistryRemote_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WeftAgent_SetPodSpec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetPodSpecRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SetPodSpec(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SetPodSpec_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SetPodSpec(ctx, req.(*SetPodSpecRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetPodSpec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPodSpecRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetPodSpec(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetPodSpec_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetPodSpec(ctx, req.(*GetPodSpecRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_GetMicroVMMetrics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMicroVMMetricsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetMicroVMMetrics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetMicroVMMetrics_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetMicroVMMetrics(ctx, req.(*GetMicroVMMetricsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WeftAgent_ServiceDesc is the grpc.ServiceDesc for WeftAgent service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -6656,6 +6784,18 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SearchRegistryRemote",
 			Handler:    _WeftAgent_SearchRegistryRemote_Handler,
+		},
+		{
+			MethodName: "SetPodSpec",
+			Handler:    _WeftAgent_SetPodSpec_Handler,
+		},
+		{
+			MethodName: "GetPodSpec",
+			Handler:    _WeftAgent_GetPodSpec_Handler,
+		},
+		{
+			MethodName: "GetMicroVMMetrics",
+			Handler:    _WeftAgent_GetMicroVMMetrics_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

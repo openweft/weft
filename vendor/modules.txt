@@ -43,7 +43,6 @@ github.com/fatih/color
 github.com/go-compressions/lzfse
 # github.com/go-compressions/matchlen v0.0.0 => ../../go-compressions/matchlen
 ## explicit; go 1.20
-github.com/go-compressions/matchlen
 # github.com/go-diskimages/qcow2 v0.0.0 => ../../go-diskimages/qcow2
 ## explicit; go 1.25.0
 github.com/go-diskimages/qcow2
@@ -287,7 +286,7 @@ github.com/openweft/weft-client
 ## explicit; go 1.25.0
 github.com/openweft/weft-driver-plugin
 github.com/openweft/weft-driver-plugin/driverpb
-# github.com/openweft/weft-drivers v0.2.0 => ../weft-drivers
+# github.com/openweft/weft-drivers v0.3.0 => ../weft-drivers
 ## explicit; go 1.25.0
 github.com/openweft/weft-drivers
 # github.com/openweft/weft-hcl v0.4.0

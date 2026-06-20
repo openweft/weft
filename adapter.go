@@ -75,6 +75,10 @@ type VZAdapter interface {
 	// by GuestPodPlane.Attach to populate the HelloAck. Empty + ok=
 	// false on unknown pods.
 	PodSpec(podID string) (*guestv1.PodSpec, bool)
+	// SetPodSpec publishes a PodSpec into the in-memory registry +
+	// persists the whole registry to <stateDir>/podspecs.hcl. Passing
+	// spec=nil evicts the entry. Backs the SetPodSpec WeftAgent RPC.
+	SetPodSpec(podID string, spec *guestv1.PodSpec)
 	SetVMUser(name, user string)
 	SetSSHKeyPath(path string)
 	SetChecksums(checksums map[string]string)

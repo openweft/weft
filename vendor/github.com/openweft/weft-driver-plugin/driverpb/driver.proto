@@ -37,6 +37,17 @@ message VMSpec {
   string boot_kind = 6;
   string boot_ref = 7;
   string cmdline = 8;
+  // vsock_cid is the AF_VSOCK guest CID the agent allocated for
+  // this VM (deterministic hash of project_uuid+uuid in
+  // [0x10000, 0xfffefffe]). 0 = unassigned (legacy / no vsock).
+  // Drivers that support vsock should bind this CID on the guest's
+  // virtio-vsock device so GuestPodPlane.Attach's strict-when-known
+  // peer check sees the right CID. QEMU :
+  //   -device vhost-vsock-pci,guest-cid=<vsock_cid>
+  // Apple VZ : VZVirtioSocketDevice (note: the VZ API doesn't let
+  // userland pick a CID directly ; treat the field as advisory and
+  // record the actual one the framework assigns).
+  uint32 vsock_cid = 9;
 }
 
 message DiskSpec {
