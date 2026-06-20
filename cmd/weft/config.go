@@ -54,6 +54,12 @@ type fileConfig struct {
 	// distinguishes "not set" from "explicitly disabled with empty
 	// string" — only a non-nil value overrides the flag default.
 	MetricsListen *string `hcl:"metrics_listen,optional"`
+	// VsockPort drives the AF_VSOCK gRPC listener for the guest
+	// transport. Pointer distinguishes "not set" from "explicitly
+	// 0" (which means disabled today, but operators may want the
+	// CLI flag to take precedence). Linux-only ; on darwin/freebsd
+	// hosts the agent logs that vsock was requested but unavailable.
+	VsockPort *int `hcl:"vsock_port,optional"`
 }
 
 // auditLogBlock mirrors the `audit_log { ... }` HCL block. Turns
@@ -342,6 +348,9 @@ func applyFileConfigDefaults(c fileConfig, dst *fileConfigTargets) {
 	if c.MetricsListen != nil {
 		dst.metricsListen = *c.MetricsListen
 	}
+	if c.VsockPort != nil {
+		dst.vsockPort = *c.VsockPort
+	}
 	if c.AuditLog != nil {
 		// A bare `audit_log {}` block with no path enables the
 		// audit log at the default location, mirroring the CLI
@@ -363,6 +372,7 @@ type fileConfigTargets struct {
 	sshSocket             string
 	sshAuthorizedKeys     string
 	tcpListen             string // dev-mode plain-TCP gRPC listener (cross-host bring-up); empty = disabled
+	vsockPort             int    // AF_VSOCK gRPC listener port for guest microVMs (GuestPodPlane.Attach + every other service); 0 = disabled
 	attestationEnabled    bool   // TPM remote-attestation host-admission gate; default false (RegisterHost = legacy OIDC-only)
 	configDir             string
 	oidcIssuer            string

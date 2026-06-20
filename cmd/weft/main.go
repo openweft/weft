@@ -273,6 +273,7 @@ func agentCmd() *cobra.Command {
 	var attestTPMDevice string
 	var hypervisor string
 	var tcpListen string
+	var vsockPort int
 	var attestationEnabled bool
 	var az string
 	var rack string
@@ -331,6 +332,7 @@ continuity (same sockets, same registry on-disk layout).`,
 				sshSocket:          sshSocket,
 				sshAuthorizedKeys:  sshAuthorizedKeys,
 				tcpListen:          tcpListen,
+				vsockPort:          vsockPort,
 				attestationEnabled: attestationEnabled,
 				configDir:          cfgDir,
 				oidcIssuer:         oidcIssuer,
@@ -439,6 +441,7 @@ continuity (same sockets, same registry on-disk layout).`,
 	cmd.Flags().StringVar(&sshSocket, "ssh-socket", defaultSSHSocket, "Unix socket path for the SSH-secured gRPC listener (empty to disable)")
 	cmd.Flags().StringVar(&sshAuthorizedKeys, "ssh-authorized-keys", defaultAuthorizedKeys, "Path to authorized_keys for SSH client authentication")
 	cmd.Flags().StringVar(&tcpListen, "tcp-listen", "", "host:port for an additional plain-TCP gRPC listener — dev-mode cross-host bring-up; production should use the SSH transport. Empty disables.")
+	cmd.Flags().IntVar(&vsockPort, "vsock-port", 0, "AF_VSOCK port for the guest-side gRPC listener (GuestPodPlane.Attach + every other service ; guests dial CID_HOST=2 + this port). Linux-only. 0 = disabled.")
 	cmd.Flags().StringVar(&az, "az", "", "Availability-zone label for this host (matched by scheduler placement rules; mirrors $WEFT_AZ).")
 	cmd.Flags().StringVar(&rack, "rack", "", "Rack label for this host (sub-AZ placement domain; mirrors $WEFT_RACK).")
 	cmd.Flags().StringVar(&oidcIssuer, "oidc-issuer", "", "OIDC issuer URL (empty = dev mode, no token validation)")
@@ -888,6 +891,30 @@ func run(t fileConfigTargets) error {
 			}
 		}()
 		logger.Printf("TCP gRPC listening on %s (dev-mode, no TLS)", t.tcpListen)
+	}
+
+	// Optional AF_VSOCK listener — the guest-side transport for
+	// weft-init (GuestPodPlane.Attach). Same gRPC server (and same
+	// service registration) as Unix / TCP / SSH ; the kernel routes
+	// guest connections from VMADDR_CID_HOST to whatever port is
+	// passed here. Linux-only ; on darwin/freebsd listenVsock returns
+	// errVsockUnsupported and we skip the bind cleanly. cluster.hcl :
+	// `weft { vsock_port = 7777 }` enables it.
+	if t.vsockPort > 0 {
+		if !vsockSupported() {
+			logger.Printf("vsock listener requested (port=%d) but AF_VSOCK is unavailable on this host — skipping", t.vsockPort)
+		} else {
+			vsockLis, err := listenVsock(uint32(t.vsockPort))
+			if err != nil {
+				return fmt.Errorf("vsock listener (port=%d): %w", t.vsockPort, err)
+			}
+			go func() {
+				if err := srv.Serve(vsockLis); err != nil {
+					logger.Printf("vsock grpc server stopped: %v", err)
+				}
+			}()
+			logger.Printf("AF_VSOCK gRPC listening on port=%d (guests dial CID_HOST=%d)", t.vsockPort, 2)
+		}
 	}
 
 	// Optional SSH-secured listener — same gRPC server (and same
