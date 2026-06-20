@@ -25,7 +25,7 @@ require (
 	github.com/openweft/weft-cidata v0.2.0
 	github.com/openweft/weft-client v0.0.0
 	github.com/openweft/weft-driver-plugin v0.0.0
-	github.com/openweft/weft-drivers v0.2.0
+	github.com/openweft/weft-drivers v0.3.0
 	github.com/openweft/weft-hcl v0.4.0
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
@@ -132,7 +132,7 @@ require (
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gvisor.dev/gvisor v0.0.0-20250503011706-39ed1f5ac29c // indirect
 	sigs.k8s.io/json v0.0.0-20211020170558-c049b76a60c6 // indirect

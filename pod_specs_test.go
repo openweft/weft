@@ -1,6 +1,8 @@
 package weft
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	guestv1 "github.com/openweft/weft-proto/guestv1"
@@ -56,4 +58,41 @@ func TestPodSpecRegistry_NilAdapter(t *testing.T) {
 		t.Errorf("PodSpec on nil registry should return (nil,false)")
 	}
 	a.SetPodSpec("anything", &guestv1.PodSpec{}) // must not panic
+}
+
+// TestPodSpecRegistry_PersistAndReload verifies the HCL round-trip:
+// SetPodSpec writes <stateDir>/podspecs.hcl atomically, and a fresh
+// Adapter reading the same stateDir at startup rehydrates the spec
+// without the operator having to re-publish. Covers the persistence
+// contract that backs SetPodSpec + initPodSpecs.
+func TestPodSpecRegistry_PersistAndReload(t *testing.T) {
+	dir := t.TempDir()
+	a := &Adapter{stateDir: dir}
+	a.initPodSpecs()
+	a.SetPodSpec("pod-x", &guestv1.PodSpec{
+		Containers: []*guestv1.Container{{Id: "c1", RootfsTag: "rootfs0"}},
+	})
+	if _, err := os.Stat(filepath.Join(dir, "podspecs.hcl")); err != nil {
+		t.Fatalf("podspecs.hcl was not persisted : %v", err)
+	}
+	// Fresh adapter pointing at the same stateDir should rehydrate.
+	b := &Adapter{stateDir: dir}
+	b.initPodSpecs()
+	got, ok := b.PodSpec("pod-x")
+	if !ok || got == nil {
+		t.Fatalf("rehydrated PodSpec(pod-x) = (%v,%v), want (non-nil,true)", got, ok)
+	}
+	if got.PodId != "pod-x" {
+		t.Errorf("rehydrated PodSpec.pod_id = %q, want pod-x", got.PodId)
+	}
+	if len(got.Containers) != 1 || got.Containers[0].Id != "c1" {
+		t.Errorf("rehydrated containers lost : %+v", got.Containers)
+	}
+	// Eviction must also persist.
+	b.SetPodSpec("pod-x", nil)
+	c := &Adapter{stateDir: dir}
+	c.initPodSpecs()
+	if _, ok := c.PodSpec("pod-x"); ok {
+		t.Errorf("after Set(nil) + reload, PodSpec(pod-x) should be evicted")
+	}
 }

@@ -107,6 +107,7 @@ func vmSpecToPB(s drivers.VMSpec) *driverpb.VMSpec {
 		BootKind:    s.BootKind,
 		BootRef:     s.BootRef,
 		Cmdline:     s.Cmdline,
+		VsockCid:    s.VsockCID,
 	}
 }
 
@@ -123,6 +124,7 @@ func vmSpecFromPB(p *driverpb.VMSpec) drivers.VMSpec {
 		BootKind:    p.BootKind,
 		BootRef:     p.BootRef,
 		Cmdline:     p.Cmdline,
+		VsockCID:    p.VsockCid,
 	}
 }
 

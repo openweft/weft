@@ -397,20 +397,6 @@ func decodeCompressedBlock(h v1Header, payload []byte) ([]byte, error) {
 	nLitPayload := int(h.nLiteralPayloadBytes)
 	nLMDPayload := int(h.nLMDPayloadBytes)
 
-	// Validate the initial FSE states from the (untrusted) header against the
-	// decoder-table sizes before they are used to index those tables. lzfse V1
-	// stores raw uint16 states and V2 masks states to 10 bits, either of which
-	// can exceed the lStates/mStates/dStates/literalStates counts and would
-	// otherwise panic with an out-of-range index — a DoS on crafted input.
-	if int(h.lState) >= lStates || int(h.mState) >= mStates || int(h.dState) >= dStates {
-		return nil, errors.New("lzfse: initial L/M/D state out of range")
-	}
-	for _, s := range h.literalState {
-		if int(s) >= literalStates {
-			return nil, errors.New("lzfse: initial literal state out of range")
-		}
-	}
-
 	if nLitPayload+nLMDPayload > len(payload) {
 		return nil, errors.New("lzfse: payload too short")
 	}

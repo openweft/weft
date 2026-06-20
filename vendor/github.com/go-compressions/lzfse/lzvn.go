@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"math/bits"
-
-	"github.com/go-compressions/matchlen"
 )
 
 // ---------------------------------------------------------------------------
@@ -270,8 +268,9 @@ func lzvnFindMatchN(src []byte, srcBegin, srcEnd, lBegin, m0Begin, mBegin, n int
 		return false
 	}
 	mEnd := mBegin + n
-	if n == 4 {
-		mEnd += matchlen.MatchLen(src[mEnd:srcEnd], src[mEnd-D:srcEnd])
+	for n == 4 && mEnd+4 < srcEnd {
+		n = nmatch4(src, mEnd, mEnd-D)
+		mEnd += n
 	}
 	// expand backwards over literal
 	for m0Begin > srcBegin && mBegin > lBegin && src[mBegin-1] == src[m0Begin-1] {

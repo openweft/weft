@@ -7,6 +7,19 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Added
+- `SetPodSpec` / `GetPodSpec` RPCs on `WeftAgent` : operator-facing
+  surface that publishes a guestv1.PodSpec (carried as a protojson-
+  encoded `spec_json` byte blob to avoid importing guestv1 into
+  weft.proto). Pairs with the in-memory `Adapter.SetPodSpec` +
+  `<stateDir>/podspecs.hcl` persistence — operators no longer need
+  to embed the spec at boot to drive the GuestPodPlane HelloAck.
+- `GetMicroVMMetrics` RPC + `MicroVMMetricsResponse` : per-VM
+  telemetry snapshot (cpu / mem / net / disk + uptime). Returns the
+  zero shape until the runtime-telemetry pipeline lands ; the webui
+  Metrics tab renders real fields straight off the wire instead of
+  falling back to Unimplemented + synthetic mock data.
+
 ### Changed (breaking)
 - Rename `labels` annotation map → `properties` across the
   host/VM scheduler surface. Field numbers preserved (wire-compat
