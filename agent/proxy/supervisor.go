@@ -104,13 +104,17 @@ func (s *Supervisor) startOnce_(ctx context.Context) error {
 
 	bootstrap := Routes(nil) // empty route table — Caddy starts idle
 	// Operator opt-in: WEFT_PROXY_STORAGE_ETCD_ENDPOINTS=ep1,ep2,ep3 selects
-	// the etcd-backed cert store (requires a caddy binary built with
-	// caddy-storage-etcd via xcaddy). Unset → filesystem default under
+	// the etcd-backed cert store. The shared Caddy storage module is
+	// `weft_etcd`, registered by the xcaddy build at
+	// `github.com/openweft/weft-proxy`, which imports the in-tree
+	// `EtcdStorage` adapter (etcdstorage.go) so weft-agent itself stays
+	// free of certmagic vendor weight (see doc.go for the
+	// supervised-subprocess rationale). Unset → filesystem default under
 	// StateDir/data.
 	var storage map[string]any
 	if eps := s.resolveStorageEndpoints(); len(eps) > 0 {
-		storage = storageEtcdConfig(eps)
-		log.Printf("weft-agent proxy: shared cert storage = etcd (%d endpoint(s))", len(eps))
+		storage = storageEtcdInTreeConfig(eps)
+		log.Printf("weft-agent proxy: shared cert storage = etcd weft_etcd module (%d endpoint(s))", len(eps))
 	}
 	bootstrapBytes, err := bootstrap.renderCaddyConfigWith("unix//"+s.adminSocket, storage)
 	if err != nil {
@@ -123,11 +127,10 @@ func (s *Supervisor) startOnce_(ctx context.Context) error {
 	s.cmd.Stderr = s.opts.LogWriter
 	// Isolate Caddy's $XDG_DATA_HOME so cert storage doesn't collide
 	// with an operator's interactive `caddy run` on the same machine.
-	//
-	// TODO(proxy-etcd-storage): swap filesystem cert storage for the
-	// caddy-storage-etcd adapter so multiple agents share issued certs.
-	// Today each host re-mints its own — fine for one-host clusters,
-	// a coordination tax at 3-DC scale. See doc.go for context.
+	// Filesystem storage stays the fallback when StorageEndpoints is
+	// empty ; the shared-etcd path is wired through the `weft_etcd`
+	// Caddy storage module (see etcdstorage.go +
+	// storageEtcdInTreeConfig above).
 	s.cmd.Env = append(os.Environ(),
 		"XDG_DATA_HOME="+filepath.Join(s.opts.StateDir, "data"),
 		"XDG_CONFIG_HOME="+filepath.Join(s.opts.StateDir, "cfg"),
@@ -198,7 +201,7 @@ func (s *Supervisor) Apply(ctx context.Context, routes Routes) error {
 	// whole config, so dropping it here would silently revert cert sharing.
 	var storage map[string]any
 	if eps := s.resolveStorageEndpoints(); len(eps) > 0 {
-		storage = storageEtcdConfig(eps)
+		storage = storageEtcdInTreeConfig(eps)
 	}
 	body, err := routes.renderCaddyConfigWith("unix//"+s.adminSocket, storage)
 	if err != nil {
