@@ -359,12 +359,12 @@ func (t *gpuAllocTable) persistDeleteLocked(c GPUClaim) error {
 func selectGPUClaims(reqs []GPURequest, host Host, vmUUID string, nowUnixNs int64, claimed func(resourceID string) bool) ([]GPUClaim, bool) {
 	var out []GPUClaim
 	taken := make(map[string]struct{}) // resources picked within THIS selection
-	avail := func(id string) bool {
+	claimedOrTaken := func(id string) bool {
 		if id == "" || claimed(id) {
-			return false
+			return true
 		}
 		_, dup := taken[id]
-		return !dup
+		return dup
 	}
 	for _, r := range reqs {
 		if r.Vendor == "" {
@@ -374,20 +374,24 @@ func selectGPUClaims(reqs []GPURequest, host Host, vmUUID string, nowUnixNs int6
 		if want <= 0 {
 			want = 1
 		}
-		got := 0
-		for _, g := range host.GPUs {
-			if got >= want {
-				break
-			}
-			if !gpuCardMatches(r, g) {
-				continue
-			}
-			if r.MIGSlice != "" {
+
+		// MIG request : pick distinct unclaimed instances of the profile.
+		// NVLink affinity is irrelevant — MIG slices don't do cross-GPU
+		// NVLink — so no domain grouping here.
+		if r.MIGSlice != "" {
+			got := 0
+			for _, g := range host.GPUs {
+				if got >= want {
+					break
+				}
+				if !gpuCardMatches(r, g) {
+					continue
+				}
 				for _, mi := range g.MIGInstances {
 					if got >= want {
 						break
 					}
-					if !strings.EqualFold(mi.Profile, r.MIGSlice) || !avail(mi.UUID) {
+					if !strings.EqualFold(mi.Profile, r.MIGSlice) || claimedOrTaken(mi.UUID) {
 						continue
 					}
 					taken[mi.UUID] = struct{}{}
@@ -397,21 +401,84 @@ func selectGPUClaims(reqs []GPURequest, host Host, vmUUID string, nowUnixNs int6
 					})
 					got++
 				}
-				continue
 			}
-			if !avail(g.PCIBDF) {
-				continue
+			if got < want {
+				return nil, false
 			}
+			continue
+		}
+
+		// Whole-card request : gather the eligible (matching, unclaimed,
+		// BDF-bearing) cards, then choose `want` of them honouring NVLink
+		// same-domain affinity (chooseWholeCardsByDomain).
+		var free []GPU
+		for _, g := range host.GPUs {
+			if gpuCardMatches(r, g) && !claimedOrTaken(g.PCIBDF) {
+				free = append(free, g)
+			}
+		}
+		chosen, ok := chooseWholeCardsByDomain(free, want)
+		if !ok {
+			return nil, false
+		}
+		for _, g := range chosen {
 			taken[g.PCIBDF] = struct{}{}
 			out = append(out, GPUClaim{
 				HostUUID: host.UUID, ResourceID: g.PCIBDF, Kind: GPUClaimWholeCard,
 				VMUUID: vmUUID, Model: g.Model, CreatedAtUnixNs: nowUnixNs,
 			})
-			got++
-		}
-		if got < want {
-			return nil, false
 		}
 	}
 	return out, true
+}
+
+// chooseWholeCardsByDomain selects `want` whole cards from `free`,
+// enforcing NVLink same-domain affinity for multi-card requests :
+//
+//   - want ≤ 1 — no affinity (a single card is always intra-domain) ;
+//     return the first `want` if available.
+//   - want > 1 with named NVLink domains present — all `want` cards must
+//     come from ONE named domain (an island with enough free cards).
+//     Crossing the PCIe gap between two domains is exactly what we forbid,
+//     so mixing domains is never allowed.
+//   - want > 1 with NO named domains among the candidates — topology is
+//     unknown / there is no NVLink, so the affinity is a no-op : fall back
+//     to the first `want` cards (a degraded PCIe placement is allowed
+//     rather than rejected, per the design's "empty domain = no
+//     constraint").
+//
+// Returns (chosen, true) or (nil, false). `free` is assumed already
+// filtered to eligible cards (matching, unclaimed, non-empty BDF).
+func chooseWholeCardsByDomain(free []GPU, want int) ([]GPU, bool) {
+	if want <= 1 {
+		if len(free) >= want {
+			return free[:want], true
+		}
+		return nil, false
+	}
+	// Group by named domain, preserving first-seen order ; track whether
+	// any named domain exists at all.
+	var order []string
+	groups := map[string][]GPU{}
+	for _, g := range free {
+		if g.NVLinkDomain == "" {
+			continue
+		}
+		if _, ok := groups[g.NVLinkDomain]; !ok {
+			order = append(order, g.NVLinkDomain)
+		}
+		groups[g.NVLinkDomain] = append(groups[g.NVLinkDomain], g)
+	}
+	for _, d := range order {
+		if len(groups[d]) >= want {
+			return groups[d][:want], true
+		}
+	}
+	// No single named island has enough cards. Only fall back to an
+	// unconstrained pick when there are NO named domains at all (unknown
+	// topology) — otherwise we'd be silently crossing the PCIe gap.
+	if len(order) == 0 && len(free) >= want {
+		return free[:want], true
+	}
+	return nil, false
 }

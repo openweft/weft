@@ -8,6 +8,17 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 ## [Unreleased]
 
 ### Added
+- **GPU sharing — NVLink topology + same-domain affinity** (phase 4).
+  The Linux `detectGPUs` now fills `GPU.NVLinkDomain` from `nvidia-smi
+  topo -m` (`assignNVLinkDomains`, a platform-neutral parser in
+  `gpu_topo.go`): cards are grouped into NVLink islands by `NV*`
+  adjacency (connected components), islands of ≥2 cards get a stable
+  `nvl-<minIndex>` label, lone cards stay empty. `selectGPUClaims`
+  enforces same-domain affinity for whole-card `count > 1` requests via
+  `chooseWholeCardsByDomain`: all cards must come from one island, no
+  cross-island mixing; empty domains (unknown topology / no NVLink) are
+  a no-op (degraded PCIe placement allowed). MIG requests are exempt.
+  Closes the 2×NVL4 placement story. See `docs/operations/gpu-sharing.md`.
 - **GPU sharing — scheduler wiring + persistence** (phase 2). New
   `Adapter.ScheduleVMExclusive` picks a host **and** the concrete GPU
   resources (whole cards by PCI BDF, MIG instances by mdev UUID),

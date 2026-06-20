@@ -135,7 +135,15 @@ Matching under exclusivity (`gpuRequestSatisfiedExcl`) :
 3. **MIG attach** — `weft-driver-qemu` `sysfsdev=<uuid>` path ;
    `detectGPUs` enumerates MIG instances (`nvidia-smi mig -lgi` +
    `/sys/bus/mdev`).
-4. **NVLink affinity** — `detectGPUs` fills `NVLinkDomain` from
-   `nvidia-smi topo` ; scheduler keeps `count > 1` requests intra-domain.
+4. **This PR (NVLink affinity)** — `detectGPUs` fills `NVLinkDomain`
+   from `nvidia-smi topo -m` (`assignNVLinkDomains`): cards are grouped
+   into NVLink islands by `NV*` adjacency (connected components),
+   islands of ≥2 get a stable `nvl-<minIndex>` label, lone cards stay
+   empty. `selectGPUClaims` then enforces same-domain affinity for
+   whole-card `count > 1` requests (`chooseWholeCardsByDomain`): all
+   cards must come from ONE island; no cross-island mixing. Empty
+   domains (unknown topology / no NVLink) are a no-op — a degraded PCIe
+   placement is allowed rather than rejected. MIG requests are exempt
+   (slices don't do cross-GPU NVLink).
 
 Each phase has a tracking issue.

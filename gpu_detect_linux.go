@@ -80,7 +80,18 @@ func detectGPUsImpl() []GPU {
 		fmt.Fprintf(os.Stderr, "weft: detectGPUs enrich: %v\n", err)
 		return gpus
 	}
-	return enriched
+	// NVLink topology : `nvidia-smi topo -m` reveals which cards share an
+	// NVLink island (NV* cells) vs the PCIe gap (SYS/PHB). assignNVLinkDomains
+	// labels each card's GPU.NVLinkDomain so the scheduler can keep a
+	// multi-GPU request inside one island. Best-effort : a topo failure
+	// leaves every domain empty, which the affinity rule treats as
+	// "no constraint" rather than failing placement.
+	tout, err := exec.Command(smi, "topo", "-m").Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weft: detectGPUs nvidia-smi topo -m: %v\n", err)
+		return enriched
+	}
+	return assignNVLinkDomains(enriched, strings.NewReader(string(tout)))
 }
 
 // detectGPUsFromSysfs walks the DRM subsystem looking for PCI
