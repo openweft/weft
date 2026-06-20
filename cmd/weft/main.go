@@ -837,7 +837,7 @@ func run(t fileConfigTargets) error {
 	// control requests. Today over the agent's existing socket ; a
 	// future commit binds a per-VM AF_VSOCK listener for the
 	// production transport described in guest.proto.
-	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{})
+	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{adp: a})
 
 	// Top-level lifecycle ctx — cancelled on SIGINT/SIGTERM. The
 	// proxy plane (when --proxy is set) hangs off it so the
