@@ -51,6 +51,7 @@ const (
 	WeftAgent_CreateProject_FullMethodName                   = "/weft.v1.WeftAgent/CreateProject"
 	WeftAgent_RenameProject_FullMethodName                   = "/weft.v1.WeftAgent/RenameProject"
 	WeftAgent_DeleteProject_FullMethodName                   = "/weft.v1.WeftAgent/DeleteProject"
+	WeftAgent_SetProjectTenant_FullMethodName                = "/weft.v1.WeftAgent/SetProjectTenant"
 	WeftAgent_AddProjectMember_FullMethodName                = "/weft.v1.WeftAgent/AddProjectMember"
 	WeftAgent_RemoveProjectMember_FullMethodName             = "/weft.v1.WeftAgent/RemoveProjectMember"
 	WeftAgent_ListProjectMembers_FullMethodName              = "/weft.v1.WeftAgent/ListProjectMembers"
@@ -250,6 +251,7 @@ type WeftAgentClient interface {
 	CreateProject(ctx context.Context, in *CreateProjectRequest, opts ...grpc.CallOption) (*CreateProjectResponse, error)
 	RenameProject(ctx context.Context, in *RenameProjectRequest, opts ...grpc.CallOption) (*RenameProjectResponse, error)
 	DeleteProject(ctx context.Context, in *DeleteProjectRequest, opts ...grpc.CallOption) (*DeleteProjectResponse, error)
+	SetProjectTenant(ctx context.Context, in *SetProjectTenantRequest, opts ...grpc.CallOption) (*SetProjectTenantResponse, error)
 	// Project-membership RPCs. Platform-managed alternative to
 	// dex `project:<uuid>` group claims; either path grants access.
 	AddProjectMember(ctx context.Context, in *AddProjectMemberRequest, opts ...grpc.CallOption) (*AddProjectMemberResponse, error)
@@ -799,6 +801,16 @@ func (c *weftAgentClient) DeleteProject(ctx context.Context, in *DeleteProjectRe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteProjectResponse)
 	err := c.cc.Invoke(ctx, WeftAgent_DeleteProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) SetProjectTenant(ctx context.Context, in *SetProjectTenantRequest, opts ...grpc.CallOption) (*SetProjectTenantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetProjectTenantResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetProjectTenant_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2217,6 +2229,7 @@ type WeftAgentServer interface {
 	CreateProject(context.Context, *CreateProjectRequest) (*CreateProjectResponse, error)
 	RenameProject(context.Context, *RenameProjectRequest) (*RenameProjectResponse, error)
 	DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error)
+	SetProjectTenant(context.Context, *SetProjectTenantRequest) (*SetProjectTenantResponse, error)
 	// Project-membership RPCs. Platform-managed alternative to
 	// dex `project:<uuid>` group claims; either path grants access.
 	AddProjectMember(context.Context, *AddProjectMemberRequest) (*AddProjectMemberResponse, error)
@@ -2547,6 +2560,9 @@ func (UnimplementedWeftAgentServer) RenameProject(context.Context, *RenameProjec
 }
 func (UnimplementedWeftAgentServer) DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteProject not implemented")
+}
+func (UnimplementedWeftAgentServer) SetProjectTenant(context.Context, *SetProjectTenantRequest) (*SetProjectTenantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetProjectTenant not implemented")
 }
 func (UnimplementedWeftAgentServer) AddProjectMember(context.Context, *AddProjectMemberRequest) (*AddProjectMemberResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddProjectMember not implemented")
@@ -3543,6 +3559,24 @@ func _WeftAgent_DeleteProject_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WeftAgentServer).DeleteProject(ctx, req.(*DeleteProjectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_SetProjectTenant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetProjectTenantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SetProjectTenant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SetProjectTenant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SetProjectTenant(ctx, req.(*SetProjectTenantRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -6086,6 +6120,10 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteProject",
 			Handler:    _WeftAgent_DeleteProject_Handler,
+		},
+		{
+			MethodName: "SetProjectTenant",
+			Handler:    _WeftAgent_SetProjectTenant_Handler,
 		},
 		{
 			MethodName: "AddProjectMember",

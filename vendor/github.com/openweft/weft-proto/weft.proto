@@ -163,6 +163,11 @@ message ProjectInfo {
   string uuid       = 1;
   string name       = 2;
   int64  created_at_unix_ns = 3;
+  // tenant_uuid is the project's parent-tenant pointer, empty for
+  // untenanted projects (the historical default before this field
+  // landed). Set via SetProjectTenant ; powers GetProjectQuota
+  // siblings_total + tenant_cap aggregation.
+  string tenant_uuid = 4;
 }
 
 message ListProjectsRequest  {
@@ -188,6 +193,16 @@ message RenameProjectResponse { ProjectInfo project = 1; }
 // DeleteProject refuses when the project still has VMs.
 message DeleteProjectRequest  { string uuid = 1; }
 message DeleteProjectResponse {}
+
+// SetProjectTenant binds (or unbinds when tenant_uuid is empty) the
+// project to a parent Tenant. Unblocks the tenant-scoped quota
+// aggregation : GetProjectQuota.siblings_total + GetProjectQuota
+// .tenant_cap come from the project's tenant linkage ;
+// GetTenantQuota.allocated aggregates across every project bound
+// to the tenant via this RPC. Idempotent ; unknown project_uuid
+// fails with NotFound so operators don't silently mistype.
+message SetProjectTenantRequest  { string project_uuid = 1; string tenant_uuid = 2; }
+message SetProjectTenantResponse { ProjectInfo project = 1; }
 
 // --- ListVMs ---
 
@@ -1194,10 +1209,11 @@ service WeftAgent {
   // CreateProject is the stable identifier on-disk vmDirs are
   // keyed on; RenameProject mutates only the display name so every
   // attached VM follows the rename transparently.
-  rpc ListProjects   (ListProjectsRequest)   returns (ListProjectsResponse);
-  rpc CreateProject  (CreateProjectRequest)  returns (CreateProjectResponse);
-  rpc RenameProject  (RenameProjectRequest)  returns (RenameProjectResponse);
-  rpc DeleteProject  (DeleteProjectRequest)  returns (DeleteProjectResponse);
+  rpc ListProjects     (ListProjectsRequest)     returns (ListProjectsResponse);
+  rpc CreateProject    (CreateProjectRequest)    returns (CreateProjectResponse);
+  rpc RenameProject    (RenameProjectRequest)    returns (RenameProjectResponse);
+  rpc DeleteProject    (DeleteProjectRequest)    returns (DeleteProjectResponse);
+  rpc SetProjectTenant (SetProjectTenantRequest) returns (SetProjectTenantResponse);
 
   // Project-membership RPCs. Platform-managed alternative to
   // dex `project:<uuid>` group claims; either path grants access.

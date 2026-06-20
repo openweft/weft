@@ -35,6 +35,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		createCmd(socket, sshSocket, sshKey),
 		renameCmd(socket, sshSocket, sshKey),
 		rmCmd(socket, sshSocket, sshKey),
+		setTenantCmd(socket, sshSocket, sshKey),
 		addUserCmd(socket, sshSocket, sshKey),
 		removeUserCmd(socket, sshSocket, sshKey),
 		membersCmd(socket, sshSocket, sshKey),
@@ -92,6 +93,50 @@ func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// setTenantCmd binds (or unbinds) a project to a parent tenant.
+// Empty second arg unbinds the project ; pass `--clear` for the
+// same effect with a clearer signal in the shell history. Powers
+// the GetProjectQuota.siblings_total + tenant_cap aggregation
+// (weft v0.4.37/0.4.38 ; weft-proto v0.13.0 SetProjectTenant RPC).
+func setTenantCmd(socket, sshSocket, sshKey *string) *cobra.Command {
+	var clear bool
+	cmd := &cobra.Command{
+		Use:   "set-tenant <project-name|uuid> [tenant-uuid]",
+		Short: "Bind a project to a parent tenant (empty tenant or --clear to unbind)",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			projUUID, err := resolveProjectArg(c, args[0])
+			if err != nil {
+				return err
+			}
+			var tenantUUID string
+			if !clear && len(args) == 2 {
+				tenantUUID = args[1]
+			}
+			resp, err := c.SetProjectTenant(context.Background(), &weftv1.SetProjectTenantRequest{
+				ProjectUuid: projUUID,
+				TenantUuid:  tenantUUID,
+			})
+			if err != nil {
+				return err
+			}
+			if resp.Project.TenantUuid == "" {
+				fmt.Printf("unbound\t%s\t%s\n", resp.Project.Uuid, resp.Project.Name)
+			} else {
+				fmt.Printf("bound\t%s\t%s\ttenant=%s\n", resp.Project.Uuid, resp.Project.Name, resp.Project.TenantUuid)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&clear, "clear", false, "Unbind from any tenant (equivalent to passing an empty tenant-uuid)")
+	return cmd
 }
 
 // renameCmd takes either a UUID or the current display name as the
@@ -331,16 +376,18 @@ func membersCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 
 func dumpProjectsJSON(projects []*weftv1.ProjectInfo) error {
 	type out struct {
-		UUID      string `json:"uuid"`
-		Name      string `json:"name"`
-		CreatedAt string `json:"created_at"`
+		UUID       string `json:"uuid"`
+		Name       string `json:"name"`
+		CreatedAt  string `json:"created_at"`
+		TenantUUID string `json:"tenant_uuid,omitempty"`
 	}
 	flat := make([]out, len(projects))
 	for i, p := range projects {
 		flat[i] = out{
-			UUID:      p.Uuid,
-			Name:      p.Name,
-			CreatedAt: time.Unix(0, p.CreatedAtUnixNs).UTC().Format(time.RFC3339Nano),
+			UUID:       p.Uuid,
+			Name:       p.Name,
+			CreatedAt:  time.Unix(0, p.CreatedAtUnixNs).UTC().Format(time.RFC3339Nano),
+			TenantUUID: p.TenantUuid,
 		}
 	}
 	enc := json.NewEncoder(os.Stdout)
