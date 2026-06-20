@@ -8,6 +8,20 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 ## [Unreleased]
 
 ### Added
+- **GPU sharing — scheduler wiring + persistence** (phase 2). New
+  `Adapter.ScheduleVMExclusive` picks a host **and** the concrete GPU
+  resources (whole cards by PCI BDF, MIG instances by mdev UUID),
+  claims them **all-or-nothing** via `gpuAllocTable.ClaimAll`, and
+  returns the claim list; `ResourceExhausted` when no host has enough
+  *unclaimed* capacity. `UnregisterVM` now releases a VM's GPU claims
+  so removed VMs can't leak hardware. The claim table persists
+  per-record under the `gpu_allocations` KV prefix (`gpu_alloc_kv.go`,
+  HCL records mirroring `schedulingrules_kv.go`) and reloads at
+  startup, so claims survive an agent restart and are cluster-wide
+  visible. `ScheduleVM` is unchanged — it stays a pure non-claiming
+  filter for callers that don't request GPUs. The live multi-host
+  create flow doesn't call the exclusive entry point yet (it doesn't
+  call `ScheduleVM` either — same standing deferral).
 - **GPU sharing — inventory model + counted allocation** (first of a
   phased series, see `docs/operations/gpu-sharing.md`). `GPU` now
   carries an `NVLinkDomain` label (operator-seedable via the host

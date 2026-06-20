@@ -118,14 +118,20 @@ Matching under exclusivity (`gpuRequestSatisfiedExcl`) :
 
 ## Phased delivery
 
-1. **This PR** — inventory model (`MIGInstance`, `GPU.NVLinkDomain`,
+1. **Done** — inventory model (`MIGInstance`, `GPU.NVLinkDomain`,
    `GPU.MIGInstances`) + counted-allocation primitive (`gpu_alloc.go`)
-   + exclusivity-aware matcher, all pure-Go with tests. The scheduler
-   and driver are **not** rewired yet — selection still uses the
-   non-exclusive matcher, exactly as `gpu-scheduling.md` documents.
-2. **Scheduler wiring** — `ScheduleVM` consults the claim table, claims
-   on success, releases on `DeprovisionVM`. etcd persistence of the
-   table.
+   + exclusivity-aware matcher, all pure-Go with tests.
+2. **Done** — scheduler wiring + persistence. `ScheduleVMExclusive`
+   selects a host **and** the concrete resources, claims them
+   all-or-nothing, and returns the claim list; `UnregisterVM` releases
+   them. The claim table persists per-record to the `gpu_allocations`
+   KV prefix (`gpu_alloc_kv.go`) and reloads at startup. `ScheduleVM`
+   stays a pure non-claiming filter for non-GPU callers. **Not yet**
+   wired: the live multi-host create flow doesn't call
+   `ScheduleVMExclusive` yet (it doesn't call `ScheduleVM` either —
+   same deferral the scheduler has carried since it landed); the
+   create path adopts the exclusive entry point when multi-host create
+   lands.
 3. **MIG attach** — `weft-driver-qemu` `sysfsdev=<uuid>` path ;
    `detectGPUs` enumerates MIG instances (`nvidia-smi mig -lgi` +
    `/sys/bus/mdev`).

@@ -540,6 +540,78 @@ func (a *Adapter) ScheduleVM(ctx context.Context, req ScheduleRequest) (Host, er
 	return a.scheduler.Schedule(ctx, req, a.Hosts())
 }
 
+// ScheduleVMExclusive is the claim-aware placement entry point : it picks
+// a host AND the concrete GPU resources (whole cards / MIG instances) for
+// `vmUUID`, claiming them atomically so two VMs can't double-book the same
+// hardware. It is the allocation-enforcing counterpart of ScheduleVM,
+// which stays a pure non-claiming filter for callers that don't request
+// GPUs.
+//
+// Behaviour :
+//
+//   - No RequestedGPUs → delegates to ScheduleVM and returns no claims
+//     (nothing to allocate exclusively).
+//   - Otherwise walks the host inventory in the scheduler's deterministic
+//     order, skipping cordoned hosts and those failing the non-GPU axes,
+//     the SchedulingRule GPU axis, the generic-PCI requests, or lacking
+//     enough UNCLAIMED matching GPU resources. The first host that fits
+//     has its resources claimed (all-or-nothing) and is returned with the
+//     claim list.
+//   - ResourceExhausted (the code webui keys on) when no host can satisfy
+//     the GPU request under the current claims.
+//
+// `nowUnixNs` stamps the claims (the table never reads the clock, for
+// deterministic tests). A claim race against a concurrent placement makes
+// ClaimAll fail for that host ; the walk simply continues to the next.
+func (a *Adapter) ScheduleVMExclusive(ctx context.Context, req ScheduleRequest, vmUUID string, nowUnixNs int64) (Host, []GPUClaim, error) {
+	if vmUUID == "" {
+		return Host{}, nil, fmt.Errorf("schedule-exclusive: vm uuid required")
+	}
+	if a.gpuClaims == nil {
+		a.gpuClaims = newGPUAllocTable()
+	}
+	if len(req.RequestedGPUs) == 0 {
+		h, err := a.ScheduleVM(ctx, req)
+		return h, nil, err
+	}
+	for _, h := range a.Hosts() {
+		if h.Cordoned {
+			continue
+		}
+		if !hostMatchesIgnoringGPU(req, h) || !gpuAxisMatches(req.GPU, h.GPUs) {
+			continue
+		}
+		if !pciRequestsSatisfied(req.RequestedPCI, h.PCIDevices) {
+			continue
+		}
+		claimed := a.gpuClaims.hostClaimChecker(h.UUID)
+		claims, ok := selectGPUClaims(req.RequestedGPUs, h, vmUUID, nowUnixNs, claimed)
+		if !ok {
+			continue
+		}
+		if err := a.gpuClaims.ClaimAll(claims); err != nil {
+			// Lost a race for one of the resources — try the next host.
+			continue
+		}
+		return h, claims, nil
+	}
+	return Host{}, nil, errGPUUnsatisfied(fmt.Sprintf(
+		"no host has enough unclaimed GPU capacity (axis=%q requested=%d)",
+		req.GPU, len(req.RequestedGPUs)))
+}
+
+// pciRequestsSatisfied reports whether the host's PCI inventory satisfies
+// every generic-PCI request entry. Pulled out so ScheduleVMExclusive
+// mirrors hostMatches' RequestedPCI loop without duplicating the body.
+func pciRequestsSatisfied(reqs []PCIRequest, devs []PCIDevice) bool {
+	for _, pr := range reqs {
+		if !pciRequestSatisfied(pr, devs) {
+			return false
+		}
+	}
+	return true
+}
+
 // ScheduleVMGroup is the multi-replica Adapter-level entry point :
 // hands `req` + the cluster's Host registry to the configured
 // Scheduler, returns one Host per replica in `req.Replicas` order.

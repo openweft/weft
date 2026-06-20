@@ -457,12 +457,12 @@ type Adapter struct {
 	// schedRules carry selector + target_count for nominal binding ;
 	// registryRemotes is the OCI registry alias map. See
 	// resources_adapter.go.
-	volumePropReg   *volumePropertyRegistry
-	shareReg        *shareRegistry
-	bucketReg       *bucketRegistry
-	sshKeyCatReg    *sshKeyCatalogueRegistry
-	schedRuleReg    *schedulingRuleRegistry
-	registryRemReg  *registryRemoteRegistry
+	volumePropReg  *volumePropertyRegistry
+	shareReg       *shareRegistry
+	bucketReg      *bucketRegistry
+	sshKeyCatReg   *sshKeyCatalogueRegistry
+	schedRuleReg   *schedulingRuleRegistry
+	registryRemReg *registryRemoteRegistry
 	// vmReg holds the VM inventory — one entry per managed VM,
 	// each carrying its host_uuid for multi-host dispatch. See
 	// vms.go.
@@ -483,6 +483,13 @@ type Adapter struct {
 	// scheduler.go for the interface + the default policy's
 	// rationale.
 	scheduler Scheduler
+	// gpuClaims is the exclusive GPU allocation table — tracks which
+	// physical card / MIG instance is held by which VM so a
+	// RequestedGPUs placement can't double-book hardware. Loaded from
+	// the "gpu_allocations" KV prefix when a kvStorageFactory is wired
+	// (else in-memory). Claimed by ScheduleVMExclusive, released by
+	// UnregisterVM. See gpu_alloc.go + docs/operations/gpu-sharing.md.
+	gpuClaims *gpuAllocTable
 	// driverDispatch maps host UUID → HostHandle (the four
 	// driver interfaces for that host). Populated for the local
 	// host by initLocalDrivers; remote hosts add themselves via
@@ -750,6 +757,7 @@ func (a *Adapter) afterStorageWired() VZAdapter {
 	a.initPorts()
 	a.initFloatingIPs()
 	a.initHosts()
+	a.initGPUClaims()
 	a.initVMs()
 	a.initTenantQuotas()
 	a.initTenantCaps()
@@ -1341,6 +1349,12 @@ func (a *Adapter) UnregisterVM(uuid string) error {
 	if err := a.vmReg.delete(uuid); err != nil {
 		return err
 	}
+	// Free any GPU cards / MIG instances this VM held so the hardware
+	// returns to the schedulable pool. No-op for non-GPU VMs (ReleaseVM
+	// is idempotent + cheap on an unknown UUID).
+	if a.gpuClaims != nil {
+		a.gpuClaims.ReleaseVM(uuid)
+	}
 	a.bus.Publish(PlatformEvent{
 		Kind:        "vm.unregistered",
 		Subject:     uuid,
@@ -1378,6 +1392,26 @@ func (a *Adapter) initHosts() {
 		}
 	}
 	a.hostReg = reg
+}
+
+// initGPUClaims loads the GPU allocation table. KV-backed when a
+// kvStorageFactory is wired (claims survive restart + are cluster-wide
+// visible), in-memory otherwise. Load failure degrades to an empty
+// KV-backed table rather than failing bring-up — a missing claim history
+// is recoverable (worst case a stale claim lingers until its VM is
+// unregistered), an aborted boot is not.
+func (a *Adapter) initGPUClaims() {
+	if a.kvStorageFactory == nil {
+		a.gpuClaims = newGPUAllocTable()
+		return
+	}
+	kv := a.kvStorageFactory("gpu_allocations")
+	t, err := loadGPUAllocTableKV(context.Background(), kv)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weft: load gpu allocations (kv): %v\n", err)
+		t = newGPUAllocTableKV(kv)
+	}
+	a.gpuClaims = t
 }
 
 // WatchHostRegistry mirrors WatchVMRegistry for host inventory : KV
