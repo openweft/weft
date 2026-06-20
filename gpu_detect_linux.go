@@ -80,18 +80,29 @@ func detectGPUsImpl() []GPU {
 		fmt.Fprintf(os.Stderr, "weft: detectGPUs enrich: %v\n", err)
 		return gpus
 	}
+	// MIG enumeration : `nvidia-smi -L` lists each MIG instance with its
+	// profile + UUID under its parent GPU. enumerateMIGFromSMIL attaches
+	// them to the matching card and (per the EITHER/OR invariant) clears
+	// the parent's whole-card BDF. Best-effort : a -L failure leaves the
+	// whole-card inventory intact and we still try the topology pass.
+	withMIG := enriched
+	if lout, lerr := exec.Command(smi, "-L").Output(); lerr != nil {
+		fmt.Fprintf(os.Stderr, "weft: detectGPUs nvidia-smi -L: %v\n", lerr)
+	} else {
+		withMIG = enumerateMIGFromSMIL(enriched, strings.NewReader(string(lout)))
+	}
 	// NVLink topology : `nvidia-smi topo -m` reveals which cards share an
 	// NVLink island (NV* cells) vs the PCIe gap (SYS/PHB). assignNVLinkDomains
 	// labels each card's GPU.NVLinkDomain so the scheduler can keep a
-	// multi-GPU request inside one island. Best-effort : a topo failure
-	// leaves every domain empty, which the affinity rule treats as
-	// "no constraint" rather than failing placement.
+	// multi-GPU request inside one island. Runs by card index, independent
+	// of the MIG pass above. Best-effort : a topo failure leaves every
+	// domain empty, which the affinity rule treats as "no constraint".
 	tout, err := exec.Command(smi, "topo", "-m").Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "weft: detectGPUs nvidia-smi topo -m: %v\n", err)
-		return enriched
+		return withMIG
 	}
-	return assignNVLinkDomains(enriched, strings.NewReader(string(tout)))
+	return assignNVLinkDomains(withMIG, strings.NewReader(string(tout)))
 }
 
 // detectGPUsFromSysfs walks the DRM subsystem looking for PCI

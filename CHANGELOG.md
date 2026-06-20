@@ -19,6 +19,14 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
   cross-island mixing; empty domains (unknown topology / no NVLink) are
   a no-op (degraded PCIe placement allowed). MIG requests are exempt.
   Closes the 2×NVL4 placement story. See `docs/operations/gpu-sharing.md`.
+- **GPU sharing — MIG-instance detection** (phase 3, detection half).
+  The Linux `detectGPUs` now enumerates NVIDIA MIG instances from
+  `nvidia-smi -L` (`enumerateMIGFromSMIL`, a platform-neutral parser in
+  `gpu_mig.go`), populating `GPU.MIGInstances` with profile / mdev UUID
+  / parent BDF / per-slice memory. Enforces the EITHER/OR invariant: a
+  MIG-mode card has its whole-card `PCIBDF` cleared so it can't also be
+  claimed whole. The matching QEMU `sysfsdev=` attach lands in
+  `weft-driver-qemu`. See `docs/operations/gpu-sharing.md`.
 - **GPU sharing — scheduler wiring + persistence** (phase 2). New
   `Adapter.ScheduleVMExclusive` picks a host **and** the concrete GPU
   resources (whole cards by PCI BDF, MIG instances by mdev UUID),

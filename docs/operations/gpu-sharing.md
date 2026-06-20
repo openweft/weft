@@ -126,24 +126,25 @@ Matching under exclusivity (`gpuRequestSatisfiedExcl`) :
    all-or-nothing, and returns the claim list; `UnregisterVM` releases
    them. The claim table persists per-record to the `gpu_allocations`
    KV prefix (`gpu_alloc_kv.go`) and reloads at startup. `ScheduleVM`
-   stays a pure non-claiming filter for non-GPU callers. **Not yet**
-   wired: the live multi-host create flow doesn't call
-   `ScheduleVMExclusive` yet (it doesn't call `ScheduleVM` either —
-   same deferral the scheduler has carried since it landed); the
-   create path adopts the exclusive entry point when multi-host create
-   lands.
-3. **MIG attach** — `weft-driver-qemu` `sysfsdev=<uuid>` path ;
-   `detectGPUs` enumerates MIG instances (`nvidia-smi mig -lgi` +
-   `/sys/bus/mdev`).
-4. **This PR (NVLink affinity)** — `detectGPUs` fills `NVLinkDomain`
-   from `nvidia-smi topo -m` (`assignNVLinkDomains`): cards are grouped
-   into NVLink islands by `NV*` adjacency (connected components),
-   islands of ≥2 get a stable `nvl-<minIndex>` label, lone cards stay
-   empty. `selectGPUClaims` then enforces same-domain affinity for
-   whole-card `count > 1` requests (`chooseWholeCardsByDomain`): all
-   cards must come from ONE island; no cross-island mixing. Empty
-   domains (unknown topology / no NVLink) are a no-op — a degraded PCIe
-   placement is allowed rather than rejected. MIG requests are exempt
-   (slices don't do cross-GPU NVLink).
+   stays a pure non-claiming filter for non-GPU callers.
+3. **Done** — MIG detect + attach. `detectGPUs` enumerates MIG
+   instances from `nvidia-smi -L` (`enumerateMIGFromSMIL`), populating
+   `GPU.MIGInstances` and **clearing the parent's whole-card BDF** so a
+   MIG-mode card is never also handed out whole (the EITHER/OR
+   invariant). `weft-driver-qemu` renders `-device
+   vfio-pci,sysfsdev=/sys/bus/mdev/devices/<uuid>` per MIG instance
+   (and `host=<BDF>` per whole card), fed from the VM `config.json`.
+4. **Done** — NVLink affinity. `detectGPUs` fills `NVLinkDomain` from
+   `nvidia-smi topo -m` (`assignNVLinkDomains`): NVLink islands via
+   `NV*`-adjacency connected components, `nvl-<minIndex>` labels for
+   islands of ≥2, lone cards empty. `selectGPUClaims` keeps a whole-card
+   `count > 1` request inside ONE island (`chooseWholeCardsByDomain`);
+   empty domains are a no-op (degraded PCIe allowed); MIG exempt.
+
+**Remaining seam** (not a phase — the wire between the phases): weft-agent
+writing the claimed BDFs / MIG UUIDs into the microVM `config.json` the
+QEMU driver reads, and the live multi-host create flow calling
+`ScheduleVMExclusive` (it doesn't call `ScheduleVM` either yet — a standing
+scheduler deferral).
 
 Each phase has a tracking issue.
