@@ -343,8 +343,15 @@ func (p *LinuxProgrammer) syncAddresses(link netlink.Link, ips []netip.Addr) err
 // SHA-256 (collision-improbable across one cluster).
 func macvlanNameFor(networkUUID string) string {
 	h := sha256.Sum256([]byte(networkUUID))
-	return MacvlanPrefix + hex.EncodeToString(h[:4])
+	// Linux caps interface names at IFNAMSIZ-1 = 15 bytes; the kernel rejects
+	// a longer name with ERANGE at LinkAdd. "wft-mvl-" is 8 bytes, so the hash
+	// suffix must be ≤ 7 hex chars (28 bits, collision-improbable per host).
+	return MacvlanPrefix + hex.EncodeToString(h[:4])[:maxMacvlanHashHex]
 }
+
+// maxMacvlanHashHex keeps MacvlanPrefix+hash within the 15-byte interface-name
+// limit (len("wft-mvl-") == 8, 8+7 == 15).
+const maxMacvlanHashHex = 7
 
 // Compile-time check.
 var _ Programmer = (*LinuxProgrammer)(nil)
