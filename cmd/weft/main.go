@@ -57,6 +57,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/network"
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/plugin"
+	podcmd "github.com/openweft/weft/cmd/weft/pod"
 	"github.com/openweft/weft/cmd/weft/project"
 	"github.com/openweft/weft/cmd/weft/quota"
 	"github.com/openweft/weft/cmd/weft/rack"
@@ -232,6 +233,7 @@ running agent.`,
 		login.WhoamiCommand(),
 		overlaycmd.Command(),
 		plugin.Command(&socketPath, &sshSocket, &sshKey),
+		podcmd.Command(&socketPath, &sshSocket, &sshKey),
 		// Shell-completion script generator. Stateless — no socket
 		// flags, no gRPC. The script is generated against `root`
 		// (resolved via c.Root() inside completion.Command) so it
@@ -703,6 +705,14 @@ func run(t fileConfigTargets) error {
 		}
 		if err := dhcpd.Register(reg); err != nil {
 			return fmt.Errorf("register dhcpd metrics: %w", err)
+		}
+		// AttachDrivers stream observability counter. See
+		// agent_control_plane.go for the result-label taxonomy. The
+		// counter is the only signal that anyone is calling the new
+		// AgentControlPlane.AttachDrivers path in the wild before
+		// the full dispatch migration lands.
+		if _, err := newAttachDriversMetrics(reg); err != nil {
+			return fmt.Errorf("register weft_attach_drivers_calls_total: %w", err)
 		}
 		// Cluster-topology gauge : weft_monitors_live = count of
 		// etcd-coord liveness leases at /weft/coord/hosts/. Tracks the
