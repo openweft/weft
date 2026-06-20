@@ -2008,6 +2008,7 @@ func toProjectInfo(p weft.Project) *weftv1.ProjectInfo {
 		Uuid:            p.UUID,
 		Name:            p.Name,
 		CreatedAtUnixNs: p.CreatedAt.UnixNano(),
+		TenantUuid:      p.TenantUUID,
 	}
 }
 
@@ -2078,6 +2079,28 @@ func (s *weftServer) DeleteProject(ctx context.Context, req *weftv1.DeleteProjec
 	}
 	logger.Printf("DeleteProject uuid=%s", req.Uuid)
 	return &weftv1.DeleteProjectResponse{}, nil
+}
+
+// SetProjectTenant binds (or unbinds when tenant_uuid is empty) the
+// project to a parent tenant. Powers the GetProjectQuota
+// siblings_total + tenant_cap aggregation (commit d9f9d46ea +
+// 5a93f38a4) without operators needing to hand-edit projects.hcl.
+func (s *weftServer) SetProjectTenant(ctx context.Context, req *weftv1.SetProjectTenantRequest) (*weftv1.SetProjectTenantResponse, error) {
+	if err := weft.RequireAdmin(ctx, "set project tenant"); err != nil {
+		return nil, err
+	}
+	if req.ProjectUuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "project_uuid is required")
+	}
+	if err := s.adp.SetProjectTenant(req.ProjectUuid, req.TenantUuid); err != nil {
+		return nil, status.Errorf(codes.NotFound, "set project tenant: %v", err)
+	}
+	p, ok := s.adp.ProjectByUUID(req.ProjectUuid)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "project %s not found after update", req.ProjectUuid)
+	}
+	logger.Printf("SetProjectTenant project=%s tenant=%s", req.ProjectUuid, req.TenantUuid)
+	return &weftv1.SetProjectTenantResponse{Project: toProjectInfo(p)}, nil
 }
 
 // ---- Tenants (top-level multi-tenant boundary) --------------------
