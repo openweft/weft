@@ -88,7 +88,9 @@ func parseSMILGPUIndex(line string) (int, bool) {
 		return 0, false
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(rest[:colon]))
-	if err != nil {
+	if err != nil || n < 0 {
+		// Reject a negative ordinal defensively — enumerateMIGFromSMIL
+		// bounds-checks the index too, but a GPU index is never negative.
 		return 0, false
 	}
 	return n, true

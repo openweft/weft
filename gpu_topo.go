@@ -84,7 +84,7 @@ func parseNVLinkAdjacency(r io.Reader, n int) [][]bool {
 			continue
 		}
 		row, ok := parseTopoGPUIndex(fields[0])
-		if !ok || row >= n {
+		if !ok || row < 0 || row >= n {
 			continue // header row, blank, or an out-of-range label
 		}
 		sawRow = true
@@ -111,7 +111,9 @@ func parseTopoGPUIndex(s string) (int, bool) {
 		return 0, false
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(s, "GPU"))
-	if err != nil {
+	if err != nil || n < 0 {
+		// Reject "GPU-1" and friends : Atoi("-1") succeeds but a
+		// negative index would index adj[-1]. A GPU ordinal is ≥ 0.
 		return 0, false
 	}
 	return n, true
