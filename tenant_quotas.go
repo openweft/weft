@@ -210,10 +210,12 @@ func (r *tenantQuotaRegistry) set(projectUUID string, q TenantQuota) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	prev, had := r.byUUID[projectUUID]
-	// Zero-only quota = clear. Treats `--cpu=0 --mem=0 --volume=0`
-	// as "remove the entry" so operators can wipe a cap without
-	// thinking about whether to call a separate Delete.
-	if q.CPUCount == 0 && q.MemoryGiB == 0 && q.VolumeGiB == 0 && q.GPUCount == 0 && q.GPUMemoryGiB == 0 && q.PCICount == 0 {
+	// Zero-only quota = clear. Treats `--cpu=0 --mem=0 --volume=0
+	// --volumes=0 --shares=0 ...` as "remove the entry" so operators
+	// can wipe a cap without thinking about whether to call a separate
+	// Delete. Uses isZeroQuota (tenant_caps.go) so any new TenantQuota
+	// dimension automatically participates in the check.
+	if isZeroQuota(q) {
 		delete(r.byUUID, projectUUID)
 	} else {
 		r.byUUID[projectUUID] = q
@@ -348,7 +350,36 @@ func (a *Adapter) projectAllocation(projectUUID string) TenantQuota {
 	}
 	for _, vol := range a.volumeReg.listForProject(projectUUID) {
 		out.VolumeGiB += vol.SizeGiB
+		out.VolumeCount++
 	}
+	if a.shareReg != nil {
+		for _, sh := range a.shareReg.list(projectUUID) {
+			out.ShareCount++
+			// Share.SizeGB is a misnomer ; the proto + operator
+			// surface treat it as GiB-equivalent (the unit-name
+			// drift predates the proto-aligned cap dimensions).
+			// Aggregate as-is so the cap-vs-allocated comparison
+			// stays consistent in the operator's mental model.
+			out.ShareGiB += int(sh.SizeGB)
+		}
+	}
+	if a.bucketReg != nil {
+		for range a.bucketReg.list(projectUUID) {
+			out.BucketCount++
+		}
+		// BucketGiB stays 0 : the local Bucket struct doesn't
+		// carry a size field today (S3 buckets are catalogue
+		// records pointing at external storage). When per-bucket
+		// usage instrumentation lands, this is where the sum goes.
+	}
+	if a.fipReg != nil {
+		for range a.fipReg.listForProject(projectUUID) {
+			out.FloatingIPs++
+		}
+	}
+	// RegistryGiB stays 0 : OCI image registries are cluster-wide
+	// (no per-project storage cost tracked yet). Future per-project
+	// image-cache accounting would aggregate here.
 	return out
 }
 
@@ -412,14 +443,78 @@ func (a *Adapter) initTenantQuotas() {
 // volume_gib cap. Zero cap is "no limit".
 func (a *Adapter) EnforceTenantQuotaForVolume(projectUUID string, sizeGiB int) error {
 	cap := a.TenantQuota(projectUUID)
-	if cap.VolumeGiB <= 0 {
+	if cap.VolumeGiB <= 0 && cap.VolumeCount <= 0 {
 		return nil
 	}
 	alloc := a.projectAllocation(projectUUID)
-	if alloc.VolumeGiB+sizeGiB > cap.VolumeGiB {
+	if cap.VolumeGiB > 0 && alloc.VolumeGiB+sizeGiB > cap.VolumeGiB {
 		return status.Errorf(codes.ResourceExhausted,
 			"tenant quota exhausted: volume_gib (allocated %d + requested %d > cap %d)",
 			alloc.VolumeGiB, sizeGiB, cap.VolumeGiB)
+	}
+	if cap.VolumeCount > 0 && alloc.VolumeCount+1 > cap.VolumeCount {
+		return status.Errorf(codes.ResourceExhausted,
+			"tenant quota exhausted: volumes (allocated %d + requested 1 > cap %d)",
+			alloc.VolumeCount, cap.VolumeCount)
+	}
+	return nil
+}
+
+// EnforceTenantQuotaForShare returns ResourceExhausted when admitting
+// a share of `sizeGiB` would push the project past its shares (count)
+// or shares_gib caps. Zero caps short-circuit per axis.
+func (a *Adapter) EnforceTenantQuotaForShare(projectUUID string, sizeGiB int) error {
+	cap := a.TenantQuota(projectUUID)
+	if cap.ShareCount <= 0 && cap.ShareGiB <= 0 {
+		return nil
+	}
+	alloc := a.projectAllocation(projectUUID)
+	if cap.ShareCount > 0 && alloc.ShareCount+1 > cap.ShareCount {
+		return status.Errorf(codes.ResourceExhausted,
+			"tenant quota exhausted: shares (allocated %d + requested 1 > cap %d)",
+			alloc.ShareCount, cap.ShareCount)
+	}
+	if cap.ShareGiB > 0 && alloc.ShareGiB+sizeGiB > cap.ShareGiB {
+		return status.Errorf(codes.ResourceExhausted,
+			"tenant quota exhausted: shares_gib (allocated %d + requested %d > cap %d)",
+			alloc.ShareGiB, sizeGiB, cap.ShareGiB)
+	}
+	return nil
+}
+
+// EnforceTenantQuotaForBucket returns ResourceExhausted when admitting
+// a new bucket would push the project past its buckets (count) cap.
+// buckets_gib has no enforcement path today : the local Bucket struct
+// doesn't carry a size dimension (S3 buckets are catalogue records
+// pointing at external storage). When per-bucket usage instrumentation
+// lands, gate the size delta here.
+func (a *Adapter) EnforceTenantQuotaForBucket(projectUUID string) error {
+	cap := a.TenantQuota(projectUUID)
+	if cap.BucketCount <= 0 {
+		return nil
+	}
+	alloc := a.projectAllocation(projectUUID)
+	if alloc.BucketCount+1 > cap.BucketCount {
+		return status.Errorf(codes.ResourceExhausted,
+			"tenant quota exhausted: buckets (allocated %d + requested 1 > cap %d)",
+			alloc.BucketCount, cap.BucketCount)
+	}
+	return nil
+}
+
+// EnforceTenantQuotaForFloatingIP returns ResourceExhausted when
+// admitting a new floating IP allocation would push the project
+// past its floating_ips cap. Zero cap is "no limit".
+func (a *Adapter) EnforceTenantQuotaForFloatingIP(projectUUID string) error {
+	cap := a.TenantQuota(projectUUID)
+	if cap.FloatingIPs <= 0 {
+		return nil
+	}
+	alloc := a.projectAllocation(projectUUID)
+	if alloc.FloatingIPs+1 > cap.FloatingIPs {
+		return status.Errorf(codes.ResourceExhausted,
+			"tenant quota exhausted: floating_ips (allocated %d + requested 1 > cap %d)",
+			alloc.FloatingIPs, cap.FloatingIPs)
 	}
 	return nil
 }

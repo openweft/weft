@@ -348,6 +348,9 @@ type VZAdapter interface {
 	SetTenantQuota(projectUUID string, q TenantQuota) error
 	EnforceTenantQuotaForVM(projectUUID string, cpu, memoryMiB int) error
 	EnforceTenantQuotaForVolume(projectUUID string, sizeGiB int) error
+	EnforceTenantQuotaForShare(projectUUID string, sizeGiB int) error
+	EnforceTenantQuotaForBucket(projectUUID string) error
+	EnforceTenantQuotaForFloatingIP(projectUUID string) error
 	// EnforceTenantQuotaForGPU returns ResourceExhausted when
 	// admitting a VM with the given RequestedGPUs would push the
 	// project's gpu_count / gpu_memory_gib allocation past its
