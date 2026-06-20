@@ -65,6 +65,22 @@ func TestAssignNVLinkDomains_NoNVLinkLeavesEmpty(t *testing.T) {
 	}
 }
 
+func TestAssignNVLinkDomains_MalformedRowLabelNoPanic(t *testing.T) {
+	// Regression for the fuzz find "GPU-1 NV0": a negative GPU ordinal
+	// must be rejected, not used to index adj[-1].
+	for _, raw := range []string{"GPU-1 NV0", "GPU-1\tX\tNV1\n", "GPU\tX"} {
+		out := assignNVLinkDomains(eightH200(), strings.NewReader(raw))
+		for i, g := range out {
+			if g.NVLinkDomain != "" {
+				t.Errorf("raw %q: GPU%d should stay unlabelled, got %q", raw, i, g.NVLinkDomain)
+			}
+		}
+	}
+	if _, ok := parseTopoGPUIndex("GPU-1"); ok {
+		t.Error("parseTopoGPUIndex must reject a negative ordinal")
+	}
+}
+
 func TestAssignNVLinkDomains_NoMatrixIsNoOp(t *testing.T) {
 	out := assignNVLinkDomains(eightH200(), strings.NewReader("nvidia-smi: command produced junk\n"))
 	for i, g := range out {
