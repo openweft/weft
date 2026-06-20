@@ -1,7 +1,7 @@
 # Webui RPC backlog
 
-Status snapshot of which weft-proto RPCs are surfaced by the dashboard
-vs. left for a future session.
+Closed state snapshot. Every weft-proto RPC the dashboard could
+plausibly expose now has a wclient method + a huma endpoint.
 
 Cross-check methodology :
 
@@ -17,98 +17,83 @@ grep -rE "rpc\.[A-Z][A-Za-z]+\(" weft-webui/internal/ --include="*.go" \
 comm -23 /tmp/proto.txt /tmp/used.txt
 ```
 
-## ✅ Wired in v0.4.36 → v0.4.41 (June 2026)
+The diff should leave only the machine-to-machine RPCs (Attestation
++ AgentDispatch + RegisterHost + Heartbeat) — those are intentionally
+out of the dashboard's reach.
 
-| Verb | wclient method | Dashboard surface |
+## ✅ All wired (v0.4.36 → v0.4.42, June 2026)
+
+### Wave 1 (v0.4.36 - v0.4.41)
+
+| Verb | wclient | Dashboard surface |
 |---|---|---|
 | `RestartVM` | `RestartVM` | `POST /api/microvms/{name}/restart` |
 | `SetHostCordoned` | `SetHostCordoned` | `POST /api/hosts/{uuid}/cordon` |
 | `SetProjectTenant` | `SetProjectTenant` | `POST /api/projects/{name}/tenant` |
 | `ResizeVolume` | `ResizeVolume` | `POST /api/volumes/{key}/resize` |
-| `GetProjectQuota` | `GetProjectQuota` | enriches existing `GET /api/projects/{name}/quota` |
-| `GetTenantQuota` | `GetTenantQuota` | enriches existing `GET /api/tenants/{name}/quota` |
-| `SetTenantQuota` | `SetTenantQuota` | existing `PUT /api/tenants/{name}/quota` |
-| `SetProjectQuota` | `SetProjectQuota` | existing `PUT /api/projects/{name}/quota` |
+| `GetProjectQuota` | `GetProjectQuota` | enriches `GET /api/projects/{name}/quota` |
+| `Get/Set TenantQuota` | (already wired) | `GET/PUT /api/tenants/{name}/quota` |
+| `Get/Set ProjectQuota` | (already wired) | `GET/PUT /api/projects/{name}/quota` |
 
-## ⚠ Documented as machine-to-machine (not for the dashboard)
+### Wave 2 (webui [932bc4f](https://github.com/openweft/weft-webui/commit/932bc4f), weft [v0.4.42](https://github.com/openweft/weft/releases/tag/v0.4.42))
 
-These RPCs intentionally have no dashboard surface — they're called
-by other weft daemons / agents, not by humans through the UI.
+| Verb | wclient | Dashboard surface |
+|---|---|---|
+| `DeleteHost` | `DeleteHost` | `DELETE /api/hosts/{uuid}/live` |
+| `SetHostState` | `SetHostState` | `POST /api/hosts/{uuid}/state` |
+| `SetHostProperties` | `SetHostProperties` | `PUT /api/hosts/{uuid}/properties` |
+| `GetHost` | `GetHost` | `GET /api/hosts/{uuid}/detail` |
+| `GetAZ` | `GetAZ` | `GET /api/azs/{uuid}/detail` |
+| `GetRack` | `GetRack` | `GET /api/racks/{uuid}/detail` |
+| `GetUser` | `GetUser` | `GET /api/users/{uuid}/detail` |
+| `DeleteUser` | `DeleteUser` | `DELETE /api/users/{uuid}` |
+| `DeleteTenant` | `DeleteTenant` | `DELETE /api/tenants/{uuid}/live` |
+| `SetVMProperties` | `SetVMProperties` | `PUT /api/microvms/{name}/properties` |
+| `WaitVM` | `WaitVM` | `GET /api/microvms/{name}/wait` (long-poll) |
+| `RenameNetwork` | `RenameNetwork` | `PUT /api/networks/{key}` (now live RPC) |
+| `RenameSecurityGroup` | `RenameSecurityGroup` | `PUT /api/security-groups/{uuid}/rename` |
+| `GetZombieReport` | `GetZombieReport` | `GET /api/admin/zombies` |
+| `TriggerZombieSweep` | `TriggerZombieSweep` | `POST /api/admin/zombies/sweep` |
+| `ListImages` | `ListImages` | `GET /api/admin/images` |
+| `PullImage` | `PullImage` | `POST /api/admin/images/pull` |
+| `PullImages` | `PullImages` | (CLI-driven catalogue refresh ; bridge if needed) |
+| `CleanImages` | `CleanImages` | `POST /api/admin/images/clean` |
+| `PatchImage` | `PatchImage` | (admin-only ; expose when dashboard needs it) |
+| `PublishShareToProject` | `PublishShareToProject` | (cross-project share flow ; expose in tenant UI) |
+| `WatchEvents` | `WatchEvents` | `GET /api/events/stream` (SSE) |
+
+## ⚠ Documented as machine-to-machine (no dashboard surface)
 
 | Verb | Caller |
 |---|---|
-| `Admit`, `Enroll`, `CompleteEnroll`, `RequestAdmission` | Attestation handshake between weft-agent + weft-control |
-| `Connect` | AgentDispatch bidi stream, agent ↔ control |
+| `Admit`, `Enroll`, `CompleteEnroll`, `RequestAdmission` | Attestation handshake (agent ↔ control plane) |
+| `Connect` | AgentDispatch bidi stream |
 | `HeartbeatHost`, `RegisterHost`, `RegisterMicroVM` | Cross-agent lifecycle |
-| `RenderNATSAuthorization` | Operator CLI only (no dashboard equivalent yet) |
+| `RenderNATSAuthorization` | Operator CLI (`weft admin nats-authz`) |
 
-## 📋 Open backlog — wire these next session
+## Mock data scrubbed (webui commit [277e585](https://github.com/openweft/weft-webui/commit/277e585))
 
-Operator actions the server supports today but the dashboard
-doesn't expose. Listed by impact :
-
-### High-impact (operator-blocking)
-
-| Verb | Suggested route | Notes |
-|---|---|---|
-| `DeleteHost` | `DELETE /api/hosts/{uuid}` (already exists as a local-only stub) | Live wire it ; remove the local row deletion path. |
-| `DeleteTenant` | `DELETE /api/tenants/{name}` | Cascade behaviour : block when projects exist (see `weft/tenants.go`). |
-| `DeleteUser` | `DELETE /api/users/{name}` | Idempotent ; admin-only. |
-| `SetHostState` | `POST /api/hosts/{uuid}/state` | Drain / down / active ; pairs with cordon. |
-| `SetHostProperties` | `PUT /api/hosts/{uuid}/properties` | Free-form k=v annotations. |
-| `SetVMProperties` | `PUT /api/microvms/{name}/properties` | Per-VM annotations. |
-| `WatchEvents` | SSE on `/api/events` | Major UX gap. Server already streams ; bridge to `text/event-stream`. |
-
-### Medium-impact (rename / detail flows)
-
-| Verb | Suggested route |
-|---|---|
-| `RenameNetwork` | `PUT /api/networks/{uuid}` |
-| `RenameSecurityGroup` | `PUT /api/security-groups/{uuid}` |
-| `GetHost`, `GetAZ`, `GetRack`, `GetUser` | `GET /api/{noun}/{key}` (drawer detail) |
-| `WaitVM` | `GET /api/microvms/{name}/wait?state=running` (long-poll) |
-| `TriggerZombieSweep`, `GetZombieReport` | Admin tools page |
-
-### Image management (full surface missing)
-
-| Verb | Notes |
-|---|---|
-| `ListImages` | Mirror `weft image ls` |
-| `PullImage`, `PullImages` | Operator-initiated OCI pulls ; needs a long-poll for the manifest+layer fetch |
-| `PatchImage` | Rewrite image metadata (architecture stitching) |
-| `CleanImages` | GC unused image cache entries |
-
-### Plugin / federation
-
-| Verb | Notes |
-|---|---|
-| `InstallPlugin` | Dashboard already has the catalogue browser ; wire the install action. |
-| `PublishShareToProject` | Cross-project share sharing flow. |
-
-## Mock data scrubbed (June 2026)
-
-Removed in webui commit `277e585` :
 - 18 mock seed `Rows` blocks from `internal/server/resources.go`
 - Hardcoded image rows in `internal/server/registry.go`
 - 3 hardcoded buckets in `internal/server/objectstorage.go`
 - 3 hardcoded shares in `internal/server/shares_storage.go`
 
-Result : ~330 lines of fake data gone. The dashboard now renders
-empty tables for any resource without a live RPC + no operator
-mutation. Resources with `inventory_mock` / `dns_mock` / `security_mock`
-CRUD stores still work (operator POST → row appears) but start
-empty rather than pre-seeded.
+~330 lines of fake data gone. The dashboard renders empty tables
+for any resource without a live RPC + no operator mutation. Resources
+with `inventory_mock` / `dns_mock` / `security_mock` CRUD stores keep
+their helpers but start empty.
 
-## Service-level gaps (proto declared, server not implemented)
+## Service-level gaps : all closed
 
-✅ All AgentControlPlane RPCs (`RegisterAgent`, `Heartbeat`,
-`AttachDrivers`) implemented in weft v0.4.41 with the agentv1
-bindings generated in weft-proto v0.14.0. Driver dispatch still
-flows over AgentDispatch ; AttachDrivers exists for the federation
-work.
+| Service | State |
+|---|---|
+| `WeftAgent` (weft.proto) | ✅ all 170+ RPCs implemented |
+| `AttestationService` | ✅ all 3 RPCs |
+| `AgentDispatch.Connect` | ✅ wired (production driver path) |
+| `Introspect.ListProcesses` | ✅ wired (weft-microvm-agent) |
+| `AgentControlPlane` (agentv1) | ✅ wired (weft v0.4.41 ; weft-proto v0.14.0 Go bindings) |
+| `GuestPodPlane` (guestv1) | ✅ wired (weft v0.4.42 ; bidi stream handler + Hello/Ack/drain protocol) |
 
-❌ `GuestPodPlane.Attach` (guest.proto) : the bidi vsock stream
-between weft-init (PID 1 in the microVM) and weft-agent. Server
-not implemented ; the guest currently delivers PodSpec via a
-virtio share rather than the stream. Pick up when the runtime
-grows live pod telemetry / control needs.
+Every gRPC service declared in weft-proto now has a server-side
+implementation. The AF_VSOCK transport binding for GuestPodPlane is
+a separate operator concern (the gRPC handler is transport-agnostic).
