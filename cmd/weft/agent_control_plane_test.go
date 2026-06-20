@@ -18,7 +18,7 @@ func TestAgentControlPlane_RegisterAgent(t *testing.T) {
 	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
 	s := &agentControlPlaneServer{adp: adp}
 
-	resp, err := s.RegisterAgent(context.Background(), &agentv1.RegisterAgentRequest{
+	resp, err := s.RegisterAgent(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.RegisterAgentRequest{
 		Registration: &agentv1.HostRegistration{
 			Uuid:         "host-uuid-1",
 			Hostname:     "h1",
@@ -38,7 +38,7 @@ func TestAgentControlPlane_RegisterAgent(t *testing.T) {
 
 	// Re-register with same UUID + new placement field : idempotent +
 	// new value wins via the existing RegisterHost semantics.
-	resp2, err := s.RegisterAgent(context.Background(), &agentv1.RegisterAgentRequest{
+	resp2, err := s.RegisterAgent(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.RegisterAgentRequest{
 		Registration: &agentv1.HostRegistration{
 			Uuid: "host-uuid-1", Hostname: "h1",
 			Az: "dc2", Rack: "r9", Hypervisor: "qemu", Architecture: "arm64",
@@ -61,7 +61,7 @@ func TestAgentControlPlane_RegisterAgent(t *testing.T) {
 func TestAgentControlPlane_RegisterAgent_EmptyRequestRejected(t *testing.T) {
 	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
 	s := &agentControlPlaneServer{adp: adp}
-	_, err := s.RegisterAgent(context.Background(), &agentv1.RegisterAgentRequest{})
+	_, err := s.RegisterAgent(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.RegisterAgentRequest{})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Errorf("expected InvalidArgument, got %v", err)
 	}
@@ -73,21 +73,21 @@ func TestAgentControlPlane_Heartbeat(t *testing.T) {
 	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
 	s := &agentControlPlaneServer{adp: adp}
 	// Register first.
-	if _, err := s.RegisterAgent(context.Background(), &agentv1.RegisterAgentRequest{
+	if _, err := s.RegisterAgent(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.RegisterAgentRequest{
 		Registration: &agentv1.HostRegistration{Uuid: "h", Hostname: "h", Hypervisor: "qemu", Architecture: "arm64"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Heartbeat(context.Background(), &agentv1.HeartbeatRequest{HostUuid: "h"}); err != nil {
+	if _, err := s.Heartbeat(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.HeartbeatRequest{HostUuid: "h"}); err != nil {
 		t.Fatalf("heartbeat: %v", err)
 	}
 	// Unknown host : NotFound.
-	_, err := s.Heartbeat(context.Background(), &agentv1.HeartbeatRequest{HostUuid: "nope"})
+	_, err := s.Heartbeat(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.HeartbeatRequest{HostUuid: "nope"})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("unknown host : got %v, want NotFound", err)
 	}
 	// Empty arg : InvalidArgument.
-	_, err = s.Heartbeat(context.Background(), &agentv1.HeartbeatRequest{})
+	_, err = s.Heartbeat(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.HeartbeatRequest{})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Errorf("empty arg : got %v, want InvalidArgument", err)
 	}
