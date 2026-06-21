@@ -69,6 +69,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/sshkeycatalogue"
 	"github.com/openweft/weft/cmd/weft/subnet"
 	"github.com/openweft/weft/cmd/weft/tenant"
+	upgradecmd "github.com/openweft/weft/cmd/weft/upgrade"
 	"github.com/openweft/weft/cmd/weft/user"
 	"github.com/openweft/weft/cmd/weft/volume"
 	"github.com/openweft/weft/cmd/weft/wait"
@@ -234,6 +235,7 @@ running agent.`,
 		overlaycmd.Command(),
 		plugin.Command(&socketPath, &sshSocket, &sshKey),
 		podcmd.Command(&socketPath, &sshSocket, &sshKey),
+		upgradecmd.Command(&socketPath, &sshSocket, &sshKey),
 		// Shell-completion script generator. Stateless — no socket
 		// flags, no gRPC. The script is generated against `root`
 		// (resolved via c.Root() inside completion.Command) so it
