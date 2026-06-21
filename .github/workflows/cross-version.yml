@@ -1,0 +1,101 @@
+name: cross-version
+
+# Catches accidental breakage between weft and the previous
+# tagged weft-proto release. weft pins weft-proto in go.mod ; an
+# operator running a 3-DC cluster mid-upgrade has hosts on
+# different weft tags, all reading the SAME etcd, all serving the
+# SAME gRPC contract via potentially-different proto versions.
+# Per docs/operations/upgrade.md §6 minor bumps are guaranteed
+# wire-compatible both directions. Without a test, "guaranteed"
+# rests on the proto designer's discipline alone ; this job
+# converts that into a CI check.
+#
+# What it does :
+#   1. Find the previous TAGGED weft-proto release on GitHub.
+#   2. Override the require in go.mod to that version.
+#   3. Run `go build ./...` + `go vet ./...` + `go test
+#      ./cmd/weft/...` (the gRPC-shaped tests).
+#   4. If any of those fail, the current weft commit uses a
+#      proto feature that's not in the previous tag — flag it
+#      to the PR reviewer.
+#
+# Why test weft vs OLDER proto (not the inverse) : downgrade
+# safety. An operator who needs to roll back to the previous
+# weft on an etcd state written by the newer weft expects the
+# data plane + control plane to keep working. The newer proto
+# fields are ignored by the older binary ; the older binary's
+# RPC surface must still be reachable.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  weft-vs-prev-proto:
+    name: weft HEAD vs prev tagged weft-proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: discover previous weft-proto tag
+        id: prev
+        run: |
+          set -euo pipefail
+          tag=$(gh api 'repos/openweft/weft-proto/tags' --jq '.[].name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V \
+            | tail -2 \
+            | head -1)
+          if [ -z "$tag" ]; then
+            echo "no previous weft-proto tag — skip"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "previous weft-proto tag : $tag"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: pin weft-proto to previous tag
+        if: steps.prev.outputs.skip != 'true'
+        env:
+          PREV: ${{ steps.prev.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Drop the local replace (if any) so go get against a
+          # real version works.
+          sed -i '/replace github.com\/openweft\/weft-proto/d' go.mod || true
+          go get "github.com/openweft/weft-proto@${PREV}"
+          go mod tidy
+          grep weft-proto go.mod
+
+      - name: build
+        if: steps.prev.outputs.skip != 'true'
+        env:
+          GOFLAGS: -mod=mod
+        run: go build ./...
+
+      - name: vet
+        if: steps.prev.outputs.skip != 'true'
+        env:
+          GOFLAGS: -mod=mod
+        run: go vet ./...
+
+      - name: cmd/weft tests
+        if: steps.prev.outputs.skip != 'true'
+        env:
+          GOFLAGS: -mod=mod
+        # Same exclusion as the regular CI : the macOS sd-notify
+        # test fails on the ubuntu runner's unix-socket layout
+        # too, exclude it explicitly.
+        run: go test -run '^Test[^S]|^Tests[^d]' ./cmd/weft/... ./
