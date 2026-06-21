@@ -818,11 +818,13 @@ func run(t fileConfigTargets) error {
 	if t.attestationEnabled {
 		logger.Printf("attestation gate ENABLED — TPM host admission required for RegisterHost")
 	}
+	attachSrv := &agentControlPlaneServer{adp: a}
 	srvImpl := &weftServer{
 		cfgDir:           t.configDir,
 		mc:               mc,
 		adp:              a,
 		dispatch:         dispatchSrv,
+		attach:           attachSrv,
 		localHostUUID:    localHostUUID(a),
 		flavors:          flavorReg,
 		scripts:          scriptReg,
@@ -838,10 +840,12 @@ func run(t fileConfigTargets) error {
 	weftv1.RegisterAgentDispatchServer(srv, dispatchSrv)
 	// AgentControlPlane (weft-proto agentv1) is the machine-to-machine
 	// surface remote agents use for RegisterAgent / Heartbeat. Driver
-	// dispatch still travels over AgentDispatch above ; AttachDrivers
-	// is wired but accepts-Init-then-drains until the federation work
-	// promotes it to the primary dispatch path.
-	agentv1.RegisterAgentControlPlaneServer(srv, &agentControlPlaneServer{adp: a})
+	// dispatch flows over AgentDispatch by default ; the weftServer's
+	// dispatchAny helper transparently switches to AttachDrivers when
+	// a session exists for the target host (v0.4.52). Both transports
+	// stay live ; operators choose per-deployment via the agent
+	// client's URL flag.
+	agentv1.RegisterAgentControlPlaneServer(srv, attachSrv)
 	// GuestPodPlane (weft-proto guestv1) : the bidi stream weft-init
 	// (PID 1 in microVMs) uses to report pod telemetry + receive
 	// control requests. Today over the agent's existing socket ; a
@@ -981,6 +985,12 @@ type weftServer struct {
 	// Adapter directly. Set by run() at startup ; tests can
 	// leave it nil to force the all-local path.
 	dispatch *agentDispatchServer
+	// attach is the AgentControlPlane.AttachDrivers session
+	// registry — the v0.4.50+ transport that runs alongside
+	// AgentDispatch. dispatchAny() prefers it when a session
+	// exists for the target host, falls back to `dispatch`
+	// otherwise. nil in tests that bypass the gRPC stack.
+	attach *agentControlPlaneServer
 	// localHostUUID is read once at startup from the host-uuid
 	// file. Empty when the server isn't running with a
 	// self-registered local host (e.g. integration tests). Used
@@ -1771,7 +1781,7 @@ func (s *weftServer) dispatchRegisterMicroVM(
 		},
 	}}
 	logger.Printf("RegisterMicroVM %s: dispatching to host %s", req.Name, req.HostUuid)
-	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
+	reply, err := s.dispatchAny(ctx, req.HostUuid, op)
 	if err != nil {
 		return nil, err // already a status.Status from Dispatch
 	}
@@ -1791,7 +1801,7 @@ func (s *weftServer) dispatchStartVM(ctx context.Context, req *weftv1.StartVMReq
 		StartVm: &weftv1.StartVMOp{Project: req.Project, Name: req.Name},
 	}}
 	logger.Printf("StartVM %s: dispatching to host %s", req.Name, req.HostUuid)
-	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
+	reply, err := s.dispatchAny(ctx, req.HostUuid, op)
 	if err != nil {
 		return nil, err
 	}
@@ -1810,7 +1820,7 @@ func (s *weftServer) dispatchStopVM(ctx context.Context, req *weftv1.StopVMReque
 		StopVm: &weftv1.StopVMOp{Project: req.Project, Name: req.Name},
 	}}
 	logger.Printf("StopVM %s: dispatching to host %s", req.Name, req.HostUuid)
-	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
+	reply, err := s.dispatchAny(ctx, req.HostUuid, op)
 	if err != nil {
 		return nil, err
 	}
@@ -1829,7 +1839,7 @@ func (s *weftServer) dispatchDeleteVM(ctx context.Context, req *weftv1.DeleteVMR
 		DeleteVm: &weftv1.DeleteVMOp{Project: req.Project, Name: req.Name},
 	}}
 	logger.Printf("DeleteVM %s: dispatching to host %s", req.Name, req.HostUuid)
-	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
+	reply, err := s.dispatchAny(ctx, req.HostUuid, op)
 	if err != nil {
 		return nil, err
 	}
