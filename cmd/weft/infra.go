@@ -423,10 +423,12 @@ func deployReplica(a weft.VZAdapter, p *infra.Plan, rootfs, stateDir string, rep
 // takes the operator-supplied per-host name) funnel here.
 func deployReplicaNamed(a weft.VZAdapter, p *infra.Plan, rootfs, stateDir string, replica int, pickedAZ, vmName string, waitHealth bool, healthTimeout time.Duration) error {
 	boot := weft.MicroVMBoot{
-		Kernel:  infra.DefaultArtefact("kernel"),
-		Initrd:  infra.DefaultArtefact("initrd"),
-		Cmdline: p.CmdlineForGuest(),
-		Image:   p.OCIImage,
+		Kernel:    infra.DefaultArtefact("kernel"),
+		Initrd:    infra.DefaultArtefact("initrd"),
+		Cmdline:   p.CmdlineForGuest(),
+		Image:     p.OCIImage,
+		CPU:       int(p.CPU()),
+		MemoryMiB: int(p.MemoryMiB()),
 	}
 	shares := []weft.MicroVMShare{
 		{Tag: "rootfs0", Path: rootfs, ReadOnly: false, Clone: true},
