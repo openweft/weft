@@ -3439,6 +3439,14 @@ type MicroVMBoot struct {
 	// the operator-facing IMAGE column in `weft host ls` / TUI
 	// reads from there. Optional ; empty leaves the field absent.
 	Image string
+	// CPU + MemoryMiB are the resource caps the workload requested
+	// (typically from `weft infra deploy`'s plan.hcl `resources {}`
+	// block). Stored on the inventory record + persisted into
+	// config.json so cross-host ListVMs renders the operator-
+	// meaningful values instead of 0 when the daemon hasn't yet
+	// scanned local disk.
+	CPU       int
+	MemoryMiB int
 }
 
 // RegisterMicroVM creates a VM directory wired for a microVM-style
@@ -3488,6 +3496,8 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 				Name:        name,
 				HostUUID:    local,
 				Image:       regImage,
+				CPUCount:    boot.CPU,
+				MemoryMiB:   boot.MemoryMiB,
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "weft: register-microvm: re-seed registry for %q failed: %v\n", name, err)
 			} else {
@@ -3684,7 +3694,9 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		Shares   []shareEntry `json:"shares,omitempty"`
 		VsockCID uint32       `json:"vsock_cid,omitempty"`
 		Image    string       `json:"image,omitempty"`
-	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, VsockCID: preCID, Image: boot.Image}
+		CPU      int          `json:"cpu,omitempty"`
+		MemMB    int          `json:"mem_mb,omitempty"`
+	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, VsockCID: preCID, Image: boot.Image, CPU: boot.CPU, MemMB: boot.MemoryMiB}
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
 		_ = os.RemoveAll(dir)
@@ -3722,6 +3734,8 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 			Name:        name,
 			HostUUID:    a.localHostUUID(),
 			Image:       regImage,
+			CPUCount:    boot.CPU,
+			MemoryMiB:   boot.MemoryMiB,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
