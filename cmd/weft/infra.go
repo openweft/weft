@@ -370,6 +370,7 @@ func deployReplica(a weft.VZAdapter, p *infra.Plan, rootfs, stateDir string, rep
 		Kernel:  infra.DefaultArtefact("kernel"),
 		Initrd:  infra.DefaultArtefact("initrd"),
 		Cmdline: p.CmdlineForGuest(),
+		Image:   p.OCIImage,
 	}
 	shares := []weft.MicroVMShare{
 		{Tag: "rootfs0", Path: rootfs, ReadOnly: false, Clone: true},
