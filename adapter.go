@@ -3433,6 +3433,12 @@ type MicroVMBoot struct {
 	Kernel  string
 	Initrd  string
 	Cmdline string
+	// Image is the OCI ref the microVM was hatched from (e.g.
+	// "ghcr.io/openweft/weft-etcd:v3.6.0"). Persisted into the VM
+	// dir's config.json so ListLocal can surface it on the wire —
+	// the operator-facing IMAGE column in `weft host ls` / TUI
+	// reads from there. Optional ; empty leaves the field absent.
+	Image string
 }
 
 // RegisterMicroVM creates a VM directory wired for a microVM-style
@@ -3653,7 +3659,8 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		Cmdline  string       `json:"cmdline,omitempty"`
 		Shares   []shareEntry `json:"shares,omitempty"`
 		VsockCID uint32       `json:"vsock_cid,omitempty"`
-	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, VsockCID: preCID}
+		Image    string       `json:"image,omitempty"`
+	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, VsockCID: preCID, Image: boot.Image}
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
 		_ = os.RemoveAll(dir)

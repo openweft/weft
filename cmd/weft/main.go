@@ -1060,6 +1060,20 @@ type weftServer struct {
 	etcdCli *clientv3.Client
 }
 
+// projectNameFor resolves a project UUID to its operator-facing
+// name via the Adapter's project registry. Returns "" on miss so
+// callers can decide whether to substitute the UUID or "—".
+func projectNameFor(adp weft.VZAdapter, projectUUID string) string {
+	if projectUUID == "" {
+		return ""
+	}
+	p, ok := adp.ProjectByUUID(projectUUID)
+	if !ok {
+		return ""
+	}
+	return p.Name
+}
+
 func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {
@@ -1139,6 +1153,13 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			if info.HostUuid == "" {
 				info.HostUuid = rec.HostUUID
 			}
+			// V0.4.61 : same backfill for Image. `weft infra deploy`
+			// writes the OCI ref to the registry, not to config.json,
+			// so the local-disk props map yields empty for infra
+			// VMs. Pull from the registry record instead.
+			if info.Image == "" {
+				info.Image = rec.Image
+			}
 		}
 		// V0.4.59 backfill : ListLocal scans the local filesystem,
 		// so any VM it surfaces lives on THIS host by definition. If
@@ -1151,6 +1172,53 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			info.HostUuid = s.localHostUUID
 		}
 		vms = append(vms, info)
+	}
+	// V0.4.61 cluster-wide view : ListLocal only sees THIS host's
+	// VMs ; remote-host VMs would be invisible from any single
+	// daemon. Also iterate the inventory registry (etcd-backed in
+	// HA) and surface any record we haven't already emitted via the
+	// local-disk path. The TUI's "all hosts at a glance" view + the
+	// VMS column on the Hosts tab need this to count correctly when
+	// the operator's socket is one host but VMs run on peers.
+	emitted := make(map[string]struct{}, len(vms))
+	for _, v := range vms {
+		emitted[v.ProjectUuid+"/"+v.Name] = struct{}{}
+	}
+	for _, rec := range s.adp.VMs() {
+		key := rec.ProjectUUID + "/" + rec.Name
+		if _, dup := emitted[key]; dup {
+			continue
+		}
+		if wantProject != "" && rec.ProjectUUID != wantProject {
+			projName := projectNameFor(s.adp, rec.ProjectUUID)
+			if projName != wantProject {
+				continue
+			}
+		}
+		if !all {
+			if _, ok := visible[rec.ProjectUUID]; !ok {
+				continue
+			}
+		}
+		info := &weftv1.VMInfo{
+			Uuid:        rec.UUID,
+			Name:        rec.Name,
+			ProjectUuid: rec.ProjectUUID,
+			Project:     projectNameFor(s.adp, rec.ProjectUUID),
+			HostUuid:    rec.HostUUID,
+			State:       stateToProto(string(rec.State)),
+			Cpu:         uint32(rec.CPUCount),
+			MemMb:       uint64(rec.MemoryMiB),
+			Image:       rec.Image,
+		}
+		if len(rec.Properties) > 0 {
+			info.Properties = make(map[string]string, len(rec.Properties))
+			for k, lv := range rec.Properties {
+				info.Properties[k] = lv
+			}
+		}
+		vms = append(vms, info)
+		emitted[key] = struct{}{}
 	}
 	return &weftv1.ListVMsResponse{Vms: vms}, nil
 }
