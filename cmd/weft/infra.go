@@ -45,13 +45,16 @@ func newInfraDeployCmd() *cobra.Command {
 	var stateDir string
 	var waitHealth bool
 	var healthTimeout time.Duration
+	var replica int
 	cmd := &cobra.Command{
 		Use:   "deploy <service>",
 		Short: "Deploy an infrastructure service from its HCL plan",
 		Long: `Deploy reads pkg/openweft/weft/infra/<service>/plan.hcl, validates
 the pre-pulled OCI rootfs is on disk (operator runs weft-microvm pull first),
 and registers + starts a micro-VM for the service. The VM lives in
-the "infra" project and is named "infra-<service>".
+the "infra" project and is named "infra-<service>" (single-replica
+plans) or "infra-<service>-dc<replica>" (multi-replica, or when
+--replica is passed by 'weft up --apply').
 
 With --wait-health the deployer polls the plan's health block
 URL (type=http, cmd=URL) until it returns 2xx (or --health-timeout
@@ -76,6 +79,15 @@ deployer substitutes it with the booted VM's IP at probe time.`,
 				return err
 			}
 			defer close()
+			if replica > 0 {
+				// Single-replica deploy of a specific replica
+				// number — `weft up --apply` invokes this per host
+				// so each host's VM gets a unique name even when
+				// plan.ReplicaCount() is 1. Without this every
+				// host's deploy registers "infra-<svc>" and the
+				// etcd registry collapses them.
+				return deploySingleReplica(a, p, rootfsPath, stateDir, replica, waitHealth, healthTimeout)
+			}
 			return deployPlan(a, p, rootfsPath, stateDir, waitHealth, healthTimeout)
 		},
 	}
@@ -84,6 +96,7 @@ deployer substitutes it with the booted VM's IP at probe time.`,
 	cmd.Flags().StringVar(&stateDir, "state-dir", "state", "weft state directory (where the VM lands on disk)")
 	cmd.Flags().BoolVar(&waitHealth, "wait-health", false, "After StartVM, poll the plan's health URL until it returns 2xx")
 	cmd.Flags().DurationVar(&healthTimeout, "health-timeout", 60*time.Second, "Total time to wait for a service to become healthy (only consulted with --wait-health)")
+	cmd.Flags().IntVar(&replica, "replica", 0, "Deploy only the Nth replica (1-indexed). Set by 'weft up --apply' so each host's invocation produces a distinct VM name. 0 = deploy every replica the plan declares.")
 	return cmd
 }
 
@@ -350,6 +363,43 @@ func deployPlan(a weft.VZAdapter, p *infra.Plan, rootfsOverride, stateDir string
 	return nil
 }
 
+// deploySingleReplica is the `weft up --apply` per-host entry
+// point. It bypasses the plan's own ReplicaCount loop and registers
+// exactly one VM whose name is keyed off the operator-supplied
+// 1-indexed replica number. Each host's invocation therefore
+// produces a unique VM name (infra-<svc>-dc<N>) even when
+// plan.ReplicaCount() is implicit 1.
+func deploySingleReplica(a weft.VZAdapter, p *infra.Plan, rootfsOverride, stateDir string, replica int, waitHealth bool, healthTimeout time.Duration) error {
+	rootfs := rootfsOverride
+	if rootfs == "" {
+		rootfs = p.DefaultRootfsPath()
+	}
+	if _, err := os.Stat(rootfs); err != nil {
+		return fmt.Errorf("rootfs %q not found — run `weft-microvm pull %s` first: %w", rootfs, p.OCIImage, err)
+	}
+	// AZ comes from the host the operator targeted ; the planner
+	// already picked us, so probe the local hostname against the
+	// host registry as best-effort for config-file template
+	// substitution.
+	az := ""
+	if hostname, _ := os.Hostname(); hostname != "" {
+		if h, ok := a.HostByHostname(hostname); ok {
+			az = h.AZ
+		}
+	}
+	return deployReplicaForced(a, p, rootfs, stateDir, replica, az, waitHealth, healthTimeout)
+}
+
+// deployReplicaForced is deployReplica with an explicit VM name
+// override : the caller has external knowledge (= the planner-
+// supplied replica number) that the plan can't derive on its own,
+// so we force the "-dcN" suffix unconditionally instead of letting
+// VMNameFor short-circuit it when ReplicaCount() == 1.
+func deployReplicaForced(a weft.VZAdapter, p *infra.Plan, rootfs, stateDir string, replica int, pickedAZ string, waitHealth bool, healthTimeout time.Duration) error {
+	vmName := fmt.Sprintf("infra-%s-dc%d", p.Service, replica)
+	return deployReplicaNamed(a, p, rootfs, stateDir, replica, pickedAZ, vmName, waitHealth, healthTimeout)
+}
+
 // deployReplica registers + starts one replica of a plan. Called
 // once for single-replica plans, N times for multi-replica
 // (placement.count = N). Each replica gets its own VM name +
@@ -365,7 +415,13 @@ func deployPlan(a weft.VZAdapter, p *infra.Plan, rootfsOverride, stateDir string
 // when weft-agent's per-host gRPC ControlPlane is wired, that
 // call gates on `pickedHost.UUID` to dispatch to the right node.
 func deployReplica(a weft.VZAdapter, p *infra.Plan, rootfs, stateDir string, replica int, pickedAZ string, waitHealth bool, healthTimeout time.Duration) error {
-	vmName := p.VMNameFor(replica)
+	return deployReplicaNamed(a, p, rootfs, stateDir, replica, pickedAZ, p.VMNameFor(replica), waitHealth, healthTimeout)
+}
+
+// deployReplicaNamed is the shared body : both deployReplica (which
+// derives the name from the plan) and deployReplicaForced (which
+// takes the operator-supplied per-host name) funnel here.
+func deployReplicaNamed(a weft.VZAdapter, p *infra.Plan, rootfs, stateDir string, replica int, pickedAZ, vmName string, waitHealth bool, healthTimeout time.Duration) error {
 	boot := weft.MicroVMBoot{
 		Kernel:  infra.DefaultArtefact("kernel"),
 		Initrd:  infra.DefaultArtefact("initrd"),
