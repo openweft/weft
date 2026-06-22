@@ -11,6 +11,7 @@ import (
 	"time"
 
 	filesystem "github.com/go-filesystems/interface"
+	"github.com/go-volumes/gpt"
 )
 
 // Exported aliases to internal types so test packages can refer to them
@@ -280,9 +281,10 @@ func ZeroEntryInBlock(buf []byte, name string, le binary.ByteOrder) bool {
 	return zeroEntryInBlock(buf, name, le)
 }
 
-// ParseExtentNode exposes parseExtentNode.
+// ParseExtentNode exposes the hardened extent-tree entry point
+// (parseExtentRoot), which seeds depth and cycle tracking before recursing.
 func ParseExtentNode(f ReaderWriterAt, fsOffset int64, sb *Superblock, buf []byte, inodeNum uint32, inodeRaw []byte) ([]ExtentLeaf, error) {
-	exts, err := parseExtentNode(f, fsOffset, sb, buf, inodeNum, inodeRaw)
+	exts, err := parseExtentRoot(f, fsOffset, sb, buf, inodeNum, inodeRaw)
 	if exts == nil {
 		return nil, err
 	}
@@ -333,7 +335,15 @@ func WriteSuperblock(f ReaderWriterAt, fsOffset int64, sb *Superblock) error {
 	return writeSuperblock(f, fsOffset, sb)
 }
 func PartitionOffset(r io.ReaderAt, partIndex int) (int64, error) {
-	return partitionOffset(r, partIndex)
+	// Tests pass an in-memory image; size 0 selects the overflow-safe ceiling
+	// inside partitionOffset.
+	return partitionOffset(r, partIndex, 0)
+}
+
+// PartitionOffsetSized exposes partitionOffset with an explicit device size so
+// tests can exercise the go-volumes/gpt bounds checks against a known size.
+func PartitionOffsetSized(r io.ReaderAt, partIndex int, deviceSize int64) (int64, error) {
+	return partitionOffset(r, partIndex, deviceSize)
 }
 
 // Exported superblock convenience accessors for external tests.
@@ -468,9 +478,10 @@ func CloneFSImageFromPath(path string) ([]byte, error) {
 	return append([]byte(nil), data...), nil
 }
 
-// Expose partition constants for tests.
-var LinuxPartTypeGPT = linuxPartTypeGPT
-var SectorSize = sectorSize
+// Expose partition constants for tests. These now come from the shared
+// go-volumes/gpt parser (partition.go migrated to it).
+var LinuxPartTypeGPT = gpt.LinuxFilesystemGUID
+var SectorSize = int64(gpt.SectorSize)
 
 // CloneSuperblockFromFS returns a copy of the open filesystem's superblock.
 func CloneSuperblockFromFS(fs *Ext4FS) *Superblock {

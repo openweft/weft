@@ -173,6 +173,17 @@ type Host struct {
 	// hosts. Assigned by selfRegisterHost from a host-local file so it's
 	// stable across restarts.
 	WGOverlayIndex int `json:"wg_overlay_index,omitempty"`
+	// AgentVersion is the weft binary's compile-time build version
+	// (e.g. "v0.4.55"). Reported by the agent at register / heartbeat
+	// time via -X main.version. Empty on legacy / dev / unstamped
+	// hosts ; weft-tui falls back to "(dev)" or empty.
+	AgentVersion string `json:"agent_version,omitempty"`
+	// DriverVersions maps each loaded driver's kind ("vz" / "qemu" /
+	// "block" / …) to its compile-time build version, harvested by
+	// the agent at startup from each driver plugin's HostInfo() RPC.
+	// Empty for legacy hosts ; the TUI's host detail drawer renders
+	// the table.
+	DriverVersions map[string]string `json:"driver_versions,omitempty"`
 }
 
 // HostDriver is one weft-driver-<kind> subprocess running on a host, with
@@ -231,6 +242,8 @@ type hostBlock struct {
 	AKName         string            `hcl:"ak_name,optional"`
 	WGPublicKey    string            `hcl:"wg_public_key,optional"`
 	WGOverlayIndex int               `hcl:"wg_overlay_index,optional"`
+	AgentVersion   string            `hcl:"agent_version,optional"`
+	DriverVersions map[string]string `hcl:"driver_versions,optional"`
 }
 
 type hostDriverBlock struct {
@@ -345,6 +358,8 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			AKName:         b.AKName,
 			WGPublicKey:    b.WGPublicKey,
 			WGOverlayIndex: b.WGOverlayIndex,
+			AgentVersion:   b.AgentVersion,
+			DriverVersions: cloneStringMap(b.DriverVersions),
 		}
 		reg.byUUID[h.UUID] = h
 		if h.Hostname != "" {
@@ -477,6 +492,16 @@ func (r *hostRegistry) saveLocked() error {
 		if h.WGOverlayIndex != 0 {
 			bb.SetAttributeValue("wg_overlay_index", cty.NumberIntVal(int64(h.WGOverlayIndex)))
 		}
+		if h.AgentVersion != "" {
+			bb.SetAttributeValue("agent_version", cty.StringVal(h.AgentVersion))
+		}
+		if len(h.DriverVersions) > 0 {
+			ctyMap := make(map[string]cty.Value, len(h.DriverVersions))
+			for k, v := range h.DriverVersions {
+				ctyMap[k] = cty.StringVal(v)
+			}
+			bb.SetAttributeValue("driver_versions", cty.MapVal(ctyMap))
+		}
 		body.AppendNewline()
 	}
 	return r.storage.Save(context.Background(), f.Bytes())
@@ -598,6 +623,11 @@ type RegisterHostSpec struct {
 	// WGOverlayIndex is the host's stable 1-based overlay-subnet index (see
 	// Host.WGOverlayIndex). Zero leaves the host out of the host mesh.
 	WGOverlayIndex int
+	// AgentVersion / DriverVersions stamp the host registry with the
+	// versions the agent reports at registration / heartbeat time. See
+	// the Host.AgentVersion / Host.DriverVersions fields.
+	AgentVersion   string
+	DriverVersions map[string]string
 }
 
 // register adds a new host or, when spec.UUID matches an
@@ -679,6 +709,19 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 			}
 			if spec.WGOverlayIndex != 0 {
 				existing.WGOverlayIndex = spec.WGOverlayIndex
+			}
+			// Versions follow the don't-clobber-on-empty rule : an
+			// unstamped dev rebuild that re-registers shouldn't blank
+			// the prior stamped value. Operator restarts with stamped
+			// builds always supply non-empty values and take precedence.
+			if spec.AgentVersion != "" {
+				existing.AgentVersion = spec.AgentVersion
+			}
+			if len(spec.DriverVersions) > 0 {
+				existing.DriverVersions = make(map[string]string, len(spec.DriverVersions))
+				for k, v := range spec.DriverVersions {
+					existing.DriverVersions[k] = v
+				}
 			}
 			r.byUUID[spec.UUID] = existing
 			if err := r.persistOne(existing); err != nil {
@@ -764,6 +807,13 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		AKName:         spec.AKName,
 		WGPublicKey:    spec.WGPublicKey,
 		WGOverlayIndex: spec.WGOverlayIndex,
+		AgentVersion:   spec.AgentVersion,
+	}
+	if len(spec.DriverVersions) > 0 {
+		h.DriverVersions = make(map[string]string, len(spec.DriverVersions))
+		for k, v := range spec.DriverVersions {
+			h.DriverVersions[k] = v
+		}
 	}
 	r.byUUID[h.UUID] = h
 	r.nameIdx[h.Hostname] = h.UUID

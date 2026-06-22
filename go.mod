@@ -1,6 +1,6 @@
 module github.com/openweft/weft
 
-go 1.26.0
+go 1.26.4
 
 require (
 	github.com/coreos/go-oidc/v3 v3.18.0
@@ -25,11 +25,11 @@ require (
 	github.com/openweft/weft-cidata v0.2.0
 	github.com/openweft/weft-client v0.0.0
 	github.com/openweft/weft-driver-plugin v0.0.0
-	github.com/openweft/weft-drivers v0.3.0
+	github.com/openweft/weft-drivers v0.4.0
 	github.com/openweft/weft-hcl v0.4.0
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
-	github.com/openweft/weft-proto v0.14.0
+	github.com/openweft/weft-proto v0.18.0
 	github.com/openweft/weft-slognats v0.2.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
@@ -43,7 +43,10 @@ require (
 	oras.land/oras-go/v2 v2.6.0
 )
 
-require github.com/go-compressions/matchlen v0.0.0 // indirect
+require (
+	github.com/go-volumes/gpt v0.0.0-20260622072431-e1d6ba3b531c // indirect
+	github.com/go-volumes/safeio v0.0.0-20260622072324-7f8eb19f6f8c // indirect
+)
 
 require (
 	github.com/agext/levenshtein v1.2.2 // indirect

@@ -81,6 +81,7 @@ func hostInfoToPB(h drivers.HostInfo) *driverpb.HostInfo {
 		Az:           h.AZ,
 		Hypervisor:   h.Hypervisor,
 		Architecture: h.Architecture,
+		Version:      h.Version,
 	}
 }
 
@@ -94,6 +95,7 @@ func hostInfoFromPB(p *driverpb.HostInfo) drivers.HostInfo {
 		AZ:           p.Az,
 		Hypervisor:   p.Hypervisor,
 		Architecture: p.Architecture,
+		Version:      p.Version,
 	}
 }
 

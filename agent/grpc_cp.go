@@ -80,6 +80,8 @@ func (g *grpcControlPlane) RegisterHost(ctx context.Context, reg HostRegistratio
 		NetworkTypes:   reg.NetworkTypes,
 		VolumeBackends: reg.VolumeBackends,
 		Properties:     reg.Properties,
+		AgentVersion:   reg.AgentVersion,
+		DriverVersions: reg.DriverVersions,
 	}
 	resp, err := g.c.RegisterHost(ctx, req)
 	if err != nil {

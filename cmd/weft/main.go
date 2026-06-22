@@ -90,11 +90,24 @@ import (
 // logger is the process-wide logger; messages go to stderr with timestamps.
 var logger = log.New(os.Stderr, "", log.LstdFlags)
 
+// version is the weft binary's compile-time build version, stamped by
+// the release pipeline via `-ldflags "-X main.version=vX.Y.Z"`. The
+// agent reports it to the control plane on register/heartbeat so
+// weft-tui and weft-webui can surface per-host versions ; "dev" for
+// un-stamped local builds.
+var version = "dev"
+
 func main() {
 	// The host-local datapath (the AppKit VM window via vz-vm-run, and
 	// provision) moved into the weft-driver-vz plugin executable, so weft no
 	// longer forks itself for VM display and needs no main-thread OS lock.
 	defer panicReporter()
+	// Export the build version so the in-process embedded selfRegister
+	// path (host_self.go) can stamp Host.AgentVersion without importing
+	// `main`. The agent path (run_client.go) reads `version` directly via
+	// agent.Options.AgentVersion ; this env hop is only for the legacy
+	// in-process integration that doesn't construct an agent.Options.
+	os.Setenv("WEFT_VERSION", version)
 	if err := rootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

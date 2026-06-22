@@ -1,109 +1,62 @@
 package filesystem_ext4
 
 import (
-	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
+
+	"github.com/go-volumes/gpt"
 )
-
-const sectorSize = 512
-
-// linuxPartTypeGPT is the GUID for a Linux filesystem partition (little-endian
-// wire representation of 0FC63DAF-8483-4772-8E79-3D69D8477DE4).
-var linuxPartTypeGPT = [16]byte{
-	0xAF, 0x3D, 0xC6, 0x0F,
-	0x83, 0x84, 0x72, 0x47,
-	0x8E, 0x79, 0x3D, 0x69, 0xD8, 0x47, 0x7D, 0xE4,
-}
 
 // partitionOffset returns the byte offset from the start of the image to the
 // beginning of the requested partition. partIndex selects a specific partition
 // (0-based); pass -1 to auto-select the first Linux data partition.
-// Returns 0 when no partition table is detected (bare filesystem image).
-func partitionOffset(r io.ReaderAt, partIndex int) (int64, error) {
-	// Check for GPT: signature "EFI PART" at LBA 1 (byte 512).
-	var sig [8]byte
-	if _, err := r.ReadAt(sig[:], 512); err != nil {
-		return 0, fmt.Errorf("ext4: read partition header: %w", err)
-	} else if string(sig[:]) == "EFI PART" {
-		return gptPartOffset(r, partIndex)
-	}
-	// Check for MBR: signature 0x55 0xAA at bytes 510–511.
-	var magic [2]byte
-	if _, err := r.ReadAt(magic[:], 510); err != nil {
-		return 0, fmt.Errorf("ext4: read MBR header: %w", err)
-	} else if magic[0] == 0x55 && magic[1] == 0xAA {
-		return mbrPartOffset(r, partIndex)
-	}
-	// No partition table — bare filesystem image.
-	return 0, nil
-}
-
-// gptPartOffset parses the GPT and returns the byte offset of the selected
-// partition.
-func gptPartOffset(r io.ReaderAt, partIndex int) (int64, error) {
-	hdr := make([]byte, 92)
-	if _, err := r.ReadAt(hdr, 512); err != nil {
-		return 0, fmt.Errorf("ext4: read GPT header: %w", err)
-	}
-	partEntryLBA := binary.LittleEndian.Uint64(hdr[72:])
-	numParts := binary.LittleEndian.Uint32(hdr[80:])
-	entrySize := binary.LittleEndian.Uint32(hdr[84:])
-	if entrySize < 128 {
-		return 0, fmt.Errorf("ext4: unexpected GPT partition entry size %d", entrySize)
+//
+// deviceSize is the total byte size of the backing device; it lets the shared
+// go-volumes/gpt parser reject partition entries or entry arrays that fall
+// outside the device (M2 — previously the entrySize/numParts fields were used
+// unbounded). When deviceSize is not known (<= 0) a generous ceiling is used so
+// the parser still performs its internal overflow checks.
+//
+// A bare filesystem image (no GPT header, no MBR signature) yields offset 0,
+// preserving the original fallback behaviour.
+func partitionOffset(r io.ReaderAt, partIndex int, deviceSize int64) (int64, error) {
+	if deviceSize <= 0 {
+		// Unknown size: use a large but finite ceiling so go-volumes/gpt still
+		// validates entry-array bounds and partition ranges against overflow.
+		deviceSize = 1 << 62
 	}
 
-	tableOff := int64(partEntryLBA) * sectorSize
-	buf := make([]byte, entrySize)
-	for i := uint32(0); i < numParts; i++ {
-		if _, err := r.ReadAt(buf, tableOff+int64(i)*int64(entrySize)); err != nil {
-			break
-		}
-		var typeGUID [16]byte
-		copy(typeGUID[:], buf[:16])
-		if typeGUID == [16]byte{} {
-			continue // empty entry
-		}
-		startLBA := binary.LittleEndian.Uint64(buf[32:])
-
-		if partIndex >= 0 {
-			if int(i) == partIndex {
-				return int64(startLBA) * sectorSize, nil
-			}
-		} else if typeGUID == linuxPartTypeGPT {
-			return int64(startLBA) * sectorSize, nil
-		}
-	}
 	if partIndex >= 0 {
-		return 0, fmt.Errorf("ext4: GPT partition index %d not found", partIndex)
-	}
-	return 0, fmt.Errorf("ext4: no Linux data partition found in GPT")
-}
-
-// mbrPartOffset parses the MBR and returns the byte offset of the selected
-// partition (type 0x83 = Linux).
-func mbrPartOffset(r io.ReaderAt, partIndex int) (int64, error) {
-	table := make([]byte, 64) // 4 × 16-byte entries at offset 446
-	if _, err := r.ReadAt(table, 446); err != nil {
-		return 0, fmt.Errorf("ext4: read MBR partition table: %w", err)
-	}
-	for i := 0; i < 4; i++ {
-		e := table[i*16:]
-		ptype := e[4]
-		startLBA := binary.LittleEndian.Uint32(e[8:])
-		if startLBA == 0 {
-			continue
-		}
-		if partIndex >= 0 {
-			if i == partIndex {
-				return int64(startLBA) * sectorSize, nil
+		part, err := gpt.ByIndex(r, deviceSize, partIndex)
+		if err != nil {
+			if errors.Is(err, gpt.ErrNoTable) {
+				return 0, nil
 			}
-		} else if ptype == 0x83 { // Linux
-			return int64(startLBA) * sectorSize, nil
+			return 0, fmt.Errorf("ext4: %w", err)
+		}
+		return part.StartOffset, nil
+	}
+
+	// Auto-select the first Linux data partition. Mirror the historical rule:
+	// for GPT match the Linux-filesystem type GUID; for MBR match partition
+	// type 0x83 (Linux). A bare image (no table) means offset 0.
+	parts, err := gpt.List(r, deviceSize)
+	if err != nil {
+		if errors.Is(err, gpt.ErrNoTable) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("ext4: %w", err)
+	}
+	for _, p := range parts {
+		if p.Scheme == gpt.SchemeGPT && p.TypeGUID == gpt.LinuxFilesystemGUID {
+			return p.StartOffset, nil
+		}
+		// For MBR, mirror the historical rule: a Linux (type 0x83) entry whose
+		// start LBA is 0 was treated as unused and skipped.
+		if p.Scheme == gpt.SchemeMBR && p.MBRType == 0x83 && p.StartOffset != 0 {
+			return p.StartOffset, nil
 		}
 	}
-	if partIndex >= 0 {
-		return 0, fmt.Errorf("ext4: MBR partition index %d not found", partIndex)
-	}
-	return 0, fmt.Errorf("ext4: no Linux partition (type 0x83) found in MBR")
+	return 0, fmt.Errorf("ext4: no Linux data partition found")
 }
