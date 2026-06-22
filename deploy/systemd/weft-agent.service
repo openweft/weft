@@ -1,0 +1,31 @@
+[Unit]
+Description=weft control-plane / hypervisor agent
+Documentation=https://github.com/openweft/weft
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin
+Environment=WEFT_RECONCILE_HOSTS_INTERVAL=30s
+Environment=WEFT_PHANTOM_HOST_DELETE_AGE=1h
+ExecStart=/usr/local/bin/weft agent --vsock-port=0
+
+# Auto-cicatrisation : redémarrer indéfiniment, même crash dur.
+# RestartSec=5 évite le tight loop si le binaire ou la config est cassée
+# (etcd unreachable, etc.) ; systemd backoff prend le relais.
+Restart=always
+RestartSec=5s
+
+# Journal capture les logs ; pas de redirection vers un fichier car
+# logrotate n'est pas wired sur ces VMs.
+StandardOutput=journal
+StandardError=journal
+
+# Permettre l'écriture du host-uuid + WG key sous /home/admin/state
+ReadWritePaths=/home/admin
+
+[Install]
+WantedBy=multi-user.target
