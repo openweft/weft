@@ -237,3 +237,33 @@ func unescapeMountField(s string) string {
 // _ keeps filepath imported when the readSysfsInt64/string callers
 // happen to inline. The package's other linux-only paths use it.
 var _ = filepath.Join
+
+// collectMemoryMiB reads MemTotal from /proc/meminfo and returns it
+// in MiB. /proc/meminfo reports kB ; we divide by 1024. Returns 0
+// on any parse failure so the field stays "unknown" rather than
+// half-populated.
+func collectMemoryMiB() int64 {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "MemTotal:") {
+			continue
+		}
+		// Format : "MemTotal:        16384000 kB"
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0
+		}
+		kB, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil {
+			return 0
+		}
+		return kB / 1024
+	}
+	return 0
+}

@@ -4,8 +4,8 @@ go 1.26.4
 
 require (
 	github.com/coreos/go-oidc/v3 v3.18.0
-	github.com/go-compressions/lzfse v0.0.0
-	github.com/go-diskimages/qcow2 v0.0.0
+	github.com/go-compressions/lzfse v0.1.1-0.20260620062248-135e417e8ead
+	github.com/go-diskimages/qcow2 v0.1.1-0.20260615173836-3e5a0cea6d90
 	github.com/go-diskimages/tart-oci v0.0.0-00010101000000-000000000000
 	github.com/go-grub/grub v0.0.0
 	github.com/go-jose/go-jose/v4 v4.1.4
@@ -29,7 +29,7 @@ require (
 	github.com/openweft/weft-hcl v0.4.0
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
-	github.com/openweft/weft-proto v0.19.0
+	github.com/openweft/weft-proto v0.20.0
 	github.com/openweft/weft-slognats v0.2.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1

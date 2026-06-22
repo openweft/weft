@@ -1,5 +1,11 @@
 package weft
 
+import "runtime"
+
+// runtimeNumCPU is a thin wrapper around runtime.NumCPU so unit
+// tests can stub the value when needed. Cheap ; no syscall.
+func runtimeNumCPU() int { return runtime.NumCPU() }
+
 // host_facts.go is the platform-agnostic facade the agent uses to
 // collect OS / kernel / network / storage facts at register +
 // heartbeat time. Linux carries the real implementation in
@@ -21,6 +27,8 @@ type HostFacts struct {
 	KernelVersion     string
 	NetworkInterfaces []NetworkInterface
 	StorageMounts     []StorageMount
+	CPUCount          int
+	MemoryMiB         int64
 }
 
 // CollectHostFacts is the public entry point. Linux populates every
@@ -34,6 +42,8 @@ func CollectHostFacts() HostFacts {
 		KernelVersion:     collectKernelVersion(),
 		NetworkInterfaces: collectNetworkInterfaces(),
 		StorageMounts:     collectStorageMounts(),
+		CPUCount:          runtimeNumCPU(),
+		MemoryMiB:         collectMemoryMiB(),
 	}
 }
 

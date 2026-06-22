@@ -15,3 +15,4 @@ func collectOSRelease(_ string) string         { return "" }
 func collectKernelVersion() string             { return "" }
 func collectNetworkInterfaces() []NetworkInterface { return nil }
 func collectStorageMounts() []StorageMount     { return nil }
+func collectMemoryMiB() int64                  { return 0 }

@@ -89,6 +89,19 @@ func toHostInfo(h weft.Host) *weftv1.HostInfo {
 			})
 		}
 	}
+	hi.CpuCount = int32(h.CPUCount)
+	hi.MemoryMib = h.MemoryMiB
+	if len(h.GPUs) > 0 {
+		hi.Gpus = make([]*weftv1.GPU, 0, len(h.GPUs))
+		for _, g := range h.GPUs {
+			hi.Gpus = append(hi.Gpus, &weftv1.GPU{
+				Vendor:     g.Vendor,
+				Model:      g.Model,
+				MemoryGib:  int32(g.MemoryGiB),
+				MigCapable: g.MIGCapable,
+			})
+		}
+	}
 	return hi
 }
 
@@ -150,6 +163,22 @@ func (s *weftServer) RegisterHost(ctx context.Context, req *weftv1.RegisterHostR
 				FSType:     m.Fstype,
 				TotalBytes: m.TotalBytes,
 				FreeBytes:  m.FreeBytes,
+			})
+		}
+	}
+	spec.CPUCount = int(req.CpuCount)
+	spec.MemoryMiB = req.MemoryMib
+	if len(req.Gpus) > 0 {
+		spec.GPUs = make([]weft.GPU, 0, len(req.Gpus))
+		for _, g := range req.Gpus {
+			if g == nil {
+				continue
+			}
+			spec.GPUs = append(spec.GPUs, weft.GPU{
+				Vendor:     g.Vendor,
+				Model:      g.Model,
+				MemoryGiB:  int(g.MemoryGib),
+				MIGCapable: g.MigCapable,
 			})
 		}
 	}

@@ -391,7 +391,14 @@ func encodeV2FreqTableBitstream(
 // Compressed block decoder (V1 header → raw bytes)
 // ---------------------------------------------------------------------------
 
-func decodeCompressedBlock(h v1Header, payload []byte) ([]byte, error) {
+// decodeCompressedBlock decodes one V1/V2 compressed block, appending the raw
+// bytes to prior (the decompressed stream so far) and returning the extended
+// slice. Match back-references are resolved against the whole stream — LZFSE's
+// history window spans block boundaries, so a match emitted near the start of a
+// block may reference output produced in an earlier block. Decoding in place
+// (rather than into a fresh per-block buffer) is what makes those cross-block
+// distances resolve correctly.
+func decodeCompressedBlock(h v1Header, payload []byte, prior []byte) ([]byte, error) {
 	nLiterals := int(h.nLiterals)
 	nMatches := int(h.nMatches)
 	nLitPayload := int(h.nLiteralPayloadBytes)
@@ -464,7 +471,13 @@ func decodeCompressedBlock(h v1Header, payload []byte) ([]byte, error) {
 	}
 
 	// --- Decode LMD stream and copy output ---
-	out := make([]byte, 0, h.nRawBytes)
+	// Decode into the running stream so cross-block back-references resolve.
+	out := prior
+	if cap(out)-len(out) < int(h.nRawBytes) {
+		grown := make([]byte, len(out), len(out)+int(h.nRawBytes))
+		copy(grown, out)
+		out = grown
+	}
 	{
 		lEnd := nLMDPayload
 		in, err := fseInInit(lmdPayload, lEnd, int(h.lmdBits))
@@ -532,6 +545,7 @@ func decodeCompressedBlock(h v1Header, payload []byte) ([]byte, error) {
 func Decompress(src []byte) ([]byte, error) {
 	pos := 0
 	var out []byte
+	var err error
 
 	for pos < len(src) {
 		if pos+4 > len(src) {
@@ -567,20 +581,19 @@ func Decompress(src []byte) ([]byte, error) {
 			if payloadEnd > len(src) {
 				return nil, errors.New("lzfse: V1 block payload truncated")
 			}
-			block, err := decodeCompressedBlock(h, src[pos:payloadEnd])
+			out, err = decodeCompressedBlock(h, src[pos:payloadEnd], out)
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, block...)
 			pos = payloadEnd
 
 		case magicCompressedV2:
 			if pos+v2HeaderMinSize > len(src) {
 				return nil, errors.New("lzfse: V2 block header truncated")
 			}
-			res, err := decodeV2Header(src[pos:])
-			if err != nil {
-				return nil, err
+			res, derr := decodeV2Header(src[pos:])
+			if derr != nil {
+				return nil, derr
 			}
 			pos += res.headerSize
 			h := res.v1Header
@@ -588,11 +601,10 @@ func Decompress(src []byte) ([]byte, error) {
 			if payloadEnd > len(src) {
 				return nil, errors.New("lzfse: V2 block payload truncated")
 			}
-			block, err := decodeCompressedBlock(h, src[pos:payloadEnd])
+			out, err = decodeCompressedBlock(h, src[pos:payloadEnd], out)
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, block...)
 			pos = payloadEnd
 
 		case magicCompressedLZVN:

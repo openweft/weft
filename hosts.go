@@ -201,6 +201,12 @@ type Host struct {
 	// agent saw at register time, refreshed on heartbeat to keep
 	// free_bytes within ~30s of reality. See weft.StorageMount.
 	StorageMounts []StorageMount `json:"storage_mounts,omitempty"`
+	// CPUCount is the number of logical CPUs the host exposes
+	// (runtime.NumCPU on the host agent's side). 0 = unknown.
+	CPUCount int `json:"cpu_count,omitempty"`
+	// MemoryMiB is the host's total RAM in MiB, as read from
+	// /proc/meminfo's MemTotal on Linux. 0 = unknown.
+	MemoryMiB int64 `json:"memory_mib,omitempty"`
 }
 
 // NetworkInterface describes one IP-bearing NIC on a host. Mirrors
@@ -292,6 +298,8 @@ type hostBlock struct {
 	KernelVersion     string                  `hcl:"kernel_version,optional"`
 	NetworkInterfaces []networkInterfaceBlock `hcl:"network_interface,block"`
 	StorageMounts     []storageMountBlock     `hcl:"storage_mount,block"`
+	CPUCount          int                     `hcl:"cpu_count,optional"`
+	MemoryMiB         int64                   `hcl:"memory_mib,optional"`
 }
 
 // networkInterfaceBlock mirrors NetworkInterface on the HCL side.
@@ -437,6 +445,8 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			KernelVersion:     b.KernelVersion,
 			NetworkInterfaces: networkInterfacesFromBlocks(b.NetworkInterfaces),
 			StorageMounts:     storageMountsFromBlocks(b.StorageMounts),
+			CPUCount:          b.CPUCount,
+			MemoryMiB:         b.MemoryMiB,
 		}
 		reg.byUUID[h.UUID] = h
 		if h.Hostname != "" {
@@ -635,6 +645,12 @@ func (r *hostRegistry) saveLocked() error {
 				mb.SetAttributeValue("free_bytes", cty.NumberIntVal(mt.FreeBytes))
 			}
 		}
+		if h.CPUCount > 0 {
+			bb.SetAttributeValue("cpu_count", cty.NumberIntVal(int64(h.CPUCount)))
+		}
+		if h.MemoryMiB > 0 {
+			bb.SetAttributeValue("memory_mib", cty.NumberIntVal(h.MemoryMiB))
+		}
 		body.AppendNewline()
 	}
 	return r.storage.Save(context.Background(), f.Bytes())
@@ -772,6 +788,8 @@ type RegisterHostSpec struct {
 	KernelVersion     string
 	NetworkInterfaces []NetworkInterface
 	StorageMounts     []StorageMount
+	CPUCount          int
+	MemoryMiB         int64
 }
 
 // register adds a new host or, when spec.UUID matches an
@@ -890,6 +908,12 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 			if len(spec.StorageMounts) > 0 {
 				existing.StorageMounts = cloneStorageMounts(spec.StorageMounts)
 			}
+			if spec.CPUCount > 0 {
+				existing.CPUCount = spec.CPUCount
+			}
+			if spec.MemoryMiB > 0 {
+				existing.MemoryMiB = spec.MemoryMiB
+			}
 			r.byUUID[spec.UUID] = existing
 			if err := r.persistOne(existing); err != nil {
 				return Host{}, err
@@ -992,6 +1016,8 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 	if len(spec.StorageMounts) > 0 {
 		h.StorageMounts = cloneStorageMounts(spec.StorageMounts)
 	}
+	h.CPUCount = spec.CPUCount
+	h.MemoryMiB = spec.MemoryMiB
 	r.byUUID[h.UUID] = h
 	r.nameIdx[h.Hostname] = h.UUID
 	if err := r.persistOne(h); err != nil {
