@@ -2,6 +2,10 @@
 
 # filesystem (interface)
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/go-filesystems/interface.svg)](https://pkg.go.dev/github.com/go-filesystems/interface)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+[![CI](https://github.com/go-filesystems/interface/actions/workflows/ci.yml/badge.svg)](https://github.com/go-filesystems/interface/actions/workflows/ci.yml)
+
 Shared, minimal filesystem interfaces used by the concrete filesystem
 implementations in this repository.
 

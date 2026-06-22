@@ -23,6 +23,66 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 	}
 	cmd.AddCommand(natsAuthzCommand(socket, sshSocket, sshKey))
 	cmd.AddCommand(vmExportCommand(socket, sshSocket, sshKey))
+	cmd.AddCommand(clusterCommand(socket, sshSocket, sshKey))
+	return cmd
+}
+
+// clusterCommand groups the cluster-identity ops. Two leaves :
+//   - `info`     reads the persisted cluster name + local host UUID.
+//   - `set-name` writes a new name (admin-gated server-side).
+//
+// One name per cluster ; federation peers see DIFFERENT etcd
+// quorums, so each cluster sets its own name. The TUI + webui
+// chrome auto-fetch it via GetClusterInfo so the operator doesn't
+// have to remember which cluster they're connected to.
+func clusterCommand(socket, sshSocket, sshKey *string) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "cluster",
+		Short: "Cluster identity (name + local host UUID)",
+	}
+	info := &cobra.Command{
+		Use:     "info",
+		Short:   "Show the cluster's persisted name + the local host UUID",
+		Aliases: []string{"show", "get"},
+		RunE: func(_ *cobra.Command, _ []string) error {
+			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := c.GetClusterInfo(context.Background(), &weftv1.GetClusterInfoRequest{})
+			if err != nil {
+				return fmt.Errorf("GetClusterInfo: %w", err)
+			}
+			name := resp.ClusterName
+			if name == "" {
+				name = "(unset — run `weft admin cluster set-name <name>`)"
+			}
+			fmt.Printf("cluster_name    %s\nlocal_host_uuid %s\n", name, resp.LocalHostUuid)
+			return nil
+		},
+	}
+	setName := &cobra.Command{
+		Use:   "set-name <name>",
+		Short: "Persist the cluster's human-readable name (admin-only)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := c.SetClusterName(context.Background(), &weftv1.SetClusterNameRequest{
+				ClusterName: args[0],
+			})
+			if err != nil {
+				return fmt.Errorf("SetClusterName: %w", err)
+			}
+			fmt.Printf("cluster_name set to %q\n", resp.ClusterName)
+			return nil
+		},
+	}
+	cmd.AddCommand(info, setName)
 	return cmd
 }
 

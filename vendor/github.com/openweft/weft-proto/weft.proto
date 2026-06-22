@@ -1216,6 +1216,32 @@ message MicroVMMetricsResponse {
   uint64 uptime_ms           = 10;
 }
 
+// --- Cluster identity ----------------------------------------------
+//
+// Operators give a federated cluster a human-readable name (e.g.
+// "prod-eu", "dc1-prod", "staging") that surfaces in the TUI title
+// bar, in webui chrome, and in audit log entries. The name is
+// persisted at /weft/cluster/name in etcd ; an unset key returns
+// the empty string (the TUI / webui then hide the suffix).
+//
+// SetClusterName is admin-gated ; GetClusterInfo is open to every
+// authenticated caller because the chrome / log decoration needs
+// it at every operator session start.
+
+message GetClusterInfoRequest  {}
+message GetClusterInfoResponse {
+  // ClusterName is the operator-set name. "" when never set ;
+  // the client typically falls back to a flag or env override.
+  string cluster_name = 1;
+  // LocalHostUuid is the UUID of the agent serving this RPC —
+  // saves the client one extra roundtrip when it wants to label
+  // "you're connected to host X of cluster Y" in the chrome.
+  string local_host_uuid = 2;
+}
+
+message SetClusterNameRequest  { string cluster_name = 1; }
+message SetClusterNameResponse { string cluster_name = 1; }
+
 // WeftService is the gRPC API exposed by weft.
 service WeftAgent {
   rpc ListVMs       (ListVMsRequest)       returns (ListVMsResponse);
@@ -1557,6 +1583,11 @@ service WeftAgent {
   // the fields stay zero ; the webui renders the empty shape natively
   // rather than falling back to synthetic mock data.
   rpc GetMicroVMMetrics (GetMicroVMMetricsRequest) returns (MicroVMMetricsResponse);
+
+  // Cluster identity. GetClusterInfo is open to every authed caller
+  // (chrome decoration) ; SetClusterName is admin-only.
+  rpc GetClusterInfo (GetClusterInfoRequest) returns (GetClusterInfoResponse);
+  rpc SetClusterName (SetClusterNameRequest) returns (SetClusterNameResponse);
 }
 
 // --- Hosts -------------------------------------------------------

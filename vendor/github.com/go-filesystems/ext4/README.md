@@ -1,3 +1,11 @@
+<p align="center"><img src="https://raw.githubusercontent.com/go-filesystems/brand/main/social/go-filesystems-ext4.png" alt="go-filesystems/ext4" width="720"></p>
+
+# ext4 filesystem
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/go-filesystems/ext4.svg)](https://pkg.go.dev/github.com/go-filesystems/ext4)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+[![CI](https://github.com/go-filesystems/ext4/actions/workflows/ci.yml/badge.svg)](https://github.com/go-filesystems/ext4/actions/workflows/ci.yml)
+
 Package ext4 test helpers and journal
 
 This package contains an in-memory ext4 implementation and test helpers used
@@ -6,7 +14,6 @@ by the unit tests. The recent change shortens the critical section in
 commits against the sidecar journal.
 
 See the tests under `pkg/go-filesystems/ext4/test` for usage examples.
-# ext4 filesystem
 
 ## Overview
 
