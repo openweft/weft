@@ -1639,6 +1639,60 @@ message HostInfo {
   // are loaded or when every loaded driver is on an older
   // driverpb that didn't report version.
   map<string, string> driver_versions = 16;
+  // os_id is the machine-readable os-release ID field ("debian",
+  // "ubuntu", "alpine", "rhel" ; "darwin" / "openbsd" on non-Linux
+  // hosts). Empty when /etc/os-release isn't available (Linux dev
+  // images stripped) or on platforms with no equivalent (mac dev).
+  string os_id            = 17;
+  // os_version is os-release VERSION_ID ("12", "24.04", "3.20").
+  // Empty when os_id is empty.
+  string os_version       = 18;
+  // os_pretty is os-release PRETTY_NAME ("Debian GNU/Linux 12
+  // (bookworm)", "Ubuntu 24.04.1 LTS"). Human-friendly fallback
+  // when (os_id, os_version) isn't expressive enough.
+  string os_pretty        = 19;
+  // kernel_version is the running kernel release ("6.1.0-23-arm64",
+  // "Darwin 25.3.0"). uname -r on Linux ; `sysctl kern.osrelease`
+  // on Darwin. Empty when collection failed.
+  string kernel_version   = 20;
+  // network_interfaces lists every IP-bearing nic the agent saw at
+  // register time. Operator-facing : the TUI's host detail drawer
+  // renders mac/ipv4/ipv6/mtu/link-speed/state for each. Collected
+  // via /sys/class/net + netlink (Linux only) ; empty on darwin /
+  // other platforms today.
+  repeated NetworkInterface network_interfaces = 21;
+  // storage_mounts lists the local filesystems the agent saw at
+  // register time. Operator-facing : the TUI shows mountpoint +
+  // fstype + free/total bytes. Filters to ext*/xfs/btrfs/zfs/9p
+  // and skips tmpfs/proc/sysfs/cgroup at collection time.
+  repeated StorageMount storage_mounts = 22;
+}
+
+// NetworkInterface mirrors weft.NetworkInterface — one IP-bearing
+// NIC the agent saw at register time. Address strings are CIDR
+// notation ("192.168.105.21/24" / "fe80::dead/64"). link_speed_mbps
+// is 0 when the driver doesn't expose ETHTOOL_GSET (loopback, lo
+// always 0 ; physical NICs typically 1000 / 10000 / 25000).
+message NetworkInterface {
+  string   name             = 1;  // "eth0" / "ens3"
+  string   mac              = 2;  // "00:1a:2b:3c:4d:5e"
+  repeated string ipv4_cidrs = 3;
+  repeated string ipv6_cidrs = 4;
+  int64    link_speed_mbps  = 5;  // 0 when unknown
+  int32    mtu              = 6;
+  string   operstate        = 7;  // "up" / "down" / "unknown" / "lowerlayerdown"
+}
+
+// StorageMount mirrors weft.StorageMount — one filesystem mount
+// the agent saw at register time. total_bytes / free_bytes are
+// snapshot values, not live ; the agent re-collects on heartbeat
+// to keep them within 30s of reality.
+message StorageMount {
+  string mountpoint  = 1;  // "/" / "/var/lib/weft"
+  string device      = 2;  // "/dev/vda1" / "tank/data"
+  string fstype      = 3;  // "ext4" / "btrfs" / "zfs"
+  int64  total_bytes = 4;
+  int64  free_bytes  = 5;
 }
 
 // RegisterHost adds a new host or refreshes an existing one
@@ -1659,6 +1713,12 @@ message RegisterHostRequest {
   map<string, string> properties = 10;
   string agent_version            = 11;
   map<string, string> driver_versions = 12;
+  string os_id                    = 13;
+  string os_version               = 14;
+  string os_pretty                = 15;
+  string kernel_version           = 16;
+  repeated NetworkInterface network_interfaces = 17;
+  repeated StorageMount storage_mounts = 18;
 }
 message RegisterHostResponse { HostInfo host = 1; }
 

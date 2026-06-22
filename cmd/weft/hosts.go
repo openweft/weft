@@ -57,6 +57,36 @@ func toHostInfo(h weft.Host) *weftv1.HostInfo {
 			hi.DriverVersions[k] = v
 		}
 	}
+	hi.OsId = h.OSID
+	hi.OsVersion = h.OSVersion
+	hi.OsPretty = h.OSPretty
+	hi.KernelVersion = h.KernelVersion
+	if len(h.NetworkInterfaces) > 0 {
+		hi.NetworkInterfaces = make([]*weftv1.NetworkInterface, 0, len(h.NetworkInterfaces))
+		for _, n := range h.NetworkInterfaces {
+			hi.NetworkInterfaces = append(hi.NetworkInterfaces, &weftv1.NetworkInterface{
+				Name:          n.Name,
+				Mac:           n.MAC,
+				Ipv4Cidrs:     append([]string(nil), n.IPv4CIDRs...),
+				Ipv6Cidrs:     append([]string(nil), n.IPv6CIDRs...),
+				LinkSpeedMbps: n.LinkSpeedMbps,
+				Mtu:           int32(n.MTU),
+				Operstate:     n.OperState,
+			})
+		}
+	}
+	if len(h.StorageMounts) > 0 {
+		hi.StorageMounts = make([]*weftv1.StorageMount, 0, len(h.StorageMounts))
+		for _, m := range h.StorageMounts {
+			hi.StorageMounts = append(hi.StorageMounts, &weftv1.StorageMount{
+				Mountpoint: m.Mountpoint,
+				Device:     m.Device,
+				Fstype:     m.FSType,
+				TotalBytes: m.TotalBytes,
+				FreeBytes:  m.FreeBytes,
+			})
+		}
+	}
 	return hi
 }
 
@@ -83,6 +113,42 @@ func (s *weftServer) RegisterHost(ctx context.Context, req *weftv1.RegisterHostR
 		spec.DriverVersions = make(map[string]string, len(req.DriverVersions))
 		for k, v := range req.DriverVersions {
 			spec.DriverVersions[k] = v
+		}
+	}
+	spec.OSID = req.OsId
+	spec.OSVersion = req.OsVersion
+	spec.OSPretty = req.OsPretty
+	spec.KernelVersion = req.KernelVersion
+	if len(req.NetworkInterfaces) > 0 {
+		spec.NetworkInterfaces = make([]weft.NetworkInterface, 0, len(req.NetworkInterfaces))
+		for _, n := range req.NetworkInterfaces {
+			if n == nil {
+				continue
+			}
+			spec.NetworkInterfaces = append(spec.NetworkInterfaces, weft.NetworkInterface{
+				Name:          n.Name,
+				MAC:           n.Mac,
+				IPv4CIDRs:     append([]string(nil), n.Ipv4Cidrs...),
+				IPv6CIDRs:     append([]string(nil), n.Ipv6Cidrs...),
+				LinkSpeedMbps: n.LinkSpeedMbps,
+				MTU:           int(n.Mtu),
+				OperState:     n.Operstate,
+			})
+		}
+	}
+	if len(req.StorageMounts) > 0 {
+		spec.StorageMounts = make([]weft.StorageMount, 0, len(req.StorageMounts))
+		for _, m := range req.StorageMounts {
+			if m == nil {
+				continue
+			}
+			spec.StorageMounts = append(spec.StorageMounts, weft.StorageMount{
+				Mountpoint: m.Mountpoint,
+				Device:     m.Device,
+				FSType:     m.Fstype,
+				TotalBytes: m.TotalBytes,
+				FreeBytes:  m.FreeBytes,
+			})
 		}
 	}
 	if len(req.Properties) > 0 {

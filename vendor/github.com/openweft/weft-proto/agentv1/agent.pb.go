@@ -30,6 +30,7 @@
 package agentv1
 
 import (
+	weft_proto "github.com/openweft/weft-proto"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -74,8 +75,19 @@ type HostRegistration struct {
 	// Empty for legacy / unstamped builds. Persisted on the host
 	// registry alongside the agent_version.
 	DriverVersions map[string]string `protobuf:"bytes,12,rep,name=driver_versions,json=driverVersions,proto3" json:"driver_versions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// OS / kernel / hardware facts collected at register time.
+	// See weft.proto HostInfo for field semantics ; the agent
+	// populates these via /etc/os-release + /proc/sys/kernel/osrelease
+	// + /sys/class/net + statfs(/proc/mounts). Linux-only ; other
+	// platforms ship zero values.
+	OsId              string                         `protobuf:"bytes,13,opt,name=os_id,json=osId,proto3" json:"os_id,omitempty"`
+	OsVersion         string                         `protobuf:"bytes,14,opt,name=os_version,json=osVersion,proto3" json:"os_version,omitempty"`
+	OsPretty          string                         `protobuf:"bytes,15,opt,name=os_pretty,json=osPretty,proto3" json:"os_pretty,omitempty"`
+	KernelVersion     string                         `protobuf:"bytes,16,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"`
+	NetworkInterfaces []*weft_proto.NetworkInterface `protobuf:"bytes,17,rep,name=network_interfaces,json=networkInterfaces,proto3" json:"network_interfaces,omitempty"`
+	StorageMounts     []*weft_proto.StorageMount     `protobuf:"bytes,18,rep,name=storage_mounts,json=storageMounts,proto3" json:"storage_mounts,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *HostRegistration) Reset() {
@@ -188,6 +200,48 @@ func (x *HostRegistration) GetAgentVersion() string {
 func (x *HostRegistration) GetDriverVersions() map[string]string {
 	if x != nil {
 		return x.DriverVersions
+	}
+	return nil
+}
+
+func (x *HostRegistration) GetOsId() string {
+	if x != nil {
+		return x.OsId
+	}
+	return ""
+}
+
+func (x *HostRegistration) GetOsVersion() string {
+	if x != nil {
+		return x.OsVersion
+	}
+	return ""
+}
+
+func (x *HostRegistration) GetOsPretty() string {
+	if x != nil {
+		return x.OsPretty
+	}
+	return ""
+}
+
+func (x *HostRegistration) GetKernelVersion() string {
+	if x != nil {
+		return x.KernelVersion
+	}
+	return ""
+}
+
+func (x *HostRegistration) GetNetworkInterfaces() []*weft_proto.NetworkInterface {
+	if x != nil {
+		return x.NetworkInterfaces
+	}
+	return nil
+}
+
+func (x *HostRegistration) GetStorageMounts() []*weft_proto.StorageMount {
+	if x != nil {
+		return x.StorageMounts
 	}
 	return nil
 }
@@ -735,7 +789,8 @@ var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
 	"\n" +
-	"\vagent.proto\x12\rweft.agent.v1\"\xea\x04\n" +
+	"\vagent.proto\x12\rweft.agent.v1\x1a\n" +
+	"weft.proto\"\xea\x06\n" +
 	"\x10HostRegistration\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x0e\n" +
@@ -753,7 +808,14 @@ const file_agent_proto_rawDesc = "" +
 	" \x03(\v2/.weft.agent.v1.HostRegistration.PropertiesEntryR\n" +
 	"properties\x12#\n" +
 	"\ragent_version\x18\v \x01(\tR\fagentVersion\x12\\\n" +
-	"\x0fdriver_versions\x18\f \x03(\v23.weft.agent.v1.HostRegistration.DriverVersionsEntryR\x0edriverVersions\x1a=\n" +
+	"\x0fdriver_versions\x18\f \x03(\v23.weft.agent.v1.HostRegistration.DriverVersionsEntryR\x0edriverVersions\x12\x13\n" +
+	"\x05os_id\x18\r \x01(\tR\x04osId\x12\x1d\n" +
+	"\n" +
+	"os_version\x18\x0e \x01(\tR\tosVersion\x12\x1b\n" +
+	"\tos_pretty\x18\x0f \x01(\tR\bosPretty\x12%\n" +
+	"\x0ekernel_version\x18\x10 \x01(\tR\rkernelVersion\x12H\n" +
+	"\x12network_interfaces\x18\x11 \x03(\v2\x19.weft.v1.NetworkInterfaceR\x11networkInterfaces\x12<\n" +
+	"\x0estorage_mounts\x18\x12 \x03(\v2\x15.weft.v1.StorageMountR\rstorageMounts\x1a=\n" +
 	"\x0fPropertiesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aA\n" +
@@ -812,38 +874,42 @@ func file_agent_proto_rawDescGZIP() []byte {
 
 var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_agent_proto_goTypes = []any{
-	(*HostRegistration)(nil),      // 0: weft.agent.v1.HostRegistration
-	(*RegisterAgentRequest)(nil),  // 1: weft.agent.v1.RegisterAgentRequest
-	(*RegisterAgentResponse)(nil), // 2: weft.agent.v1.RegisterAgentResponse
-	(*HeartbeatRequest)(nil),      // 3: weft.agent.v1.HeartbeatRequest
-	(*HeartbeatResponse)(nil),     // 4: weft.agent.v1.HeartbeatResponse
-	(*AttachDriversInit)(nil),     // 5: weft.agent.v1.AttachDriversInit
-	(*AttachDriversFrame)(nil),    // 6: weft.agent.v1.AttachDriversFrame
-	(*DriverDispatchCall)(nil),    // 7: weft.agent.v1.DriverDispatchCall
-	(*DriverDispatchResult)(nil),  // 8: weft.agent.v1.DriverDispatchResult
-	(*AgentDisconnect)(nil),       // 9: weft.agent.v1.AgentDisconnect
-	nil,                           // 10: weft.agent.v1.HostRegistration.PropertiesEntry
-	nil,                           // 11: weft.agent.v1.HostRegistration.DriverVersionsEntry
+	(*HostRegistration)(nil),            // 0: weft.agent.v1.HostRegistration
+	(*RegisterAgentRequest)(nil),        // 1: weft.agent.v1.RegisterAgentRequest
+	(*RegisterAgentResponse)(nil),       // 2: weft.agent.v1.RegisterAgentResponse
+	(*HeartbeatRequest)(nil),            // 3: weft.agent.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),           // 4: weft.agent.v1.HeartbeatResponse
+	(*AttachDriversInit)(nil),           // 5: weft.agent.v1.AttachDriversInit
+	(*AttachDriversFrame)(nil),          // 6: weft.agent.v1.AttachDriversFrame
+	(*DriverDispatchCall)(nil),          // 7: weft.agent.v1.DriverDispatchCall
+	(*DriverDispatchResult)(nil),        // 8: weft.agent.v1.DriverDispatchResult
+	(*AgentDisconnect)(nil),             // 9: weft.agent.v1.AgentDisconnect
+	nil,                                 // 10: weft.agent.v1.HostRegistration.PropertiesEntry
+	nil,                                 // 11: weft.agent.v1.HostRegistration.DriverVersionsEntry
+	(*weft_proto.NetworkInterface)(nil), // 12: weft.v1.NetworkInterface
+	(*weft_proto.StorageMount)(nil),     // 13: weft.v1.StorageMount
 }
 var file_agent_proto_depIdxs = []int32{
 	10, // 0: weft.agent.v1.HostRegistration.properties:type_name -> weft.agent.v1.HostRegistration.PropertiesEntry
 	11, // 1: weft.agent.v1.HostRegistration.driver_versions:type_name -> weft.agent.v1.HostRegistration.DriverVersionsEntry
-	0,  // 2: weft.agent.v1.RegisterAgentRequest.registration:type_name -> weft.agent.v1.HostRegistration
-	5,  // 3: weft.agent.v1.AttachDriversFrame.init:type_name -> weft.agent.v1.AttachDriversInit
-	7,  // 4: weft.agent.v1.AttachDriversFrame.dispatch:type_name -> weft.agent.v1.DriverDispatchCall
-	8,  // 5: weft.agent.v1.AttachDriversFrame.result:type_name -> weft.agent.v1.DriverDispatchResult
-	9,  // 6: weft.agent.v1.AttachDriversFrame.disconnect:type_name -> weft.agent.v1.AgentDisconnect
-	1,  // 7: weft.agent.v1.AgentControlPlane.RegisterAgent:input_type -> weft.agent.v1.RegisterAgentRequest
-	3,  // 8: weft.agent.v1.AgentControlPlane.Heartbeat:input_type -> weft.agent.v1.HeartbeatRequest
-	6,  // 9: weft.agent.v1.AgentControlPlane.AttachDrivers:input_type -> weft.agent.v1.AttachDriversFrame
-	2,  // 10: weft.agent.v1.AgentControlPlane.RegisterAgent:output_type -> weft.agent.v1.RegisterAgentResponse
-	4,  // 11: weft.agent.v1.AgentControlPlane.Heartbeat:output_type -> weft.agent.v1.HeartbeatResponse
-	6,  // 12: weft.agent.v1.AgentControlPlane.AttachDrivers:output_type -> weft.agent.v1.AttachDriversFrame
-	10, // [10:13] is the sub-list for method output_type
-	7,  // [7:10] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	12, // 2: weft.agent.v1.HostRegistration.network_interfaces:type_name -> weft.v1.NetworkInterface
+	13, // 3: weft.agent.v1.HostRegistration.storage_mounts:type_name -> weft.v1.StorageMount
+	0,  // 4: weft.agent.v1.RegisterAgentRequest.registration:type_name -> weft.agent.v1.HostRegistration
+	5,  // 5: weft.agent.v1.AttachDriversFrame.init:type_name -> weft.agent.v1.AttachDriversInit
+	7,  // 6: weft.agent.v1.AttachDriversFrame.dispatch:type_name -> weft.agent.v1.DriverDispatchCall
+	8,  // 7: weft.agent.v1.AttachDriversFrame.result:type_name -> weft.agent.v1.DriverDispatchResult
+	9,  // 8: weft.agent.v1.AttachDriversFrame.disconnect:type_name -> weft.agent.v1.AgentDisconnect
+	1,  // 9: weft.agent.v1.AgentControlPlane.RegisterAgent:input_type -> weft.agent.v1.RegisterAgentRequest
+	3,  // 10: weft.agent.v1.AgentControlPlane.Heartbeat:input_type -> weft.agent.v1.HeartbeatRequest
+	6,  // 11: weft.agent.v1.AgentControlPlane.AttachDrivers:input_type -> weft.agent.v1.AttachDriversFrame
+	2,  // 12: weft.agent.v1.AgentControlPlane.RegisterAgent:output_type -> weft.agent.v1.RegisterAgentResponse
+	4,  // 13: weft.agent.v1.AgentControlPlane.Heartbeat:output_type -> weft.agent.v1.HeartbeatResponse
+	6,  // 14: weft.agent.v1.AgentControlPlane.AttachDrivers:output_type -> weft.agent.v1.AttachDriversFrame
+	12, // [12:15] is the sub-list for method output_type
+	9,  // [9:12] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }

@@ -148,6 +148,11 @@ func (a *Adapter) selfRegisterHost() error {
 		wgIndex = hostWGIndexFromUUID(uuid)
 	}
 
+	// Collect host facts (OS/kernel/network/storage) — best-effort,
+	// returns zero values on non-Linux + on per-field collection
+	// failure. See host_facts.go for the platform shim.
+	facts := CollectHostFacts()
+
 	_, err = a.RegisterHost(RegisterHostSpec{
 		UUID:           uuid,
 		Hostname:       hostname,
@@ -181,6 +186,16 @@ func (a *Adapter) selfRegisterHost() error {
 		// `weft agent` exports WEFT_VERSION = its main.version at
 		// startup so this stays in lockstep with the agent-path stamp.
 		AgentVersion: os.Getenv("WEFT_VERSION"),
+		// Host facts (OS / kernel / network / storage). Best-effort :
+		// CollectHostFacts returns zero values on non-Linux + on per-
+		// field collection failure ; the registry's don't-clobber-on-
+		// empty rule keeps the prior values intact in that case.
+		OSID:              facts.OSID,
+		OSVersion:         facts.OSVersion,
+		OSPretty:          facts.OSPretty,
+		KernelVersion:     facts.KernelVersion,
+		NetworkInterfaces: facts.NetworkInterfaces,
+		StorageMounts:     facts.StorageMounts,
 	})
 	return err
 }

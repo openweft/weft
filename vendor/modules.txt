@@ -304,7 +304,7 @@ github.com/openweft/weft-microvm/initbuild
 # github.com/openweft/weft-microvm-init v0.0.0 => ../weft-microvm-init
 ## explicit; go 1.25.1
 github.com/openweft/weft-microvm-init/pkg/pod
-# github.com/openweft/weft-proto v0.18.0 => ../weft-proto
+# github.com/openweft/weft-proto v0.19.0 => ../weft-proto
 ## explicit; go 1.25.0
 github.com/openweft/weft-proto
 github.com/openweft/weft-proto/agentv1

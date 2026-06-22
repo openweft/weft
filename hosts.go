@@ -184,6 +184,48 @@ type Host struct {
 	// Empty for legacy hosts ; the TUI's host detail drawer renders
 	// the table.
 	DriverVersions map[string]string `json:"driver_versions,omitempty"`
+	// OSID / OSVersion / OSPretty mirror /etc/os-release ID /
+	// VERSION_ID / PRETTY_NAME on Linux ; empty on darwin / *BSD
+	// dev hosts where /etc/os-release isn't reliable.
+	OSID      string `json:"os_id,omitempty"`
+	OSVersion string `json:"os_version,omitempty"`
+	OSPretty  string `json:"os_pretty,omitempty"`
+	// KernelVersion is `uname -r` on Linux (e.g. "6.1.0-23-arm64"),
+	// "Darwin <release>" on macOS. Empty on collection failure.
+	KernelVersion string `json:"kernel_version,omitempty"`
+	// NetworkInterfaces is the IP-bearing NIC inventory the agent
+	// saw at register time. See weft.NetworkInterface for the per-
+	// nic shape ; collected via /sys/class/net + netlink on Linux.
+	NetworkInterfaces []NetworkInterface `json:"network_interfaces,omitempty"`
+	// StorageMounts is the local filesystem mount inventory the
+	// agent saw at register time, refreshed on heartbeat to keep
+	// free_bytes within ~30s of reality. See weft.StorageMount.
+	StorageMounts []StorageMount `json:"storage_mounts,omitempty"`
+}
+
+// NetworkInterface describes one IP-bearing NIC on a host. Mirrors
+// weftv1.NetworkInterface on the wire. Address strings are CIDR
+// notation ("192.168.105.21/24"). LinkSpeedMbps == 0 when the driver
+// doesn't expose the speed (loopback, virtual nics).
+type NetworkInterface struct {
+	Name           string   `json:"name"`
+	MAC            string   `json:"mac,omitempty"`
+	IPv4CIDRs      []string `json:"ipv4_cidrs,omitempty"`
+	IPv6CIDRs      []string `json:"ipv6_cidrs,omitempty"`
+	LinkSpeedMbps  int64    `json:"link_speed_mbps,omitempty"`
+	MTU            int      `json:"mtu,omitempty"`
+	OperState      string   `json:"operstate,omitempty"`
+}
+
+// StorageMount describes one filesystem mount on a host. Mirrors
+// weftv1.StorageMount. TotalBytes / FreeBytes are snapshot values
+// at register / heartbeat time, not live.
+type StorageMount struct {
+	Mountpoint string `json:"mountpoint"`
+	Device     string `json:"device,omitempty"`
+	FSType     string `json:"fstype,omitempty"`
+	TotalBytes int64  `json:"total_bytes,omitempty"`
+	FreeBytes  int64  `json:"free_bytes,omitempty"`
 }
 
 // HostDriver is one weft-driver-<kind> subprocess running on a host, with
@@ -242,8 +284,37 @@ type hostBlock struct {
 	AKName         string            `hcl:"ak_name,optional"`
 	WGPublicKey    string            `hcl:"wg_public_key,optional"`
 	WGOverlayIndex int               `hcl:"wg_overlay_index,optional"`
-	AgentVersion   string            `hcl:"agent_version,optional"`
-	DriverVersions map[string]string `hcl:"driver_versions,optional"`
+	AgentVersion      string                  `hcl:"agent_version,optional"`
+	DriverVersions    map[string]string       `hcl:"driver_versions,optional"`
+	OSID              string                  `hcl:"os_id,optional"`
+	OSVersion         string                  `hcl:"os_version,optional"`
+	OSPretty          string                  `hcl:"os_pretty,optional"`
+	KernelVersion     string                  `hcl:"kernel_version,optional"`
+	NetworkInterfaces []networkInterfaceBlock `hcl:"network_interface,block"`
+	StorageMounts     []storageMountBlock     `hcl:"storage_mount,block"`
+}
+
+// networkInterfaceBlock mirrors NetworkInterface on the HCL side.
+// Block label = interface name (eth0 / ens3 / lo). Cidr lists +
+// MAC + speed/MTU/operstate land as nested attributes.
+type networkInterfaceBlock struct {
+	Name          string   `hcl:",label"`
+	MAC           string   `hcl:"mac,optional"`
+	IPv4CIDRs     []string `hcl:"ipv4_cidrs,optional"`
+	IPv6CIDRs     []string `hcl:"ipv6_cidrs,optional"`
+	LinkSpeedMbps int64    `hcl:"link_speed_mbps,optional"`
+	MTU           int      `hcl:"mtu,optional"`
+	OperState     string   `hcl:"operstate,optional"`
+}
+
+// storageMountBlock mirrors StorageMount on the HCL side. Block
+// label = mountpoint (the only field guaranteed unique on a host).
+type storageMountBlock struct {
+	Mountpoint string `hcl:",label"`
+	Device     string `hcl:"device,optional"`
+	FSType     string `hcl:"fstype,optional"`
+	TotalBytes int64  `hcl:"total_bytes,optional"`
+	FreeBytes  int64  `hcl:"free_bytes,optional"`
 }
 
 type hostDriverBlock struct {
@@ -355,11 +426,17 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			Cordoned:       b.Cordoned,
 			LastSeenAt:     lastSeen,
 			CreatedAt:      created,
-			AKName:         b.AKName,
-			WGPublicKey:    b.WGPublicKey,
-			WGOverlayIndex: b.WGOverlayIndex,
-			AgentVersion:   b.AgentVersion,
-			DriverVersions: cloneStringMap(b.DriverVersions),
+			AKName:            b.AKName,
+			WGPublicKey:       b.WGPublicKey,
+			WGOverlayIndex:    b.WGOverlayIndex,
+			AgentVersion:      b.AgentVersion,
+			DriverVersions:    cloneStringMap(b.DriverVersions),
+			OSID:              b.OSID,
+			OSVersion:         b.OSVersion,
+			OSPretty:          b.OSPretty,
+			KernelVersion:     b.KernelVersion,
+			NetworkInterfaces: networkInterfacesFromBlocks(b.NetworkInterfaces),
+			StorageMounts:     storageMountsFromBlocks(b.StorageMounts),
 		}
 		reg.byUUID[h.UUID] = h
 		if h.Hostname != "" {
@@ -502,6 +579,62 @@ func (r *hostRegistry) saveLocked() error {
 			}
 			bb.SetAttributeValue("driver_versions", cty.MapVal(ctyMap))
 		}
+		if h.OSID != "" {
+			bb.SetAttributeValue("os_id", cty.StringVal(h.OSID))
+		}
+		if h.OSVersion != "" {
+			bb.SetAttributeValue("os_version", cty.StringVal(h.OSVersion))
+		}
+		if h.OSPretty != "" {
+			bb.SetAttributeValue("os_pretty", cty.StringVal(h.OSPretty))
+		}
+		if h.KernelVersion != "" {
+			bb.SetAttributeValue("kernel_version", cty.StringVal(h.KernelVersion))
+		}
+		for _, n := range h.NetworkInterfaces {
+			nb := bb.AppendNewBlock("network_interface", []string{n.Name}).Body()
+			if n.MAC != "" {
+				nb.SetAttributeValue("mac", cty.StringVal(n.MAC))
+			}
+			if len(n.IPv4CIDRs) > 0 {
+				vals := make([]cty.Value, len(n.IPv4CIDRs))
+				for i, s := range n.IPv4CIDRs {
+					vals[i] = cty.StringVal(s)
+				}
+				nb.SetAttributeValue("ipv4_cidrs", cty.ListVal(vals))
+			}
+			if len(n.IPv6CIDRs) > 0 {
+				vals := make([]cty.Value, len(n.IPv6CIDRs))
+				for i, s := range n.IPv6CIDRs {
+					vals[i] = cty.StringVal(s)
+				}
+				nb.SetAttributeValue("ipv6_cidrs", cty.ListVal(vals))
+			}
+			if n.LinkSpeedMbps > 0 {
+				nb.SetAttributeValue("link_speed_mbps", cty.NumberIntVal(n.LinkSpeedMbps))
+			}
+			if n.MTU > 0 {
+				nb.SetAttributeValue("mtu", cty.NumberIntVal(int64(n.MTU)))
+			}
+			if n.OperState != "" {
+				nb.SetAttributeValue("operstate", cty.StringVal(n.OperState))
+			}
+		}
+		for _, mt := range h.StorageMounts {
+			mb := bb.AppendNewBlock("storage_mount", []string{mt.Mountpoint}).Body()
+			if mt.Device != "" {
+				mb.SetAttributeValue("device", cty.StringVal(mt.Device))
+			}
+			if mt.FSType != "" {
+				mb.SetAttributeValue("fstype", cty.StringVal(mt.FSType))
+			}
+			if mt.TotalBytes > 0 {
+				mb.SetAttributeValue("total_bytes", cty.NumberIntVal(mt.TotalBytes))
+			}
+			if mt.FreeBytes > 0 {
+				mb.SetAttributeValue("free_bytes", cty.NumberIntVal(mt.FreeBytes))
+			}
+		}
 		body.AppendNewline()
 	}
 	return r.storage.Save(context.Background(), f.Bytes())
@@ -628,6 +761,17 @@ type RegisterHostSpec struct {
 	// the Host.AgentVersion / Host.DriverVersions fields.
 	AgentVersion   string
 	DriverVersions map[string]string
+	// Host facts collected by the agent at register time. See the
+	// Host.OS*/Kernel*/NetworkInterfaces/StorageMounts fields for the
+	// rendered shape. Optional ; legacy register paths leave them
+	// zero and the registry simply records "unknown" on operator
+	// surfaces.
+	OSID              string
+	OSVersion         string
+	OSPretty          string
+	KernelVersion     string
+	NetworkInterfaces []NetworkInterface
+	StorageMounts     []StorageMount
 }
 
 // register adds a new host or, when spec.UUID matches an
@@ -723,6 +867,29 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 					existing.DriverVersions[k] = v
 				}
 			}
+			// Host facts : don't-clobber-on-empty so a dev rebuild
+			// that doesn't ship the collector (darwin) preserves
+			// the prior values. Operators wanting an explicit clear
+			// pass the empty string / zero slice explicitly via the
+			// admin CLI, not through a re-register.
+			if spec.OSID != "" {
+				existing.OSID = spec.OSID
+			}
+			if spec.OSVersion != "" {
+				existing.OSVersion = spec.OSVersion
+			}
+			if spec.OSPretty != "" {
+				existing.OSPretty = spec.OSPretty
+			}
+			if spec.KernelVersion != "" {
+				existing.KernelVersion = spec.KernelVersion
+			}
+			if len(spec.NetworkInterfaces) > 0 {
+				existing.NetworkInterfaces = cloneNetworkInterfaces(spec.NetworkInterfaces)
+			}
+			if len(spec.StorageMounts) > 0 {
+				existing.StorageMounts = cloneStorageMounts(spec.StorageMounts)
+			}
 			r.byUUID[spec.UUID] = existing
 			if err := r.persistOne(existing); err != nil {
 				return Host{}, err
@@ -808,12 +975,22 @@ func (r *hostRegistry) register(spec RegisterHostSpec) (Host, error) {
 		WGPublicKey:    spec.WGPublicKey,
 		WGOverlayIndex: spec.WGOverlayIndex,
 		AgentVersion:   spec.AgentVersion,
+		OSID:           spec.OSID,
+		OSVersion:      spec.OSVersion,
+		OSPretty:       spec.OSPretty,
+		KernelVersion:  spec.KernelVersion,
 	}
 	if len(spec.DriverVersions) > 0 {
 		h.DriverVersions = make(map[string]string, len(spec.DriverVersions))
 		for k, v := range spec.DriverVersions {
 			h.DriverVersions[k] = v
 		}
+	}
+	if len(spec.NetworkInterfaces) > 0 {
+		h.NetworkInterfaces = cloneNetworkInterfaces(spec.NetworkInterfaces)
+	}
+	if len(spec.StorageMounts) > 0 {
+		h.StorageMounts = cloneStorageMounts(spec.StorageMounts)
 	}
 	r.byUUID[h.UUID] = h
 	r.nameIdx[h.Hostname] = h.UUID
