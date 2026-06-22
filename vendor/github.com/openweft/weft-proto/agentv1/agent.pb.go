@@ -86,6 +86,9 @@ type HostRegistration struct {
 	KernelVersion     string                         `protobuf:"bytes,16,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"`
 	NetworkInterfaces []*weft_proto.NetworkInterface `protobuf:"bytes,17,rep,name=network_interfaces,json=networkInterfaces,proto3" json:"network_interfaces,omitempty"`
 	StorageMounts     []*weft_proto.StorageMount     `protobuf:"bytes,18,rep,name=storage_mounts,json=storageMounts,proto3" json:"storage_mounts,omitempty"`
+	CpuCount          int32                          `protobuf:"varint,19,opt,name=cpu_count,json=cpuCount,proto3" json:"cpu_count,omitempty"`
+	MemoryMib         int64                          `protobuf:"varint,20,opt,name=memory_mib,json=memoryMib,proto3" json:"memory_mib,omitempty"`
+	Gpus              []*weft_proto.GPU              `protobuf:"bytes,21,rep,name=gpus,proto3" json:"gpus,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -242,6 +245,27 @@ func (x *HostRegistration) GetNetworkInterfaces() []*weft_proto.NetworkInterface
 func (x *HostRegistration) GetStorageMounts() []*weft_proto.StorageMount {
 	if x != nil {
 		return x.StorageMounts
+	}
+	return nil
+}
+
+func (x *HostRegistration) GetCpuCount() int32 {
+	if x != nil {
+		return x.CpuCount
+	}
+	return 0
+}
+
+func (x *HostRegistration) GetMemoryMib() int64 {
+	if x != nil {
+		return x.MemoryMib
+	}
+	return 0
+}
+
+func (x *HostRegistration) GetGpus() []*weft_proto.GPU {
+	if x != nil {
+		return x.Gpus
 	}
 	return nil
 }
@@ -790,7 +814,7 @@ var File_agent_proto protoreflect.FileDescriptor
 const file_agent_proto_rawDesc = "" +
 	"\n" +
 	"\vagent.proto\x12\rweft.agent.v1\x1a\n" +
-	"weft.proto\"\xea\x06\n" +
+	"weft.proto\"\xc8\a\n" +
 	"\x10HostRegistration\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x0e\n" +
@@ -815,7 +839,11 @@ const file_agent_proto_rawDesc = "" +
 	"\tos_pretty\x18\x0f \x01(\tR\bosPretty\x12%\n" +
 	"\x0ekernel_version\x18\x10 \x01(\tR\rkernelVersion\x12H\n" +
 	"\x12network_interfaces\x18\x11 \x03(\v2\x19.weft.v1.NetworkInterfaceR\x11networkInterfaces\x12<\n" +
-	"\x0estorage_mounts\x18\x12 \x03(\v2\x15.weft.v1.StorageMountR\rstorageMounts\x1a=\n" +
+	"\x0estorage_mounts\x18\x12 \x03(\v2\x15.weft.v1.StorageMountR\rstorageMounts\x12\x1b\n" +
+	"\tcpu_count\x18\x13 \x01(\x05R\bcpuCount\x12\x1d\n" +
+	"\n" +
+	"memory_mib\x18\x14 \x01(\x03R\tmemoryMib\x12 \n" +
+	"\x04gpus\x18\x15 \x03(\v2\f.weft.v1.GPUR\x04gpus\x1a=\n" +
 	"\x0fPropertiesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aA\n" +
@@ -888,28 +916,30 @@ var file_agent_proto_goTypes = []any{
 	nil,                                 // 11: weft.agent.v1.HostRegistration.DriverVersionsEntry
 	(*weft_proto.NetworkInterface)(nil), // 12: weft.v1.NetworkInterface
 	(*weft_proto.StorageMount)(nil),     // 13: weft.v1.StorageMount
+	(*weft_proto.GPU)(nil),              // 14: weft.v1.GPU
 }
 var file_agent_proto_depIdxs = []int32{
 	10, // 0: weft.agent.v1.HostRegistration.properties:type_name -> weft.agent.v1.HostRegistration.PropertiesEntry
 	11, // 1: weft.agent.v1.HostRegistration.driver_versions:type_name -> weft.agent.v1.HostRegistration.DriverVersionsEntry
 	12, // 2: weft.agent.v1.HostRegistration.network_interfaces:type_name -> weft.v1.NetworkInterface
 	13, // 3: weft.agent.v1.HostRegistration.storage_mounts:type_name -> weft.v1.StorageMount
-	0,  // 4: weft.agent.v1.RegisterAgentRequest.registration:type_name -> weft.agent.v1.HostRegistration
-	5,  // 5: weft.agent.v1.AttachDriversFrame.init:type_name -> weft.agent.v1.AttachDriversInit
-	7,  // 6: weft.agent.v1.AttachDriversFrame.dispatch:type_name -> weft.agent.v1.DriverDispatchCall
-	8,  // 7: weft.agent.v1.AttachDriversFrame.result:type_name -> weft.agent.v1.DriverDispatchResult
-	9,  // 8: weft.agent.v1.AttachDriversFrame.disconnect:type_name -> weft.agent.v1.AgentDisconnect
-	1,  // 9: weft.agent.v1.AgentControlPlane.RegisterAgent:input_type -> weft.agent.v1.RegisterAgentRequest
-	3,  // 10: weft.agent.v1.AgentControlPlane.Heartbeat:input_type -> weft.agent.v1.HeartbeatRequest
-	6,  // 11: weft.agent.v1.AgentControlPlane.AttachDrivers:input_type -> weft.agent.v1.AttachDriversFrame
-	2,  // 12: weft.agent.v1.AgentControlPlane.RegisterAgent:output_type -> weft.agent.v1.RegisterAgentResponse
-	4,  // 13: weft.agent.v1.AgentControlPlane.Heartbeat:output_type -> weft.agent.v1.HeartbeatResponse
-	6,  // 14: weft.agent.v1.AgentControlPlane.AttachDrivers:output_type -> weft.agent.v1.AttachDriversFrame
-	12, // [12:15] is the sub-list for method output_type
-	9,  // [9:12] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	14, // 4: weft.agent.v1.HostRegistration.gpus:type_name -> weft.v1.GPU
+	0,  // 5: weft.agent.v1.RegisterAgentRequest.registration:type_name -> weft.agent.v1.HostRegistration
+	5,  // 6: weft.agent.v1.AttachDriversFrame.init:type_name -> weft.agent.v1.AttachDriversInit
+	7,  // 7: weft.agent.v1.AttachDriversFrame.dispatch:type_name -> weft.agent.v1.DriverDispatchCall
+	8,  // 8: weft.agent.v1.AttachDriversFrame.result:type_name -> weft.agent.v1.DriverDispatchResult
+	9,  // 9: weft.agent.v1.AttachDriversFrame.disconnect:type_name -> weft.agent.v1.AgentDisconnect
+	1,  // 10: weft.agent.v1.AgentControlPlane.RegisterAgent:input_type -> weft.agent.v1.RegisterAgentRequest
+	3,  // 11: weft.agent.v1.AgentControlPlane.Heartbeat:input_type -> weft.agent.v1.HeartbeatRequest
+	6,  // 12: weft.agent.v1.AgentControlPlane.AttachDrivers:input_type -> weft.agent.v1.AttachDriversFrame
+	2,  // 13: weft.agent.v1.AgentControlPlane.RegisterAgent:output_type -> weft.agent.v1.RegisterAgentResponse
+	4,  // 14: weft.agent.v1.AgentControlPlane.Heartbeat:output_type -> weft.agent.v1.HeartbeatResponse
+	6,  // 15: weft.agent.v1.AgentControlPlane.AttachDrivers:output_type -> weft.agent.v1.AttachDriversFrame
+	13, // [13:16] is the sub-list for method output_type
+	10, // [10:13] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }

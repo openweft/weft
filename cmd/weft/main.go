@@ -1130,6 +1130,25 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			if info.Uuid == "" {
 				info.Uuid = rec.UUID
 			}
+			// V0.4.59 : surface the VM's host placement so the TUI
+			// Hosts tab's VMS column + the per-VM HOST column show
+			// real values instead of "—". The inventory registry's
+			// HostUUID is the authoritative source ; ListLocal's
+			// `props` map doesn't carry it (it's local-disk truth,
+			// not registry truth).
+			if info.HostUuid == "" {
+				info.HostUuid = rec.HostUUID
+			}
+		}
+		// V0.4.59 backfill : ListLocal scans the local filesystem,
+		// so any VM it surfaces lives on THIS host by definition. If
+		// the registry cross-ref above didn't populate HostUuid (the
+		// VM predates the etcd-backed inventory ; it was created by
+		// an older file-backed `weft infra deploy`), fall back to
+		// the local host's UUID. Without this, the TUI's per-host
+		// VM count stays 0 even though qemus are obviously running.
+		if info.HostUuid == "" {
+			info.HostUuid = s.localHostUUID
 		}
 		vms = append(vms, info)
 	}

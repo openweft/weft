@@ -1666,6 +1666,28 @@ message HostInfo {
   // fstype + free/total bytes. Filters to ext*/xfs/btrfs/zfs/9p
   // and skips tmpfs/proc/sysfs/cgroup at collection time.
   repeated StorageMount storage_mounts = 22;
+  // cpu_count is the number of logical CPUs the host exposes
+  // (runtime.NumCPU on the host agent's side). Empty / 0 on the
+  // wire means "unknown" (legacy agent or collection failure).
+  int32 cpu_count = 23;
+  // memory_mib is the host's total RAM in MiB, as read from
+  // /proc/meminfo (MemTotal) on Linux. 0 means "unknown".
+  int64 memory_mib = 24;
+  // gpus is the host's physical accelerator inventory ; one entry
+  // per device. Vendor + Model identify the SKU ; memory_gib +
+  // mig_capable carry the per-card details schedulers need to
+  // match ScheduleRequest.RequestedGPUs.
+  repeated GPU gpus = 25;
+}
+
+// GPU is one accelerator on a host. Mirrors weft.GPU. Empty
+// vendor / model values are valid for the "unknown SKU" branch ;
+// memory_gib == 0 means "unknown" or non-applicable (integrated).
+message GPU {
+  string vendor      = 1;  // "NVIDIA" / "AMD" / "Intel"
+  string model       = 2;  // "H200" / "RTX-6000-Ada" / "MI300X"
+  int32  memory_gib  = 3;  // VRAM in GiB ; 0 when unknown
+  bool   mig_capable = 4;  // datacenter SKUs that support MIG slicing
 }
 
 // NetworkInterface mirrors weft.NetworkInterface — one IP-bearing
@@ -1719,6 +1741,9 @@ message RegisterHostRequest {
   string kernel_version           = 16;
   repeated NetworkInterface network_interfaces = 17;
   repeated StorageMount storage_mounts = 18;
+  int32  cpu_count                = 19;
+  int64  memory_mib               = 20;
+  repeated GPU gpus               = 21;
 }
 message RegisterHostResponse { HostInfo host = 1; }
 

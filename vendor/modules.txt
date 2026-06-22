@@ -38,10 +38,10 @@ github.com/dustin/go-humanize
 # github.com/fatih/color v1.18.0
 ## explicit; go 1.17
 github.com/fatih/color
-# github.com/go-compressions/lzfse v0.0.0 => ../../go-compressions/lzfse
+# github.com/go-compressions/lzfse v0.1.1-0.20260620062248-135e417e8ead => ../../go-compressions/lzfse
 ## explicit; go 1.20
 github.com/go-compressions/lzfse
-# github.com/go-diskimages/qcow2 v0.0.0 => ../../go-diskimages/qcow2
+# github.com/go-diskimages/qcow2 v0.1.1-0.20260615173836-3e5a0cea6d90 => ../../go-diskimages/qcow2
 ## explicit; go 1.25.0
 github.com/go-diskimages/qcow2
 # github.com/go-diskimages/tart-oci v0.0.0-00010101000000-000000000000 => ../../go-diskimages/tart-oci
@@ -304,7 +304,7 @@ github.com/openweft/weft-microvm/initbuild
 # github.com/openweft/weft-microvm-init v0.0.0 => ../weft-microvm-init
 ## explicit; go 1.25.1
 github.com/openweft/weft-microvm-init/pkg/pod
-# github.com/openweft/weft-proto v0.19.0 => ../weft-proto
+# github.com/openweft/weft-proto v0.20.0 => ../weft-proto
 ## explicit; go 1.25.0
 github.com/openweft/weft-proto
 github.com/openweft/weft-proto/agentv1

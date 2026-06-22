@@ -196,6 +196,8 @@ func (a *Adapter) selfRegisterHost() error {
 		KernelVersion:     facts.KernelVersion,
 		NetworkInterfaces: facts.NetworkInterfaces,
 		StorageMounts:     facts.StorageMounts,
+		CPUCount:          facts.CPUCount,
+		MemoryMiB:         facts.MemoryMiB,
 	})
 	return err
 }

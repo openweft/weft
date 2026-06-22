@@ -71,7 +71,11 @@ deployer substitutes it with the booted VM's IP at probe time.`,
 			if p.Service != service {
 				return fmt.Errorf("plan label %q does not match argument %q (plan at %s)", p.Service, service, path)
 			}
-			a := weft.New(stateDir)
+			a, close, err := newInfraAdapter(stateDir)
+			if err != nil {
+				return err
+			}
+			defer close()
 			return deployPlan(a, p, rootfsPath, stateDir, waitHealth, healthTimeout)
 		},
 	}
@@ -125,7 +129,11 @@ poll time.`,
 			if err != nil {
 				return err
 			}
-			a := weft.New(stateDir)
+			a, close, err := newInfraAdapter(stateDir)
+			if err != nil {
+				return err
+			}
+			defer close()
 			for _, p := range ordered {
 				logger.Printf("infra bootstrap: deploying %s", p.Service)
 				if err := deployPlan(a, p, "", stateDir, waitHealth, healthTimeout); err != nil {
@@ -200,7 +208,11 @@ State is one of:
 			if err != nil {
 				return err
 			}
-			a := weft.New(stateDir)
+			a, close, err := newInfraAdapter(stateDir)
+			if err != nil {
+				return err
+			}
+			defer close()
 			vms, err := a.ListLocal()
 			if err != nil {
 				return fmt.Errorf("list local vms: %w", err)
@@ -459,4 +471,57 @@ func moduleRoot() string {
 	}
 	// file = <module-root>/cmd/weft/infra.go → go up two dirs.
 	return filepath.Dir(filepath.Dir(filepath.Dir(file)))
+}
+
+// newInfraAdapter builds the Adapter the infra-deploy / bootstrap /
+// status sub-commands use. Mirrors the daemon's storage wiring :
+// reads weft.hcl (from $WEFT_CONFIG, /etc/weft/weft.hcl, or
+// ~/.config/weft/weft.hcl), resolves the storage backend, and
+// constructs a KV-backed Adapter when storage = etcd. That's
+// critical so VM records created by infra deploy land in the same
+// etcd store the daemon (= weft agent) reads from — without this,
+// VMs registered here would only live in a local file blob and
+// `weft host` / TUI's host-side VMS column would show 0.
+//
+// Returns (adapter, closeFn, err). closeFn unwinds embedded-etcd
+// + any etcd client the factory opened.
+func newInfraAdapter(stateDir string) (weft.VZAdapter, func(), error) {
+	configDir := os.Getenv("WEFT_CONFIG")
+	if configDir == "" {
+		// Prefer /etc/weft when it exists (production agents) ;
+		// fall back to ~/.config/weft for user-mode dev.
+		for _, p := range []string{"/etc/weft", os.ExpandEnv("$HOME/.config/weft")} {
+			if _, err := os.Stat(filepath.Join(p, "weft.hcl")); err == nil {
+				configDir = p
+				break
+			}
+		}
+	}
+	if configDir == "" {
+		// No weft.hcl in sight : fall back to the legacy file-
+		// backed Adapter so single-host dev still works.
+		return weft.New(stateDir), func() {}, nil
+	}
+	fc, _, err := loadFileConfig(filepath.Join(configDir, "weft.hcl"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("load weft.hcl: %w", err)
+	}
+	t := fileConfigTargets{
+		configDir: configDir,
+	}
+	applyFileConfigDefaults(fc, &t)
+	sf, err := buildStorageFactory(t)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build storage factory: %w", err)
+	}
+	closeFn := func() {
+		if sf.close != nil {
+			_ = sf.close()
+		}
+	}
+	if sf.new == nil && sf.newKV == nil {
+		// File backend : fall through to the simple constructor.
+		return weft.New(stateDir), closeFn, nil
+	}
+	return weft.NewWithKVStorage(stateDir, sf.new, sf.newKV), closeFn, nil
 }

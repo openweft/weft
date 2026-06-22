@@ -73,6 +73,9 @@ message HostRegistration {
   string kernel_version   = 16;
   repeated weft.v1.NetworkInterface network_interfaces = 17;
   repeated weft.v1.StorageMount storage_mounts = 18;
+  int32  cpu_count                          = 19;
+  int64  memory_mib                         = 20;
+  repeated weft.v1.GPU gpus                 = 21;
 }
 
 message RegisterAgentRequest  { HostRegistration registration = 1; }

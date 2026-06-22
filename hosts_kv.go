@@ -180,6 +180,12 @@ func encodeHostRecord(h Host) []byte {
 			mb.SetAttributeValue("free_bytes", cty.NumberIntVal(m.FreeBytes))
 		}
 	}
+	if h.CPUCount > 0 {
+		bb.SetAttributeValue("cpu_count", cty.NumberIntVal(int64(h.CPUCount)))
+	}
+	if h.MemoryMiB > 0 {
+		bb.SetAttributeValue("memory_mib", cty.NumberIntVal(h.MemoryMiB))
+	}
 	return f.Bytes()
 }
 
@@ -258,6 +264,8 @@ func hostFromBlock(b hostBlock) Host {
 		KernelVersion:     b.KernelVersion,
 		NetworkInterfaces: networkInterfacesFromBlocks(b.NetworkInterfaces),
 		StorageMounts:     storageMountsFromBlocks(b.StorageMounts),
+		CPUCount:          b.CPUCount,
+		MemoryMiB:         b.MemoryMiB,
 	}
 }
 
