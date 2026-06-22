@@ -3678,17 +3678,26 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 	// VM inventory entry — best-effort. Same rationale as in
 	// CloneVM: the VM is fully provisioned on disk; failure to
 	// register only loses the multi-host dispatch path (handled
-	// by the hypervisorForVM fallback). Microvm-flavoured
-	// entries carry the boot mode as the Image field so audits
-	// can distinguish UKI/direct-Linux registrations from
-	// classic cloud-image clones.
+	// by the hypervisorForVM fallback).
+	//
+	// Image preference : the caller-supplied OCI ref (boot.Image)
+	// wins when set — it's the operator-meaningful identity for
+	// the workload ("weft-etcd:v3.6.0" reads better than the
+	// internal "microvm/direct_linux" boot-mode label). Falls
+	// back to "microvm/<mode>" for callers that don't pass an
+	// OCI ref (legacy paths + bare-direct-Linux registrations),
+	// keeping the existing audit semantics.
+	regImage := boot.Image
+	if regImage == "" {
+		regImage = "microvm/" + mode
+	}
 	if a.vmReg != nil {
 		projectUUID := a.ResolveProjectUUID(project)
 		registered, err := a.RegisterVM(CreateVMSpec{
 			ProjectUUID: projectUUID,
 			Name:        name,
 			HostUUID:    a.localHostUUID(),
-			Image:       "microvm/" + mode,
+			Image:       regImage,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
