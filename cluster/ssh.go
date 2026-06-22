@@ -181,9 +181,15 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		// first PlaceReplica action lands. Without it, weft infra deploy would
 		// look up its default <moduleRoot>/infra/<svc>/plan.hcl path relative
 		// to the remote cwd, where the source tree isn't present.
+		//
+		// --replica passes the planner-decided 1-indexed replica number so
+		// the deployed VM gets a distinct name per host : without it every
+		// host's invocation would call its VM `infra-<svc>` and the etcd
+		// registry would collapse them into one record (whichever wrote
+		// first wins, the rest become invisible from the operator's view).
 		return a.Host, fmt.Sprintf(
-			"weft infra deploy %s --plan %s/%s/plan.hcl   # replica %d (dc=%s)",
-			a.Service, remoteInfraDir, a.Service, a.Replica, a.DC,
+			"weft infra deploy %s --plan %s/%s/plan.hcl --replica %d   # replica %d (dc=%s)",
+			a.Service, remoteInfraDir, a.Service, a.Replica, a.Replica, a.DC,
 		)
 	case GrowQuorum:
 		return seed.ID, fmt.Sprintf("# grow %s quorum %d→%d (etcd member-add / nats route)", a.Service, a.From, a.To)
