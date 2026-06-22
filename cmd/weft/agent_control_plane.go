@@ -133,6 +133,8 @@ func (s *agentControlPlaneServer) RegisterAgent(ctx context.Context, req *agentv
 		NetworkTypes:   append([]string(nil), r.NetworkTypes...),
 		VolumeBackends: append([]string(nil), r.VolumeBackends...),
 		Properties:     cloneStringMap(r.Properties),
+		AgentVersion:   r.AgentVersion,
+		DriverVersions: cloneStringMap(r.DriverVersions),
 	}
 	host, err := s.adp.RegisterHost(spec)
 	if err != nil {

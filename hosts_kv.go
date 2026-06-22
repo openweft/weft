@@ -114,6 +114,16 @@ func encodeHostRecord(h Host) []byte {
 	if h.WGOverlayIndex != 0 {
 		bb.SetAttributeValue("wg_overlay_index", cty.NumberIntVal(int64(h.WGOverlayIndex)))
 	}
+	if h.AgentVersion != "" {
+		bb.SetAttributeValue("agent_version", cty.StringVal(h.AgentVersion))
+	}
+	if len(h.DriverVersions) > 0 {
+		ctyMap := make(map[string]cty.Value, len(h.DriverVersions))
+		for k, v := range h.DriverVersions {
+			ctyMap[k] = cty.StringVal(v)
+		}
+		bb.SetAttributeValue("driver_versions", cty.MapVal(ctyMap))
+	}
 	return f.Bytes()
 }
 
@@ -184,7 +194,22 @@ func hostFromBlock(b hostBlock) Host {
 		AKName:         b.AKName,
 		WGPublicKey:    b.WGPublicKey,
 		WGOverlayIndex: b.WGOverlayIndex,
+		AgentVersion:   b.AgentVersion,
+		DriverVersions: cloneStringMap(b.DriverVersions),
 	}
+}
+
+// cloneStringMap returns a fresh copy of m ; nil-in → nil-out (so the
+// HCL omitempty contract is preserved on the registry side).
+func cloneStringMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // loadHostRegistryKV is the per-record load path with legacy-blob

@@ -34,12 +34,18 @@ const (
 )
 
 type HostInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
-	Hostname      string                 `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	Az            string                 `protobuf:"bytes,3,opt,name=az,proto3" json:"az,omitempty"`
-	Hypervisor    string                 `protobuf:"bytes,4,opt,name=hypervisor,proto3" json:"hypervisor,omitempty"`
-	Architecture  string                 `protobuf:"bytes,5,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Uuid         string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Hostname     string                 `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	Az           string                 `protobuf:"bytes,3,opt,name=az,proto3" json:"az,omitempty"`
+	Hypervisor   string                 `protobuf:"bytes,4,opt,name=hypervisor,proto3" json:"hypervisor,omitempty"`
+	Architecture string                 `protobuf:"bytes,5,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	// version is the driver plugin's compile-time build version
+	// (e.g. "v0.6.0"). Stamped via -X main.version=... at link
+	// time. weft uses this to populate HostInfo.driver_versions
+	// (kind → version) so operators see per-driver versions on
+	// the TUI's Hosts detail drawer. Empty for pre-v0.5.0 drivers.
+	Version       string `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -105,6 +111,13 @@ func (x *HostInfo) GetHypervisor() string {
 func (x *HostInfo) GetArchitecture() string {
 	if x != nil {
 		return x.Architecture
+	}
+	return ""
+}
+
+func (x *HostInfo) GetVersion() string {
+	if x != nil {
+		return x.Version
 	}
 	return ""
 }
@@ -2829,7 +2842,7 @@ var File_driverpb_driver_proto protoreflect.FileDescriptor
 
 const file_driverpb_driver_proto_rawDesc = "" +
 	"\n" +
-	"\x15driverpb/driver.proto\x12\x0eweft.driver.v1\x1a\x1bgoogle/protobuf/empty.proto\"\x8e\x01\n" +
+	"\x15driverpb/driver.proto\x12\x0eweft.driver.v1\x1a\x1bgoogle/protobuf/empty.proto\"\xa8\x01\n" +
 	"\bHostInfo\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x0e\n" +
@@ -2837,7 +2850,8 @@ const file_driverpb_driver_proto_rawDesc = "" +
 	"\n" +
 	"hypervisor\x18\x04 \x01(\tR\n" +
 	"hypervisor\x12\"\n" +
-	"\farchitecture\x18\x05 \x01(\tR\farchitecture\"I\n" +
+	"\farchitecture\x18\x05 \x01(\tR\farchitecture\x12\x18\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion\"I\n" +
 	"\x10HostInfoResponse\x125\n" +
 	"\thost_info\x18\x01 \x01(\v2\x18.weft.driver.v1.HostInfoR\bhostInfo\"\xfe\x01\n" +
 	"\x06VMSpec\x12\x12\n" +

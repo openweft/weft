@@ -51,9 +51,78 @@ func (s *weftServer) GetClusterInfo(ctx context.Context, _ *weftv1.GetClusterInf
 		}
 	}
 	return &weftv1.GetClusterInfoResponse{
-		ClusterName:   name,
-		LocalHostUuid: s.localHostUUID,
+		ClusterName:           name,
+		LocalHostUuid:         s.localHostUUID,
+		ControlPlaneHostUuids: s.controlPlaneHostUUIDs(ctx),
 	}, nil
+}
+
+// controlPlaneHostUUIDs returns the set of host UUIDs that are MEMBERS
+// of the etcd quorum backing this control plane. Used by weft-tui to
+// flag every CP host (3 in a 3-DC HA cluster, 1 in single-host dev).
+//
+// Walk : etcd MemberList → for each member, take the first PeerURL's
+// hostname, then look up that hostname in the host registry. Members
+// that don't resolve (no matching host registered yet ; CP node not in
+// the host registry by design) silently fall out. Best-effort — etcd
+// hiccups return only the local UUID so the UI still shows something.
+//
+// Single-host dev (s.etcdCli == nil) : fall back to the local UUID
+// alone so the TUI still flags the one running CP.
+func (s *weftServer) controlPlaneHostUUIDs(ctx context.Context) []string {
+	if s.etcdCli == nil {
+		if s.localHostUUID == "" {
+			return nil
+		}
+		return []string{s.localHostUUID}
+	}
+	mctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := s.etcdCli.MemberList(mctx)
+	if err != nil || resp == nil {
+		if s.localHostUUID == "" {
+			return nil
+		}
+		return []string{s.localHostUUID}
+	}
+	uuids := make([]string, 0, len(resp.Members))
+	seen := make(map[string]struct{}, len(resp.Members))
+	allHosts := s.adp.Hosts()
+	for _, m := range resp.Members {
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			continue
+		}
+		// etcd member name is the operator-chosen short string (often
+		// "dc1" while the weft host registers as "dc1-r1-h1"). Try
+		// exact hostname match first ; fall back to a hostname-prefix
+		// match so "dc1" → "dc1-r1-h1" resolves cleanly.
+		if h, ok := s.adp.HostByHostname(name); ok {
+			if _, dup := seen[h.UUID]; !dup {
+				seen[h.UUID] = struct{}{}
+				uuids = append(uuids, h.UUID)
+			}
+			continue
+		}
+		// Prefix fallback : "dc1" → first host whose hostname starts
+		// with "dc1-" or "dc1.". Ambiguity is unlikely (one weft host
+		// per etcd member by convention) ; on a clash the alphabetically
+		// first match wins (s.adp.Hosts() returns hostname-sorted).
+		for _, h := range allHosts {
+			if strings.HasPrefix(h.Hostname, name+"-") || strings.HasPrefix(h.Hostname, name+".") || h.Hostname == name {
+				if _, dup := seen[h.UUID]; dup {
+					break
+				}
+				seen[h.UUID] = struct{}{}
+				uuids = append(uuids, h.UUID)
+				break
+			}
+		}
+	}
+	if len(uuids) == 0 && s.localHostUUID != "" {
+		uuids = append(uuids, s.localHostUUID)
+	}
+	return uuids
 }
 
 // SetClusterName persists a new cluster name. Admin-only ; the

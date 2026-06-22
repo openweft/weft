@@ -24,6 +24,12 @@ message HostInfo {
   string az = 3;
   string hypervisor = 4;
   string architecture = 5;
+  // version is the driver plugin's compile-time build version
+  // (e.g. "v0.6.0"). Stamped via -X main.version=... at link
+  // time. weft uses this to populate HostInfo.driver_versions
+  // (kind → version) so operators see per-driver versions on
+  // the TUI's Hosts detail drawer. Empty for pre-v0.5.0 drivers.
+  string version = 6;
 }
 
 message HostInfoResponse { HostInfo host_info = 1; }

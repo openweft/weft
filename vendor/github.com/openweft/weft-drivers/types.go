@@ -30,9 +30,15 @@ package drivers
 type HostInfo struct {
 	UUID         string
 	Hostname     string
-	AZ           string   // availability zone label, e.g. "us-east-1a"
-	Hypervisor   string   // "apple-vz" | "qemu-kvm" | "cloud-hypervisor"
-	Architecture string   // "arm64" | "amd64" | "riscv64" | "loongarch64"
+	AZ           string // availability zone label, e.g. "us-east-1a"
+	Hypervisor   string // "apple-vz" | "qemu-kvm" | "cloud-hypervisor"
+	Architecture string // "arm64" | "amd64" | "riscv64" | "loongarch64"
+	// Version is the driver plugin's compile-time build version
+	// (e.g. "v0.6.0"). Reported via the HostInfo() RPC so weft can
+	// surface per-driver versions in the TUI / webui chrome.
+	// Empty when the driver isn't built with -X main.version (dev
+	// builds) — TUI shows "(dev)" or empty in that case.
+	Version string
 }
 
 // NetworkSpec is what NetworkDriver consumes — mirrors weft.Network

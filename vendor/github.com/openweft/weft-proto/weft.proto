@@ -1237,6 +1237,14 @@ message GetClusterInfoResponse {
   // saves the client one extra roundtrip when it wants to label
   // "you're connected to host X of cluster Y" in the chrome.
   string local_host_uuid = 2;
+  // ControlPlaneHostUuids is the set of hosts that are MEMBERS
+  // of the etcd quorum backing this cluster. On a 3-DC HA setup
+  // all 3 hosts appear ; on hub-spoke (1 CP + N workers) only
+  // the CP appears. Server-side : matches each etcd MemberList
+  // peer URL's IP against each registered host's resolved IP.
+  // Empty when etcd isn't reachable from the serving agent or
+  // when no host resolves to a member peer URL.
+  repeated string control_plane_host_uuids = 3;
 }
 
 message SetClusterNameRequest  { string cluster_name = 1; }
@@ -1617,6 +1625,20 @@ message HostInfo {
   // work. Implements the upgrade-runbook primitive previously
   // documented as proposed.
   bool   cordoned             = 14;
+  // agent_version is the build version of the weft agent process
+  // currently serving this host. Operator-visible in the TUI's
+  // Hosts tab. Set at RegisterHost time by the agent itself
+  // (compile-time main.version stamp). "" → unknown (pre-
+  // v0.4.55 agent or build without -X main.version).
+  string agent_version        = 15;
+  // driver_versions maps each loaded driver plugin's kind
+  // (e.g. "qemu", "vz", "block") to its compile-time version
+  // (e.g. "v0.5.1"). Collected by the agent at RegisterHost
+  // time by calling each driver's HostInfo() RPC (driverpb
+  // v0.5.0+ added a `version` field). Empty when no drivers
+  // are loaded or when every loaded driver is on an older
+  // driverpb that didn't report version.
+  map<string, string> driver_versions = 16;
 }
 
 // RegisterHost adds a new host or refreshes an existing one
@@ -1635,6 +1657,8 @@ message RegisterHostRequest {
   repeated string network_types   = 8;
   repeated string volume_backends = 9;
   map<string, string> properties = 10;
+  string agent_version            = 11;
+  map<string, string> driver_versions = 12;
 }
 message RegisterHostResponse { HostInfo host = 1; }
 

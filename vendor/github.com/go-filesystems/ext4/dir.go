@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+
+	"github.com/go-volumes/safeio"
 )
 
 var addDirEntryAllocBlocks = func(f readerWriterAt, fsOffset int64, sb *superblock, n uint32) ([]uint64, error) {
@@ -63,7 +65,12 @@ func parseDirBlock(buf []byte) []DirEntry {
 		if recLen < 8 || off+recLen > len(buf) {
 			break
 		}
-		if ino != 0 && fileType != FtDirTail && nameLen > 0 {
+		// H1: name_len is an unchecked on-disk byte. A value that overruns the
+		// record (nameLen > recLen-8) or the block buffer would panic the
+		// slice expression buf[off+8 : off+8+nameLen]. Validate the name range
+		// lies inside both the record and the buffer before slicing.
+		if ino != 0 && fileType != FtDirTail && nameLen > 0 &&
+			nameLen <= recLen-8 && safeio.CheckBounds(off+8, nameLen, len(buf)) == nil {
 			name := string(buf[off+8 : off+8+nameLen])
 			entries = append(entries, DirEntry{
 				Inode:    ino,

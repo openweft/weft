@@ -46,6 +46,18 @@ message HostRegistration {
   repeated string network_types   = 8;
   repeated string volume_backends = 9;
   map<string, string> properties  = 10;
+  // agent_version is the weft binary's compile-time build version
+  // (e.g. "v0.4.55"), stamped via -X main.version at link time.
+  // Empty for unstamped dev builds. The control plane stores this
+  // on the host registry so weft-tui / webui can show per-host
+  // agent versions.
+  string agent_version            = 11;
+  // driver_versions maps each loaded driver's kind ("vz" / "qemu"
+  // / "block" / …) to its compile-time build version, harvested
+  // by the agent at startup from each plugin's HostInfo() RPC.
+  // Empty for legacy / unstamped builds. Persisted on the host
+  // registry alongside the agent_version.
+  map<string, string> driver_versions = 12;
 }
 
 message RegisterAgentRequest  { HostRegistration registration = 1; }

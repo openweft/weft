@@ -48,6 +48,15 @@ func toHostInfo(h weft.Host) *weftv1.HostInfo {
 			hi.Properties[k] = v
 		}
 	}
+	if h.AgentVersion != "" {
+		hi.AgentVersion = h.AgentVersion
+	}
+	if len(h.DriverVersions) > 0 {
+		hi.DriverVersions = make(map[string]string, len(h.DriverVersions))
+		for k, v := range h.DriverVersions {
+			hi.DriverVersions[k] = v
+		}
+	}
 	return hi
 }
 
@@ -68,6 +77,13 @@ func (s *weftServer) RegisterHost(ctx context.Context, req *weftv1.RegisterHostR
 		Architecture:   req.Architecture,
 		NetworkTypes:   append([]string(nil), req.NetworkTypes...),
 		VolumeBackends: append([]string(nil), req.VolumeBackends...),
+		AgentVersion:   req.AgentVersion,
+	}
+	if len(req.DriverVersions) > 0 {
+		spec.DriverVersions = make(map[string]string, len(req.DriverVersions))
+		for k, v := range req.DriverVersions {
+			spec.DriverVersions[k] = v
+		}
 	}
 	if len(req.Properties) > 0 {
 		spec.Properties = make(map[string]string, len(req.Properties))

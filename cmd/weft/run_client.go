@@ -88,6 +88,7 @@ func runClient(t fileConfigTargets) error {
 		AttestTPM:       t.attestTPM,
 		AttestTPMDevice: t.attestTPMDevice,
 		AttestClient:    attestClient,
+		AgentVersion:    version,
 	})
 	if err != nil {
 		return fmt.Errorf("build agent: %w", err)

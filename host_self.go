@@ -174,6 +174,13 @@ func (a *Adapter) selfRegisterHost() error {
 		// identity for this host and it stays out of the mesh.
 		WGPublicKey:    wgPub,
 		WGOverlayIndex: wgIndex,
+		// AgentVersion picks up the env-passed stamp ($WEFT_VERSION) so
+		// embedded self-registration (the same-process control-plane
+		// path that doesn't go through the agent's HostRegistration)
+		// still surfaces the version on the registry. The wrapping
+		// `weft agent` exports WEFT_VERSION = its main.version at
+		// startup so this stays in lockstep with the agent-path stamp.
+		AgentVersion: os.Getenv("WEFT_VERSION"),
 	})
 	return err
 }

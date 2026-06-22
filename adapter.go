@@ -798,9 +798,67 @@ func (a *Adapter) afterStorageWired() VZAdapter {
 		fmt.Fprintf(os.Stderr, "weft: self-register host: %v\n", err)
 	}
 	a.initLocalDrivers()
+	// Drivers are now wired in the dispatch table : refresh the host
+	// registry with the per-driver versions HostInfo() reports. This
+	// is a no-op when the local driver didn't surface a Version
+	// (legacy / dev builds without -X main.version).
+	a.refreshLocalDriverVersions()
 	a.migrateLegacyLayout()
 	a.migrateNamedProjectDirs()
 	return a
+}
+
+// refreshLocalDriverVersions queries each loaded driver's HostInfo()
+// for its compile-time build version and updates the local Host
+// registry entry's DriverVersions map. Called after initLocalDrivers
+// so the dispatch table is populated. Best-effort : a driver that
+// fails HostInfo or returns empty Version is silently skipped.
+func (a *Adapter) refreshLocalDriverVersions() {
+	if a.hostReg == nil {
+		return
+	}
+	hostUUID, err := a.loadOrCreateHostUUID()
+	if err != nil || hostUUID == "" {
+		return
+	}
+	existing, ok := a.hostReg.byUUID[hostUUID]
+	if !ok {
+		return
+	}
+	versions := map[string]string{}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	a.mu.Lock()
+	for kind, h := range a.driverDispatchSet[hostUUID] {
+		if h == nil || h.Hypervisor == nil {
+			continue
+		}
+		info, err := h.Hypervisor.HostInfo(ctx)
+		if err != nil {
+			continue
+		}
+		if info.Version != "" {
+			versions[kind] = info.Version
+		}
+	}
+	// Single-driver path : the legacy dispatch table holds one entry
+	// under the host UUID without a kind label ; that's the local
+	// driver. Query it under its self-reported hypervisor label.
+	if h, ok2 := a.driverDispatch[hostUUID]; ok2 && len(versions) == 0 && h != nil && h.Hypervisor != nil {
+		info, err := h.Hypervisor.HostInfo(ctx)
+		if err == nil && info.Version != "" {
+			versions[existing.Hypervisor] = info.Version
+		}
+	}
+	a.mu.Unlock()
+	if len(versions) == 0 {
+		return
+	}
+	a.hostReg.mu.Lock()
+	existing.DriverVersions = versions
+	a.hostReg.byUUID[hostUUID] = existing
+	_ = a.hostReg.persistOne(existing)
+	a.hostReg.mu.Unlock()
 }
 
 // initUsers loads the on-disk user registry via storageFactory.
