@@ -14,11 +14,13 @@ package main
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	weft "github.com/openweft/weft"
 	"github.com/openweft/weft/etcdcoord"
 	weftv1 "github.com/openweft/weft-proto"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -216,17 +218,22 @@ func (s *weftServer) ListHosts(ctx context.Context, req *weftv1.ListHostsRequest
 	for _, h := range hosts {
 		out = append(out, toHostInfo(h))
 	}
-	var connected []string
-	if s.dispatch != nil {
-		connected = s.dispatch.ConnectedHostUUIDs()
-	}
-	// The local agent never opens a Connect stream to itself — it
-	// talks to the Adapter directly. But it IS reachable (the
-	// caller is talking to it right now), so the dashboard should
-	// reflect that. Surface localHostUUID as connected if known
-	// and not already in the dispatch list ; otherwise operators
-	// see "connected=no" for the host they just hit, which is
-	// false negative.
+	// CONN semantics : in HA / federated topologies, every agent
+	// runs autonomously and pulls from etcd (no agent dials back
+	// to the seed via AgentDispatch). The legacy "host has a
+	// dispatch stream to ME" check therefore only ever lit up
+	// the local host, masking real liveness.
+	//
+	// New definition : "host has a live coord lease in etcd"
+	// (/weft/coord/hosts/<uuid>, TTL 10s, KeepAlived by each
+	// running agent). That's exactly what every agent already
+	// publishes, so the column reads "yes" for every host whose
+	// agent is currently alive — the natural operator question.
+	//
+	// Falls back to the dispatch-based view when etcdCli isn't
+	// wired (single-host dev / file backend) so unit tests + the
+	// legacy code path keep working.
+	connected := s.liveHostUUIDs(ctx)
 	if s.localHostUUID != "" {
 		dup := false
 		for _, u := range connected {
@@ -240,6 +247,44 @@ func (s *weftServer) ListHosts(ctx context.Context, req *weftv1.ListHostsRequest
 		}
 	}
 	return &weftv1.ListHostsResponse{Hosts: out, ConnectedHostUuids: connected}, nil
+}
+
+// liveHostUUIDs returns the set of host UUIDs that currently hold a
+// live etcd coord lease (= weft-agent process running on them, sending
+// KeepAlive). Caps the etcd Get at 2s so a flaky quorum can't stall
+// the UI's ListHosts RPC.
+//
+// When etcdCli is nil (single-host dev / file backend) falls back to
+// the legacy dispatch-stream view so tests + that mode keep working
+// without code change.
+func (s *weftServer) liveHostUUIDs(ctx context.Context) []string {
+	if s.etcdCli == nil {
+		if s.dispatch != nil {
+			return s.dispatch.ConnectedHostUUIDs()
+		}
+		return nil
+	}
+	gctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := s.etcdCli.Get(gctx, etcdcoord.HostsPrefix, clientv3.WithPrefix(), clientv3.WithKeysOnly(), clientv3.WithSerializable())
+	if err != nil || resp == nil {
+		// Fall through to legacy dispatch view on etcd hiccup —
+		// the column degrades to "only local" rather than blanking
+		// entirely, which is the same UX as before this change.
+		if s.dispatch != nil {
+			return s.dispatch.ConnectedHostUUIDs()
+		}
+		return nil
+	}
+	out := make([]string, 0, len(resp.Kvs))
+	for _, kv := range resp.Kvs {
+		key := string(kv.Key)
+		if !strings.HasPrefix(key, etcdcoord.HostsPrefix) {
+			continue
+		}
+		out = append(out, strings.TrimPrefix(key, etcdcoord.HostsPrefix))
+	}
+	return out
 }
 
 // GetHost accepts either UUID or hostname. The Adapter has
