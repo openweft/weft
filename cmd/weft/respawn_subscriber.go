@@ -87,14 +87,19 @@ func startRespawnSubscriber(adp weft.VZAdapter, bus weft.EventBus, etcdCli *clie
 				} else {
 					sub.WithCoordinator(respawnCoord{adp: adp}, watcher.Events(), etcdCli, "")
 					logger.Printf("respawn subscriber: cross-host failover active (host=%s)", localUUID)
-					// One-shot startup reconciliation : any host
-					// registered as Active but whose etcd liveness lease
-					// is absent (and whose LastSeenAt aged past the
-					// takeover threshold) must've died while no agent was
-					// watching. The runtime watcher only fires on lease
-					// expiry during this agent's lifetime, so without this
-					// pass those silently-stale hosts stay Active forever.
-					go reconcileStaleHosts(ctx, etcdCli, adp, logger)
+					// Periodic reconciliation : any host registered as
+					// Active but whose etcd liveness lease is absent +
+					// LastSeenAt aged past the takeover threshold must've
+					// died while no agent was watching. The runtime
+					// watcher catches expiries during this agent's
+					// lifetime ; the ticker covers the snapshot case +
+					// long-lived phantom entries that never had an
+					// agent at all (cluster.hcl-time stubs, killed
+					// agents without graceful revoke). After flipping
+					// Active→Down, hosts that stay Down past
+					// phantomHostDeleteAge are deleted outright so
+					// `weft host ls` doesn't accumulate cruft.
+					go reconcileStaleHostsLoop(ctx, etcdCli, adp, logger)
 				}
 			}
 		}
@@ -276,10 +281,30 @@ func reconcileStaleHosts(ctx context.Context, cli *clientv3.Client, adp weft.VZA
 	}
 
 	now := time.Now()
-	var flipped, kept int
+	var flipped, kept, deleted int
 	for _, h := range adp.Hosts() {
+		// Down hosts past phantomHostDeleteAge with NO live lease
+		// get deleted outright — they're either ex-hosts that never
+		// got the operator's explicit delete, or planning stubs
+		// (cluster.hcl bring-up registered them, agent never
+		// started). Draining stays around indefinitely (operator
+		// intent).
+		if h.State == weft.HostStateDown {
+			if _, alive := live[h.UUID]; alive {
+				continue
+			}
+			if now.Sub(h.LastSeenAt) < phantomHostDeleteAge {
+				continue
+			}
+			if err := adp.DeleteHost(h.UUID); err != nil {
+				logger.Printf("reconcile stale hosts: DeleteHost(%s) failed: %v", h.UUID, err)
+				continue
+			}
+			deleted++
+			continue
+		}
 		if h.State != weft.HostStateActive {
-			continue // Draining / Down stay as they are
+			continue // Draining stays as-is
 		}
 		if _, alive := live[h.UUID]; alive {
 			continue
@@ -298,10 +323,65 @@ func reconcileStaleHosts(ctx context.Context, cli *clientv3.Client, adp weft.VZA
 		}
 		flipped++
 	}
-	if flipped > 0 || kept > 0 {
-		logger.Printf("reconcile stale hosts: flipped %d → Down, kept %d Active (recent heartbeat)", flipped, kept)
+	if flipped > 0 || kept > 0 || deleted > 0 {
+		logger.Printf("reconcile stale hosts: flipped %d → Down, deleted %d phantom, kept %d Active (recent heartbeat)", flipped, deleted, kept)
 	}
 }
+
+// phantomHostDeleteAge is the grace period a host stays Down before
+// the reconciler deletes it from the registry. The two-stage path
+// (Active → Down → deleted) gives operators a window to spot the
+// transition and intervene (uncordon, fix the agent) ; sitting Down
+// for an hour with no liveness lease + no recent heartbeat is the
+// signal that the host genuinely won't come back.
+//
+// Tuned conservatively — phantom hosts polluting `weft host ls`
+// look harmless ; deleting a real-but-quiet host triggers re-
+// registration on its next agent boot, which is recoverable but
+// noisy. An hour beats both failure modes.
+var phantomHostDeleteAge = func() time.Duration {
+	if env := os.Getenv("WEFT_PHANTOM_HOST_DELETE_AGE"); env != "" {
+		if d, err := time.ParseDuration(env); err == nil {
+			return d
+		}
+	}
+	return time.Hour
+}()
+
+// reconcileStaleHostsLoop runs reconcileStaleHosts once at startup
+// (with a 10s settle window for peer agents to publish their leases)
+// and then on a 60s ticker until ctx is cancelled. The ticker covers
+// the lifecycle gap : phantom hosts that NEVER had an agent (planning
+// stubs) only show up after the snapshot-at-boot pass ; the periodic
+// re-check picks them up + drives the Down → delete transition once
+// they cross phantomHostDeleteAge.
+func reconcileStaleHostsLoop(ctx context.Context, cli *clientv3.Client, adp weft.VZAdapter, logger *log.Logger) {
+	reconcileStaleHosts(ctx, cli, adp, logger)
+	t := time.NewTicker(reconcileStaleHostsInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			reconcileStaleHosts(ctx, cli, adp, logger)
+		}
+	}
+}
+
+// reconcileStaleHostsInterval is how often the loop re-checks the
+// host registry against etcd liveness. 60s balances responsiveness
+// (phantoms get GC'd within an hour ± 1m) and read load on etcd
+// (one Get per minute per agent, KeysOnly + Serializable so it's
+// cheap). Tunable via env for tests.
+var reconcileStaleHostsInterval = func() time.Duration {
+	if env := os.Getenv("WEFT_RECONCILE_HOSTS_INTERVAL"); env != "" {
+		if d, err := time.ParseDuration(env); err == nil {
+			return d
+		}
+	}
+	return time.Minute
+}()
 
 // isZombie returns true when /proc/<pid>/status reports State Z.
 // Linux-only ; safe no-op (returns false) when /proc is unavailable
