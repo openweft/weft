@@ -283,15 +283,25 @@ func reconcileStaleHosts(ctx context.Context, cli *clientv3.Client, adp weft.VZA
 	now := time.Now()
 	var flipped, kept, deleted int
 	for _, h := range adp.Hosts() {
-		// Down hosts past phantomHostDeleteAge with NO live lease
-		// get deleted outright — they're either ex-hosts that never
-		// got the operator's explicit delete, or planning stubs
-		// (cluster.hcl bring-up registered them, agent never
-		// started). Draining stays around indefinitely (operator
-		// intent).
+		// Down hosts stay around forever now — the operator wants
+		// "malade" (sick) hosts to remain visible so a host that
+		// crashed / lost network / is being patched doesn't quietly
+		// disappear from `weft host ls` + the TUI. The reconciler
+		// still does the Active → Down flip below so it's marked
+		// unreachable ; explicit `weft host delete` is the only
+		// path that removes a host from the registry.
+		//
+		// We make ONE exception : hosts with an empty AgentVersion
+		// AND aged past phantomHostDeleteAge. Those are pure
+		// stubs (cluster.hcl planning entries that NEVER had a
+		// real agent register) — keeping them inflates the host
+		// list without informing the operator about anything real.
 		if h.State == weft.HostStateDown {
 			if _, alive := live[h.UUID]; alive {
 				continue
+			}
+			if h.AgentVersion != "" {
+				continue // real ex-agent : keep around, marked Down
 			}
 			if now.Sub(h.LastSeenAt) < phantomHostDeleteAge {
 				continue
