@@ -189,6 +189,8 @@ const (
 	WeftAgent_SetPodSpec_FullMethodName                      = "/weft.v1.WeftAgent/SetPodSpec"
 	WeftAgent_GetPodSpec_FullMethodName                      = "/weft.v1.WeftAgent/GetPodSpec"
 	WeftAgent_GetMicroVMMetrics_FullMethodName               = "/weft.v1.WeftAgent/GetMicroVMMetrics"
+	WeftAgent_GetClusterInfo_FullMethodName                  = "/weft.v1.WeftAgent/GetClusterInfo"
+	WeftAgent_SetClusterName_FullMethodName                  = "/weft.v1.WeftAgent/SetClusterName"
 )
 
 // WeftAgentClient is the client API for WeftAgent service.
@@ -496,6 +498,10 @@ type WeftAgentClient interface {
 	// the fields stay zero ; the webui renders the empty shape natively
 	// rather than falling back to synthetic mock data.
 	GetMicroVMMetrics(ctx context.Context, in *GetMicroVMMetricsRequest, opts ...grpc.CallOption) (*MicroVMMetricsResponse, error)
+	// Cluster identity. GetClusterInfo is open to every authed caller
+	// (chrome decoration) ; SetClusterName is admin-only.
+	GetClusterInfo(ctx context.Context, in *GetClusterInfoRequest, opts ...grpc.CallOption) (*GetClusterInfoResponse, error)
+	SetClusterName(ctx context.Context, in *SetClusterNameRequest, opts ...grpc.CallOption) (*SetClusterNameResponse, error)
 }
 
 type weftAgentClient struct {
@@ -2215,6 +2221,26 @@ func (c *weftAgentClient) GetMicroVMMetrics(ctx context.Context, in *GetMicroVMM
 	return out, nil
 }
 
+func (c *weftAgentClient) GetClusterInfo(ctx context.Context, in *GetClusterInfoRequest, opts ...grpc.CallOption) (*GetClusterInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetClusterInfoResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_GetClusterInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weftAgentClient) SetClusterName(ctx context.Context, in *SetClusterNameRequest, opts ...grpc.CallOption) (*SetClusterNameResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetClusterNameResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_SetClusterName_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeftAgentServer is the server API for WeftAgent service.
 // All implementations must embed UnimplementedWeftAgentServer
 // for forward compatibility.
@@ -2520,6 +2546,10 @@ type WeftAgentServer interface {
 	// the fields stay zero ; the webui renders the empty shape natively
 	// rather than falling back to synthetic mock data.
 	GetMicroVMMetrics(context.Context, *GetMicroVMMetricsRequest) (*MicroVMMetricsResponse, error)
+	// Cluster identity. GetClusterInfo is open to every authed caller
+	// (chrome decoration) ; SetClusterName is admin-only.
+	GetClusterInfo(context.Context, *GetClusterInfoRequest) (*GetClusterInfoResponse, error)
+	SetClusterName(context.Context, *SetClusterNameRequest) (*SetClusterNameResponse, error)
 	mustEmbedUnimplementedWeftAgentServer()
 }
 
@@ -3039,6 +3069,12 @@ func (UnimplementedWeftAgentServer) GetPodSpec(context.Context, *GetPodSpecReque
 }
 func (UnimplementedWeftAgentServer) GetMicroVMMetrics(context.Context, *GetMicroVMMetricsRequest) (*MicroVMMetricsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetMicroVMMetrics not implemented")
+}
+func (UnimplementedWeftAgentServer) GetClusterInfo(context.Context, *GetClusterInfoRequest) (*GetClusterInfoResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetClusterInfo not implemented")
+}
+func (UnimplementedWeftAgentServer) SetClusterName(context.Context, *SetClusterNameRequest) (*SetClusterNameResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetClusterName not implemented")
 }
 func (UnimplementedWeftAgentServer) mustEmbedUnimplementedWeftAgentServer() {}
 func (UnimplementedWeftAgentServer) testEmbeddedByValue()                   {}
@@ -6114,6 +6150,42 @@ func _WeftAgent_GetMicroVMMetrics_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WeftAgent_GetClusterInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetClusterInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).GetClusterInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_GetClusterInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).GetClusterInfo(ctx, req.(*GetClusterInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WeftAgent_SetClusterName_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetClusterNameRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).SetClusterName(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_SetClusterName_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).SetClusterName(ctx, req.(*SetClusterNameRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WeftAgent_ServiceDesc is the grpc.ServiceDesc for WeftAgent service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -6796,6 +6868,14 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMicroVMMetrics",
 			Handler:    _WeftAgent_GetMicroVMMetrics_Handler,
+		},
+		{
+			MethodName: "GetClusterInfo",
+			Handler:    _WeftAgent_GetClusterInfo_Handler,
+		},
+		{
+			MethodName: "SetClusterName",
+			Handler:    _WeftAgent_SetClusterName_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
