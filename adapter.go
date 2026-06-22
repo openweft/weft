@@ -3472,6 +3472,30 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		projUUID := a.ResolveProjectUUID(project)
 		local := a.LocalHostUUID()
 		existing, _ := a.vmReg.lookupByName(projUUID, name)
+		// VM dir on disk + no registry record = the dir survived a
+		// daemon / etcd wipe (operator nuked vmReg, agent restarted,
+		// dir still on disk). Seed the inventory by REGISTERING the
+		// VM now so the etcd / file registry catches up — without
+		// this the deploy returns idempotent-skip and the registry
+		// stays empty forever, breaking cluster-wide visibility.
+		if existing.UUID == "" {
+			regImage := boot.Image
+			if regImage == "" {
+				regImage = "microvm/direct_linux"
+			}
+			if _, err := a.RegisterVM(CreateVMSpec{
+				ProjectUUID: projUUID,
+				Name:        name,
+				HostUUID:    local,
+				Image:       regImage,
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: re-seed registry for %q failed: %v\n", name, err)
+			} else {
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: vm %q dir present but no registry record — re-seeded under host %s\n",
+					name, local)
+			}
+			return nil
+		}
 		if local != "" && existing.UUID != "" && existing.HostUUID != local {
 			if err := a.vmReg.setHost(existing.UUID, local); err != nil {
 				fmt.Fprintf(os.Stderr, "weft: register-microvm: claim local ownership of %q failed: %v\n", name, err)
