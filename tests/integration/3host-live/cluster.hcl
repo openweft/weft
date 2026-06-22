@@ -44,7 +44,7 @@ cluster "openweft-live-3dc" {
     properties = { role = "control-plane", storage = "nvme" }
     ssh {
       user = "admin"
-      key  = "~/.ssh/id_ed25519"
+      key  = "/Users/admin/.ssh/id_ed25519"
     }
   }
 
@@ -55,7 +55,7 @@ cluster "openweft-live-3dc" {
     properties = { role = "control-plane", storage = "nvme" }
     ssh {
       user = "admin"
-      key  = "~/.ssh/id_ed25519"
+      key  = "/Users/admin/.ssh/id_ed25519"
     }
   }
 
@@ -63,12 +63,10 @@ cluster "openweft-live-3dc" {
     address    = "192.168.105.13"
     dc         = "dc3"
     hypervisor = "qemu"
-    # No `role = control-plane` label : h3 is workload-only. Add the label
-    # here (and keep the cluster at 3 control-plane hosts for HA) once a
-    # second NVMe host is provisioned in dc3.
+    properties = { role = "control-plane", storage = "nvme" }
     ssh {
       user = "admin"
-      key  = "~/.ssh/id_ed25519"
+      key  = "/Users/admin/.ssh/id_ed25519"
     }
   }
 }
