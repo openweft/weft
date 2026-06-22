@@ -4222,6 +4222,18 @@ func stateToProto(s string) weftv1.VMState {
 		return weftv1.VMState_VM_STATE_STOPPED
 	case "not-created":
 		return weftv1.VMState_VM_STATE_NOT_CREATED
+	case "created":
+		return weftv1.VMState_VM_STATE_CREATED
+	case "starting":
+		return weftv1.VMState_VM_STATE_STARTING
+	case "stopping":
+		return weftv1.VMState_VM_STATE_STOPPING
+	case "zombie":
+		return weftv1.VMState_VM_STATE_ZOMBIE
+	case "deleting":
+		return weftv1.VMState_VM_STATE_DELETING
+	case "error":
+		return weftv1.VMState_VM_STATE_ERROR
 	default:
 		return weftv1.VMState_VM_STATE_UNSPECIFIED
 	}

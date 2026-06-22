@@ -1,6 +1,7 @@
 package lzfse
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"math/bits"
@@ -54,6 +55,15 @@ const (
 	literalsPerBlock    = 4 * 10000
 	encodeLZVNThreshold = 4096
 )
+
+// maxBlockRawBytes caps the raw (decompressed) bytes a single V2 block may
+// span. The V2 header encodes nLiterals and nLiteralPayloadBytes in 20-bit
+// fields (max 2^20-1 = 1048575); literals can never exceed the raw byte span,
+// so keeping a block under 2^20 raw bytes guarantees those fields cannot
+// overflow. We leave generous headroom below the limit. It is a var (not a
+// const) so tests can lower it to force the multi-block and literal-only-block
+// split paths on small inputs.
+var maxBlockRawBytes = 1 << 19 // 524288
 
 // matchesPerBlock is the upper bound on matches encoded per block.
 // Production uses 10 000 (large enough that real disk-image workloads
@@ -1045,10 +1055,53 @@ func Compress(src []byte) ([]byte, error) {
 
 	// Small inputs: use LZVN block
 	if n <= encodeLZVNThreshold {
-		return compressLZVN(src), nil
+		out := compressLZVN(src)
+		if len(out) >= n+uncompressedOverhead {
+			return compressStored(src), nil
+		}
+		return out, nil
 	}
 
-	return compressLZFSE(src), nil
+	out := compressLZFSE(src)
+	// Incompressible fallback: if the entropy-coded stream did not actually
+	// shrink the input (e.g. random / already-compressed data), emit an
+	// uncompressed block instead. This both saves space and avoids relying on
+	// the FSE path for data it cannot model — matching reference LZFSE, which
+	// stores such blocks raw.
+	if len(out) >= n+uncompressedOverhead {
+		return compressStored(src), nil
+	}
+	return out, nil
+}
+
+// uncompressedOverhead is the byte cost of wrapping raw data in an
+// uncompressed block plus the end-of-stream marker: an 8-byte uncompressed
+// header (magic + n_raw) and a 4-byte EOS magic.
+const uncompressedOverhead = 8 + 4
+
+// compressStored wraps src verbatim in an LZFSE uncompressed block followed by
+// the end-of-stream marker. The block layout (magic + n_raw + raw bytes) is
+// exactly what Decompress's magicUncompressed path expects. The result always
+// round-trips and is never far from the input size, so it is the safe choice
+// for incompressible data.
+func compressStored(src []byte) []byte {
+	out := make([]byte, 8+len(src)+4)
+	binary.LittleEndian.PutUint32(out[0:], magicUncompressed)
+	binary.LittleEndian.PutUint32(out[4:], uint32(len(src)))
+	copy(out[8:], src)
+	binary.LittleEndian.PutUint32(out[8+len(src):], magicEndOfStream)
+	return out
+}
+
+// storedBlock builds a single uncompressed LZFSE block (magic + n_raw + raw
+// bytes) with no end-of-stream marker, for use mid-stream by compressLZFSE when
+// a block is better stored raw than entropy-coded.
+func storedBlock(raw []byte) []byte {
+	b := make([]byte, 8+len(raw))
+	binary.LittleEndian.PutUint32(b[0:], magicUncompressed)
+	binary.LittleEndian.PutUint32(b[4:], uint32(len(raw)))
+	copy(b[8:], raw)
+	return b
 }
 
 // compressLZVN wraps data in an LZFSE LZVN block.
@@ -1071,13 +1124,25 @@ func compressLZFSE(src []byte) []byte {
 	allMatches := findMatches(src)
 
 	var result []byte
+	// decoded mirrors what a decompressor will have produced up to the current
+	// block. It is the back-reference history used to verify each block decodes
+	// to its raw bytes (matches may reference earlier blocks), and is kept in
+	// lock-step with the emitted output.
+	decoded := make([]byte, 0, n)
 
-	// Split matches into blocks of at most matchesPerBlock
+	// Split matches into blocks. A block is closed when it reaches either the
+	// match cap (matchesPerBlock) OR the raw-byte cap (maxBlockRawBytes). The
+	// raw-byte cap is essential for correctness, not just tuning: a V2 block
+	// header stores nLiterals and nLiteralPayloadBytes in 20-bit fields, so a
+	// block must hold fewer than 2^20 literals. Capping raw bytes per block at
+	// maxBlockRawBytes (< 2^20) guarantees that, since literals never exceed the
+	// raw byte span. Cross-block back-references remain valid: the decoder
+	// resolves match distances against the whole decompressed stream.
 	start := 0
 	matchStart := 0
 
 	for start < n {
-		// Find end of this block
+		// Find end of this block by the match cap first.
 		blockMatchEnd := matchStart + matchesPerBlock
 		if blockMatchEnd > len(allMatches) {
 			blockMatchEnd = len(allMatches)
@@ -1091,7 +1156,39 @@ func compressLZFSE(src []byte) []byte {
 			blockEnd = n
 		}
 
+		// Enforce the raw-byte cap: if this block would span too many raw
+		// bytes, truncate it. Pull back to the last whole match that still fits;
+		// if even the first match overshoots the cap (a very long literal run),
+		// cut the block at the cap and let the run carry into the next block.
+		if blockEnd-start > maxBlockRawBytes {
+			cut := matchStart
+			for cut < blockMatchEnd && allMatches[cut].pos+allMatches[cut].M-start <= maxBlockRawBytes {
+				cut++
+			}
+			if cut > matchStart {
+				blockMatchEnd = cut
+				blockEnd = allMatches[cut-1].pos + allMatches[cut-1].M
+			} else {
+				// No whole match fits; emit a literal-only block up to the cap.
+				blockMatchEnd = matchStart
+				blockEnd = start + maxBlockRawBytes
+			}
+		}
+
 		blockMatches := allMatches[matchStart:blockMatchEnd]
+
+		// A block with no matches is a pure literal run (e.g. a long
+		// incompressible span carried over from a previous block's cap). The
+		// FSE LMD stream would be empty, which the decoder cannot init, so emit
+		// the span as a raw uncompressed block instead — it always round-trips.
+		if len(blockMatches) == 0 {
+			raw := src[start:blockEnd]
+			result = append(result, storedBlock(raw)...)
+			decoded = append(decoded, raw...)
+			start = blockEnd
+			matchStart = blockMatchEnd
+			continue
+		}
 
 		// Re-base match L values relative to block start
 		rebased := make([]match, len(blockMatches))
@@ -1115,7 +1212,23 @@ func compressLZFSE(src []byte) []byte {
 		// failure mode is reachable here.
 		h, _ := readV1Header(v1Data)
 		v2Data := makeV2Block(h, v1Data[v1HeaderSize:])
-		result = append(result, v2Data...)
+
+		// Guard against degenerate blocks: a block with very few symbols can
+		// produce an LMD/literal payload too short for the FSE bitstream reader
+		// to initialise (it needs several trailing bytes to seed the decoder).
+		// Rather than special-casing every such shape, verify the block decodes
+		// back to its raw bytes; if it does not, store the span uncompressed,
+		// which always round-trips. This fires only on rare small/trailing
+		// blocks, so it costs nothing on the hot path.
+		raw := src[start:blockEnd]
+		priorCopy := append([]byte(nil), decoded...)
+		dec, err := decodeCompressedBlock(h, v1Data[v1HeaderSize:], priorCopy)
+		if err != nil || len(dec) < len(decoded) || !bytes.Equal(dec[len(decoded):], raw) {
+			result = append(result, storedBlock(raw)...)
+		} else {
+			result = append(result, v2Data...)
+		}
+		decoded = append(decoded, raw...)
 		start = blockEnd
 		matchStart = blockMatchEnd
 	}

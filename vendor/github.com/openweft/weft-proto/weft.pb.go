@@ -30,6 +30,21 @@ const (
 	VMState_VM_STATE_STOPPED     VMState = 2
 	VMState_VM_STATE_RUNNING     VMState = 3
 	VMState_VM_STATE_ERROR       VMState = 4
+	// VM_STATE_CREATED — vmDir provisioned + registered, StartVM
+	// not yet called (e.g. fresh `weft microvm register` output).
+	VMState_VM_STATE_CREATED VMState = 5
+	// VM_STATE_STARTING — StartVM accepted, qemu/vz launching ;
+	// visible until the guest sends its first heartbeat.
+	VMState_VM_STATE_STARTING VMState = 6
+	// VM_STATE_STOPPING — StopVM accepted, qemu/vz draining.
+	VMState_VM_STATE_STOPPING VMState = 7
+	// VM_STATE_ZOMBIE — process died without going through StopVM
+	// (kernel panic, OOM, host crash mid-shutdown). zombiegc'll
+	// surface it as `weft_vm_zombies` + clean up after CIGracePeriod.
+	VMState_VM_STATE_ZOMBIE VMState = 8
+	// VM_STATE_DELETING — DeleteVM accepted ; entry survives long
+	// enough for the operator-visible event to flush.
+	VMState_VM_STATE_DELETING VMState = 9
 )
 
 // Enum value maps for VMState.
@@ -40,6 +55,11 @@ var (
 		2: "VM_STATE_STOPPED",
 		3: "VM_STATE_RUNNING",
 		4: "VM_STATE_ERROR",
+		5: "VM_STATE_CREATED",
+		6: "VM_STATE_STARTING",
+		7: "VM_STATE_STOPPING",
+		8: "VM_STATE_ZOMBIE",
+		9: "VM_STATE_DELETING",
 	}
 	VMState_value = map[string]int32{
 		"VM_STATE_UNSPECIFIED": 0,
@@ -47,6 +67,11 @@ var (
 		"VM_STATE_STOPPED":     2,
 		"VM_STATE_RUNNING":     3,
 		"VM_STATE_ERROR":       4,
+		"VM_STATE_CREATED":     5,
+		"VM_STATE_STARTING":    6,
+		"VM_STATE_STOPPING":    7,
+		"VM_STATE_ZOMBIE":      8,
+		"VM_STATE_DELETING":    9,
 	}
 )
 
@@ -26101,13 +26126,18 @@ const file_weft_proto_rawDesc = "" +
 	"\vAdmitResult\x12\x18\n" +
 	"\agranted\x18\x01 \x01(\bR\agranted\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x17\n" +
-	"\aak_name\x18\x03 \x01(\fR\x06akName*}\n" +
+	"\aak_name\x18\x03 \x01(\fR\x06akName*\xed\x01\n" +
 	"\aVMState\x12\x18\n" +
 	"\x14VM_STATE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14VM_STATE_NOT_CREATED\x10\x01\x12\x14\n" +
 	"\x10VM_STATE_STOPPED\x10\x02\x12\x14\n" +
 	"\x10VM_STATE_RUNNING\x10\x03\x12\x12\n" +
-	"\x0eVM_STATE_ERROR\x10\x042\xc5n\n" +
+	"\x0eVM_STATE_ERROR\x10\x04\x12\x14\n" +
+	"\x10VM_STATE_CREATED\x10\x05\x12\x15\n" +
+	"\x11VM_STATE_STARTING\x10\x06\x12\x15\n" +
+	"\x11VM_STATE_STOPPING\x10\a\x12\x13\n" +
+	"\x0fVM_STATE_ZOMBIE\x10\b\x12\x15\n" +
+	"\x11VM_STATE_DELETING\x10\t2\xc5n\n" +
 	"\tWeftAgent\x12<\n" +
 	"\aListVMs\x12\x17.weft.v1.ListVMsRequest\x1a\x18.weft.v1.ListVMsResponse\x12?\n" +
 	"\bVMStatus\x12\x18.weft.v1.VMStatusRequest\x1a\x19.weft.v1.VMStatusResponse\x12<\n" +
