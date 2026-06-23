@@ -228,7 +228,9 @@ func (a *Agent) start(ctx context.Context) error {
 		// Primary = first by stable order. Until the per-kind dispatch
 		// table lands, the singleton handles point at it.
 		primaryKind := ""
-		for _, k := range []string{"vz", "qemu"} {
+		// vz/qemu win when present (hardware virt) ; wasm last as
+		// the fallback backend for hosts with no virt extensions.
+		for _, k := range []string{"vz", "qemu", "wasm"} {
 			if _, ok := set[k]; ok {
 				primaryKind = k
 				break

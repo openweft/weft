@@ -100,7 +100,9 @@ func (a *Adapter) RegisterHostHandleSet(hostUUID string, set map[string]*HostHan
 	if a.driverDispatch == nil {
 		a.driverDispatch = make(map[string]*HostHandle)
 	}
-	for _, kind := range []string{"vz", "qemu"} {
+	// vz/qemu win when present (hardware virt) ; wasm last as the
+	// fallback backend for hosts with no virt extensions.
+	for _, kind := range []string{"vz", "qemu", "wasm"} {
 		if h, ok := stored[kind]; ok {
 			a.driverDispatch[hostUUID] = h
 			break

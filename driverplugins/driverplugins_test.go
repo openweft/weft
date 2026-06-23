@@ -61,6 +61,28 @@ func TestApplyEnv_OverlaysAndPreserves(t *testing.T) {
 	}
 }
 
+// TestApplyEnv_WasmOverride proves the "wasm" hypervisor kind
+// participates in the same env-override surface as vz/qemu —
+// added when weft-driver-wasm V0.1 landed as the fallback backend
+// for hosts without hardware virt.
+func TestApplyEnv_WasmOverride(t *testing.T) {
+	t.Setenv("WEFT_DRIVER_WASM_REF", "ghcr.io/myorg/wasm-edge:v1")
+	c := Default()
+	c.ApplyEnv()
+	if got := c.Ref("wasm"); got != "ghcr.io/myorg/wasm-edge:v1" {
+		t.Errorf("Ref(wasm) = %q ; want override", got)
+	}
+}
+
+// TestRef_WasmDerived covers the no-override path : Ref("wasm")
+// derives from Registry+Version just like vz/qemu.
+func TestRef_WasmDerived(t *testing.T) {
+	c := Config{Registry: "r", Version: "v"}
+	if got := c.Ref("wasm"); got != "r/weft-driver-wasm:v" {
+		t.Errorf("derived Ref(wasm) = %q", got)
+	}
+}
+
 func TestFromEnv_DefaultsWhenUnset(t *testing.T) {
 	t.Setenv(EnvRegistry, "")
 	t.Setenv(EnvVersion, "")
