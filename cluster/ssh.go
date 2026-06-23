@@ -162,6 +162,20 @@ WantedBy=multi-user.target
 			)
 		}
 		return a.Host, cmd
+	case EnsureAZ:
+		// Idempotent : exit 0 if the AZ already exists. `weft az
+		// create` will return an error on duplicate code ; the
+		// `|| true` swallows it. Codes are kebab-case alnum so no
+		// shell quoting needed beyond the literal value.
+		return a.Host, fmt.Sprintf(
+			"weft az create %s --name 'DC %s' 2>/dev/null || true   # idempotent AZ record",
+			a.DC, a.DC,
+		)
+	case EnsureRack:
+		return a.Host, fmt.Sprintf(
+			"weft rack create %s --az %s --name 'Rack %s' 2>/dev/null || true   # idempotent rack record",
+			a.Service, a.DC, a.Service,
+		)
 	case MeshSync:
 		// Control-plane coordination step — rendered as a logged note, NOT a
 		// remote shell command (same class as GrowQuorum below). The real

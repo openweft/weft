@@ -372,6 +372,8 @@ func TestBuild_AlreadyConverged_NoActions(t *testing.T) {
 	cur := State{
 		Hosts:  map[string]bool{"h1": true, "h2": true, "h3": true},
 		Placed: map[string]map[int]string{"etcd": {1: "h1", 2: "h2", 3: "h3"}, "dex": {1: "h1"}},
+		AZs:    map[string]bool{"dc1": true, "dc2": true, "dc3": true},
+		Racks:  map[string]bool{"dc1/r1": true, "dc2/r1": true, "dc3/r1": true},
 	}
 	p, err := Build(threeHostCluster(), []*infra.Plan{etcdPlan(), dexPlan()}, cur)
 	if err != nil {
