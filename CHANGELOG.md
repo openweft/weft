@@ -7,6 +7,40 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-23
+
+Two cluster-level bring-up + dispatch additions.
+
+### Added
+- **`weft-driver-wasm` dispatch** : `driverplugins/config.go`'s
+  `knownHypervisorKinds` now lists `vz / qemu / wasm`. The
+  env-override loop (`WEFT_DRIVER_WASM_REF`) + `Ref("wasm")`
+  derivation (`ghcr.io/openweft/weft-driver-wasm:<version>`)
+  participate on the same surface as the other backends. Primary
+  picker (`dispatch.go` + `agent/agent.go`) considers
+  `vz > qemu > wasm` so hardware-virt backends still win where
+  present ; wasm is the fallback for hosts with no virt
+  extensions. Operators wire it via cluster.hcl :
+  ```hcl
+  drivers {
+    driver { kind = "wasm" arches = ["all"] }
+  }
+  ```
+  The driver itself lives at github.com/openweft/weft-driver-wasm
+  (V0.1, pure Go via wazero, CGO=0 — runs on every arch openweft
+  targets).
+- **AZ + Rack inventory bring-up** : `cluster.Build()` emits
+  idempotent `EnsureAZ` + `EnsureRack` actions between
+  `EnsureHost` and `MeshSync`, derived from the distinct DC +
+  (DC, rack) tuples declared in cluster.hcl. Closes a gap where
+  the 3-DC bring-up registered hosts with their AZ/Rack codes as
+  free-text labels, but never persisted the AZ/Rack records in
+  the inventory — TUI/webui list-panels showed empty tables.
+  Renders as `weft az create ... || true` / `weft rack create
+  ... || true` on the seed agent (idempotent). `cluster.State`
+  grows `AZs` + `Racks` maps so a future Apply path can populate
+  them from the live agent and short-circuit emission.
+
 ## [0.4.27] - 2026-06-15
 
 ### Changed
