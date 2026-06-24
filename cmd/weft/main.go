@@ -600,6 +600,28 @@ func run(t fileConfigTargets) error {
 	// agentrespawn/agentrespawn.go for the V0.1.1 follow-ups.
 	defer startRespawnSubscriber(a, bf.bus, sf.etcdClient, logger)()
 
+	// V0.4.69 self-heal at boot : when the agent itself just came
+	// back (host reboot, systemd restart), every microVM whose
+	// registry state was "running" / "starting" is silently dead —
+	// the qemu process died with the agent, no event fires. Walk
+	// the local VM dirs + restart whichever ones are supposed to
+	// be alive. The respawn subscriber's state machine handles the
+	// runtime crashes from here on ; this pass closes the
+	// "agent itself died" gap.
+	go selfHealLocalVMs(a, logger)
+
+	// V0.4.70 host VIP : when WEFT_VIP_ADDRESS + WEFT_VIP_INTERFACE
+	// are set, spin up a hostvip.Controller that campaigns for the
+	// floating control-plane address. Pure-Go etcd election + gARP,
+	// no keepalived/VRRP daemon. The TUI dials this VIP instead of
+	// individual hosts. Conditional on etcd availability — falls
+	// back to no-op when sf.etcdClient is nil (file backend tests).
+	if sf.etcdClient != nil {
+		if closer := startHostVIP(sf.etcdClient, localHostUUID(a), logger); closer != nil {
+			defer closer()
+		}
+	}
+
 	// Local-host heartbeat ticker : keep the registry's LastSeenAt
 	// fresh for the locally-running host. The etcd liveness lease
 	// (registered above) covers cross-host failover, but the
@@ -1103,6 +1125,23 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			}
 		}
 		name, _ := props["name"].(string)
+		// 2026-06-23 : phantom filter. A vmDir that's on local disk
+		// but has NO matching registry record + NO live process is
+		// a leftover from a failed deploy / manual rm / etc. The
+		// zombiegc reconciler classifies it as ZombieOrphanDir +
+		// auto-deletes it (default 1h grace, see zombiegc_wire.go).
+		// Hide it from the operator-visible listing so phantoms
+		// don't pollute `weft instance list` / the TUI between
+		// detection + cleanup. Honour the project_uuid check first
+		// — non-UUID project dirs aren't phantoms, they're legacy
+		// pre-inventory layouts that still work.
+		if projectUUID != "" {
+			_, hasRecord := s.adp.VMByName(projectUUID, name)
+			running, _ := props["Running"].(bool)
+			if !hasRecord && !running {
+				continue
+			}
+		}
 		vmState := "stopped"
 		if running, _ := props["Running"].(bool); running {
 			vmState = "running"
@@ -1133,8 +1172,10 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 		// V0.1.9 : surface VM properties by cross-referencing the
 		// inventory registry. The local-list path doesn't carry
 		// Properties in `props` ; the inventory does. Empty for VMs
-		// not in the registry (legacy local-only dev path).
+		// not in the registry (legacy local-only dev path). Also
+		// surface the V0.13.0 status field from the same record.
 		if rec, ok := s.adp.VMByName(projectUUID, name); ok {
+			info.Status = normalisedVMStatus(rec.Status)
 			if len(rec.Properties) > 0 {
 				info.Properties = make(map[string]string, len(rec.Properties))
 				for k, lv := range rec.Properties {
@@ -1159,6 +1200,17 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			// VMs. Pull from the registry record instead.
 			if info.Image == "" {
 				info.Image = rec.Image
+			}
+			// 2026-06-23 cross-host state override : when the VM's
+			// authoritative host is NOT us (the directory survives
+			// locally from an earlier deploy / migration, so
+			// ListLocal picked it up + reported "stopped" from a
+			// stale vm.pid probe), trust the cluster-wide registry
+			// state instead. Without this, peers' running VMs show
+			// up as "stopped" in the operator's terminal whenever
+			// they happen to share a project tree with this host.
+			if rec.HostUUID != "" && rec.HostUUID != s.localHostUUID && rec.State != "" {
+				info.State = stateToProto(string(rec.State))
 			}
 		}
 		// V0.4.59 backfill : ListLocal scans the local filesystem,
@@ -1207,6 +1259,7 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			Project:     projectNameFor(s.adp, rec.ProjectUUID),
 			HostUuid:    rec.HostUUID,
 			State:       stateToProto(string(rec.State)),
+			Status:      normalisedVMStatus(rec.Status),
 			Cpu:         uint32(rec.CPUCount),
 			MemMb:       uint64(rec.MemoryMiB),
 			Image:       rec.Image,

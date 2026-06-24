@@ -151,6 +151,19 @@ func (c respawnCoord) VMsOnHost(hostUUID string) []agentrespawn.VMRef {
 	vms := c.adp.ListVMsForHost(hostUUID)
 	out := make([]agentrespawn.VMRef, 0, len(vms))
 	for _, v := range vms {
+		// Skip VMs the operator has administratively frozen
+		// (status != "active"). Empty Status field defaults to
+		// "active" for backward compat with VM records written
+		// before the field landed. 2026-06-24 VM status MVP : the
+		// AZ/Rack/Host inactive-cascade flows down to VM.Status,
+		// the respawn reconciler then leaves those VMs alone.
+		status := v.Status
+		if status == "" {
+			status = "active"
+		}
+		if status != "active" {
+			continue
+		}
 		out = append(out, agentrespawn.VMRef{
 			UUID: v.UUID, Name: v.Name, Project: v.ProjectUUID,
 			Properties: v.Properties,
