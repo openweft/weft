@@ -133,9 +133,23 @@ type VM struct {
 	// {"role":"loom","tier":"prod"}. Persists through HCL via a
 	// properties = { ... } attribute. Empty / nil = no properties, selector
 	// can only match by vm.name.
-	Properties   map[string]string `json:"properties,omitempty"`
-	State        VMState      `json:"state"`
-	CreatedAt    time.Time    `json:"created_at"`
+	Properties map[string]string `json:"properties,omitempty"`
+	// State is the runtime lifecycle the agent observes (created /
+	// running / stopped / zombie). Driven by the hypervisor driver
+	// + reconciler — operators rarely set it directly.
+	State VMState `json:"state"`
+	// Status is the OPERATOR's administrative intent, orthogonal to
+	// State. Values: "active" (default, scheduler + respawn touch it
+	// freely), "inactive" (frozen — respawn skips, scheduler avoids
+	// placement decisions), "draining" (finish current work but
+	// don't replace on failure). 2026-06-24 introduction motivated
+	// by the VM's parent host going inactive : the runtime keeps
+	// going but the admin signal MUST flow down so respawn /
+	// reconcilers respect the operator's intent. Empty string is
+	// treated as "active" for backward compat with VM records
+	// written before the field landed.
+	Status      string    `json:"status,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 	LastStartAt  time.Time    `json:"last_start_at,omitempty"`
 	// VsockCID is the AF_VSOCK context-id the hypervisor assigns to
 	// this guest. Allocated deterministically from the VM UUID at
@@ -165,6 +179,9 @@ type vmBlock struct {
 	RequestedPCI []requestedPCIBlock `hcl:"requested_pci,block"`
 	Properties   map[string]string   `hcl:"properties,optional"`
 	State        string              `hcl:"state,optional"`
+	// Status — administrative intent (V0.13.0). Optional so VM
+	// blocks written before the field landed still decode.
+	Status       string              `hcl:"status,optional"`
 	CreatedAt    string              `hcl:"created_at"`
 	LastStartAt  string              `hcl:"last_start_at,optional"`
 	VsockCID     int                 `hcl:"vsock_cid,optional"`
@@ -280,6 +297,7 @@ func loadVMRegistry(ctx context.Context, storage Storage) (*vmRegistry, error) {
 			RequestedPCI:  reqPCI,
 			Properties:    copyProperties(b.Properties),
 			State:         state,
+			Status:        b.Status,
 			CreatedAt:     created,
 			LastStartAt:   lastStart,
 			VsockCID:      uint32(b.VsockCID),
@@ -416,6 +434,9 @@ func (r *vmRegistry) saveLocked() error {
 		}
 		if v.State != "" {
 			bb.SetAttributeValue("state", cty.StringVal(string(v.State)))
+		}
+		if v.Status != "" {
+			bb.SetAttributeValue("status", cty.StringVal(v.Status))
 		}
 		bb.SetAttributeValue("created_at", cty.StringVal(v.CreatedAt.Format(time.RFC3339Nano)))
 		if !v.LastStartAt.IsZero() {
@@ -558,6 +579,7 @@ func (r *vmRegistry) reloadFromStorage(ctx context.Context) error {
 				RequestedPCI:  reqPCI,
 				Properties:    copyProperties(b.Properties),
 				State:         state,
+				Status:        b.Status,
 				CreatedAt:     created,
 				LastStartAt:   lastStart,
 				VsockCID:      uint32(b.VsockCID),
@@ -720,6 +742,39 @@ func (r *vmRegistry) setState(uuid string, state VMState) error {
 	if state == VMStateRunning {
 		v.LastStartAt = time.Now().UTC()
 	}
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
+// setStatus flips the operator's administrative intent on a VM
+// (orthogonal to the runtime State). Valid values today : "active",
+// "inactive", "draining" — empty string is normalised to "active"
+// so we never persist the ambiguous mid-value. No-op when the
+// value is unchanged so the persist file doesn't churn under a
+// cascade re-apply.
+func (r *vmRegistry) setStatus(uuid, status string) error {
+	if status == "" {
+		status = "active"
+	}
+	switch status {
+	case "active", "inactive", "draining":
+	default:
+		return fmt.Errorf("unknown vm status %q (want active, inactive, or draining)", status)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	cur := v.Status
+	if cur == "" {
+		cur = "active"
+	}
+	if cur == status {
+		return nil
+	}
+	v.Status = status
 	r.byUUID[uuid] = v
 	return r.persistOne(v)
 }

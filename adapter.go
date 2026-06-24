@@ -335,6 +335,7 @@ type VZAdapter interface {
 	ListVMsForHost(hostUUID string) []VM
 	RegisterVM(spec CreateVMSpec) (VM, error)
 	SetVMState(uuid string, state VMState) error
+	SetVMStatus(uuid, status string) error
 	MigrateVM(uuid, newHostUUID string) error
 	RenameVMInventory(uuid, newName string) error
 	UnregisterVM(uuid string) error
@@ -1379,6 +1380,34 @@ func (a *Adapter) SetVMState(uuid string, state VMState) error {
 	return nil
 }
 
+// SetVMStatus flips the operator's administrative intent
+// orthogonal to runtime State : a VM can stay state=running with
+// status=inactive (the agent leaves the runtime alone, but the
+// respawn reconciler skips it + the scheduler avoids it for
+// failover candidates). Consumed today by weft-respawn + the
+// AZ/Rack/Host inactive-cascade ; future consumers: cost reports,
+// drain orchestration, etc. 2026-06-24 operator directive.
+func (a *Adapter) SetVMStatus(uuid, status string) error {
+	if a.vmReg == nil {
+		return fmt.Errorf("vm registry not initialised")
+	}
+	prev, _ := a.vmReg.lookupByUUID(uuid)
+	if err := a.vmReg.setStatus(uuid, status); err != nil {
+		return err
+	}
+	prevStatus := prev.Status
+	if prevStatus == "" {
+		prevStatus = "active"
+	}
+	a.bus.Publish(PlatformEvent{
+		Kind:        "vm.status_changed",
+		Subject:     uuid,
+		ProjectUUID: prev.ProjectUUID,
+		Meta:        map[string]string{"old_status": prevStatus, "new_status": status},
+	})
+	return nil
+}
+
 // MigrateVM flips the host_uuid. The actual data move is the
 // caller's job; this just records the new placement so future
 // dispatch routes correctly.
@@ -1593,6 +1622,27 @@ func (a *Adapter) SetHostState(uuid string, state HostState) error {
 		Subject: uuid,
 		Meta:    map[string]string{"old_state": string(prev.State), "new_state": string(state)},
 	})
+	// Cascade VM admin-status when the host's State carries an
+	// operator-intent meaning : Active / Inactive flow down to the
+	// VMs running on this host so respawn + scheduler honour the
+	// intent. Draining / Down don't cascade (those are runtime
+	// states ; transient connectivity blips would otherwise wipe
+	// the VM's admin status across the cluster). 2026-06-24 VM
+	// status MVP — operator directive.
+	var targetVMStatus string
+	switch state {
+	case HostStateActive:
+		targetVMStatus = "active"
+	case HostStateInactive:
+		targetVMStatus = "inactive"
+	default:
+		return nil
+	}
+	if a.vmReg != nil {
+		for _, v := range a.vmReg.listForHost(uuid) {
+			_ = a.SetVMStatus(v.UUID, targetVMStatus)
+		}
+	}
 	return nil
 }
 

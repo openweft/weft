@@ -60,6 +60,13 @@ message VMInfo {
   // webui Hosts→VMs drill-down, the scheduler's compliance probe)
   // map VM→Host without a second ListHosts lookup.
   string   host_uuid     = 13;
+  // V0.13.0 — administrative intent, orthogonal to `state`.
+  // Values: "active" (default), "inactive", "draining". Set by
+  // the operator (or cascaded from a parent Host/Rack/AZ) to gate
+  // scheduling + respawn without disrupting the runtime. Empty
+  // string is treated as "active" for backward compat with VMs
+  // registered before this field landed.
+  string   status        = 14;
 }
 
 // --- AvailabilityZones (AZ) ---
@@ -1427,6 +1434,9 @@ service WeftAgent {
   rpc SetHostState    (SetHostStateRequest)    returns (SetHostStateResponse);
   rpc SetHostProperties (SetHostPropertiesRequest) returns (SetHostPropertiesResponse);
   rpc SetVMProperties   (SetVMPropertiesRequest)   returns (SetVMPropertiesResponse);
+  // V0.13.0 : flip the VM's administrative intent (status), separate
+  // from its runtime state. Values: "active" | "inactive" | "draining".
+  rpc SetVMStatus       (SetVMStatusRequest)       returns (SetVMStatusResponse);
   rpc GetZombieReport     (GetZombieReportRequest)     returns (GetZombieReportResponse);
   rpc TriggerZombieSweep  (TriggerZombieSweepRequest)  returns (GetZombieReportResponse);
   rpc SetHostCordoned (SetHostCordonedRequest) returns (SetHostCordonedResponse);
@@ -1811,6 +1821,12 @@ message SetHostPropertiesResponse {}
 // `deployment.type=ha` is the canonical respawn-eligible marker.
 message SetVMPropertiesRequest  { string project = 1; string name = 2; map<string, string> properties = 3; }
 message SetVMPropertiesResponse { VMInfo vm = 1; }
+
+// V0.13.0 — SetVMStatus flips the operator's administrative intent.
+// Targets a VM by UUID for stability across renames. Status string:
+// "active" | "inactive" | "draining" ; empty = "active" default.
+message SetVMStatusRequest  { string uuid = 1; string status = 2; }
+message SetVMStatusResponse { VMInfo vm = 1; }
 
 // GetZombieReport exposes the latest snapshot of the agent's
 // zombiegc reconciler — what VMs it currently classifies as zombies,

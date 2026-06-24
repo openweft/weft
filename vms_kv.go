@@ -90,6 +90,9 @@ func encodeVMRecord(v VM) []byte {
 	if v.State != "" {
 		bb.SetAttributeValue("state", cty.StringVal(string(v.State)))
 	}
+	if v.Status != "" {
+		bb.SetAttributeValue("status", cty.StringVal(v.Status))
+	}
 	bb.SetAttributeValue("created_at", cty.StringVal(v.CreatedAt.Format(time.RFC3339Nano)))
 	if !v.LastStartAt.IsZero() {
 		bb.SetAttributeValue("last_start_at", cty.StringVal(v.LastStartAt.Format(time.RFC3339Nano)))
@@ -147,6 +150,7 @@ func decodeVMRecord(blob []byte) (VM, error) {
 		RequestedPCI:  reqPCI,
 		Properties:    copyProperties(b.Properties),
 		State:         state,
+		Status:        b.Status,
 		CreatedAt:     created,
 		LastStartAt:   lastStart,
 		VsockCID:      uint32(b.VsockCID),
