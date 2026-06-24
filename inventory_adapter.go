@@ -291,7 +291,10 @@ func (a *Adapter) UpdateRack(uuid, name, status string, heightU int32) (Rack, er
 		case "active":
 			targetState = HostStateActive
 		case "inactive":
-			targetState = HostStateDown
+			// HostStateInactive (sticky) rather than HostStateDown
+			// (heartbeat-recoverable) so a live agent's next
+			// heartbeat doesn't undo the cascade.
+			targetState = HostStateInactive
 		default:
 			return rk, nil
 		}

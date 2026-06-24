@@ -61,8 +61,19 @@ const (
 	HostStateDraining HostState = "draining"
 	// HostStateDown — heartbeat aged past TTL OR explicit
 	// `weft host stop`. Scheduler treats as unavailable; VMs
-	// scheduled here are candidates for failover.
+	// scheduled here are candidates for failover. A heartbeat
+	// from a `down` host auto-recovers to `active`.
 	HostStateDown HostState = "down"
+	// HostStateInactive — operator-marked offline. Same scheduler
+	// semantics as `down` (unavailable, failover candidate) but
+	// heartbeats do NOT auto-recover. Used by the AZ/Rack
+	// cascade so a host stays inactive until the operator
+	// explicitly flips its parent AZ/Rack back to "active".
+	// Without this distinction the heartbeat from a live agent
+	// would override the cascade within the next 30s tick — the
+	// operator-reported "cela ne s'est pas repercuté sur les
+	// hosts" 2026-06-24.
+	HostStateInactive HostState = "inactive"
 )
 
 // staleHostTakeoverAge bounds when a hostname collision counts as
@@ -658,10 +669,10 @@ func (r *hostRegistry) saveLocked() error {
 
 func validateHostState(s HostState) error {
 	switch s {
-	case "", HostStateActive, HostStateDraining, HostStateDown:
+	case "", HostStateActive, HostStateDraining, HostStateDown, HostStateInactive:
 		return nil
 	default:
-		return fmt.Errorf("unknown host state %q (want active, draining, or down)", s)
+		return fmt.Errorf("unknown host state %q (want active, draining, down, or inactive)", s)
 	}
 }
 
@@ -1056,6 +1067,10 @@ func (r *hostRegistry) heartbeat(uuid string) error {
 		return fmt.Errorf("host %q not found", uuid)
 	}
 	h.LastSeenAt = time.Now().UTC()
+	// HostStateInactive is sticky : a heartbeat from a live agent
+	// must NOT auto-recover an operator-marked-inactive host (it
+	// would defeat the AZ/Rack cascade). Only HostStateDown
+	// transitions back to active on heartbeat.
 	if h.State == HostStateDown {
 		h.State = HostStateActive
 	}
