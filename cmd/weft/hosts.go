@@ -365,10 +365,10 @@ func (s *weftServer) SetHostState(ctx context.Context, req *weftv1.SetHostStateR
 	}
 	st := weft.HostState(req.State)
 	switch st {
-	case weft.HostStateActive, weft.HostStateDraining, weft.HostStateDown:
+	case weft.HostStateActive, weft.HostStateDraining, weft.HostStateDown, weft.HostStateInactive:
 		// valid
 	default:
-		return nil, status.Errorf(codes.InvalidArgument, "state must be active|draining|down (got %q)", req.State)
+		return nil, status.Errorf(codes.InvalidArgument, "state must be active|draining|down|inactive (got %q)", req.State)
 	}
 	if err := s.adp.SetHostState(req.Uuid, st); err != nil {
 		return nil, status.Errorf(codes.Internal, "set host state: %v", err)

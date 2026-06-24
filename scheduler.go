@@ -256,11 +256,11 @@ func (FirstFitScheduler) Schedule(ctx context.Context, req ScheduleRequest, cand
 
 // anyDrainingOrDown reports whether the candidate set carried any
 // host in a non-Active lifecycle state. Used to disambiguate the
-// "all cordoned" error from the "all draining / down" error in
-// Schedule()'s failure path.
+// "all cordoned" error from the "all draining / down / inactive"
+// error in Schedule()'s failure path.
 func anyDrainingOrDown(candidates []Host) bool {
 	for _, h := range candidates {
-		if h.State == HostStateDraining || h.State == HostStateDown {
+		if h.State == HostStateDraining || h.State == HostStateDown || h.State == HostStateInactive {
 			return true
 		}
 	}
