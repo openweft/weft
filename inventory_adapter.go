@@ -145,6 +145,22 @@ func (a *Adapter) UpdateAZ(uuid, name, region, status string) (AZ, error) {
 			Subject: uuid,
 			Meta:    map[string]string{"code": az.Code, "status": az.Status},
 		})
+		// Cascade : active/inactive status changes propagate down
+		// to all racks under this AZ (which in turn cascade to
+		// their hosts). Other status values ("draining", custom
+		// labels) don't cascade — they're intermediate states the
+		// operator manages explicitly. Operator directive
+		// 2026-06-24 "quand on active/inactive une AZ, cela doit
+		// se repercuter sur les racks de l'AZ et sur les hosts
+		// des racks".
+		if (status == "active" || status == "inactive") && a.rackReg != nil {
+			for _, rk := range a.rackReg.list(uuid) {
+				if rk.Status == status {
+					continue // already aligned
+				}
+				_, _ = a.UpdateRack(rk.UUID, "", status, -1)
+			}
+		}
 	}
 	return az, err
 }
@@ -203,11 +219,29 @@ func (a *Adapter) RackHostCount(rackUUID string) int32 {
 	if !ok {
 		return 0
 	}
+	// Match on (AZ code, rack code). Matching on rack code alone
+	// double-counts in multi-DC layouts where racks share codes
+	// (e.g. every DC has its own r1 / r2 — the operator-reported
+	// "decompte des hosts dans la vue racks n'est pas bon"
+	// 2026-06-24). Resolve the rack's parent AZ uuid → code via
+	// the AZ registry, then filter on both codes. Without the AZ
+	// resolution we fall back to the legacy rack-code-only match
+	// — degraded but non-zero on partial state.
+	azCode := ""
+	if a.azReg != nil {
+		if az, ok := a.azReg.lookupByUUID(rk.AZUUID); ok {
+			azCode = az.Code
+		}
+	}
 	var n int32
 	for _, h := range a.hostReg.list() {
-		if h.Rack == rk.Code {
-			n++
+		if h.Rack != rk.Code {
+			continue
 		}
+		if azCode != "" && h.AZ != azCode {
+			continue
+		}
+		n++
 	}
 	return n
 }
@@ -246,6 +280,42 @@ func (a *Adapter) UpdateRack(uuid, name, status string, heightU int32) (Rack, er
 			Kind:    "rack.updated",
 			Subject: uuid,
 		})
+		// Cascade : same shape as UpdateAZ — active/inactive
+		// propagates to every host bound to this rack within the
+		// rack's parent AZ. status → HostState mapping :
+		// "active" → HostStateActive, "inactive" → HostStateDown.
+		// The (rack code, AZ code) tuple match keeps r1 in dc1
+		// from also flipping r1 in dc2/dc3.
+		var targetState HostState
+		switch status {
+		case "active":
+			targetState = HostStateActive
+		case "inactive":
+			targetState = HostStateDown
+		default:
+			return rk, nil
+		}
+		if a.hostReg == nil {
+			return rk, nil
+		}
+		azCode := ""
+		if a.azReg != nil {
+			if az, ok := a.azReg.lookupByUUID(rk.AZUUID); ok {
+				azCode = az.Code
+			}
+		}
+		for _, h := range a.hostReg.list() {
+			if h.Rack != rk.Code {
+				continue
+			}
+			if azCode != "" && h.AZ != azCode {
+				continue
+			}
+			if h.State == targetState {
+				continue
+			}
+			_ = a.SetHostState(h.UUID, targetState)
+		}
 	}
 	return rk, err
 }
