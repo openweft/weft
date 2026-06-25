@@ -30,6 +30,8 @@ package weft
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -49,6 +51,7 @@ import (
 // ("1×A100-40G") pins matching VMs to hosts that physically carry
 // the model.
 type Flavor struct {
+	UUID        string `json:"uuid"`
 	Name        string `json:"name"`
 	VCPU        int    `json:"vcpu"`
 	RAM         string `json:"ram"`
@@ -68,6 +71,7 @@ type flavorsDoc struct {
 }
 type flavorBlock struct {
 	Name        string `hcl:",label"`
+	UUID        string `hcl:"uuid,optional"` // V0.13.1 — backfilled from name when missing on load
 	VCPU        int    `hcl:"vcpu"`
 	RAM         string `hcl:"ram"`
 	EphemeralGB int    `hcl:"ephemeral_gb"`
@@ -118,12 +122,41 @@ func loadFlavorRegistry(ctx context.Context, storage Storage) (*flavorRegistry, 
 		return nil, fmt.Errorf("parse flavor registry: %w", err)
 	}
 	for _, b := range doc.Flavors {
+		uuid := b.UUID
+		if uuid == "" {
+			// V0.13.1 lazy backfill : deterministic UUIDv5 from the
+			// name so the migration is idempotent across agents +
+			// stable across restarts. Older blocks (no `uuid =`
+			// line) get a UUID the first time the registry rewrites
+			// itself.
+			uuid = flavorUUIDFromName(b.Name)
+		}
 		reg.byName[b.Name] = Flavor{
+			UUID: uuid,
 			Name: b.Name, VCPU: b.VCPU, RAM: b.RAM,
 			EphemeralGB: b.EphemeralGB, GPU: b.GPU,
 		}
 	}
 	return reg, nil
+}
+
+// flavorUUIDFromName derives a stable UUIDv5-style identifier from
+// the flavor's name. Used for the V0.13.1 lazy migration of legacy
+// flavor blocks : every load that finds a missing `uuid` field
+// fills it via this helper, idempotent across agents because the
+// hash is deterministic. New flavors created via Set get a fresh
+// random v4 UUID (different code path, see Set).
+func flavorUUIDFromName(name string) string {
+	sum := sha256.Sum256([]byte("openweft/flavor/" + name))
+	h := hex.EncodeToString(sum[:16])
+	// Pin variant + version bits the same way mintInventoryUUID
+	// does so the output is visually indistinguishable from a
+	// random v4 UUID.
+	b, _ := hex.DecodeString(h)
+	b[6] = (b[6] & 0x0f) | 0x50 // version 5 (name-based SHA-1 family)
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	h = hex.EncodeToString(b)
+	return fmt.Sprintf("%s-%s-%s-%s-%s", h[0:8], h[8:12], h[12:16], h[16:20], h[20:32])
 }
 
 // saveLocked writes the registry via Storage. Caller must hold mu.
@@ -144,6 +177,9 @@ func (r *flavorRegistry) saveLocked() error {
 		fl := r.byName[n]
 		block := body.AppendNewBlock("flavor", []string{n})
 		bb := block.Body()
+		if fl.UUID != "" {
+			bb.SetAttributeValue("uuid", cty.StringVal(fl.UUID))
+		}
 		bb.SetAttributeValue("vcpu", cty.NumberIntVal(int64(fl.VCPU)))
 		bb.SetAttributeValue("ram", cty.StringVal(fl.RAM))
 		bb.SetAttributeValue("ephemeral_gb", cty.NumberIntVal(int64(fl.EphemeralGB)))
@@ -199,6 +235,17 @@ func (r *flavorRegistry) Set(f Flavor) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Preserve a stable UUID across re-Set : if the caller passed
+	// an empty UUID, reuse the one already in the registry (or
+	// derive deterministically from the name on first insert).
+	// Keeps the wire-stable handle stable through edits.
+	if f.UUID == "" {
+		if existing, ok := r.byName[f.Name]; ok && existing.UUID != "" {
+			f.UUID = existing.UUID
+		} else {
+			f.UUID = flavorUUIDFromName(f.Name)
+		}
+	}
 	r.byName[f.Name] = f
 	return r.saveLocked()
 }

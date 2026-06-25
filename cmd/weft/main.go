@@ -3704,7 +3704,7 @@ func (s *weftServer) ListFlavors(_ context.Context, _ *weftv1.ListFlavorsRequest
 	out := &weftv1.ListFlavorsResponse{Flavors: make([]*weftv1.Flavor, 0, len(all))}
 	for _, f := range all {
 		out.Flavors = append(out.Flavors, &weftv1.Flavor{
-			Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
+			Uuid: f.UUID, Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
 			EphemeralGb: int32(f.EphemeralGB), Gpu: f.GPU,
 		})
 	}
@@ -3723,7 +3723,7 @@ func (s *weftServer) GetFlavor(_ context.Context, req *weftv1.GetFlavorRequest) 
 		return nil, status.Errorf(codes.NotFound, "no such flavor: %s", req.Name)
 	}
 	return &weftv1.GetFlavorResponse{Flavor: &weftv1.Flavor{
-		Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
+		Uuid: f.UUID, Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
 		EphemeralGb: int32(f.EphemeralGB), Gpu: f.GPU,
 	}}, nil
 }
@@ -3748,7 +3748,7 @@ func (s *weftServer) SetFlavor(ctx context.Context, req *weftv1.SetFlavorRequest
 	saved, _ := s.flavors.Get(in.Name)
 	logger.Printf("SetFlavor name=%s vcpu=%d ram=%s", saved.Name, saved.VCPU, saved.RAM)
 	return &weftv1.SetFlavorResponse{Flavor: &weftv1.Flavor{
-		Name: saved.Name, Vcpu: int32(saved.VCPU), Ram: saved.RAM,
+		Uuid: saved.UUID, Name: saved.Name, Vcpu: int32(saved.VCPU), Ram: saved.RAM,
 		EphemeralGb: int32(saved.EphemeralGB), Gpu: saved.GPU,
 	}}, nil
 }

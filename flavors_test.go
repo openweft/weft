@@ -27,16 +27,21 @@ func TestFlavorRegistry_FreshIsEmpty(t *testing.T) {
 
 func TestFlavorRegistry_SetGetRoundtrip(t *testing.T) {
 	reg := newTestFlavorRegistry(t)
-	want := Flavor{Name: "small", VCPU: 2, RAM: "4Gi", EphemeralGB: 8}
-	if err := reg.Set(want); err != nil {
+	in := Flavor{Name: "small", VCPU: 2, RAM: "4Gi", EphemeralGB: 8}
+	if err := reg.Set(in); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	got, ok := reg.Get("small")
 	if !ok {
 		t.Fatal("Get returned not-found after Set")
 	}
-	if got != want {
-		t.Errorf("Get mismatch : got %+v, want %+v", got, want)
+	// V0.13.1 — Set fills UUID when the caller passes empty.
+	// Roundtrip equality drops the UUID since it's server-minted.
+	if got.Name != in.Name || got.VCPU != in.VCPU || got.RAM != in.RAM || got.EphemeralGB != in.EphemeralGB {
+		t.Errorf("Get mismatch : got %+v, want %+v", got, in)
+	}
+	if got.UUID == "" {
+		t.Errorf("UUID not minted on Set : got empty")
 	}
 }
 
@@ -130,8 +135,13 @@ func TestFlavorRegistry_PersistsThroughStorage(t *testing.T) {
 	if !ok {
 		t.Fatal("reloaded registry missing entry")
 	}
-	if got != want {
+	if got.Name != want.Name || got.VCPU != want.VCPU || got.RAM != want.RAM ||
+		got.EphemeralGB != want.EphemeralGB || got.GPU != want.GPU {
 		t.Errorf("round-trip mismatch : got %+v, want %+v", got, want)
+	}
+	// V0.13.1 — UUID must round-trip through the HCL persist layer.
+	if got.UUID == "" {
+		t.Errorf("UUID empty after reload : Set should have minted one")
 	}
 }
 
