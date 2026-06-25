@@ -16551,12 +16551,18 @@ func (x *UnmapFloatingIPResponse) GetFloatingIp() *FloatingIPInfo {
 }
 
 type Flavor struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Vcpu          int32                  `protobuf:"varint,2,opt,name=vcpu,proto3" json:"vcpu,omitempty"`
-	Ram           string                 `protobuf:"bytes,3,opt,name=ram,proto3" json:"ram,omitempty"` // "4Gi" / "256Mi" / raw integer = MB
-	EphemeralGb   int32                  `protobuf:"varint,4,opt,name=ephemeral_gb,json=ephemeralGb,proto3" json:"ephemeral_gb,omitempty"`
-	Gpu           string                 `protobuf:"bytes,5,opt,name=gpu,proto3" json:"gpu,omitempty"` // empty = none ; "1×A100-40G" etc.
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Vcpu        int32                  `protobuf:"varint,2,opt,name=vcpu,proto3" json:"vcpu,omitempty"`
+	Ram         string                 `protobuf:"bytes,3,opt,name=ram,proto3" json:"ram,omitempty"` // "4Gi" / "256Mi" / raw integer = MB
+	EphemeralGb int32                  `protobuf:"varint,4,opt,name=ephemeral_gb,json=ephemeralGb,proto3" json:"ephemeral_gb,omitempty"`
+	Gpu         string                 `protobuf:"bytes,5,opt,name=gpu,proto3" json:"gpu,omitempty"` // empty = none ; "1×A100-40G" etc.
+	// V0.13.1 — stable UUID promoted from the name-keyed model. The
+	// server mints a UUID on first Create OR back-fills lazily for
+	// legacy records (deterministic from the name so the migration is
+	// idempotent across agents). Name remains operator-facing + still
+	// unique cluster-wide ; UUID is the wire-stable handle.
+	Uuid          string `protobuf:"bytes,6,opt,name=uuid,proto3" json:"uuid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -16622,6 +16628,13 @@ func (x *Flavor) GetEphemeralGb() int32 {
 func (x *Flavor) GetGpu() string {
 	if x != nil {
 		return x.Gpu
+	}
+	return ""
+}
+
+func (x *Flavor) GetUuid() string {
+	if x != nil {
+		return x.Uuid
 	}
 	return ""
 }
@@ -25695,13 +25708,14 @@ const file_weft_proto_rawDesc = "" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\"S\n" +
 	"\x17UnmapFloatingIPResponse\x128\n" +
 	"\vfloating_ip\x18\x01 \x01(\v2\x17.weft.v1.FloatingIPInfoR\n" +
-	"floatingIp\"\x8f\x01\n" +
+	"floatingIp\"\x9d\x01\n" +
 	"\x06Flavor\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04vcpu\x18\x02 \x01(\x05R\x04vcpu\x12\x10\n" +
 	"\x03ram\x18\x03 \x01(\tR\x03ram\x12!\n" +
 	"\fephemeral_gb\x18\x04 \x01(\x05R\vephemeralGb\x12\x10\n" +
-	"\x03gpu\x18\x05 \x01(\tR\x03gpuJ\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"\x03gpu\x18\x05 \x01(\tR\x03gpu\x12\x12\n" +
+	"\x04uuid\x18\x06 \x01(\tR\x04uuidJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
 	"\"I\n" +
 	"\x12ListFlavorsRequest\x12\x14\n" +
 	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x1d\n" +

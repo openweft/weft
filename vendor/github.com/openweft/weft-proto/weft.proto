@@ -2301,8 +2301,14 @@ message Flavor {
   string ram          = 3;  // "4Gi" / "256Mi" / raw integer = MB
   int32  ephemeral_gb = 4;
   string gpu          = 5;  // empty = none ; "1×A100-40G" etc.
-  // Reserved : 6..9 for future affinity properties / placement hints.
-  reserved 6, 7, 8, 9;
+  // Reserved : 7..9 for future affinity properties / placement hints.
+  reserved 7, 8, 9;
+  // V0.13.1 — stable UUID promoted from the name-keyed model. The
+  // server mints a UUID on first Create OR back-fills lazily for
+  // legacy records (deterministic from the name so the migration is
+  // idempotent across agents). Name remains operator-facing + still
+  // unique cluster-wide ; UUID is the wire-stable handle.
+  string uuid         = 6;
 }
 
 message ListFlavorsRequest {
