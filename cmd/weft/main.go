@@ -21,6 +21,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
@@ -76,6 +77,7 @@ import (
 	"github.com/openweft/weft/dhcpd"
 	"github.com/openweft/weft/federation"
 	"github.com/openweft/weft/firewallpub"
+	"github.com/openweft/weft/hostmetrics"
 	"github.com/openweft/weft/floatingipnat"
 	"github.com/openweft/weft/portqos"
 	"github.com/openweft/weft/portsec"
@@ -630,6 +632,18 @@ func run(t fileConfigTargets) error {
 	// client-mode default in agent/agent.go.
 	if hostUUID := localHostUUID(a); hostUUID != "" {
 		defer startLocalHostHeartbeat(a, hostUUID, 30*time.Second, logger)()
+	}
+
+	// Per-host CPU / memory / network sampler — publishes to NATS
+	// subject `weft.host.<uuid>.metrics` every 5s so weft-tui's
+	// hosts-detail drawer + future Grafana exporter can render time
+	// series without round-tripping for each refresh. Gated on
+	// WEFT_NATS_URL : unset → sampler runs but skips Publish (dev),
+	// set → dials a dedicated conn (mirrors the slognats pattern).
+	if hostUUID := localHostUUID(a); hostUUID != "" {
+		if stop := startHostMetricsSampler(hostUUID); stop != nil {
+			defer stop()
+		}
 	}
 
 	// Auto-render the NATS authorization block on every project
@@ -2060,6 +2074,40 @@ func startLocalHostHeartbeat(adp weft.VZAdapter, hostUUID string, interval time.
 	return func() {
 		cancel()
 		<-done
+	}
+}
+
+// startHostMetricsSampler kicks off the per-host CPU / memory / network
+// sampler that publishes to NATS subject `weft.host.<uuid>.metrics`
+// every 5s. WEFT_NATS_URL unset → publisher stays nil and the sampler
+// runs as a no-op (dev mode, file-backend tests). Returns a stop
+// closure for graceful shutdown.
+func startHostMetricsSampler(hostUUID string) func() {
+	hostname, _ := os.Hostname()
+	var pub hostmetrics.Publisher
+	var nc *nats.Conn
+	if url := os.Getenv("WEFT_NATS_URL"); url != "" {
+		c, err := nats.Connect(url, nats.Name("weft.host."+hostUUID+".metrics"))
+		if err != nil {
+			slog.Warn("hostmetrics: NATS dial failed, sampler will run as no-op", "url", url, "err", err)
+		} else {
+			pub = c
+			nc = c
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	s := hostmetrics.New(pub, hostUUID, hostname, hostmetrics.Options{Logger: slog.Default()})
+	go func() {
+		defer close(done)
+		s.Run(ctx)
+	}()
+	return func() {
+		cancel()
+		<-done
+		if nc != nil {
+			nc.Close()
+		}
 	}
 }
 
