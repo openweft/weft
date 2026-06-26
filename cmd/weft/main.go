@@ -86,6 +86,7 @@ import (
 	"github.com/openweft/weft/zombiegc"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -897,9 +898,35 @@ func run(t fileConfigTargets) error {
 	// shared catalogue beats per-host rsync (cf. [openweft etcd
 	// embedded]). LoadCatalogue gracefully degrades to disk when
 	// etcd is empty / unreachable.
+	//
+	// Install path : the Manager needs a WeftAgent client to round-trip
+	// the Create* RPCs through (CreateNetwork / CreateSecurityGroup /
+	// CreateVM / …). Dial the agent's own Unix socket so each
+	// installer call lands back on this process — same gRPC surface
+	// the CLI's `weft plugin install` uses, just without leaving
+	// the box. Without this manager wire-up, InstallPlugin returns
+	// codes.Unavailable("plugin manager not configured").
+	pluginStateDir := os.Getenv("WEFT_PLUGIN_STATE_DIR")
+	if pluginStateDir == "" {
+		pluginStateDir = filepath.Join(filepath.Dir(t.socket), "plugins")
+	}
+	pluginsLoopback, pluginsLoopbackErr := grpc.NewClient(
+		"unix://"+t.socket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	srvImpl.plugins = &realPluginManager{
 		catalogueDir: pluginstore.DefaultCatalogueRoot(),
 		etcdCli:      sf.etcdClient,
+		state:        pluginstore.NewFileStore(pluginStateDir),
+	}
+	if pluginsLoopbackErr != nil {
+		logger.Printf("plugin manager : loopback dial failed, InstallPlugin will return Unavailable: %v", pluginsLoopbackErr)
+	} else {
+		defer pluginsLoopback.Close()
+		srvImpl.plugins.(*realPluginManager).manager = pluginstore.NewManager(
+			pluginstore.NewAgentClient(weftv1.NewWeftAgentClient(pluginsLoopback), t.socket),
+			srvImpl.plugins.(*realPluginManager).state,
+		)
 	}
 	weftv1.RegisterWeftAgentServer(srv, srvImpl)
 	weftv1.RegisterAttestationServiceServer(srv, srvImpl)
