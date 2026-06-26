@@ -78,6 +78,7 @@ import (
 	"github.com/openweft/weft/federation"
 	"github.com/openweft/weft/firewallpub"
 	"github.com/openweft/weft/hostmetrics"
+	"github.com/openweft/weft/pluginstore"
 	"github.com/openweft/weft/floatingipnat"
 	"github.com/openweft/weft/portqos"
 	"github.com/openweft/weft/portsec"
@@ -885,6 +886,20 @@ func run(t fileConfigTargets) error {
 		zombieReconciler: zombieReconciler,
 		attest:           attestGate,
 		etcdCli:          sf.etcdClient,
+	}
+	// Wire the plugin manager so the WeftAgent.ListPluginCatalogue /
+	// ListInstalledPlugins / InstallPlugin RPCs return real data
+	// (previously the field was nil and the RPCs short-circuited to
+	// empty responses — operators saw "la liste plugins est vide" in
+	// the TUI even though `weft plugin list` on the CLI worked,
+	// because the CLI reads the local disk catalogue directly).
+	// etcd takes precedence over the disk path so the cluster's
+	// shared catalogue beats per-host rsync (cf. [openweft etcd
+	// embedded]). LoadCatalogue gracefully degrades to disk when
+	// etcd is empty / unreachable.
+	srvImpl.plugins = &realPluginManager{
+		catalogueDir: pluginstore.DefaultCatalogueRoot(),
+		etcdCli:      sf.etcdClient,
 	}
 	weftv1.RegisterWeftAgentServer(srv, srvImpl)
 	weftv1.RegisterAttestationServiceServer(srv, srvImpl)
