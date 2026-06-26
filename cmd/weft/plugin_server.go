@@ -14,6 +14,7 @@ import (
 
 	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft/pluginstore"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -32,13 +33,32 @@ type pluginManager interface {
 // to the pluginManager interface. catalogueDir + manager are set at
 // startup ; either may be empty/nil when the agent is launched without
 // the plugin surface (tests, minimal dev runs).
+//
+// etcdCli, when non-nil, overrides the on-disk catalogue path : the
+// agent reads /weft/catalogue/* (cf. pluginstore.EtcdCataloguePrefix)
+// instead of catalogueDir. Matches the [openweft etcd embedded]
+// directive — cluster state lives in etcd so all 6 hosts in the
+// 3-DC fleet see the same catalogue without per-host rsync. The
+// disk path stays available as a fallback so single-host dev / tests
+// keep working.
 type realPluginManager struct {
 	catalogueDir string
 	manager      *pluginstore.Manager
 	state        pluginstore.StateStore
+	etcdCli      *clientv3.Client
 }
 
 func (r *realPluginManager) LoadCatalogue() (map[string]*pluginstore.Manifest, error) {
+	// Prefer etcd when available : the cluster's source of truth.
+	// On etcd error / empty result, fall back to disk so a temporary
+	// etcd hiccup doesn't blank the operator's catalogue view.
+	if r.etcdCli != nil {
+		cat, err := pluginstore.LoadCatalogueFromEtcd(context.Background(), r.etcdCli, "")
+		if err == nil && len(cat) > 0 {
+			return cat, nil
+		}
+		// fall through to disk
+	}
 	if r.catalogueDir == "" {
 		return map[string]*pluginstore.Manifest{}, nil
 	}
