@@ -81,14 +81,28 @@ type LivenessOptions struct {
 // to the cluster. Stop() is idempotent + closes cleanly so a
 // graceful shutdown deregisters immediately instead of waiting for
 // TTL to expire.
+//
+// The goroutine that owns the KeepAlive channel self-heals if etcd
+// drops the stream (network blip, leader change, server restart) :
+// blob + ttl are cached so the goroutine can re-Grant + re-Put + re-
+// KeepAlive with exponential backoff. leaseID is updated atomically
+// under mu so Stop() always Revokes the current one. Without this,
+// a single transient etcd hiccup would silently retire the host
+// from cluster-wide ConnectedHostUuids forever — observed live on
+// dc1-r2-h1 2026-06-25 after a 36h-old keepalive drop.
 type HostLiveness struct {
 	cli      *clientv3.Client
 	key      string
-	leaseID  clientv3.LeaseID
+	blob     string          // marshalled HostMetadata, cached for re-registration
+	ttl      int64           // lease TTL, cached for re-registration
+	keepCtx  context.Context // long-lived ctx that ALL cli.KeepAlive calls bind to ; cancel() ends them
 	cancel   context.CancelFunc
 	stopOnce sync.Once
 	log      *slog.Logger
 	done     chan struct{}
+
+	mu      sync.Mutex
+	leaseID clientv3.LeaseID // protected by mu (updated on self-heal)
 }
 
 // RegisterHostLiveness grants an etcd lease + attaches the host
@@ -120,10 +134,6 @@ func RegisterHostLiveness(ctx context.Context, cli *clientv3.Client, meta HostMe
 		log = slog.New(slog.NewTextHandler(discardW{}, &slog.HandlerOptions{Level: slog.LevelError}))
 	}
 
-	grant, err := cli.Grant(ctx, ttl)
-	if err != nil {
-		return nil, fmt.Errorf("etcdcoord: grant lease: %w", err)
-	}
 	if meta.StartedAt == 0 {
 		// Caller-provided start time wins. Default to "now" only when
 		// not set ; this matters for tests that pin time.
@@ -131,49 +141,128 @@ func RegisterHostLiveness(ctx context.Context, cli *clientv3.Client, meta HostMe
 	}
 	blob, err := json.Marshal(meta)
 	if err != nil {
-		_, _ = cli.Revoke(ctx, grant.ID)
 		return nil, fmt.Errorf("etcdcoord: marshal metadata: %w", err)
 	}
 	key := path.Join(prefix, meta.HostUUID)
-	if _, err := cli.Put(ctx, key, string(blob), clientv3.WithLease(grant.ID)); err != nil {
-		_, _ = cli.Revoke(ctx, grant.ID)
-		return nil, fmt.Errorf("etcdcoord: put liveness key: %w", err)
-	}
 
 	keepCtx, cancel := context.WithCancel(context.Background())
 	hl := &HostLiveness{
 		cli:     cli,
 		key:     key,
-		leaseID: grant.ID,
+		blob:    string(blob),
+		ttl:     ttl,
+		keepCtx: keepCtx,
 		cancel:  cancel,
 		log:     log,
 		done:    make(chan struct{}),
 	}
 
-	keepCh, err := cli.KeepAlive(keepCtx, grant.ID)
+	// Initial registration : Grant + Put surface dial errors under the
+	// caller's ctx so RegisterHostLiveness fails fast on a broken etcd.
+	// KeepAlive itself binds to keepCtx (not the caller's ctx) so
+	// hl.cancel()/Stop() can shut the lease's renewal stream down ;
+	// otherwise cancelling the caller's ctx (which is `Background()`
+	// in tests) would leave KeepAlive RPCs running forever and the
+	// lease would never expire (regression caught 2026-06-26).
+	keepCh, err := hl.registerOnce(ctx)
 	if err != nil {
 		cancel()
-		_, _ = cli.Revoke(ctx, grant.ID)
 		close(hl.done)
+		return nil, err
+	}
+	go hl.keepAliveLoop(keepCh)
+	log.Info("etcdcoord: host liveness registered", "key", key, "ttl_sec", ttl, "lease_id", hl.LeaseID())
+	return hl, nil
+}
+
+// registerOnce performs a single Grant + Put + KeepAlive triple and
+// updates h.leaseID on success. Used both for the initial registration
+// and for self-heal retries when KeepAlive drops mid-flight.
+//
+// setupCtx scopes Grant + Put — caller's ctx on initial, keepCtx on
+// retry (so cancellation during a transient outage stops the spin).
+// KeepAlive ALWAYS binds to h.keepCtx so Stop()/cancel() halts the
+// underlying RPCs ; otherwise a Background() caller ctx would keep
+// the lease alive past Stop(). On any error the partially-granted
+// lease is best-effort revoked so etcd doesn't leak the orphaned
+// key until TTL expiry.
+func (h *HostLiveness) registerOnce(setupCtx context.Context) (<-chan *clientv3.LeaseKeepAliveResponse, error) {
+	grant, err := h.cli.Grant(setupCtx, h.ttl)
+	if err != nil {
+		return nil, fmt.Errorf("etcdcoord: grant lease: %w", err)
+	}
+	if _, err := h.cli.Put(setupCtx, h.key, h.blob, clientv3.WithLease(grant.ID)); err != nil {
+		_, _ = h.cli.Revoke(setupCtx, grant.ID)
+		return nil, fmt.Errorf("etcdcoord: put liveness key: %w", err)
+	}
+	keepCh, err := h.cli.KeepAlive(h.keepCtx, grant.ID)
+	if err != nil {
+		_, _ = h.cli.Revoke(setupCtx, grant.ID)
 		return nil, fmt.Errorf("etcdcoord: keepalive: %w", err)
 	}
-	go func() {
-		defer close(hl.done)
-		for {
+	h.mu.Lock()
+	h.leaseID = grant.ID
+	h.mu.Unlock()
+	return keepCh, nil
+}
+
+// keepAliveLoop is the long-running goroutine that owns the lease for
+// the life of the HostLiveness. It consumes the active KeepAlive
+// channel ; on close (network blip, etcd leader change, restart) it
+// attempts re-registration with exponential backoff until h.keepCtx
+// cancels or etcd recovers. The host disappears from
+// ConnectedHostUuids during the gap, which is the intended HA signal
+// — but it reappears as soon as connectivity returns instead of
+// staying gone forever.
+func (h *HostLiveness) keepAliveLoop(initial <-chan *clientv3.LeaseKeepAliveResponse) {
+	defer close(h.done)
+	const (
+		minBackoff = 100 * time.Millisecond
+		maxBackoff = 30 * time.Second
+	)
+	keepCh := initial
+	for {
+		// Drain the current KeepAlive channel until it closes or
+		// keepCtx fires.
+		closed := false
+		for !closed {
 			select {
-			case <-keepCtx.Done():
+			case <-h.keepCtx.Done():
 				return
 			case _, ok := <-keepCh:
 				if !ok {
-					log.Warn("etcdcoord: keepalive channel closed ; lease will expire", "key", key)
-					return
+					closed = true
 				}
 				// Successful refresh — nothing to log at default level.
 			}
 		}
-	}()
-	log.Info("etcdcoord: host liveness registered", "key", key, "ttl_sec", ttl, "lease_id", grant.ID)
-	return hl, nil
+		h.log.Warn("etcdcoord: keepalive channel closed ; re-registering", "key", h.key)
+		// Re-register with backoff. Each attempt uses keepCtx so a
+		// Stop() during the retry exits cleanly. A successful attempt
+		// updates h.leaseID via registerOnce + returns a fresh channel.
+		backoff := minBackoff
+		for {
+			select {
+			case <-h.keepCtx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			newCh, err := h.registerOnce(h.keepCtx)
+			if err != nil {
+				h.log.Warn("etcdcoord: re-register attempt failed",
+					"key", h.key, "err", err, "backoff", backoff)
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+				continue
+			}
+			h.log.Info("etcdcoord: host liveness re-registered after channel close",
+				"key", h.key, "lease_id", h.LeaseID())
+			keepCh = newCh
+			break
+		}
+	}
 }
 
 // Stop revokes the lease (immediate deregister, no TTL wait) and
@@ -183,7 +272,10 @@ func (h *HostLiveness) Stop(ctx context.Context) error {
 	var rerr error
 	h.stopOnce.Do(func() {
 		h.cancel()
-		if _, err := h.cli.Revoke(ctx, h.leaseID); err != nil {
+		h.mu.Lock()
+		lid := h.leaseID
+		h.mu.Unlock()
+		if _, err := h.cli.Revoke(ctx, lid); err != nil {
 			rerr = fmt.Errorf("etcdcoord: revoke lease: %w", err)
 			return
 		}
@@ -195,8 +287,13 @@ func (h *HostLiveness) Stop(ctx context.Context) error {
 
 // LeaseID returns the underlying etcd lease the registration is
 // bound to. Useful for tests + diagnostics ; callers should not
-// revoke it directly (use Stop()).
-func (h *HostLiveness) LeaseID() clientv3.LeaseID { return h.leaseID }
+// revoke it directly (use Stop()). Updated by the keep-alive loop
+// on re-registration so the returned value tracks the live lease.
+func (h *HostLiveness) LeaseID() clientv3.LeaseID {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.leaseID
+}
 
 // Key returns the etcd key under which the liveness lease was put.
 func (h *HostLiveness) Key() string { return h.key }
