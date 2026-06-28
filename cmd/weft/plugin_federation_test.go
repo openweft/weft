@@ -66,6 +66,18 @@ func (f *fakePluginManager) Uninstall(_ context.Context, name, uuid string) erro
 	return errors.New("not found")
 }
 
+// SetDisabled flips the Disabled flag on the matching slot in-place.
+// Idempotent — no error when the flag already matches the request.
+func (f *fakePluginManager) SetDisabled(_ context.Context, name, uuid string, disabled bool) error {
+	for i := range f.installed {
+		if f.installed[i].Name == name && f.installed[i].UUID == uuid {
+			f.installed[i].Disabled = disabled
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 func asStringMap(in map[string]any) map[string]string {
 	out := make(map[string]string, len(in))
 	for k, v := range in {
@@ -193,6 +205,52 @@ func TestUninstallPlugin_RejectsMissingArgs(t *testing.T) {
 	}
 	if _, err := s.UninstallPlugin(context.Background(), &weftv1.UninstallPluginRequest{Name: "x"}); err == nil {
 		t.Error("missing instance_uuid : expected InvalidArgument")
+	}
+}
+
+// ── DisablePlugin / EnablePlugin round-trip ────────────────────────────
+
+func TestDisableEnablePlugin_RoundTrip(t *testing.T) {
+	cat := map[string]*pluginstore.Manifest{
+		"valkey-cache": {Name: "valkey-cache", Version: "v1", Kind: "cache"},
+	}
+	fm := &fakePluginManager{catalogue: cat}
+	s := &weftServer{plugins: fm}
+
+	inst, err := s.InstallPlugin(context.Background(), &weftv1.InstallPluginRequest{
+		Name: "valkey-cache", Project: "platform",
+	})
+	if err != nil {
+		t.Fatalf("InstallPlugin: %v", err)
+	}
+
+	// Disable + verify status flips + disabled flag surfaces.
+	if _, err := s.DisablePlugin(context.Background(), &weftv1.DisablePluginRequest{
+		Name: "valkey-cache", InstanceUuid: inst.InstanceUuid,
+	}); err != nil {
+		t.Fatalf("DisablePlugin: %v", err)
+	}
+	listResp, _ := s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{})
+	if got := listResp.Instances[0]; !got.Disabled || got.Status != "disabled" {
+		t.Fatalf("after disable : disabled=%v status=%q ; want true/disabled", got.Disabled, got.Status)
+	}
+
+	// Re-disable is a no-op (idempotency).
+	if _, err := s.DisablePlugin(context.Background(), &weftv1.DisablePluginRequest{
+		Name: "valkey-cache", InstanceUuid: inst.InstanceUuid,
+	}); err != nil {
+		t.Fatalf("Disable re-apply: %v", err)
+	}
+
+	// Enable flips back to running + disabled=false.
+	if _, err := s.EnablePlugin(context.Background(), &weftv1.EnablePluginRequest{
+		Name: "valkey-cache", InstanceUuid: inst.InstanceUuid,
+	}); err != nil {
+		t.Fatalf("EnablePlugin: %v", err)
+	}
+	listResp, _ = s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{})
+	if got := listResp.Instances[0]; got.Disabled || got.Status != "running" {
+		t.Fatalf("after enable : disabled=%v status=%q ; want false/running", got.Disabled, got.Status)
 	}
 }
 

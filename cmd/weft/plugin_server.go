@@ -28,6 +28,7 @@ type pluginManager interface {
 	ListInstalled() ([]pluginstore.Instance, error)
 	Install(ctx context.Context, name, project string, inputs map[string]any) (pluginstore.Instance, error)
 	Uninstall(ctx context.Context, name, instanceUUID string) error
+	SetDisabled(ctx context.Context, name, instanceUUID string, disabled bool) error
 }
 
 // realPluginManager wires pluginstore.LoadCatalogue + a pluginstore.Manager
@@ -100,6 +101,16 @@ func (r *realPluginManager) Uninstall(ctx context.Context, name, instanceUUID st
 	return r.manager.Uninstall(ctx, name, instanceUUID)
 }
 
+// SetDisabled flips the Disabled flag on the named instance via the
+// StateStore. No side-effects on the install itself ; the consumer-
+// facing gate (e.g. the TUI sidebar) is what observes the flag.
+func (r *realPluginManager) SetDisabled(ctx context.Context, name, instanceUUID string, disabled bool) error {
+	if r.manager == nil {
+		return status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	return r.manager.SetDisabled(ctx, name, instanceUUID, disabled)
+}
+
 func (s *weftServer) ListPluginCatalogue(_ context.Context, _ *weftv1.ListPluginCatalogueRequest) (*weftv1.ListPluginCatalogueResponse, error) {
 	if s.plugins == nil {
 		return &weftv1.ListPluginCatalogueResponse{}, nil
@@ -150,12 +161,22 @@ func (s *weftServer) ListInstalledPlugins(_ context.Context, _ *weftv1.ListInsta
 		Instances: make([]*weftv1.PluginInstance, 0, len(items)),
 	}
 	for _, i := range items {
+		// Status doubles as an admin-state hint : "running" for an
+		// enabled install, "disabled" when the operator paused it
+		// via DisablePlugin. The TUI's sidebar gate reads disabled
+		// directly off the bool ; the string is for CLI / json
+		// consumers that grep status.
+		stat := "running"
+		if i.Disabled {
+			stat = "disabled"
+		}
 		row := &weftv1.PluginInstance{
-			Name:            i.Name,
-			InstanceUuid:    i.UUID,
-			Project:         i.Project,
-			VmUuids:         append([]string(nil), i.VMs...),
-			Status:          "running",
+			Name:         i.Name,
+			InstanceUuid: i.UUID,
+			Project:      i.Project,
+			VmUuids:      append([]string(nil), i.VMs...),
+			Status:       stat,
+			Disabled:     i.Disabled,
 		}
 		if !i.InstalledAt.IsZero() {
 			row.InstalledAtUnixNs = i.InstalledAt.UnixNano()
@@ -213,4 +234,45 @@ func (s *weftServer) UninstallPlugin(ctx context.Context, req *weftv1.UninstallP
 		return nil, status.Errorf(codes.Internal, "uninstall: %v", err)
 	}
 	return &weftv1.UninstallPluginResponse{}, nil
+}
+
+// EnablePlugin flips the instance's disabled flag back to false.
+// Idempotent — a no-op when the instance is already enabled.
+func (s *weftServer) EnablePlugin(ctx context.Context, req *weftv1.EnablePluginRequest) (*weftv1.EnablePluginResponse, error) {
+	if err := s.setPluginDisabled(ctx, req.GetName(), req.GetInstanceUuid(), false); err != nil {
+		return nil, err
+	}
+	return &weftv1.EnablePluginResponse{}, nil
+}
+
+// DisablePlugin marks the instance disabled : the install side-effects
+// (VMs, networks, SGs) stay in place, but consumer-facing gates
+// (TUI sidebar's RequiresPlugin) treat it as absent.
+func (s *weftServer) DisablePlugin(ctx context.Context, req *weftv1.DisablePluginRequest) (*weftv1.DisablePluginResponse, error) {
+	if err := s.setPluginDisabled(ctx, req.GetName(), req.GetInstanceUuid(), true); err != nil {
+		return nil, err
+	}
+	return &weftv1.DisablePluginResponse{}, nil
+}
+
+// setPluginDisabled is the shared validation + dispatch for the two
+// flag-flip RPCs. Keeps Enable / Disable code paths byte-identical
+// past their entry points so a bug fix can't drift.
+func (s *weftServer) setPluginDisabled(ctx context.Context, name, instanceUUID string, disabled bool) error {
+	if name == "" {
+		return status.Error(codes.InvalidArgument, "name is required")
+	}
+	if instanceUUID == "" {
+		return status.Error(codes.InvalidArgument, "instance_uuid is required")
+	}
+	if s.plugins == nil {
+		return status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	if err := s.plugins.SetDisabled(ctx, name, instanceUUID, disabled); err != nil {
+		if st, ok := status.FromError(err); ok {
+			return st.Err()
+		}
+		return status.Errorf(codes.Internal, "set-disabled: %v", err)
+	}
+	return nil
 }

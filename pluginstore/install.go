@@ -349,6 +349,29 @@ func (m *Manager) List(ctx context.Context) ([]Instance, error) {
 	return m.state.List()
 }
 
+// SetDisabled flips the Disabled flag on an installed instance,
+// preserving every other side-effect (VMs keep running, etcd state
+// stays, networks remain wired). A no-op when the flag already
+// matches the requested value so callers can issue the same RPC
+// twice without surprises. Returns "not found" when the instance
+// is gone — callers can treat that as success when their intent is
+// idempotent disable-or-gone.
+func (m *Manager) SetDisabled(ctx context.Context, name, uuid string, disabled bool) error {
+	_ = ctx
+	inst, ok, err := m.state.Get(name, uuid)
+	if err != nil {
+		return fmt.Errorf("plugin set-disabled: state lookup: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("plugin set-disabled: no instance %q/%s", name, uuid)
+	}
+	if inst.Disabled == disabled {
+		return nil
+	}
+	inst.Disabled = disabled
+	return m.state.Put(inst)
+}
+
 // rollback tears down whatever was created up to the failure point.
 // Used internally by Install — best-effort, returns the original err.
 func (m *Manager) rollback(ctx context.Context, inst Instance, cause error) error {

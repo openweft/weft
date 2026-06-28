@@ -29,6 +29,17 @@ type Instance struct {
 	SecurityGroups []string `json:"security_groups"` // UUIDs
 	VMs            []string `json:"vms"`             // names (project-scoped)
 	Volumes        []string `json:"volumes"`         // UUIDs
+
+	// Disabled marks the instance as administratively inactive WITHOUT
+	// removing it. The install side-effects stay in place (VMs may
+	// keep running) but the consumer-facing gate considers it absent
+	// — e.g. weft-tui's sidebar RequiresPlugin filter hides the
+	// catalogue entries this plugin would gate on. Toggled via
+	// EnablePlugin / DisablePlugin RPCs. Default zero-value = enabled,
+	// so every existing on-disk Instance keeps its prior behaviour
+	// (no backfill migration needed — omitempty omits the field for
+	// enabled instances).
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // StateStore persists the catalogue's installed-instance records.

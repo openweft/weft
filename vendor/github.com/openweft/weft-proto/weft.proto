@@ -1155,6 +1155,11 @@ message PluginInstance {
   int64  installed_at_unix_ns = 4;
   string status         = 5;  // "running" | "provisioning" | "degraded" | "failed"
   string project        = 6;
+  // disabled = administratively inactive : the install side-effects
+  // (VMs, networks, SGs) stay in place, but consumer-facing gates
+  // (e.g. the TUI sidebar's RequiresPlugin filter) treat the
+  // instance as absent. Toggled via EnablePlugin / DisablePlugin.
+  bool   disabled       = 7;
 }
 
 message ListPluginCatalogueRequest  {}
@@ -1184,6 +1189,24 @@ message UninstallPluginRequest {
   string instance_uuid = 2;  // PluginInstance.instance_uuid from ListInstalledPlugins
 }
 message UninstallPluginResponse {}
+
+// EnablePlugin / DisablePlugin flip the PluginInstance.disabled flag
+// without touching the install side-effects. Idempotent — calling
+// Enable on an already-enabled instance (or Disable on an already-
+// disabled one) is a no-op success. Lets operators temporarily hide
+// a plugin from the sidebar (Disable) without paying the install /
+// uninstall cost.
+message EnablePluginRequest {
+  string name          = 1;
+  string instance_uuid = 2;
+}
+message EnablePluginResponse {}
+
+message DisablePluginRequest {
+  string name          = 1;
+  string instance_uuid = 2;
+}
+message DisablePluginResponse {}
 
 // --- PodSpec publish / read ------------------------------------------
 //
@@ -1528,6 +1551,8 @@ service WeftAgent {
   rpc ListInstalledPlugins (ListInstalledPluginsRequest) returns (ListInstalledPluginsResponse);
   rpc InstallPlugin        (InstallPluginRequest)        returns (InstallPluginResponse);
   rpc UninstallPlugin      (UninstallPluginRequest)      returns (UninstallPluginResponse);
+  rpc EnablePlugin         (EnablePluginRequest)         returns (EnablePluginResponse);
+  rpc DisablePlugin        (DisablePluginRequest)        returns (DisablePluginResponse);
 
   // --- Subnets (per-network IP scopes) ---
   // Subnets are children of a Network ; cidr is immutable, gateway +
