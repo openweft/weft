@@ -200,6 +200,18 @@ var freqValueTable = [32]int8{
 	0, 2, 1, 6, 0, 3, 1, -1, 0, 2, 1, 7, 0, 3, 1, -1,
 }
 
+// freqSumOK reports whether the frequencies sum to at most nstates, the
+// validity condition reference LZFSE checks in fse_check_freq. A table whose
+// frequencies sum to more than the state count cannot describe a valid FSE
+// decode table, so such a header is malformed.
+func freqSumOK(freq []uint16, nstates int) bool {
+	sum := 0
+	for _, f := range freq {
+		sum += int(f)
+	}
+	return sum <= nstates
+}
+
 // decodeV2FreqTableBitstream decodes all 4 freq tables
 // (l, m, d, literals) from a V2 header's freq[] payload.
 func decodeV2FreqTableBitstream(data []byte) (
@@ -240,6 +252,15 @@ func decodeV2FreqTableBitstream(data []byte) (
 		}
 		lo5 := uint8(accum & 0x1F)
 		n := freqNBitsTable[lo5]
+		// The reference (lzfse_decode_v1) errors if the code claims more bits
+		// than the accumulator holds: a malformed/truncated freq stream must be
+		// rejected, not silently decoded into a bogus (but length-consistent)
+		// table. Mirror that here so corrupt headers error instead of producing
+		// wrong output.
+		if int(n) > accumBits {
+			err = errors.New("lzfse: truncated V2 frequency table")
+			return
+		}
 		bits5 := pull(n)
 		var val uint16
 		switch n {
@@ -254,6 +275,15 @@ func decodeV2FreqTableBitstream(data []byte) (
 			val = uint16(freqValueTable[lo5])
 		}
 		all[i] = val
+	}
+
+	// The freq bitstream must end exactly at the end of the header: fewer than 8
+	// residual bits in the accumulator and all bytes consumed. The reference
+	// enforces this same "land exactly at end of header" invariant; without it a
+	// header with trailing garbage (or a corrupted length) would decode silently.
+	if accumBits >= 8 || pos != len(data) {
+		err = errors.New("lzfse: V2 frequency table did not end at header boundary")
+		return
 	}
 
 	copy(lFreq[:], all[:lSymbols])
@@ -310,7 +340,34 @@ func decodeV2Header(b []byte) (v2DecodeResult, error) {
 	// has no failure mode once we're inside the legal headerSize
 	// window, so we don't need to propagate an error here.
 	freqData := b[v2HeaderMinSize:headerSize]
-	lFreq, mFreq, dFreq, litFreq, _ := decodeV2FreqTableBitstream(freqData)
+	lFreq, mFreq, dFreq, litFreq, ferr := decodeV2FreqTableBitstream(freqData)
+	if ferr != nil {
+		return v2DecodeResult{}, ferr
+	}
+
+	// Validate the header the same way reference lzfse_check_block_header_v1
+	// does, so malformed streams error here rather than feeding a bogus table
+	// into the FSE decoders and emitting wrong-but-plausible output.
+	if nLiterals > literalsPerBlock || nMatches > matchesPerBlock {
+		return v2DecodeResult{}, errors.New("lzfse: V2 block exceeds per-block limits")
+	}
+	if nLiterals&3 != 0 {
+		return v2DecodeResult{}, errors.New("lzfse: V2 n_literals not a multiple of 4")
+	}
+	// literal_state is a 10-bit field (max 1023) and literalStates is 1024, so a
+	// literal_state can never be out of range — no check is needed (unlike the
+	// reference, whose generic check covers a 12-bit-capable field). The L/M/D
+	// states are also 10-bit but their state counts are smaller (64/64/256), so
+	// those genuinely need range checks.
+	if lState >= lStates || mState >= mStates || dState >= dStates {
+		return v2DecodeResult{}, errors.New("lzfse: V2 lmd_state out of range")
+	}
+	// fse_check_freq: each table's frequencies must sum to at most its state
+	// count (a sum greater than nStates cannot describe a valid FSE table).
+	if !freqSumOK(lFreq[:], lStates) || !freqSumOK(mFreq[:], mStates) ||
+		!freqSumOK(dFreq[:], dStates) || !freqSumOK(litFreq[:], literalStates) {
+		return v2DecodeResult{}, errors.New("lzfse: V2 frequency table sum invalid")
+	}
 
 	h := v1Header{
 		magic:                magicCompressedV1,
@@ -408,7 +465,29 @@ func encodeV2FreqTableBitstream(
 // block may reference output produced in an earlier block. Decoding in place
 // (rather than into a fresh per-block buffer) is what makes those cross-block
 // distances resolve correctly.
-func decodeCompressedBlock(h v1Header, payload []byte, prior []byte) ([]byte, error) {
+// decodeScratch holds the per-block working buffers — the four FSE decode
+// tables (fixed size) and the literals buffer (grown to the largest block) —
+// so a multi-block stream allocates them once instead of once per block. The
+// FSE-table allocation and the literals make() were the dominant cost of decode
+// (GC/madvise pressure), not the FSE inner loop; reusing them removes it.
+type decodeScratch struct {
+	litTable    []fseDecoderEntry
+	lValueTable []fseValueDecoderEntry
+	mValueTable []fseValueDecoderEntry
+	dValueTable []fseValueDecoderEntry
+	literals    []byte
+}
+
+func newDecodeScratch() *decodeScratch {
+	return &decodeScratch{
+		litTable:    make([]fseDecoderEntry, literalStates),
+		lValueTable: make([]fseValueDecoderEntry, lStates),
+		mValueTable: make([]fseValueDecoderEntry, mStates),
+		dValueTable: make([]fseValueDecoderEntry, dStates),
+	}
+}
+
+func decodeCompressedBlock(h v1Header, payload []byte, prior []byte, sc *decodeScratch) ([]byte, error) {
 	nLiterals := int(h.nLiterals)
 	nMatches := int(h.nMatches)
 	nLitPayload := int(h.nLiteralPayloadBytes)
@@ -421,29 +500,32 @@ func decodeCompressedBlock(h v1Header, payload []byte, prior []byte) ([]byte, er
 	litPayload := payload[:nLitPayload]
 	lmdPayload := payload[nLitPayload : nLitPayload+nLMDPayload]
 
-	// --- Build FSE tables ---
-	litTable := make([]fseDecoderEntry, literalStates)
+	// --- Build FSE tables (into reusable scratch) ---
+	litTable := sc.litTable
 	if err := fseInitDecoderTable(h.literalFreq[:], literalStates, litTable); err != nil {
 		return nil, err
 	}
 
-	lValueTable := make([]fseValueDecoderEntry, lStates)
+	lValueTable := sc.lValueTable
 	if err := fseInitValueDecoderTable(h.lFreq[:], lStates, lExtraBits[:], lBaseValue[:], lValueTable); err != nil {
 		return nil, err
 	}
 
-	mValueTable := make([]fseValueDecoderEntry, mStates)
+	mValueTable := sc.mValueTable
 	if err := fseInitValueDecoderTable(h.mFreq[:], mStates, mExtraBits[:], mBaseValue[:], mValueTable); err != nil {
 		return nil, err
 	}
 
-	dValueTable := make([]fseValueDecoderEntry, dStates)
+	dValueTable := sc.dValueTable
 	if err := fseInitValueDecoderTable(h.dFreq[:], dStates, dExtraBits[:], dBaseValue[:], dValueTable); err != nil {
 		return nil, err
 	}
 
-	// --- Decode literals (4 interleaved streams) ---
-	literals := make([]byte, nLiterals)
+	// --- Decode literals (4 interleaved streams) into the reusable buffer ---
+	if cap(sc.literals) < nLiterals {
+		sc.literals = make([]byte, nLiterals)
+	}
+	literals := sc.literals[:nLiterals]
 	{
 		litEnd := nLitPayload
 		n := int(h.literalBits)
@@ -463,31 +545,36 @@ func decodeCompressedBlock(h v1Header, payload []byte, prior []byte) ([]byte, er
 			h.literalState[2],
 			h.literalState[3],
 		}
-		// Decode 4 at a time
-		i := 0
-		for i+4 <= nLiterals {
+		// nLiterals is always a multiple of 4 (both reference LZFSE and our
+		// encoder pad it with zero literals), so we decode in pure groups of 4
+		// with one flush per group — bit-identical to the reference loop
+		// `for (i = 0; i < n_literals; i += 4)`.
+		if nLiterals&3 != 0 {
+			return nil, errors.New("lzfse: n_literals not a multiple of 4")
+		}
+		for i := 0; i < nLiterals; i += 4 {
 			in.fseInFlush(litPayload, &ptr)
 			literals[i+0] = fseDecode(&states[0], litTable, &in)
 			literals[i+1] = fseDecode(&states[1], litTable, &in)
 			literals[i+2] = fseDecode(&states[2], litTable, &in)
 			literals[i+3] = fseDecode(&states[3], litTable, &in)
-			i += 4
-		}
-		// Remaining (0..3)
-		for j := 0; j < nLiterals-i; j++ {
-			in.fseInFlush(litPayload, &ptr)
-			literals[i+j] = fseDecode(&states[j], litTable, &in)
 		}
 	}
 
 	// --- Decode LMD stream and copy output ---
 	// Decode into the running stream so cross-block back-references resolve.
+	// Grow with amortised doubling, not to the exact size: a multi-block stream
+	// re-grows once per block, and an exact grow would realloc+copy the entire
+	// decoded-so-far output every time (O(n²) over the stream). Doubling makes
+	// the total copy work linear.
+	// Reserve copyOvershoot bytes of slack beyond nRawBytes so the LMD loop can
+	// over-copy a fixed 16 bytes for short literal/match runs (the dominant case)
+	// without a length-variable copy() call and without running off the end. The
+	// real output length is tracked by di and the slack is sliced off at the end.
 	out := prior
-	if cap(out)-len(out) < int(h.nRawBytes) {
-		grown := make([]byte, len(out), len(out)+int(h.nRawBytes))
-		copy(grown, out)
-		out = grown
-	}
+	di := len(out)
+	blockStart := di
+	out = growOut(out, di, int(h.nRawBytes)+copyOvershoot)
 	{
 		lEnd := nLMDPayload
 		in, err := fseInInit(lmdPayload, lEnd, int(h.lmdBits))
@@ -508,20 +595,36 @@ func decodeCompressedBlock(h v1Header, payload []byte, prior []byte) ([]byte, er
 
 		for i := 0; i < nMatches; i++ {
 			in.fseInFlush(lmdPayload, &ptr)
-			L := fseValueDecode(&lState, lValueTable, &in)
-			M := fseValueDecode(&mState, mValueTable, &in)
+			L := int(fseValueDecode(&lState, lValueTable, &in))
+			M := int(fseValueDecode(&mState, mValueTable, &in))
 			in.fseInFlush(lmdPayload, &ptr)
 			newD := fseValueDecode(&dState, dValueTable, &in)
 			if newD != 0 {
 				D = newD
 			}
+			// L and M are non-negative: their FSE value tables are built from
+			// non-negative base values plus an unsigned extra-bits field.
+			// Keep di+L+M plus the 16-byte over-copy slack inside the buffer.
+			// The reservation above is normally exact (sum == nRawBytes), so this
+			// only re-grows for the rare stream whose decoded size exceeds the
+			// header's nRawBytes; it preserves the panic-free, append-grow
+			// tolerance of the previous decoder.
+			if di+L+M+copyOvershoot > len(out) {
+				out = growOut(out, di, L+M+copyOvershoot)
+			}
 
-			// Copy L literals
-			end := litPos + int(L)
+			// Copy L literals by index. The common case (L <= 16 with room)
+			// takes a single fixed 16-byte copy the compiler inlines.
+			end := litPos + L
 			if end > len(literals) {
 				return nil, errors.New("lzfse: literal index out of range")
 			}
-			out = append(out, literals[litPos:end]...)
+			if L <= 16 && litPos+16 <= len(literals) {
+				copy(out[di:di+16], literals[litPos:litPos+16])
+			} else {
+				copy(out[di:di+L], literals[litPos:end])
+			}
+			di += L
 			litPos = end
 
 			// Copy M bytes from earlier in output. M == 0 happens for
@@ -529,21 +632,87 @@ func decodeCompressedBlock(h v1Header, payload []byte, prior []byte) ([]byte, er
 			// literal run exceeds maxLValue; the D value is logically
 			// irrelevant in that case so skip the distance check.
 			if M > 0 {
-				if D <= 0 || int(D) > len(out) {
+				d := int(D)
+				if d <= 0 || d > di {
 					return nil, errors.New("lzfse: invalid match distance")
 				}
-				matchStart := len(out) - int(D)
-				for k := int32(0); k < M; k++ {
-					out = append(out, out[matchStart+int(k)])
+				mpos := di - d
+				// Short, non-overlapping match: one fixed 16-byte copy. The
+				// bytes past M are harmless read-ahead the next write overwrites.
+				if M <= 16 && d >= 16 {
+					copy(out[di:di+16], out[mpos:mpos+16])
+				} else {
+					matchCopyInto(out, di, mpos, M)
 				}
+				di += M
 			}
 		}
 
-		// Copy remaining literals
-		out = append(out, literals[litPos:]...)
+		// No trailing-literal copy: in a valid LZFSE block every literal that
+		// contributes to the output is consumed by some match's L value (the
+		// encoder flushes any pending literal run as a synthetic M=0 record).
+		// Literals left over here are the 0..3 zero-padding literals the encoder
+		// appended to round n_literals up to a multiple of 4, plus the slack the
+		// reference reserves in its literals buffer; they are intentionally not
+		// emitted. Re-emitting them would corrupt the output (and previously did,
+		// silently, on reference-produced streams).
+		//
+		// Validate the produced length against the block's n_raw_bytes. A valid
+		// block satisfies di-blockStart == n_raw_bytes exactly; any deviation
+		// means the stream is malformed (or we desynced), so error rather than
+		// hand back wrong bytes.
+		if di-blockStart != int(h.nRawBytes) {
+			return nil, errors.New("lzfse: decoded block length does not match n_raw_bytes")
+		}
 	}
 
-	return out, nil
+	return out[:di], nil
+}
+
+// copyOvershoot is the number of bytes the LMD loop's fixed 16-byte short-run
+// copies may write past the logical output end; the buffer reserves this slack.
+const copyOvershoot = 16
+
+// growOut returns out re-sliced (and reallocated if needed) so that
+// out[:used+extra] is addressable, preserving out[:used]. It grows the backing
+// array with amortised doubling so a multi-block stream stays linear, and is the
+// index-write decoder's equivalent of the previous append-based growth.
+func growOut(out []byte, used, extra int) []byte {
+	need := used + extra
+	if need <= cap(out) {
+		return out[:need]
+	}
+	grow := 2 * cap(out)
+	if grow < need {
+		grow = need
+	}
+	grown := make([]byte, need, grow)
+	copy(grown, out[:used])
+	return grown
+}
+
+// matchCopyInto writes an ml-byte LZ match into out[di:di+ml], copying from
+// out[mpos:] (mpos = di-D). The caller has already ensured out has room. The
+// destination region overlaps the source whenever the distance D (= di-mpos) is
+// less than ml — LZFSE uses small distances for run-length fills. The result is
+// byte-identical to the scalar `for k := 0; k < ml; k++ { out[di+k] = out[mpos+k] }`
+// loop: each output byte reads the byte one distance earlier in the output.
+//
+//   - D >= ml: source and destination are disjoint, so a single copy() — the
+//     runtime's word-at-a-time memmove — is exact.
+//   - D < ml: double the already-written pattern forward, clamped to the region
+//     end. copy() within one slice is correct because each doubling copies a
+//     region fully written before it is read.
+func matchCopyInto(out []byte, di, mpos, ml int) {
+	d := di - mpos
+	if d >= ml {
+		copy(out[di:di+ml], out[mpos:mpos+ml])
+		return
+	}
+	expanded := out[mpos : di+ml] // length d+ml, the region being grown
+	for n := d; n < len(expanded); n *= 2 {
+		copy(expanded[n:], expanded[:n])
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -556,6 +725,7 @@ func Decompress(src []byte) ([]byte, error) {
 	pos := 0
 	var out []byte
 	var err error
+	var sc *decodeScratch // lazily created on the first compressed block
 
 	for pos < len(src) {
 		if pos+4 > len(src) {
@@ -591,7 +761,10 @@ func Decompress(src []byte) ([]byte, error) {
 			if payloadEnd > len(src) {
 				return nil, errors.New("lzfse: V1 block payload truncated")
 			}
-			out, err = decodeCompressedBlock(h, src[pos:payloadEnd], out)
+			if sc == nil {
+				sc = newDecodeScratch()
+			}
+			out, err = decodeCompressedBlock(h, src[pos:payloadEnd], out, sc)
 			if err != nil {
 				return nil, err
 			}
@@ -611,7 +784,10 @@ func Decompress(src []byte) ([]byte, error) {
 			if payloadEnd > len(src) {
 				return nil, errors.New("lzfse: V2 block payload truncated")
 			}
-			out, err = decodeCompressedBlock(h, src[pos:payloadEnd], out)
+			if sc == nil {
+				sc = newDecodeScratch()
+			}
+			out, err = decodeCompressedBlock(h, src[pos:payloadEnd], out, sc)
 			if err != nil {
 				return nil, err
 			}
@@ -845,9 +1021,29 @@ func encodeBlock(src []byte, srcStart, srcEnd int, blockMatches []match) []byte 
 		rawD = append(rawD, m.D)
 		litPos = m.pos + m.M
 	}
-	// Trailing literals have no match; they're stored in the literals buffer
-	// but not associated with any match — the decoder just appends them after.
-	literals = append(literals, src[litPos:srcEnd]...)
+	// Trailing literals (after the last match) must be consumed by an L value,
+	// exactly as reference LZFSE does: its encoder flushes any pending literal
+	// run as a synthetic match with M=0, D=1 (see lzfse_backend_literals /
+	// lzfse_push_match in lzfse_encode_base.c). This keeps the invariant
+	// n_raw_bytes == sum(L) + sum(M) and means the decoder NEVER emits literals
+	// that are not covered by an L. (The opposite design — leaving trailing
+	// literals uncovered and re-emitting them at decode time — is what made our
+	// streams undecodable by Apple/liblzfse and made us mis-decode their
+	// streams.) D=1 is arbitrary because M=0 makes the match a no-op; we mirror
+	// the reference's choice so the D-reuse transform behaves identically.
+	if trailing := srcEnd - litPos; trailing > 0 {
+		literals = append(literals, src[litPos:srcEnd]...)
+		L := trailing
+		for L > maxLValue {
+			rawL = append(rawL, maxLValue)
+			rawM = append(rawM, 0)
+			rawD = append(rawD, 1)
+			L -= maxLValue
+		}
+		rawL = append(rawL, L)
+		rawM = append(rawM, 0)
+		rawD = append(rawD, 1)
+	}
 
 	// Apply the D-reuse transform: emit 0 when D matches lastD.
 	lValues := rawL
@@ -863,6 +1059,18 @@ func encodeBlock(src []byte, srcStart, srcEnd int, blockMatches []match) []byte 
 				lastD = d
 			}
 		}
+	}
+
+	// Pad the literal count up to a multiple of 4 with zero literals, exactly as
+	// reference LZFSE does (lzfse_encode_matches: "Add 0x00 literals until
+	// n_literals multiple of 4, since we encode 4 interleaved literal streams").
+	// These padding literals are never referenced by any L value, so they are
+	// invisible to the decoded output; they exist only so the 4-way interleaved
+	// literal codec always operates on whole groups of 4. Matching this is what
+	// lets reference/Apple decoders read our literal stream, and lets our
+	// decoder read theirs, with an identical group-of-4 loop.
+	for len(literals)&3 != 0 {
+		literals = append(literals, 0)
 	}
 
 	nLiterals := len(literals)
@@ -1002,16 +1210,11 @@ func encodeLiterals4Interleaved(
 	// Initial literal encoder states = 0, matching C encoder (state0=state1=state2=state3=0)
 	st := [4]uint16{0, 0, 0, 0}
 
-	// Encode backwards, 4 at a time
-	i := n - (n % 4) // align to multiple of 4
-	// Handle tail (< 4 remaining at end, but they go first since we read backwards)
-	tail := n % 4
-	for j := tail - 1; j >= 0; j-- {
-		fseEncode(&st[j], encTable, literals[i+j], &out)
-		out.fseOutFlush()
-	}
-	// Encode in groups of 4 from end to beginning
-	for i -= 4; i >= 0; i -= 4 {
+	// The caller always pads the literal count to a multiple of 4 (matching
+	// reference LZFSE), so we encode in pure groups of 4 from the end to the
+	// beginning — the literals are read forward at decode time, so they must be
+	// emitted in reverse. Within each group, channel 3 is encoded first.
+	for i := n - 4; i >= 0; i -= 4 {
 		for j := 3; j >= 0; j-- {
 			fseEncode(&st[j], encTable, literals[i+j], &out)
 			out.fseOutFlush()
@@ -1140,9 +1343,20 @@ func compressLZFSE(src []byte) []byte {
 	// resolves match distances against the whole decompressed stream.
 	start := 0
 	matchStart := 0
+	verifySc := newDecodeScratch() // reused by the per-block round-trip check
 
 	for start < n {
-		// Find end of this block by the match cap first.
+		// Find end of this block by the match cap first. encodeBlock turns each
+		// input match into one or more emitted L,M,D records — a literal run
+		// longer than maxLValue is split into extra (L=maxLValue, M=0) prefix
+		// records, and trailing literals after the last match become their own
+		// synthetic record(s). The reference decoder rejects any block whose
+		// header reports n_matches > LZFSE_MATCHES_PER_BLOCK (10000), so the
+		// budget below must bound the *emitted* record count, not the input
+		// match count. We reserve a small headroom (matchesPerBlock-2) for the
+		// trailing synthetic record(s); the per-match split records are accounted
+		// for explicitly in the emitted-record-count walk below, which pulls the
+		// block back to keep n_matches within budget.
 		blockMatchEnd := matchStart + matchesPerBlock
 		if blockMatchEnd > len(allMatches) {
 			blockMatchEnd = len(allMatches)
@@ -1172,6 +1386,93 @@ func compressLZFSE(src []byte) []byte {
 				// No whole match fits; emit a literal-only block up to the cap.
 				blockMatchEnd = matchStart
 				blockEnd = start + maxBlockRawBytes
+			}
+		}
+
+		// Enforce the per-block literal cap. Reference LZFSE rejects any block
+		// whose header reports n_literals > LZFSE_LITERALS_PER_BLOCK (= 40000;
+		// our literalsPerBlock), so a block must hold fewer than that many
+		// literals or no Apple/liblzfse decoder will accept it (our own decoder
+		// was more lenient, which hid the bug for self round-trips). Literals in
+		// a block are the bytes not covered by a match, i.e. block-span minus the
+		// matched bytes, plus up to 3 padding literals. Walk the candidate
+		// matches accumulating the literal run before each, and cut the block at
+		// the last match that keeps the count within budget. maxBlockLiterals
+		// leaves headroom for the <=3 padding literals and the synthetic
+		// trailing-literal record.
+		{
+			const maxBlockLiterals = literalsPerBlock - 8
+			lits := 0
+			litPos := start
+			cut := matchStart
+			for cut < blockMatchEnd {
+				m := allMatches[cut]
+				run := m.pos - litPos
+				if lits+run > maxBlockLiterals {
+					break
+				}
+				lits += run
+				litPos = m.pos + m.M
+				cut++
+			}
+			if cut < blockMatchEnd {
+				if cut > matchStart {
+					// Cut at the last whole match that fits the literal budget.
+					blockMatchEnd = cut
+					blockEnd = allMatches[cut-1].pos + allMatches[cut-1].M
+				} else {
+					// Even the first match's preceding literal run overflows the
+					// budget; emit a literal-only block of exactly the budget.
+					blockMatchEnd = matchStart
+					blockEnd = start + maxBlockLiterals
+				}
+			} else {
+				// All selected matches fit; the trailing literal run (after the
+				// last match, up to blockEnd) must also fit the budget.
+				if blockEnd-litPos > maxBlockLiterals-lits {
+					blockEnd = litPos + (maxBlockLiterals - lits)
+				}
+			}
+		}
+
+		// Bound the *emitted* record count to matchesPerBlock. encodeBlock emits,
+		// per match, 1 + floor((L-1)/maxLValue) records for the literal run that
+		// precedes it (the long-run split), plus up to a few synthetic records
+		// for the trailing literal run after the last match. Walk the chosen
+		// matches accumulating the emitted-record count and pull the block back
+		// to the last match that keeps the total within budget. This is what
+		// guarantees n_matches <= LZFSE_MATCHES_PER_BLOCK in every emitted block,
+		// which reference/Apple decoders require.
+		{
+			recBudget := matchesPerBlock
+			recs := 0
+			litPos := start
+			cut := matchStart
+			for cut < blockMatchEnd {
+				m := allMatches[cut]
+				L := m.pos - litPos
+				splits := 0
+				for L > maxLValue {
+					splits++
+					L -= maxLValue
+				}
+				need := 1 + splits
+				if recs+need > recBudget-2 { // reserve 2 for trailing synthetic records
+					break
+				}
+				recs += need
+				litPos = m.pos + m.M
+				cut++
+			}
+			if cut < blockMatchEnd {
+				if cut > matchStart {
+					blockMatchEnd = cut
+					blockEnd = allMatches[cut-1].pos + allMatches[cut-1].M
+				}
+				// If cut == matchStart the first match alone needs too many split
+				// records (an enormous literal run); the literal cap above already
+				// bounds the run, so this is effectively unreachable, and falling
+				// through emits the single match as-is.
 			}
 		}
 
@@ -1222,7 +1523,7 @@ func compressLZFSE(src []byte) []byte {
 		// blocks, so it costs nothing on the hot path.
 		raw := src[start:blockEnd]
 		priorCopy := append([]byte(nil), decoded...)
-		dec, err := decodeCompressedBlock(h, v1Data[v1HeaderSize:], priorCopy)
+		dec, err := decodeCompressedBlock(h, v1Data[v1HeaderSize:], priorCopy, verifySc)
 		if err != nil || len(dec) < len(decoded) || !bytes.Equal(dec[len(decoded):], raw) {
 			result = append(result, storedBlock(raw)...)
 		} else {

@@ -53,6 +53,19 @@ func (f *fakePluginManager) Install(ctx context.Context, name, project string, i
 	return inst, nil
 }
 
+// Uninstall removes the matching (name, uuid) entry from the
+// installed slice. Returns "not found" when there's no match so
+// fake-driven tests can assert NotFound on the unhappy path.
+func (f *fakePluginManager) Uninstall(_ context.Context, name, uuid string) error {
+	for i, inst := range f.installed {
+		if inst.Name == name && inst.UUID == uuid {
+			f.installed = append(f.installed[:i], f.installed[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 func asStringMap(in map[string]any) map[string]string {
 	out := make(map[string]string, len(in))
 	for k, v := range in {
@@ -137,6 +150,49 @@ func TestInstallPlugin_RejectsUnknownName(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected install of unknown plugin to fail")
+	}
+}
+
+// ── UninstallPlugin : drops the instance + roundtrip ──────────────────
+
+func TestUninstallPlugin_RemovesInstance(t *testing.T) {
+	cat := map[string]*pluginstore.Manifest{
+		"valkey-cache": {Name: "valkey-cache", Version: "v1", Kind: "cache"},
+	}
+	fm := &fakePluginManager{catalogue: cat}
+	s := &weftServer{plugins: fm}
+
+	// Install first so there's something to uninstall.
+	inst, err := s.InstallPlugin(context.Background(), &weftv1.InstallPluginRequest{
+		Name: "valkey-cache", Project: "platform",
+	})
+	if err != nil {
+		t.Fatalf("InstallPlugin: %v", err)
+	}
+	// Uninstall by (name, uuid) — handler should clear the slot.
+	if _, err := s.UninstallPlugin(context.Background(), &weftv1.UninstallPluginRequest{
+		Name:         "valkey-cache",
+		InstanceUuid: inst.InstanceUuid,
+	}); err != nil {
+		t.Fatalf("UninstallPlugin: %v", err)
+	}
+	listResp, err := s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{})
+	if err != nil {
+		t.Fatalf("ListInstalledPlugins after uninstall: %v", err)
+	}
+	if len(listResp.Instances) != 0 {
+		t.Fatalf("want 0 instances after uninstall, got %d", len(listResp.Instances))
+	}
+}
+
+func TestUninstallPlugin_RejectsMissingArgs(t *testing.T) {
+	fm := &fakePluginManager{catalogue: map[string]*pluginstore.Manifest{}}
+	s := &weftServer{plugins: fm}
+	if _, err := s.UninstallPlugin(context.Background(), &weftv1.UninstallPluginRequest{InstanceUuid: "u"}); err == nil {
+		t.Error("missing name : expected InvalidArgument")
+	}
+	if _, err := s.UninstallPlugin(context.Background(), &weftv1.UninstallPluginRequest{Name: "x"}); err == nil {
+		t.Error("missing instance_uuid : expected InvalidArgument")
 	}
 }
 

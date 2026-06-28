@@ -1170,6 +1170,21 @@ message InstallPluginRequest {
 }
 message InstallPluginResponse { string instance_uuid = 1; }
 
+// UninstallPlugin tears down a previously-installed plugin instance :
+// reverses the network / security_group / VM creation chain, then
+// removes the instance from the StateStore. Operators call this from
+// `weft plugin uninstall` and from the TUI's Plugins view (`d`).
+//
+// Identified by (name, instance_uuid) — UUID is mandatory to support
+// the multi-instance case (e.g. one runner farm per project). The
+// catalogue entry name is included for symmetry with InstallPlugin
+// + to disambiguate when an operator lost track of the UUID.
+message UninstallPluginRequest {
+  string name          = 1;  // catalogue entry name
+  string instance_uuid = 2;  // PluginInstance.instance_uuid from ListInstalledPlugins
+}
+message UninstallPluginResponse {}
+
 // --- PodSpec publish / read ------------------------------------------
 //
 // Operator-facing surface that lets clients (CLI, webui) push a
@@ -1512,6 +1527,7 @@ service WeftAgent {
   rpc ListPluginCatalogue  (ListPluginCatalogueRequest)  returns (ListPluginCatalogueResponse);
   rpc ListInstalledPlugins (ListInstalledPluginsRequest) returns (ListInstalledPluginsResponse);
   rpc InstallPlugin        (InstallPluginRequest)        returns (InstallPluginResponse);
+  rpc UninstallPlugin      (UninstallPluginRequest)      returns (UninstallPluginResponse);
 
   // --- Subnets (per-network IP scopes) ---
   // Subnets are children of a Network ; cidr is immutable, gateway +

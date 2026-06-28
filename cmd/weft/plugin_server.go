@@ -27,6 +27,7 @@ type pluginManager interface {
 	LoadCatalogue() (map[string]*pluginstore.Manifest, error)
 	ListInstalled() ([]pluginstore.Instance, error)
 	Install(ctx context.Context, name, project string, inputs map[string]any) (pluginstore.Instance, error)
+	Uninstall(ctx context.Context, name, instanceUUID string) error
 }
 
 // realPluginManager wires pluginstore.LoadCatalogue + a pluginstore.Manager
@@ -85,6 +86,18 @@ func (r *realPluginManager) Install(ctx context.Context, name, project string, i
 		return pluginstore.Instance{}, status.Error(codes.Unavailable, "plugin manager not configured")
 	}
 	return r.manager.Install(ctx, m, project, inputs)
+}
+
+// Uninstall tears down a previously-installed plugin instance via the
+// pluginstore.Manager (reverses Network / SecurityGroup / VM creation,
+// then removes the instance from the StateStore). Symmetric with
+// Install — same Manager-not-configured fallback so misconfigured
+// agents surface a clear error instead of a confusing nil-deref.
+func (r *realPluginManager) Uninstall(ctx context.Context, name, instanceUUID string) error {
+	if r.manager == nil {
+		return status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	return r.manager.Uninstall(ctx, name, instanceUUID)
 }
 
 func (s *weftServer) ListPluginCatalogue(_ context.Context, _ *weftv1.ListPluginCatalogueRequest) (*weftv1.ListPluginCatalogueResponse, error) {
@@ -177,4 +190,27 @@ func (s *weftServer) InstallPlugin(ctx context.Context, req *weftv1.InstallPlugi
 		return nil, status.Errorf(codes.Internal, "install: %v", err)
 	}
 	return &weftv1.InstallPluginResponse{InstanceUuid: inst.UUID}, nil
+}
+
+// UninstallPlugin reverses an Install : deletes the VMs / SGs /
+// networks the install created, then drops the instance from the
+// StateStore. Idempotent — re-calling on an already-gone instance
+// returns NotFound (caller decides whether to ignore).
+func (s *weftServer) UninstallPlugin(ctx context.Context, req *weftv1.UninstallPluginRequest) (*weftv1.UninstallPluginResponse, error) {
+	if req == nil || req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.InstanceUuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "instance_uuid is required")
+	}
+	if s.plugins == nil {
+		return nil, status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	if err := s.plugins.Uninstall(ctx, req.Name, req.InstanceUuid); err != nil {
+		if st, ok := status.FromError(err); ok {
+			return nil, st.Err()
+		}
+		return nil, status.Errorf(codes.Internal, "uninstall: %v", err)
+	}
+	return &weftv1.UninstallPluginResponse{}, nil
 }
