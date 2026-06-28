@@ -42,6 +42,8 @@ weft RPCs. Re-running with the same inputs is a no-op (idempotent).`,
 		installCmd(socket, sshSocket, sshKey),
 		uninstallCmd(socket, sshSocket, sshKey),
 		statusCmd(socket, sshSocket, sshKey),
+		enableCmd(socket, sshSocket, sshKey),
+		disableCmd(socket, sshSocket, sshKey),
 		catalogueCmd(),
 	)
 	return cmd
