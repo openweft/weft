@@ -144,6 +144,7 @@ const (
 	WeftAgent_ListPluginCatalogue_FullMethodName             = "/weft.v1.WeftAgent/ListPluginCatalogue"
 	WeftAgent_ListInstalledPlugins_FullMethodName            = "/weft.v1.WeftAgent/ListInstalledPlugins"
 	WeftAgent_InstallPlugin_FullMethodName                   = "/weft.v1.WeftAgent/InstallPlugin"
+	WeftAgent_UninstallPlugin_FullMethodName                 = "/weft.v1.WeftAgent/UninstallPlugin"
 	WeftAgent_ListSubnets_FullMethodName                     = "/weft.v1.WeftAgent/ListSubnets"
 	WeftAgent_GetSubnet_FullMethodName                       = "/weft.v1.WeftAgent/GetSubnet"
 	WeftAgent_CreateSubnet_FullMethodName                    = "/weft.v1.WeftAgent/CreateSubnet"
@@ -410,6 +411,7 @@ type WeftAgentClient interface {
 	ListPluginCatalogue(ctx context.Context, in *ListPluginCatalogueRequest, opts ...grpc.CallOption) (*ListPluginCatalogueResponse, error)
 	ListInstalledPlugins(ctx context.Context, in *ListInstalledPluginsRequest, opts ...grpc.CallOption) (*ListInstalledPluginsResponse, error)
 	InstallPlugin(ctx context.Context, in *InstallPluginRequest, opts ...grpc.CallOption) (*InstallPluginResponse, error)
+	UninstallPlugin(ctx context.Context, in *UninstallPluginRequest, opts ...grpc.CallOption) (*UninstallPluginResponse, error)
 	// --- Subnets (per-network IP scopes) ---
 	// Subnets are children of a Network ; cidr is immutable, gateway +
 	// dns_servers move via UpdateSubnet. Delete refuses while ports
@@ -1775,6 +1777,16 @@ func (c *weftAgentClient) InstallPlugin(ctx context.Context, in *InstallPluginRe
 	return out, nil
 }
 
+func (c *weftAgentClient) UninstallPlugin(ctx context.Context, in *UninstallPluginRequest, opts ...grpc.CallOption) (*UninstallPluginResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UninstallPluginResponse)
+	err := c.cc.Invoke(ctx, WeftAgent_UninstallPlugin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *weftAgentClient) ListSubnets(ctx context.Context, in *ListSubnetsRequest, opts ...grpc.CallOption) (*ListSubnetsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListSubnetsResponse)
@@ -2471,6 +2483,7 @@ type WeftAgentServer interface {
 	ListPluginCatalogue(context.Context, *ListPluginCatalogueRequest) (*ListPluginCatalogueResponse, error)
 	ListInstalledPlugins(context.Context, *ListInstalledPluginsRequest) (*ListInstalledPluginsResponse, error)
 	InstallPlugin(context.Context, *InstallPluginRequest) (*InstallPluginResponse, error)
+	UninstallPlugin(context.Context, *UninstallPluginRequest) (*UninstallPluginResponse, error)
 	// --- Subnets (per-network IP scopes) ---
 	// Subnets are children of a Network ; cidr is immutable, gateway +
 	// dns_servers move via UpdateSubnet. Delete refuses while ports
@@ -2951,6 +2964,9 @@ func (UnimplementedWeftAgentServer) ListInstalledPlugins(context.Context, *ListI
 }
 func (UnimplementedWeftAgentServer) InstallPlugin(context.Context, *InstallPluginRequest) (*InstallPluginResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InstallPlugin not implemented")
+}
+func (UnimplementedWeftAgentServer) UninstallPlugin(context.Context, *UninstallPluginRequest) (*UninstallPluginResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UninstallPlugin not implemented")
 }
 func (UnimplementedWeftAgentServer) ListSubnets(context.Context, *ListSubnetsRequest) (*ListSubnetsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSubnets not implemented")
@@ -5360,6 +5376,24 @@ func _WeftAgent_InstallPlugin_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WeftAgent_UninstallPlugin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UninstallPluginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeftAgentServer).UninstallPlugin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WeftAgent_UninstallPlugin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeftAgentServer).UninstallPlugin(ctx, req.(*UninstallPluginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WeftAgent_ListSubnets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListSubnetsRequest)
 	if err := dec(in); err != nil {
@@ -6726,6 +6760,10 @@ var WeftAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InstallPlugin",
 			Handler:    _WeftAgent_InstallPlugin_Handler,
+		},
+		{
+			MethodName: "UninstallPlugin",
+			Handler:    _WeftAgent_UninstallPlugin_Handler,
 		},
 		{
 			MethodName: "ListSubnets",

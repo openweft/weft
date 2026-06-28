@@ -187,7 +187,12 @@ func lzvnDecode(dst, src []byte) (int, error) {
 }
 
 // lzvnCopyMatch copies M bytes from dst[dpos-D:] to dst[dpos:].
-// Handles overlapping matches (D < M) correctly.
+// Handles overlapping matches (D < M) correctly via a bulk copy: a single
+// copy() when the distance is at least the match length (disjoint regions),
+// and an exponential pattern-fill — lay the D-byte pattern, then double it —
+// for the overlapping run-length case (D < M). Byte-identical to the scalar
+// `for i := 0; i < M; i++ { dst[dpos+i] = dst[src+i] }` loop because each
+// doubling copies a region fully written before it is read.
 func lzvnCopyMatch(dst []byte, dpos, D, M, dEnd int) error {
 	if D <= 0 || dpos-D < 0 {
 		return errors.New("lzvn: invalid match distance")
@@ -196,8 +201,19 @@ func lzvnCopyMatch(dst []byte, dpos, D, M, dEnd int) error {
 		return errors.New("lzvn: match overflow")
 	}
 	src := dpos - D
-	for i := 0; i < M; i++ {
-		dst[dpos+i] = dst[src+i]
+	out := dst[dpos : dpos+M]
+	if D >= M {
+		copy(out, dst[src:src+M])
+		return nil
+	}
+	copy(out[:D], dst[src:dpos])
+	for filled := D; filled < M; {
+		n := filled
+		if filled+n > M {
+			n = M - filled
+		}
+		copy(out[filled:filled+n], out[:n])
+		filled += n
 	}
 	return nil
 }
