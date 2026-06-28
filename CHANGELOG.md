@@ -7,6 +7,54 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Added
+- **etcdcoord HostLiveness self-heal** (commit d0342e280). When etcd
+  closes the KeepAlive channel (network blip / leader change /
+  server restart), the goroutine now retries Grant + Put + KeepAlive
+  with exponential backoff (100ms → 30s) until the lease re-
+  establishes or the parent ctx cancels. Before this fix, a single
+  transient hiccup silently retired a host from cluster-wide
+  `ConnectedHostUuids` until a manual `systemctl restart` —
+  observed live on dc1-r2-h1 2026-06-25 after a 36h-old keepalive
+  drop. Regression test `TestHostLiveness_SelfHealsAfterKeepAliveClose`.
+- **hostmetrics package** (commit 347610a84). Per-host CPU / memory /
+  network sampler that publishes JSON `Sample` to NATS subject
+  `weft.host.<uuid>.metrics` every 5s. Consumers (weft-tui's hosts-
+  detail drawer, future Grafana exporter) subscribe and render time
+  series without round-tripping to the agent for each refresh. Linux-
+  native `/proc` parsers with a non-Linux stub so the cross-platform
+  build stays green on dev macOS / BSD hosts.
+- **etcd-backed plugin catalogue** (commit 85699d872) + `weft plugin
+  catalogue sync` / `ls` CLI. Cluster state (catalogues, dynamic
+  config) lives in etcd per [openweft etcd embedded] — every agent
+  in the fleet sees the same plugin catalogue without per-host rsync.
+  `pluginstore.LoadCatalogueFromEtcd` / `WriteManifestsToEtcd` /
+  `DeleteManifestFromEtcd` against `/weft/catalogue/<name>`. Values
+  are raw plugin.hcl bytes so the wire format = exactly what's
+  committed in git.
+- **`UninstallPlugin` RPC handler** (commit b60bccd11). Wires the new
+  weft-proto UninstallPlugin to `pluginstore.Manager.Uninstall`. RPC-
+  level guards on (name, instance_uuid) + clear errors.
+- **`EnablePlugin` / `DisablePlugin` RPC handlers** (commit 6a0ac1ad6)
+  + `pluginstore.Instance.Disabled` + `Manager.SetDisabled`. Status
+  flips "running" ↔ "disabled" and `PluginInstance.disabled` mirrors
+  on the wire so the TUI's sidebar gate observes the flag directly.
+- **`weft plugin enable` / `disable` CLI** (commit 44d108db1). Mirrors
+  the TUI's `e`/`x` actions on the canonical operator surface. Uses
+  the new RPCs (not local `pluginstore.Manager`) since the state
+  store lives on the agent. `--instance` auto-resolves when exactly
+  one installed instance exists.
+
+### Fixed
+- **`srvImpl.plugins` never wired in production** (commit 6eed87790).
+  `WeftAgent.ListPluginCatalogue` / `ListInstalledPlugins` /
+  `InstallPlugin` silently short-circuited to empty / Unavailable
+  responses because the field was nil — only test code set it. The
+  CLI's `weft plugin list` masked the bug by reading the on-disk
+  catalogue directly. Now wired with `realPluginManager{catalogueDir,
+  etcdCli, manager: pluginstore.NewManager(loopback, state)}` so the
+  RPCs land on the real install pipeline.
+
 ## [0.7.0] - 2026-06-23
 
 Two cluster-level bring-up + dispatch additions.
