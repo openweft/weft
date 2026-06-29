@@ -2539,9 +2539,19 @@ func (*StopVMResponse) Descriptor() ([]byte, []int) {
 }
 
 type RestartVMRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Project       string                 `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Name    string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Project string                 `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	// host_uuid optionally pins the call to a specific compute host —
+	// mirrors StartVM/StopVM/DeleteVM. Empty / matching-local : the
+	// server stops + starts the VM in-process. Non-empty + remote :
+	// the call dispatches through the same transport chain as StopVM
+	// / StartVM (in-process AgentDispatch, then etcd-jobs pull
+	// fallback per [[openweft_pull_model]]) so a cross-DC restart
+	// hits the owning host instead of erroring with "kernel not
+	// found at <local-default-project-dir>/<vm>/kernel" — bug
+	// reported 2026-06-29 against redis-ha replicas.
+	HostUuid      string `protobuf:"bytes,3,opt,name=host_uuid,json=hostUuid,proto3" json:"host_uuid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2586,6 +2596,13 @@ func (x *RestartVMRequest) GetName() string {
 func (x *RestartVMRequest) GetProject() string {
 	if x != nil {
 		return x.Project
+	}
+	return ""
+}
+
+func (x *RestartVMRequest) GetHostUuid() string {
+	if x != nil {
+		return x.HostUuid
 	}
 	return ""
 }
@@ -25104,10 +25121,11 @@ const file_weft_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aproject\x18\x02 \x01(\tR\aproject\x12\x1b\n" +
 	"\thost_uuid\x18\x03 \x01(\tR\bhostUuid\"\x10\n" +
-	"\x0eStopVMResponse\"@\n" +
+	"\x0eStopVMResponse\"]\n" +
 	"\x10RestartVMRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\aproject\x18\x02 \x01(\tR\aproject\"\x13\n" +
+	"\aproject\x18\x02 \x01(\tR\aproject\x12\x1b\n" +
+	"\thost_uuid\x18\x03 \x01(\tR\bhostUuid\"\x13\n" +
 	"\x11RestartVMResponse\"?\n" +
 	"\x0fVMStatusRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
