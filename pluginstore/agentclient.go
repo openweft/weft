@@ -65,11 +65,12 @@ func (a *AgentClient) DeleteVolume(ctx context.Context, in *weftv1.DeleteVolumeR
 // AgentClient was constructed without a socket — the install path
 // degrades to a clear "wire the socket" error rather than a silent
 // classic-VM fallback.
-func (a *AgentClient) MicroVMRun(ctx context.Context, image, project string) error {
+func (a *AgentClient) MicroVMRun(ctx context.Context, vmName, image, project string) error {
 	if a.weftSocket == "" {
 		return fmt.Errorf("pluginstore: MicroVMRun called without an agent socket (plugin runtime=microvm requires NewAgentClient with a non-empty socket)")
 	}
 	return microvm.Run(microvm.Args{
+		Name:       vmName,
 		Image:      image,
 		Project:    project,
 		Detach:     true,

@@ -40,6 +40,16 @@ type Args struct {
 	// mode (i.e. when Pod is empty).
 	Image string
 
+	// Name, when non-empty, overrides the default VM identifier
+	// (which is "weft-microvm-" + refsafe(Image)). Required when
+	// the caller needs to spawn multiple VMs from the same image —
+	// HA plugin installs with `replicas = N` were silently
+	// collapsing into one VM because every Run(args) with the same
+	// Image derived the same name and the agent overwrote the
+	// prior registration. Single-instance callers can leave this
+	// empty to keep the legacy refsafe(Image) auto-naming.
+	Name string
+
 	// Cmd overrides the image's entrypoint+cmd when non-nil
 	// (equivalent to the `-- CMD…` tail in a CLI front-end, e.g.
 	// Cmd=["sh","-c","echo hi"]).
@@ -184,7 +194,15 @@ func runMicroVM(a Args) error {
 	if tag == "" {
 		tag = "rootfs0"
 	}
-	vmName := "weft-microvm-" + rs
+	// Caller-supplied Name wins (HA plugin installs need one VM per
+	// replica even when they all share the same image). Empty Name
+	// falls back to the legacy refsafe(Image) auto-naming so
+	// single-instance callers (the `weft-microvm` CLI, dev runs)
+	// keep their stable identifier.
+	vmName := a.Name
+	if vmName == "" {
+		vmName = "weft-microvm-" + rs
+	}
 
 	// Prepare the RegisterMicroVMRequest. Two boot modes:
 	//   * direct-Linux: kernel + optional initrd + cmdline — fastest

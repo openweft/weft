@@ -8,6 +8,19 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 ## [Unreleased]
 
 ### Added
+- `UninstallPlugin` RPC + `UninstallPluginRequest{name, instance_uuid}` /
+  `UninstallPluginResponse` (commit ce47616). Counterpart to
+  `InstallPlugin`. Reverses Network / SG / VM creation on the agent
+  side via `pluginstore.Manager.Uninstall`, then drops the instance
+  from the StateStore. Identified by (name, instance_uuid) ; UUID
+  mandatory to support multi-instance plugins.
+- `EnablePlugin` / `DisablePlugin` RPCs + `PluginInstance.disabled`
+  bool field (commit 37361e5). Soft admin-state toggle that preserves
+  the install side-effects (VMs keep running) but flips a flag
+  consumer-facing gates honour — e.g. weft-tui's sidebar
+  RequiresPlugin filter hides the plugin's catalogue entries on the
+  next refresh. Both RPCs idempotent ; a no-op when the flag already
+  matches the requested value.
 - `SetPodSpec` / `GetPodSpec` RPCs on `WeftAgent` : operator-facing
   surface that publishes a guestv1.PodSpec (carried as a protojson-
   encoded `spec_json` byte blob to avoid importing guestv1 into

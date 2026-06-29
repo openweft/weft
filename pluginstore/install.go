@@ -36,8 +36,12 @@ type Client interface {
 	PullImage(ctx context.Context, in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error)
 	// MicroVMRun drives the host-side weft-microvm orchestration
 	// (auto-pull → RegisterMicroVM → StartVM) for the V0.5
-	// runtime="microvm" plugin path.
-	MicroVMRun(ctx context.Context, image, project string) error
+	// runtime="microvm" plugin path. The vmName must be unique per
+	// call — HA installs with N replicas pass distinct names so
+	// each register lands on its own VM record (the agent overwrote
+	// prior entries when every replica derived the same name from
+	// the image alone, 2026-06-29 fix).
+	MicroVMRun(ctx context.Context, vmName, image, project string) error
 	SetVMProperties(ctx context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error)
 }
 
@@ -289,29 +293,31 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 				case "microvm":
 					// V0.5 microvm runtime : the orchestration
 					// (auto-pull → RegisterMicroVM → StartVM) lives
-					// inside weft-microvm. We pass the OCI image and
-					// project ; the registry name is derived inside
-					// the library (refsafe form of the image).
-					if err := m.client.MicroVMRun(ctx, vm.Image, project); err != nil {
+					// inside weft-microvm. We pass a per-replica
+					// vmName so HA installs (replicas=N) land N
+					// distinct VM records — passing only the image
+					// silently collapsed all replicas onto the same
+					// refsafe(Image) name (2026-06-29 fix).
+					if err := m.client.MicroVMRun(ctx, vmName, vm.Image, project); err != nil {
 						return inst, m.rollback(ctx, inst, fmt.Errorf("microvm run %q: %w", vmName, err))
 					}
 					// Apply plugin-declared properties (typically
 					// deployment.type=ha + role=X) so the V0.1.10
 					// respawn gate + V0.1.15 zombiegc see the
 					// workload classification. SetVMProperties is
-					// project-scoped + name-keyed.
+					// project-scoped + name-keyed ; same vmName the
+					// MicroVMRun above just registered.
 					if len(vm.Properties) > 0 {
 						properties := make(map[string]string, len(vm.Properties))
 						for k, v := range vm.Properties {
 							properties[k] = v
 						}
-						refsafeName := microvmRefsafe(vm.Image)
 						if _, err := m.client.SetVMProperties(ctx, &weftv1.SetVMPropertiesRequest{
 							Project:    project,
-							Name:       refsafeName,
+							Name:       vmName,
 							Properties: properties,
 						}); err != nil {
-							return inst, m.rollback(ctx, inst, fmt.Errorf("set properties %q: %w", refsafeName, err))
+							return inst, m.rollback(ctx, inst, fmt.Errorf("set properties %q: %w", vmName, err))
 						}
 					}
 				default:
