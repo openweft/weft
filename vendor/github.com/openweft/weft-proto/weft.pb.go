@@ -9365,7 +9365,16 @@ type RegisterMicroVMRequest struct {
 	// weft-network's lifecycle.Ensure uses for weft-router
 	// micro-VMs — the client just passes the image, the server
 	// handles the orchestration.
-	Image         string `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
+	Image string `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
+	// cpu + mem_mb declare the workload shape the caller wants
+	// stamped on the VM record so the inventory + the TUI's FLAVOR
+	// resolver match an existing catalogue flavor (small=1/512,
+	// medium=2/2048, …) instead of falling back to "custom" when
+	// CPU/Mem are 0. The microVM kernel ignores these — it's purely
+	// metadata for the registry record. Optional ; 0 keeps the
+	// legacy "shape dictated by the boot artefacts" semantics.
+	Cpu           uint32 `protobuf:"varint,12,opt,name=cpu,proto3" json:"cpu,omitempty"`
+	MemMb         uint64 `protobuf:"varint,13,opt,name=mem_mb,json=memMb,proto3" json:"mem_mb,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9475,6 +9484,20 @@ func (x *RegisterMicroVMRequest) GetImage() string {
 		return x.Image
 	}
 	return ""
+}
+
+func (x *RegisterMicroVMRequest) GetCpu() uint32 {
+	if x != nil {
+		return x.Cpu
+	}
+	return 0
+}
+
+func (x *RegisterMicroVMRequest) GetMemMb() uint64 {
+	if x != nil {
+		return x.MemMb
+	}
+	return 0
 }
 
 type RegisterMicroVMResponse struct {
@@ -14131,7 +14154,13 @@ type RegisterMicroVMOp struct {
 	// operator-facing inventory shows the OCI source rather than
 	// the synthetic "microvm/direct_linux" placeholder. Optional ;
 	// empty preserves the legacy direct-Linux label.
-	Image         string `protobuf:"bytes,8,opt,name=image,proto3" json:"image,omitempty"`
+	Image string `protobuf:"bytes,8,opt,name=image,proto3" json:"image,omitempty"`
+	// cpu + mem_mb mirror RegisterMicroVMRequest.cpu/mem_mb so the
+	// dispatched op carries the same workload-shape metadata for
+	// the receiving agent's registry record. Optional ; 0 falls
+	// back to "shape dictated by boot artefacts".
+	Cpu           uint32 `protobuf:"varint,9,opt,name=cpu,proto3" json:"cpu,omitempty"`
+	MemMb         uint64 `protobuf:"varint,10,opt,name=mem_mb,json=memMb,proto3" json:"mem_mb,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -14220,6 +14249,20 @@ func (x *RegisterMicroVMOp) GetImage() string {
 		return x.Image
 	}
 	return ""
+}
+
+func (x *RegisterMicroVMOp) GetCpu() uint32 {
+	if x != nil {
+		return x.Cpu
+	}
+	return 0
+}
+
+func (x *RegisterMicroVMOp) GetMemMb() uint64 {
+	if x != nil {
+		return x.MemMb
+	}
+	return 0
 }
 
 // RegisterMicroVMResult is empty — the call's only outcome is
@@ -25476,7 +25519,7 @@ const file_weft_proto_rawDesc = "" +
 	"\x03tag\x18\x01 \x01(\tR\x03tag\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1b\n" +
 	"\tread_only\x18\x03 \x01(\bR\breadOnly\x12\x14\n" +
-	"\x05clone\x18\x04 \x01(\bR\x05clone\"\x8e\x03\n" +
+	"\x05clone\x18\x04 \x01(\bR\x05clone\"\xb7\x03\n" +
 	"\x16RegisterMicroVMRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
 	"\bboot_iso\x18\x02 \x01(\tR\abootIso\x12-\n" +
@@ -25489,7 +25532,9 @@ const file_weft_proto_rawDesc = "" +
 	"\x0erequested_gpus\x18\t \x03(\v2\x13.weft.v1.GPURequestR\rrequestedGpus\x12C\n" +
 	"\rrequested_pci\x18\n" +
 	" \x03(\v2\x1e.weft.v1.PCIPassthroughRequestR\frequestedPci\x12\x14\n" +
-	"\x05image\x18\v \x01(\tR\x05image\"\x19\n" +
+	"\x05image\x18\v \x01(\tR\x05image\x12\x10\n" +
+	"\x03cpu\x18\f \x01(\rR\x03cpu\x12\x15\n" +
+	"\x06mem_mb\x18\r \x01(\x04R\x05memMb\"\x19\n" +
 	"\x17RegisterMicroVMResponse\"\xab\x01\n" +
 	"\vCubeFSMount\x12\x16\n" +
 	"\x06volume\x18\x01 \x01(\tR\x06volume\x12\x18\n" +
@@ -25844,7 +25889,7 @@ const file_weft_proto_rawDesc = "" +
 	"\x06mem_mb\x18\x05 \x01(\x04R\x05memMb\x12\x17\n" +
 	"\adisk_gb\x18\x06 \x01(\x04R\x06diskGb\")\n" +
 	"\x0eCreateVMResult\x12\x17\n" +
-	"\avm_uuid\x18\x01 \x01(\tR\x06vmUuid\"\xeb\x01\n" +
+	"\avm_uuid\x18\x01 \x01(\tR\x06vmUuid\"\x94\x02\n" +
 	"\x11RegisterMicroVMOp\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
@@ -25853,7 +25898,10 @@ const file_weft_proto_rawDesc = "" +
 	"\x06initrd\x18\x05 \x01(\tR\x06initrd\x12\x18\n" +
 	"\acmdline\x18\x06 \x01(\tR\acmdline\x12-\n" +
 	"\x06shares\x18\a \x03(\v2\x15.weft.v1.MicroVMShareR\x06shares\x12\x14\n" +
-	"\x05image\x18\b \x01(\tR\x05image\"\x17\n" +
+	"\x05image\x18\b \x01(\tR\x05image\x12\x10\n" +
+	"\x03cpu\x18\t \x01(\rR\x03cpu\x12\x15\n" +
+	"\x06mem_mb\x18\n" +
+	" \x01(\x04R\x05memMb\"\x17\n" +
 	"\x15RegisterMicroVMResult\"9\n" +
 	"\tStartVMOp\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +

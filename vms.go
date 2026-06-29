@@ -864,6 +864,39 @@ func (r *vmRegistry) setImage(uuid, newImage string) error {
 	return r.persistOne(v)
 }
 
+// setShape updates the record's CPUCount + MemoryMiB. Workload-
+// shape metadata fed to the inventory + TUI FLAVOR resolver. Used
+// by RegisterMicroVM to lift records previously stamped with the
+// CPU=0/Mem=0 placeholder (pre-V0.4.72 binaries) up to the real
+// shape on a subsequent registration. No-op when the new values
+// match the current ones. cpu==0 + memMB==0 = caller hasn't
+// supplied better data = keep what we have.
+func (r *vmRegistry) setShape(uuid string, cpu int, memMB int) error {
+	if cpu == 0 && memMB == 0 {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	changed := false
+	if cpu != 0 && v.CPUCount != cpu {
+		v.CPUCount = cpu
+		changed = true
+	}
+	if memMB != 0 && v.MemoryMiB != memMB {
+		v.MemoryMiB = memMB
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
 // setProperties replaces the property set atomically. nil/empty in →
 // property set is cleared. V0.1.8 mutator for SchedulingRule property-
 // based selectors ; the index doesn't carry properties (there's no

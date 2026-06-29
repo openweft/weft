@@ -1064,6 +1064,15 @@ message RegisterMicroVMRequest {
   // micro-VMs — the client just passes the image, the server
   // handles the orchestration.
   string image = 11;
+  // cpu + mem_mb declare the workload shape the caller wants
+  // stamped on the VM record so the inventory + the TUI's FLAVOR
+  // resolver match an existing catalogue flavor (small=1/512,
+  // medium=2/2048, …) instead of falling back to "custom" when
+  // CPU/Mem are 0. The microVM kernel ignores these — it's purely
+  // metadata for the registry record. Optional ; 0 keeps the
+  // legacy "shape dictated by the boot artefacts" semantics.
+  uint32 cpu    = 12;
+  uint64 mem_mb = 13;
 }
 message RegisterMicroVMResponse {}
 
@@ -2082,6 +2091,12 @@ message RegisterMicroVMOp {
   // the synthetic "microvm/direct_linux" placeholder. Optional ;
   // empty preserves the legacy direct-Linux label.
   string image = 8;
+  // cpu + mem_mb mirror RegisterMicroVMRequest.cpu/mem_mb so the
+  // dispatched op carries the same workload-shape metadata for
+  // the receiving agent's registry record. Optional ; 0 falls
+  // back to "shape dictated by boot artefacts".
+  uint32 cpu    = 9;
+  uint64 mem_mb = 10;
 }
 
 // RegisterMicroVMResult is empty — the call's only outcome is

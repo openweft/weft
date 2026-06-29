@@ -1908,6 +1908,13 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 		// instead of the synthetic "microvm/direct_linux"
 		// placeholder. Empty preserves the legacy label.
 		Image: req.Image,
+		// CPU / MemoryMiB carry the workload-shape metadata so the
+		// inventory matches a catalogue flavor instead of showing
+		// "custom". Empty / zero = unspecified, same legacy path
+		// (RegisterMicroVM doesn't itself enforce limits — the boot
+		// artefacts dictate the runtime shape).
+		CPU:       int(req.Cpu),
+		MemoryMiB: int(req.MemMb),
 	}
 	// Multi-host dispatch : when req.HostUuid is set and refers
 	// to a remote host (i.e. one that has a connected `weft
@@ -2021,6 +2028,8 @@ func (s *weftServer) dispatchRegisterMicroVM(
 			Cmdline: boot.Cmdline,
 			Shares:  wireShares,
 			Image:   req.Image,
+			Cpu:     req.Cpu,
+			MemMb:   req.MemMb,
 		},
 	}}
 	logger.Printf("RegisterMicroVM %s: dispatching to host %s", req.Name, req.HostUuid)

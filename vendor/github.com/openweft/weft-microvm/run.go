@@ -94,6 +94,16 @@ type Args struct {
 	// overrides for service init, etc.
 	Mounts []Mount
 
+	// CPU + MemMB declare the workload-shape metadata the receiving
+	// agent stamps on the VM record. The microVM kernel ignores
+	// them — they're inventory metadata so the TUI's FLAVOR resolver
+	// (and any catalogue-matcher downstream) shows the named flavor
+	// ("small", "medium", …) instead of "custom" when CPU/Mem are 0.
+	// Empty / zero preserves the legacy "shape dictated by the boot
+	// artefacts" behaviour.
+	CPU   uint32
+	MemMB uint64
+
 	// HostUUID pins the new microVM to a specific compute host —
 	// threaded through to RegisterMicroVMRequest.host_uuid so the
 	// agent dispatches the op to the matching `weft agent --client`
@@ -253,6 +263,8 @@ func runMicroVM(a Args) error {
 		// stay direct-Linux for now — the kernel + initrd paths
 		// are still set below — but the image label is correct.
 		Image: a.Image,
+		Cpu:   a.CPU,
+		MemMb: a.MemMB,
 		Shares: []*weftv1.MicroVMShare{
 			{Tag: tag, Path: rootfs, ReadOnly: false, Clone: true},
 		},
