@@ -1611,6 +1611,33 @@ func (s *weftServer) RestartVM(ctx context.Context, req *weftv1.RestartVMRequest
 		return nil, err
 	}
 	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	// Auto-resolve the owning host_uuid from the inventory when
+	// the caller didn't supply one — covers older TUI / CLI
+	// binaries that pre-date the host_uuid field on the wire and
+	// any caller that simply doesn't know placement. Without the
+	// fallback the dispatch check below sees host_uuid="" and runs
+	// the local-only path which falls into vmDir(name)'s
+	// caller-default-project resolver → "kernel not found at
+	// state/vz/<usr-admin>/<vm>".
+	if req.HostUuid == "" {
+		wantProject := req.Project
+		for _, vm := range s.adp.VMs() {
+			if vm.Name != req.Name {
+				continue
+			}
+			if wantProject != "" {
+				projName := projectNameFor(s.adp, vm.ProjectUUID)
+				if vm.ProjectUUID != wantProject && projName != wantProject {
+					continue
+				}
+			}
+			req.HostUuid = vm.HostUUID
+			break
+		}
+		if req.HostUuid != "" {
+			logger.Printf("RestartVM %s: auto-resolved host=%s", req.Name, req.HostUuid)
+		}
+	}
 	// Cross-host : dispatch stop + start via the same transport
 	// chain StopVM / StartVM use (AgentDispatch in-process →
 	// etcd-jobs pull fallback). Without this, RestartVM on a VM
