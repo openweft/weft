@@ -126,6 +126,7 @@ plugin "versitygw-ha" {
 
   vm "versitygw" {
     image    = "ghcr.io/versity/versitygw:v1.0.13"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 2
     mem_mb   = 4096

@@ -218,6 +218,7 @@ plugin "jupyterhub-ha" {
     # catalogue/jupyterhub-ha/Dockerfile, published by the
     # openweft/jupyterhub-ha repo's CI on tag.
     image    = "ghcr.io/openweft/jupyterhub-ha:v0.1.0"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 2
     mem_mb   = 2048
@@ -260,6 +261,7 @@ plugin "jupyterhub-ha" {
     # namespace before materialising the block.
     enabled_if = input.db_backend == "cockroach"
     image      = "cockroachdb/cockroach:v24.2.0"
+    runtime  = "microvm"
     replicas   = 3
     cpu        = 2
     mem_mb     = 4096

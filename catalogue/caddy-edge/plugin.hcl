@@ -148,6 +148,7 @@ plugin "caddy-edge" {
 
   vm "caddy" {
     image    = "ghcr.io/openweft/weft-proxy:v0.1.0"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 2
     mem_mb   = 2048

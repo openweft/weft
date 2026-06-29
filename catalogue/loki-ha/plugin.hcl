@@ -191,6 +191,7 @@ plugin "loki-ha" {
 
   vm "loki" {
     image    = "grafana/loki:3.3"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 4
     mem_mb   = 8192
