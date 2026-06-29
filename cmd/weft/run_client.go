@@ -160,6 +160,11 @@ func buildDriverHandler(a weft.VZAdapter) func(context.Context, *weftv1.DriverRe
 					Kernel:  op.RegisterMicroVm.Kernel,
 					Initrd:  op.RegisterMicroVm.Initrd,
 					Cmdline: op.RegisterMicroVm.Cmdline,
+					// V0.4.71 : carry the OCI ref so the
+					// receiving agent stamps it on the VM
+					// record instead of falling back to the
+					// synthetic "microvm/direct_linux" label.
+					Image: op.RegisterMicroVm.Image,
 				},
 				toMicroVMShares(op.RegisterMicroVm.Shares),
 			)

@@ -838,6 +838,32 @@ func (r *vmRegistry) setName(uuid, newName string) error {
 	return r.persistOne(v)
 }
 
+// setImage rewrites the VM record's Image label. Used by
+// RegisterMicroVM's idempotent-skip path to lift records previously
+// stamped with the synthetic "microvm/direct_linux" placeholder up
+// to the real OCI ref when a fresh registration carries one — so
+// the operator-facing inventory IMAGE column converges to the
+// correct value after a binary upgrade that wires Image through.
+// No-op when the new value matches the current one. Empty in =
+// caller hasn't supplied a better label = keep what we have.
+func (r *vmRegistry) setImage(uuid, newImage string) error {
+	if newImage == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	if v.Image == newImage {
+		return nil
+	}
+	v.Image = newImage
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
 // setProperties replaces the property set atomically. nil/empty in →
 // property set is cleared. V0.1.8 mutator for SchedulingRule property-
 // based selectors ; the index doesn't carry properties (there's no

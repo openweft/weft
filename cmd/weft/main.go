@@ -1903,6 +1903,11 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 		Kernel:  req.Kernel,
 		Initrd:  req.Initrd,
 		Cmdline: req.Cmdline,
+		// req.Image stamps the OCI ref onto the VM record so
+		// ListLocal surfaces the real source (e.g. "redis:7-alpine")
+		// instead of the synthetic "microvm/direct_linux"
+		// placeholder. Empty preserves the legacy label.
+		Image: req.Image,
 	}
 	// Multi-host dispatch : when req.HostUuid is set and refers
 	// to a remote host (i.e. one that has a connected `weft
@@ -2015,6 +2020,7 @@ func (s *weftServer) dispatchRegisterMicroVM(
 			Initrd:  boot.Initrd,
 			Cmdline: boot.Cmdline,
 			Shares:  wireShares,
+			Image:   req.Image,
 		},
 	}}
 	logger.Printf("RegisterMicroVM %s: dispatching to host %s", req.Name, req.HostUuid)

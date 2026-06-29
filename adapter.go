@@ -3575,6 +3575,17 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 			fmt.Fprintf(os.Stderr, "weft: register-microvm: vm %q already in project %s — idempotent skip\n",
 				name, projUUID)
 		}
+		// Lift a stale "microvm/direct_linux" Image label to the
+		// real OCI ref when the caller supplies one. Records minted
+		// before the V0.4.71 OCI plumbing carried the synthetic
+		// placeholder ; subsequent re-registrations now ship the
+		// real image and we adopt it so the operator inventory
+		// converges without a full uninstall/reinstall cycle.
+		if boot.Image != "" && existing.UUID != "" && existing.Image != boot.Image {
+			if err := a.vmReg.setImage(existing.UUID, boot.Image); err != nil {
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh image label for %q failed: %v\n", name, err)
+			}
+		}
 		return nil
 	}
 	if boot.BootISO == "" && boot.Kernel == "" {
