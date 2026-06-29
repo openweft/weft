@@ -357,6 +357,20 @@ func (m *Manager) Uninstall(ctx context.Context, name, uuid string) error {
 			errs = append(errs, fmt.Errorf("delete volume %s: %w", vol, err))
 		}
 	}
+	// Clear the SG-to-network bindings BEFORE deleting either side.
+	// Install wires every owned SG as a default on every owned
+	// network ; DeleteSecurityGroup rejects with FailedPrecondition
+	// when a network still references the SG, so the unbind has to
+	// run first. Empty SG list = no defaults, which lets the
+	// downstream DeleteSecurityGroup loop succeed cleanly.
+	for _, n := range inst.Networks {
+		if _, err := m.client.SetNetworkDefaultSecurityGroups(ctx, &weftv1.SetNetworkDefaultSecurityGroupsRequest{
+			Uuid:        n,
+			SecurityGroupUuids: nil,
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("clear default SGs on network %s: %w", n, err))
+		}
+	}
 	for _, sg := range inst.SecurityGroups {
 		if _, err := m.client.DeleteSecurityGroup(ctx, &weftv1.DeleteSecurityGroupRequest{Uuid: sg}); err != nil {
 			errs = append(errs, fmt.Errorf("delete sg %s: %w", sg, err))
@@ -413,6 +427,15 @@ func (m *Manager) rollback(ctx context.Context, inst Instance, cause error) erro
 	}
 	for _, vol := range inst.Volumes {
 		_, _ = m.client.DeleteVolume(ctx, &weftv1.DeleteVolumeRequest{Uuid: vol})
+	}
+	// Unbind SGs from networks BEFORE deleting either — same
+	// ordering constraint as Uninstall (DeleteSecurityGroup rejects
+	// while a network references it). Errors are swallowed since
+	// rollback runs on the unhappy path already.
+	for _, n := range inst.Networks {
+		_, _ = m.client.SetNetworkDefaultSecurityGroups(ctx, &weftv1.SetNetworkDefaultSecurityGroupsRequest{
+			Uuid: n, SecurityGroupUuids: nil,
+		})
 	}
 	for _, sg := range inst.SecurityGroups {
 		_, _ = m.client.DeleteSecurityGroup(ctx, &weftv1.DeleteSecurityGroupRequest{Uuid: sg})
