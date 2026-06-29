@@ -159,6 +159,13 @@ type VM struct {
 	// Drivers that don't yet honour the field still produce working
 	// VMs ; the agent-side check just stays permissive for those.
 	VsockCID uint32 `json:"vsock_cid,omitempty"`
+
+	// RestartCount is the cumulative number of times self-heal /
+	// respawn has issued a StartVM against this VM. Surfaces in
+	// the operator UI's RESTARTS column so a thrashing workload
+	// is visible at a glance, k8s-style. Persisted into the
+	// registry so the value survives an agent restart.
+	RestartCount uint32 `json:"restart_count,omitempty"`
 }
 
 // vmsDoc / vmBlock mirror the HCL schema.
@@ -185,6 +192,7 @@ type vmBlock struct {
 	CreatedAt    string              `hcl:"created_at"`
 	LastStartAt  string              `hcl:"last_start_at,optional"`
 	VsockCID     int                 `hcl:"vsock_cid,optional"`
+	RestartCount int                 `hcl:"restart_count,optional"`
 }
 
 // requestedGPUBlock is the HCL on-disk shape for one GPURequest
@@ -301,6 +309,7 @@ func loadVMRegistry(ctx context.Context, storage Storage) (*vmRegistry, error) {
 			CreatedAt:     created,
 			LastStartAt:   lastStart,
 			VsockCID:      uint32(b.VsockCID),
+			RestartCount:  uint32(b.RestartCount),
 		}
 		reg.indexLocked(v)
 	}
@@ -444,6 +453,9 @@ func (r *vmRegistry) saveLocked() error {
 		}
 		if v.VsockCID != 0 {
 			bb.SetAttributeValue("vsock_cid", cty.NumberUIntVal(uint64(v.VsockCID)))
+		}
+		if v.RestartCount != 0 {
+			bb.SetAttributeValue("restart_count", cty.NumberUIntVal(uint64(v.RestartCount)))
 		}
 		body.AppendNewline()
 	}
@@ -860,6 +872,26 @@ func (r *vmRegistry) setImage(uuid, newImage string) error {
 		return nil
 	}
 	v.Image = newImage
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
+// incrementRestarts bumps the cumulative RestartCount by one and
+// persists. Called by self-heal + respawn after a successful StartVM
+// so the operator-facing UI can show the k8s-style "RESTARTS" column.
+// Returns an error when the UUID is missing ; the no-op uuid="" path
+// is safe to call without checking.
+func (r *vmRegistry) incrementRestarts(uuid string) error {
+	if uuid == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	v.RestartCount++
 	r.byUUID[uuid] = v
 	return r.persistOne(v)
 }

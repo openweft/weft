@@ -67,6 +67,18 @@ message VMInfo {
   // string is treated as "active" for backward compat with VMs
   // registered before this field landed.
   string   status        = 14;
+  // V0.4.73 — cumulative restart counter (incremented every time
+  // self-heal / respawn issues a StartVM against this VM). Paired
+  // with max_restarts so the operator-facing UI can render
+  // "RESTARTS=N/M" with a red badge when N≥M, matching Kubernetes'
+  // `kubectl get pods` column.
+  uint32   restart_count = 15;
+  // max_restarts is sourced from the SchedulingRule.RespawnPolicy
+  // that covers this VM (selector match or nominal binding) ;
+  // copied here so a single ListVMs request answers the full UI
+  // row without a second ListSchedulingRules round-trip. 0 = no
+  // policy attached (respawn disabled).
+  uint32   max_restarts  = 16;
 }
 
 // --- AvailabilityZones (AZ) ---

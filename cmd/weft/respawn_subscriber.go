@@ -121,7 +121,23 @@ func startRespawnSubscriber(adp weft.VZAdapter, bus weft.EventBus, etcdCli *clie
 type respawnActions struct{ adp weft.VZAdapter }
 
 func (a *respawnActions) StartVM(_ context.Context, name string) error {
-	return a.adp.StartVM(name, "")
+	if err := a.adp.StartVM(name, ""); err != nil {
+		return err
+	}
+	// Bump the persisted RestartCount so the operator UI's k8s-
+	// style RESTARTS column tracks respawn activity, paired with
+	// the policy's max_restarts as a denominator. Best-effort :
+	// the restart itself already succeeded ; a stale counter is
+	// strictly cosmetic. Adapter.VMs() iterates the registry — fine
+	// at respawn-frequency (per VM, on each restart attempt) since
+	// the cluster's not going to thrash 1k restarts/second.
+	for _, vm := range a.adp.VMs() {
+		if vm.Name == name && vm.UUID != "" {
+			_ = a.adp.IncrementVMRestarts(vm.UUID)
+			break
+		}
+	}
+	return nil
 }
 func (a *respawnActions) StopVM(_ context.Context, name string) error {
 	return a.adp.StopVM(name)

@@ -100,6 +100,9 @@ func encodeVMRecord(v VM) []byte {
 	if v.VsockCID != 0 {
 		bb.SetAttributeValue("vsock_cid", cty.NumberUIntVal(uint64(v.VsockCID)))
 	}
+	if v.RestartCount != 0 {
+		bb.SetAttributeValue("restart_count", cty.NumberUIntVal(uint64(v.RestartCount)))
+	}
 	return f.Bytes()
 }
 
@@ -154,6 +157,7 @@ func decodeVMRecord(blob []byte) (VM, error) {
 		CreatedAt:     created,
 		LastStartAt:   lastStart,
 		VsockCID:      uint32(b.VsockCID),
+		RestartCount:  uint32(b.RestartCount),
 	}, nil
 }
 
@@ -259,6 +263,7 @@ func migrateBlobToKV(ctx context.Context, blob []byte, kv KVStorage) error {
 			CreatedAt:     created,
 			LastStartAt:   lastStart,
 			VsockCID:      uint32(b.VsockCID),
+			RestartCount:  uint32(b.RestartCount),
 		}
 		if err := kv.PutOne(ctx, v.UUID, encodeVMRecord(v)); err != nil {
 			return fmt.Errorf("put migrated vm %s: %w", v.UUID, err)
