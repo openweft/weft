@@ -194,7 +194,19 @@ type VMInfo struct {
 	// scheduling + respawn without disrupting the runtime. Empty
 	// string is treated as "active" for backward compat with VMs
 	// registered before this field landed.
-	Status        string `protobuf:"bytes,14,opt,name=status,proto3" json:"status,omitempty"`
+	Status string `protobuf:"bytes,14,opt,name=status,proto3" json:"status,omitempty"`
+	// V0.4.73 — cumulative restart counter (incremented every time
+	// self-heal / respawn issues a StartVM against this VM). Paired
+	// with max_restarts so the operator-facing UI can render
+	// "RESTARTS=N/M" with a red badge when N≥M, matching Kubernetes'
+	// `kubectl get pods` column.
+	RestartCount uint32 `protobuf:"varint,15,opt,name=restart_count,json=restartCount,proto3" json:"restart_count,omitempty"`
+	// max_restarts is sourced from the SchedulingRule.RespawnPolicy
+	// that covers this VM (selector match or nominal binding) ;
+	// copied here so a single ListVMs request answers the full UI
+	// row without a second ListSchedulingRules round-trip. 0 = no
+	// policy attached (respawn disabled).
+	MaxRestarts   uint32 `protobuf:"varint,16,opt,name=max_restarts,json=maxRestarts,proto3" json:"max_restarts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -325,6 +337,20 @@ func (x *VMInfo) GetStatus() string {
 		return x.Status
 	}
 	return ""
+}
+
+func (x *VMInfo) GetRestartCount() uint32 {
+	if x != nil {
+		return x.RestartCount
+	}
+	return 0
+}
+
+func (x *VMInfo) GetMaxRestarts() uint32 {
+	if x != nil {
+		return x.MaxRestarts
+	}
+	return 0
 }
 
 // AZInfo describes one availability zone — the top-level placement
@@ -24919,7 +24945,7 @@ var File_weft_proto protoreflect.FileDescriptor
 const file_weft_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"weft.proto\x12\aweft.v1\"\xc2\x03\n" +
+	"weft.proto\x12\aweft.v1\"\x8a\x04\n" +
 	"\x06VMInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12&\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x10.weft.v1.VMStateR\x05state\x12\x0e\n" +
@@ -24937,7 +24963,9 @@ const file_weft_proto_rawDesc = "" +
 	"properties\x18\f \x03(\v2\x1f.weft.v1.VMInfo.PropertiesEntryR\n" +
 	"properties\x12\x1b\n" +
 	"\thost_uuid\x18\r \x01(\tR\bhostUuid\x12\x16\n" +
-	"\x06status\x18\x0e \x01(\tR\x06status\x1a=\n" +
+	"\x06status\x18\x0e \x01(\tR\x06status\x12#\n" +
+	"\rrestart_count\x18\x0f \x01(\rR\frestartCount\x12!\n" +
+	"\fmax_restarts\x18\x10 \x01(\rR\vmaxRestarts\x1a=\n" +
 	"\x0fPropertiesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcd\x01\n" +

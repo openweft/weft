@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -1167,6 +1168,75 @@ type weftServer struct {
 // projectNameFor resolves a project UUID to its operator-facing
 // name via the Adapter's project registry. Returns "" on miss so
 // callers can decide whether to substitute the UUID or "—".
+// maxRestartsForVM finds the SchedulingRule whose selector covers
+// this VM and returns its respawn.max_restarts. Used by the
+// operator-facing UI to render "RESTARTS=N/M" without a second
+// round-trip to ListSchedulingRules. Returns 0 when no policy
+// applies (the UI shows just "N" in that case).
+//
+// Selector grammar mirrors agentrespawn.vmsMatchingSelector :
+//   - "vm.name=foo[,vm.name=bar]" — exact name match
+//   - "key=val[,key=val2]"        — property match, OR within key
+//   - mixed → AND across keys
+//
+// When multiple rules with respawn match the same VM, the first
+// match wins (deterministic by registry order, same convention as
+// the in-process respawn reconciler).
+func maxRestartsForVM(adp weft.VZAdapter, vm weft.VM) uint32 {
+	rules := adp.SchedulingRules()
+	for _, rule := range rules {
+		if rule.Respawn == nil || !rule.Respawn.Enabled || rule.Respawn.MaxRestarts <= 0 {
+			continue
+		}
+		if !vmMatchesSelector(rule.Selector, vm) {
+			continue
+		}
+		return uint32(rule.Respawn.MaxRestarts)
+	}
+	return 0
+}
+
+// vmMatchesSelector evaluates the comma-separated k=v selector
+// against (vm.Name, vm.Properties). Same shape as
+// agentrespawn.vmsMatchingSelector but takes a single VM to avoid
+// re-doing the inventory walk.
+func vmMatchesSelector(selector string, vm weft.VM) bool {
+	if selector == "" {
+		return false
+	}
+	clauses := map[string]map[string]struct{}{}
+	for _, pair := range strings.Split(selector, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(pair), "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		if _, exists := clauses[k]; !exists {
+			clauses[k] = map[string]struct{}{}
+		}
+		clauses[k][v] = struct{}{}
+	}
+	if len(clauses) == 0 {
+		return false
+	}
+	for k, allowed := range clauses {
+		var got string
+		if k == "vm.name" {
+			got = vm.Name
+		} else if vm.Properties != nil {
+			got = vm.Properties[k]
+		}
+		if _, ok := allowed[got]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func projectNameFor(adp weft.VZAdapter, projectUUID string) string {
 	if projectUUID == "" {
 		return ""
@@ -1283,6 +1353,12 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			if info.Image == "" {
 				info.Image = rec.Image
 			}
+			// V0.4.73 : surface the persisted restart counter +
+			// the policy ceiling for the k8s-style RESTARTS=N/M
+			// column. Always from the registry — local config.json
+			// doesn't track restart history.
+			info.RestartCount = rec.RestartCount
+			info.MaxRestarts = maxRestartsForVM(s.adp, rec)
 			// 2026-06-23 cross-host state override : when the VM's
 			// authoritative host is NOT us (the directory survives
 			// locally from an earlier deploy / migration, so
@@ -1345,6 +1421,8 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			Cpu:         uint32(rec.CPUCount),
 			MemMb:       uint64(rec.MemoryMiB),
 			Image:       rec.Image,
+			RestartCount: rec.RestartCount,
+			MaxRestarts:  maxRestartsForVM(s.adp, rec),
 		}
 		if len(rec.Properties) > 0 {
 			info.Properties = make(map[string]string, len(rec.Properties))

@@ -335,6 +335,7 @@ type VZAdapter interface {
 	ListVMsForHost(hostUUID string) []VM
 	RegisterVM(spec CreateVMSpec) (VM, error)
 	SetVMState(uuid string, state VMState) error
+	IncrementVMRestarts(uuid string) error
 	SetVMStatus(uuid, status string) error
 	MigrateVM(uuid, newHostUUID string) error
 	RenameVMInventory(uuid, newName string) error
@@ -1363,6 +1364,19 @@ func (a *Adapter) RegisterVM(spec CreateVMSpec) (VM, error) {
 
 // SetVMState transitions the VM. Validates target state +
 // publishes a `vm.state_changed` event.
+// IncrementVMRestarts bumps the VM record's RestartCount by one.
+// Called by self-heal + respawn after a successful StartVM so the
+// k8s-style "RESTARTS=N/M" UI column tracks recovery activity.
+// Returns silently when the VM isn't in the registry (legacy local-
+// only VMs without a record) ; no event is published — restart
+// activity is already covered by vm.state_changed transitions.
+func (a *Adapter) IncrementVMRestarts(uuid string) error {
+	if a.vmReg == nil {
+		return nil
+	}
+	return a.vmReg.incrementRestarts(uuid)
+}
+
 func (a *Adapter) SetVMState(uuid string, state VMState) error {
 	if a.vmReg == nil {
 		return fmt.Errorf("vm registry not initialised")
