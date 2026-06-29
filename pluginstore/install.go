@@ -26,6 +26,14 @@ type Client interface {
 	DeleteSecurityGroup(ctx context.Context, in *weftv1.DeleteSecurityGroupRequest) (*weftv1.DeleteSecurityGroupResponse, error)
 	CreateVolume(ctx context.Context, in *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error)
 	DeleteVolume(ctx context.Context, in *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error)
+	// PullImage primes the classic-VM image cache before CreateVM
+	// clones from it. The agent's CloneVM path rejects with "image X
+	// not in cache; run pull first" when missing — Install pre-pulls
+	// every unique vm.Image so the operator gets the obvious
+	// behaviour from the TUI (install just works) without having to
+	// drop to `weft images pull`. microVM plugins auto-pull inside
+	// the runtime so they're unaffected.
+	PullImage(ctx context.Context, in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error)
 	// MicroVMRun drives the host-side weft-microvm orchestration
 	// (auto-pull → RegisterMicroVM → StartVM) for the V0.5
 	// runtime="microvm" plugin path.
@@ -180,6 +188,31 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 		}); err != nil {
 			return inst, m.rollback(ctx, inst, fmt.Errorf("bind sgs to network %q: %w", netName, err))
 		}
+	}
+
+	// ---- Pre-pull images so CloneVM doesn't reject ---------------
+	// The classic-VM clone path errors with "image X not in cache;
+	// run pull first" when the OCI ref isn't already cached on the
+	// host. Pull every unique vm.Image declared by the manifest
+	// up-front so the operator gets the obvious behaviour from the
+	// TUI (install just works) ; microVM plugins use weft-microvm's
+	// auto-pull inside the runtime and don't need this. The pull is
+	// idempotent — a re-pull on an already-cached image is a fast
+	// no-op on the agent. Operator-reported 2026-06-29 :
+	// 'create vm: vz clone: image redis:7-alpine not in cache'.
+	pulled := map[string]bool{}
+	for _, vm := range manifest.VMs {
+		if vm.Image == "" || pulled[vm.Image] {
+			continue
+		}
+		runtime := vm.Runtime
+		if runtime == "microvm" {
+			continue
+		}
+		if _, err := m.client.PullImage(ctx, &weftv1.PullImageRequest{Url: vm.Image}); err != nil {
+			return inst, m.rollback(ctx, inst, fmt.Errorf("pull image %q: %w", vm.Image, err))
+		}
+		pulled[vm.Image] = true
 	}
 
 	// ---- VMs (with optional per-replica volumes) -----------------

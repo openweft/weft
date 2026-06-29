@@ -84,3 +84,12 @@ func (a *AgentClient) MicroVMRun(ctx context.Context, image, project string) err
 func (a *AgentClient) SetVMProperties(ctx context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error) {
 	return a.c.SetVMProperties(ctx, in)
 }
+
+// PullImage forwards to the agent's PullImage RPC. The Install
+// pipeline calls this for every unique vm.Image before CreateVM so
+// the classic-VM clone path doesn't reject with "image X not in
+// cache". Idempotent on the agent — a re-pull on an already-cached
+// image is a fast no-op.
+func (a *AgentClient) PullImage(ctx context.Context, in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error) {
+	return a.c.PullImage(ctx, in)
+}
