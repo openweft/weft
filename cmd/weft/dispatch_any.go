@@ -33,6 +33,7 @@ package main
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,6 +41,8 @@ import (
 
 	agentv1 "github.com/openweft/weft-proto/agentv1"
 	weftv1 "github.com/openweft/weft-proto"
+
+	"github.com/openweft/weft/etcdjobs"
 )
 
 // dispatchTransportLabel returns the wire-level label of the
@@ -62,6 +65,20 @@ func (s *weftServer) dispatchTransportLabel(hostUUID string) string {
 // dispatchAny is the central dispatch helper. Identical contract
 // to (*agentDispatchServer).Dispatch — same Unavailable / Aborted /
 // DeadlineExceeded shape — so call sites swap one-for-one.
+//
+// Routing order :
+//
+//  1. AttachDrivers session (v0.4.50 path) when one is live for the
+//     target host.
+//  2. AgentDispatch session (legacy stream) when one is live.
+//  3. etcd-jobs queue ([[openweft_pull_model]]) when etcdCli is wired
+//     and the target host's worker is presumed running. The active
+//     CP writes /weft/jobs/<host>/<id> ; the peer's worker watches
+//     its prefix, applies via local Adapter, writes the reply.
+//     Mandatory fallback for clusters where every agent runs all-in-
+//     one with no in-process stream towards another (the 3-DC
+//     reference deployment).
+//  4. Unavailable when no transport reaches the host.
 func (s *weftServer) dispatchAny(ctx context.Context, hostUUID string, op *weftv1.DriverRequest) (*weftv1.DriverReply, error) {
 	if op == nil {
 		return nil, status.Error(codes.InvalidArgument, "nil DriverRequest")
@@ -72,12 +89,33 @@ func (s *weftServer) dispatchAny(ctx context.Context, hostUUID string, op *weftv
 			return s.dispatchViaAttach(ctx, hostUUID, op)
 		}
 	}
-	// Legacy fallback. nil dispatch = no transport at all → return
-	// Unavailable rather than a nil-deref.
-	if s.dispatch == nil {
-		return nil, status.Errorf(codes.Unavailable, "no dispatch transport for host %s", hostUUID)
+	// Legacy in-process AgentDispatch session.
+	if s.dispatch != nil {
+		reply, err := s.dispatch.Dispatch(ctx, hostUUID, op)
+		if err == nil {
+			return reply, nil
+		}
+		// Unavailable from the stream registry = no live session ;
+		// fall through to the etcd-jobs queue. Any other code is a
+		// real transport error, propagate it.
+		if code := status.Code(err); code != codes.Unavailable {
+			return nil, err
+		}
 	}
-	return s.dispatch.Dispatch(ctx, hostUUID, op)
+	// etcd-jobs (pull) fallback : every agent runs a worker for its
+	// own host UUID, so the target picks the op up regardless of
+	// whether it ever opened an outbound stream to us.
+	if s.etcdCli != nil {
+		reply, err := etcdjobs.Enqueue(ctx, s.etcdCli, hostUUID, op)
+		if err == nil {
+			return reply, nil
+		}
+		if errors.Is(err, etcdjobs.ErrNoReply) {
+			return nil, status.Errorf(codes.Unavailable, "etcdjobs: no reply from host %s", hostUUID)
+		}
+		return nil, status.Errorf(codes.Unavailable, "etcdjobs dispatch to %s: %v", hostUUID, err)
+	}
+	return nil, status.Errorf(codes.Unavailable, "no dispatch transport for host %s", hostUUID)
 }
 
 // dispatchViaAttach encodes the DriverRequest into an opaque

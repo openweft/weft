@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -75,6 +76,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/volume"
 	"github.com/openweft/weft/cmd/weft/wait"
 	"github.com/openweft/weft/dhcpd"
+	"github.com/openweft/weft/etcdjobs"
 	"github.com/openweft/weft/federation"
 	"github.com/openweft/weft/firewallpub"
 	"github.com/openweft/weft/hostmetrics"
@@ -623,6 +625,30 @@ func run(t fileConfigTargets) error {
 	if sf.etcdClient != nil {
 		if closer := startHostVIP(sf.etcdClient, localHostUUID(a), logger); closer != nil {
 			defer closer()
+		}
+	}
+
+	// etcd-jobs worker (V0.4.71) : when the active control plane
+	// (whichever host holds the VIP) dispatches RegisterMicroVM /
+	// StartVM / etc. to a peer host, the in-process AgentDispatch
+	// stream is unavailable (every host runs all-in-one, none
+	// dials another as a `weft agent --client`). The fallback
+	// writes the op to /weft/jobs/<my_host_uuid>/ in etcd ; this
+	// worker watches that prefix and applies via the local
+	// Adapter. Per the openweft pull model
+	// ([[openweft_pull_model]]) : cross-daemon = pull/reconcile,
+	// no synchronous push.
+	if sf.etcdClient != nil {
+		if hostUUID := localHostUUID(a); hostUUID != "" {
+			workerCtx, workerCancel := context.WithCancel(context.Background())
+			defer workerCancel()
+			handler := buildDriverHandler(a)
+			go func() {
+				if err := etcdjobs.RunWorker(workerCtx, sf.etcdClient, hostUUID, handler); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Printf("etcdjobs: worker exited: %v", err)
+				}
+			}()
+			logger.Printf("etcdjobs: worker started ; host_uuid=%s", hostUUID)
 		}
 	}
 
