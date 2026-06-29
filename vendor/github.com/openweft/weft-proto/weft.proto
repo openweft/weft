@@ -2075,6 +2075,13 @@ message RegisterMicroVMOp {
   string initrd    = 5; // optional, direct-Linux mode
   string cmdline   = 6; // kernel cmdline override
   repeated MicroVMShare shares = 7;
+  // image is the OCI ref the microVM was hatched from
+  // (e.g. "ghcr.io/openweft/weft-etcd:v3.6.0"). The receiving
+  // agent stamps it into the VM record's IMAGE column so the
+  // operator-facing inventory shows the OCI source rather than
+  // the synthetic "microvm/direct_linux" placeholder. Optional ;
+  // empty preserves the legacy direct-Linux label.
+  string image = 8;
 }
 
 // RegisterMicroVMResult is empty — the call's only outcome is

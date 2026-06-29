@@ -245,6 +245,14 @@ func runMicroVM(a Args) error {
 		Name:     vmName,
 		Project:  a.Project,
 		HostUuid: a.HostUUID,
+		// Image carries the OCI ref through to the receiving
+		// agent's RegisterMicroVM ; the VM record stamps it as
+		// IMAGE so the operator inventory shows the real source
+		// (e.g. "redis:7-alpine") rather than the synthetic
+		// "microvm/direct_linux" placeholder. The boot artefacts
+		// stay direct-Linux for now — the kernel + initrd paths
+		// are still set below — but the image label is correct.
+		Image: a.Image,
 		Shares: []*weftv1.MicroVMShare{
 			{Tag: tag, Path: rootfs, ReadOnly: false, Clone: true},
 		},

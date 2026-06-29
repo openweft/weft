@@ -43,7 +43,7 @@ func Client(socketPath, sshSocket, sshKey string) (weftv1.WeftAgentClient, *grpc
 
 // RenderTable prints VM infos as a table to stdout.
 func RenderTable(vms []*weftv1.VMInfo) {
-	headers := []string{"Name", "State", "OS", "CPU", "Mem (MB)", "Disk (GB)", "IP"}
+	headers := []string{"Name", "State", "Image", "OS", "CPU", "Mem (MB)", "Disk (GB)", "IP"}
 	table := tablewriter.NewTable(os.Stdout,
 		tablewriter.WithHeader(headers),
 		tablewriter.WithHeaderAutoWrap(tw.WrapNone),
@@ -52,6 +52,7 @@ func RenderTable(vms []*weftv1.VMInfo) {
 		_ = table.Append([]string{
 			vm.Name,
 			ProtoStateStr(vm.State),
+			vm.Image,
 			vm.Os,
 			fmt.Sprintf("%d", vm.Cpu),
 			fmt.Sprintf("%d", vm.MemMb),
@@ -72,8 +73,8 @@ func PrintJSON(vms []*weftv1.VMInfo) error {
 func PrintJSONTo(w io.Writer, vms []*weftv1.VMInfo) error {
 	for _, vm := range vms {
 		if _, err := fmt.Fprintf(w,
-			"{\"name\":%q,\"uuid\":%q,\"project_uuid\":%q,\"state\":%q,\"os\":%q,\"cpu\":%d,\"mem_mb\":%d,\"disk_gb\":%d,\"ip\":%q,\"properties\":%s}\n",
-			vm.Name, vm.Uuid, vm.ProjectUuid, ProtoStateStr(vm.State), vm.Os,
+			"{\"name\":%q,\"uuid\":%q,\"project_uuid\":%q,\"state\":%q,\"image\":%q,\"host_uuid\":%q,\"os\":%q,\"cpu\":%d,\"mem_mb\":%d,\"disk_gb\":%d,\"ip\":%q,\"properties\":%s}\n",
+			vm.Name, vm.Uuid, vm.ProjectUuid, ProtoStateStr(vm.State), vm.Image, vm.HostUuid, vm.Os,
 			vm.Cpu, vm.MemMb, vm.DiskGb, vm.Ip, jsonProperties(vm.Properties),
 		); err != nil {
 			return err
