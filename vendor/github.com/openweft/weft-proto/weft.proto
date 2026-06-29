@@ -299,7 +299,20 @@ message StopVMResponse {}
 // server-side lets the agent rollback (restart on the same host
 // with the same network attachments) when the start half fails.
 
-message RestartVMRequest  { string name = 1; string project = 2; }
+message RestartVMRequest  {
+  string name      = 1;
+  string project   = 2;
+  // host_uuid optionally pins the call to a specific compute host —
+  // mirrors StartVM/StopVM/DeleteVM. Empty / matching-local : the
+  // server stops + starts the VM in-process. Non-empty + remote :
+  // the call dispatches through the same transport chain as StopVM
+  // / StartVM (in-process AgentDispatch, then etcd-jobs pull
+  // fallback per [[openweft_pull_model]]) so a cross-DC restart
+  // hits the owning host instead of erroring with "kernel not
+  // found at <local-default-project-dir>/<vm>/kernel" — bug
+  // reported 2026-06-29 against redis-ha replicas.
+  string host_uuid = 3;
+}
 message RestartVMResponse {}
 
 // --- VMStatus ---

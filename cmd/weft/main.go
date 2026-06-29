@@ -1606,11 +1606,29 @@ func (s *weftServer) StopVM(ctx context.Context, req *weftv1.StopVMRequest) (*we
 // previous client-side chain which left a half-state with no
 // rollback signal.
 func (s *weftServer) RestartVM(ctx context.Context, req *weftv1.RestartVMRequest) (*weftv1.RestartVMResponse, error) {
-	logger.Printf("RestartVM name=%s project=%s", req.Name, req.Project)
+	logger.Printf("RestartVM name=%s project=%s host=%s", req.Name, req.Project, req.HostUuid)
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
 	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	// Cross-host : dispatch stop + start via the same transport
+	// chain StopVM / StartVM use (AgentDispatch in-process →
+	// etcd-jobs pull fallback). Without this, RestartVM on a VM
+	// pinned to a peer host falls into the local `vmDir(name)`
+	// resolver which defaults to the caller's user project,
+	// producing the "kernel not found at state/vz/<usr-admin>/<vm>"
+	// error instead of routing to the owning agent.
+	if s.shouldDispatch(req.HostUuid) {
+		if _, err := s.dispatchStopVM(ctx, &weftv1.StopVMRequest{Name: req.Name, Project: req.Project, HostUuid: req.HostUuid}); err != nil {
+			logger.Printf("RestartVM %s: dispatched stop leg error: %v", req.Name, err)
+			return nil, status.Errorf(codes.Internal, "restart vm (stop): %v", err)
+		}
+		if _, err := s.dispatchStartVM(ctx, &weftv1.StartVMRequest{Name: req.Name, Project: req.Project, HostUuid: req.HostUuid}); err != nil {
+			logger.Printf("RestartVM %s: dispatched start leg error: %v", req.Name, err)
+			return nil, status.Errorf(codes.Internal, "restart vm (start): %v", err)
+		}
+		return &weftv1.RestartVMResponse{}, nil
+	}
 	if err := s.adp.StopVM(req.Name); err != nil {
 		logger.Printf("RestartVM %s: stop leg error: %v", req.Name, err)
 		return nil, status.Errorf(codes.Internal, "restart vm (stop): %v", err)
