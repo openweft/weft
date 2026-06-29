@@ -273,6 +273,7 @@ plugin "forgejo-ha" {
 
   vm "forgejo" {
     image    = "codeberg.org/forgejo/forgejo:10"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 2
     mem_mb   = 4096

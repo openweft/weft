@@ -82,6 +82,7 @@ plugin "gitlab-runners-ha" {
 
   vm "runner" {
     image    = "ghcr.io/openweft/weft-runner-gitlab:v0.1.0"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 2
     mem_mb   = 4096

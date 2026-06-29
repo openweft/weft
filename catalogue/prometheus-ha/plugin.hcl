@@ -142,6 +142,7 @@ plugin "prometheus-ha" {
 
   vm "prometheus" {
     image    = "prom/prometheus:v2.55"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 4
     mem_mb   = 8192

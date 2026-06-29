@@ -209,6 +209,7 @@ plugin "grafana-ha" {
 
   vm "grafana" {
     image    = "grafana/grafana-oss:11.6"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 2
     mem_mb   = 4096
@@ -237,6 +238,7 @@ plugin "grafana-ha" {
     # catalogue/jupyterhub-ha.
     enabled_if = input.db_backend == "cockroach"
     image      = "cockroachdb/cockroach:v24.2.0"
+    runtime  = "microvm"
     replicas   = 3
     cpu        = 2
     mem_mb     = 4096
