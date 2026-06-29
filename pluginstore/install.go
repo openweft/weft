@@ -41,8 +41,16 @@ type Client interface {
 	// each register lands on its own VM record (the agent overwrote
 	// prior entries when every replica derived the same name from
 	// the image alone, 2026-06-29 fix).
-	MicroVMRun(ctx context.Context, vmName, image, project string) error
+	// MicroVMRun takes a hostUUID (empty = local) so the installer
+	// can pin each HA replica to a distinct host when the plugin's
+	// vm.Placement declares anti-affinity (az/host = "different").
+	// The agent's RegisterMicroVM handler dispatches to the matching
+	// `weft agent --client` stream when hostUUID is set and non-local.
+	MicroVMRun(ctx context.Context, vmName, image, project, hostUUID string) error
 	SetVMProperties(ctx context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error)
+	// ListHosts feeds the per-replica host picker for
+	// placement-aware installs. Empty filter = whole cluster.
+	ListHosts(ctx context.Context, in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error)
 }
 
 // Manager orchestrates Install / Uninstall / List.
@@ -225,6 +233,21 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 		if schedRule == "" {
 			schedRule = m.deriveSchedulingRule(manifest, vm, uuid)
 		}
+		// Per-replica host picker. Populated when the manifest's
+		// placement block asks for anti-affinity (az/host = "different")
+		// AND the runtime is microvm — the classic-VM path goes through
+		// the agent's scheduler, which already honours SchedulingRule.
+		// The picker rotates over distinct AZ hosts (or distinct hosts
+		// inside one AZ when az isn't "different") so 3 replicas land
+		// on 3 DCs.
+		var hostPicker []string
+		if vm.Runtime == "microvm" && vm.Placement != nil {
+			picked, err := m.pickPlacementHosts(ctx, vm)
+			if err != nil {
+				return inst, m.rollback(ctx, inst, fmt.Errorf("placement %q: %w", vm.Name, err))
+			}
+			hostPicker = picked
+		}
 		netUUID := netUUIDByName[vm.Network]
 		// Resolve the optional vm count attribute. count=1 (the
 		// default) keeps the original naming — no "-0" suffix —
@@ -298,8 +321,17 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 					// distinct VM records — passing only the image
 					// silently collapsed all replicas onto the same
 					// refsafe(Image) name (2026-06-29 fix).
-					if err := m.client.MicroVMRun(ctx, vmName, vm.Image, project); err != nil {
-						return inst, m.rollback(ctx, inst, fmt.Errorf("microvm run %q: %w", vmName, err))
+					//
+					// hostUUID is picked from the placement-aware
+					// rotation above when the manifest declares
+					// anti-affinity ; empty = server-local (the
+					// default single-host UX).
+					var hostUUID string
+					if len(hostPicker) > 0 {
+						hostUUID = hostPicker[i%len(hostPicker)]
+					}
+					if err := m.client.MicroVMRun(ctx, vmName, vm.Image, project, hostUUID); err != nil {
+						return inst, m.rollback(ctx, inst, fmt.Errorf("microvm run %q on host %q: %w", vmName, hostUUID, err))
 					}
 					// Apply plugin-declared properties (typically
 					// deployment.type=ha + role=X) so the V0.1.10
@@ -450,6 +482,103 @@ func (m *Manager) rollback(ctx context.Context, inst Instance, cause error) erro
 		_, _ = m.client.DeleteNetwork(ctx, &weftv1.DeleteNetworkRequest{Uuid: n})
 	}
 	return cause
+}
+
+// pickPlacementHosts returns the ordered host_uuid rotation the
+// installer cycles through for a microvm-runtime VM with anti-
+// affinity declared in its placement block. The replica loop picks
+// `hosts[i % len(hosts)]` so 3 replicas with az="different" against
+// a 3-DC inventory land one per DC ; 4 replicas against the same
+// inventory wrap (the 4th colocates with the 1st in the first AZ).
+//
+// Rules :
+//   - az = "different" → keep one Active host per distinct AZ (deterministic
+//     pick : first connected Active host in AZ alphabetical order).
+//   - host = "different" with az unset or "same" → keep every distinct
+//     Active host across the cluster (or inside the picked AZ when az=same).
+//   - Otherwise the rotation is empty and replicas inherit the default
+//     server-local placement.
+//
+// Returns an error when no Active host can satisfy the rule —
+// surfaces a clear "placement %q : no active hosts" rather than
+// silently degrading to single-host (which is what bit redis-ha
+// when 3 replicas all collapsed onto dc1-r1-h1).
+func (m *Manager) pickPlacementHosts(ctx context.Context, vm VMSpec) ([]string, error) {
+	if vm.Placement == nil {
+		return nil, nil
+	}
+	resp, err := m.client.ListHosts(ctx, &weftv1.ListHostsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("list hosts: %w", err)
+	}
+	connected := map[string]bool{}
+	for _, u := range resp.ConnectedHostUuids {
+		connected[u] = true
+	}
+	// Only Active + connected hosts qualify ; draining / down / cordoned
+	// hosts would let the dispatch reach them but the agent would
+	// refuse, surfacing as a noisy mid-install error.
+	type candidate struct {
+		uuid, az, hostname string
+	}
+	var cands []candidate
+	for _, h := range resp.Hosts {
+		if h.State != "active" || h.Cordoned || !connected[h.Uuid] {
+			continue
+		}
+		cands = append(cands, candidate{uuid: h.Uuid, az: h.Az, hostname: h.Hostname})
+	}
+	if len(cands) == 0 {
+		return nil, fmt.Errorf("no active+connected hosts in cluster")
+	}
+	switch vm.Placement.AZ {
+	case "different":
+		// Keep one host per AZ. AZ alphabetical, host alphabetical
+		// inside the AZ — deterministic so reinstalls land on the
+		// same DCs.
+		byAZ := map[string]candidate{}
+		var azs []string
+		for _, c := range cands {
+			if _, ok := byAZ[c.az]; ok {
+				// Keep the lexicographically-first hostname per AZ
+				// for stability across runs.
+				if c.hostname < byAZ[c.az].hostname {
+					byAZ[c.az] = c
+				}
+				continue
+			}
+			byAZ[c.az] = c
+			azs = append(azs, c.az)
+		}
+		sortStrings(azs)
+		out := make([]string, 0, len(azs))
+		for _, az := range azs {
+			out = append(out, byAZ[az].uuid)
+		}
+		return out, nil
+	default:
+		if vm.Placement.Host == "different" {
+			// Spread across every connected host without AZ constraint.
+			out := make([]string, 0, len(cands))
+			for _, c := range cands {
+				out = append(out, c.uuid)
+			}
+			return out, nil
+		}
+	}
+	return nil, nil
+}
+
+// sortStrings is a tiny ascending-sort helper for the placement
+// picker — kept inline to avoid pulling sort just for one slice.
+func sortStrings(s []string) {
+	for i := 0; i < len(s); i++ {
+		for j := i + 1; j < len(s); j++ {
+			if s[j] < s[i] {
+				s[i], s[j] = s[j], s[i]
+			}
+		}
+	}
 }
 
 // deriveSchedulingRule fabricates a per-VM scheduling rule name

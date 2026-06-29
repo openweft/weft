@@ -65,7 +65,7 @@ func (a *AgentClient) DeleteVolume(ctx context.Context, in *weftv1.DeleteVolumeR
 // AgentClient was constructed without a socket — the install path
 // degrades to a clear "wire the socket" error rather than a silent
 // classic-VM fallback.
-func (a *AgentClient) MicroVMRun(ctx context.Context, vmName, image, project string) error {
+func (a *AgentClient) MicroVMRun(ctx context.Context, vmName, image, project, hostUUID string) error {
 	if a.weftSocket == "" {
 		return fmt.Errorf("pluginstore: MicroVMRun called without an agent socket (plugin runtime=microvm requires NewAgentClient with a non-empty socket)")
 	}
@@ -73,6 +73,7 @@ func (a *AgentClient) MicroVMRun(ctx context.Context, vmName, image, project str
 		Name:       vmName,
 		Image:      image,
 		Project:    project,
+		HostUUID:   hostUUID,
 		Detach:     true,
 		WeftSocket: a.weftSocket,
 	})
@@ -93,4 +94,11 @@ func (a *AgentClient) SetVMProperties(ctx context.Context, in *weftv1.SetVMPrope
 // image is a fast no-op.
 func (a *AgentClient) PullImage(ctx context.Context, in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error) {
 	return a.c.PullImage(ctx, in)
+}
+
+// ListHosts forwards to the agent's ListHosts RPC. Used by the
+// placement-aware install path to pick per-replica host_uuid
+// rotations honouring anti-affinity (az/host = "different").
+func (a *AgentClient) ListHosts(ctx context.Context, in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {
+	return a.c.ListHosts(ctx, in)
 }

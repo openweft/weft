@@ -94,6 +94,20 @@ type Args struct {
 	// overrides for service init, etc.
 	Mounts []Mount
 
+	// HostUUID pins the new microVM to a specific compute host —
+	// threaded through to RegisterMicroVMRequest.host_uuid so the
+	// agent dispatches the op to the matching `weft agent --client`
+	// stream instead of running it locally. Empty = default
+	// (server-local, single-host UX preserved).
+	//
+	// Used by pluginstore.Install when a plugin's vm block declares
+	// `placement { az = "different" }` and the installer rotates
+	// replicas across hosts/AZs for anti-affinity. The target host
+	// MUST already have the OCI image rootfs locally (the call
+	// doesn't fan out an auto-pull cross-host) — operator pre-pulls
+	// or weft-up handles that on cluster bring-up.
+	HostUUID string
+
 	// CubeFSMounts attach CubeFS volumes directly inside the guest.
 	// cfs-client (already in the initramfs at /bin/cfs-client per the
 	// pod-init-build packer) handles the FUSE mount ; weft-init parses
@@ -172,18 +186,27 @@ func runMicroVM(a Args) error {
 	// happens transparently the first time, subsequent runs are
 	// instant). Set WEFT_NO_AUTO_PULL=1 to disable when you want
 	// strict offline mode and prefer a hard error.
-	if _, err := os.Stat(rootfs); err != nil {
-		if os.Getenv("WEFT_NO_AUTO_PULL") == "1" {
-			return fmt.Errorf("image not pulled and WEFT_NO_AUTO_PULL=1 — run `weft-microvm pull %s` first (missing rootfs at %s)", a.Image, rootfs)
+	//
+	// When HostUUID is set we're dispatching cross-host : the
+	// rootfs path we'd check sits on the TARGET host's disk, not
+	// ours. Skip the local pull + override pass ; the caller is
+	// responsible for ensuring the target host has the image
+	// cached (typically by pre-running PullImage against that
+	// host, or by weft-up's per-host pull on bring-up).
+	if a.HostUUID == "" {
+		if _, err := os.Stat(rootfs); err != nil {
+			if os.Getenv("WEFT_NO_AUTO_PULL") == "1" {
+				return fmt.Errorf("image not pulled and WEFT_NO_AUTO_PULL=1 — run `weft-microvm pull %s` first (missing rootfs at %s)", a.Image, rootfs)
+			}
+			fmt.Fprintf(os.Stderr, "weft-microvm: image not in cache, auto-pulling %s …\n", a.Image)
+			if err := Pull(a.Image); err != nil {
+				return fmt.Errorf("auto-pull %s: %w", a.Image, err)
+			}
+			// Pull populates the same path we just checked.
 		}
-		fmt.Fprintf(os.Stderr, "weft-microvm: image not in cache, auto-pulling %s …\n", a.Image)
-		if err := Pull(a.Image); err != nil {
-			return fmt.Errorf("auto-pull %s: %w", a.Image, err)
+		if err := applyRunOverrides(rootfs, a); err != nil {
+			return err
 		}
-		// Pull populates the same path we just checked.
-	}
-	if err := applyRunOverrides(rootfs, a); err != nil {
-		return err
 	}
 	iso, err := locateBootArtefacts()
 	if err != nil {
@@ -219,8 +242,9 @@ func runMicroVM(a Args) error {
 	// the same OCI ref. clonefile shares blocks until first write,
 	// so the cost is paid only on divergence.
 	req := &weftv1.RegisterMicroVMRequest{
-		Name:    vmName,
-		Project: a.Project,
+		Name:     vmName,
+		Project:  a.Project,
+		HostUuid: a.HostUUID,
 		Shares: []*weftv1.MicroVMShare{
 			{Tag: tag, Path: rootfs, ReadOnly: false, Clone: true},
 		},
@@ -289,8 +313,8 @@ func runMicroVM(a Args) error {
 		return fmt.Errorf("weft RegisterMicroVM: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "weft-microvm: StartVM name=%s\n", vmName)
-	if _, err := client.StartVM(ctx, &weftv1.StartVMRequest{Name: vmName}); err != nil {
+	fmt.Fprintf(os.Stderr, "weft-microvm: StartVM name=%s host=%q\n", vmName, a.HostUUID)
+	if _, err := client.StartVM(ctx, &weftv1.StartVMRequest{Name: vmName, Project: a.Project, HostUuid: a.HostUUID}); err != nil {
 		return fmt.Errorf("weft StartVM: %w", err)
 	}
 
