@@ -46,7 +46,11 @@ type Client interface {
 	// vm.Placement declares anti-affinity (az/host = "different").
 	// The agent's RegisterMicroVM handler dispatches to the matching
 	// `weft agent --client` stream when hostUUID is set and non-local.
-	MicroVMRun(ctx context.Context, vmName, image, project, hostUUID string) error
+	//
+	// cpu + memMB are the workload-shape metadata stamped on the VM
+	// record so the TUI's FLAVOR resolver names the catalogue flavor
+	// instead of showing "custom" when the registry record has 0/0.
+	MicroVMRun(ctx context.Context, vmName, image, project, hostUUID string, cpu uint32, memMB uint64) error
 	SetVMProperties(ctx context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error)
 	// ListHosts feeds the per-replica host picker for
 	// placement-aware installs. Empty filter = whole cluster.
@@ -330,7 +334,7 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 					if len(hostPicker) > 0 {
 						hostUUID = hostPicker[i%len(hostPicker)]
 					}
-					if err := m.client.MicroVMRun(ctx, vmName, vm.Image, project, hostUUID); err != nil {
+					if err := m.client.MicroVMRun(ctx, vmName, vm.Image, project, hostUUID, uint32(vm.CPU), uint64(vm.MemMB)); err != nil {
 						return inst, m.rollback(ctx, inst, fmt.Errorf("microvm run %q on host %q: %w", vmName, hostUUID, err))
 					}
 					// Apply plugin-declared properties (typically

@@ -3586,6 +3586,16 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 				fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh image label for %q failed: %v\n", name, err)
 			}
 		}
+		// V0.4.72 : same lift for CPU + MemoryMiB so the FLAVOR
+		// resolver finds a catalogue match instead of "custom" on
+		// records minted before the workload-shape fields were
+		// threaded through. setShape no-ops when boot.CPU/Mem are
+		// 0 (caller didn't supply better data).
+		if existing.UUID != "" && (boot.CPU != 0 || boot.MemoryMiB != 0) {
+			if err := a.vmReg.setShape(existing.UUID, boot.CPU, boot.MemoryMiB); err != nil {
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh shape for %q failed: %v\n", name, err)
+			}
+		}
 		return nil
 	}
 	if boot.BootISO == "" && boot.Kernel == "" {
@@ -3819,6 +3829,11 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 				if regImage != "" && existing.Image != regImage {
 					if setErr := a.vmReg.setImage(existing.UUID, regImage); setErr != nil {
 						fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh image label of stale %q failed: %v\n", name, setErr)
+					}
+				}
+				if boot.CPU != 0 || boot.MemoryMiB != 0 {
+					if setErr := a.vmReg.setShape(existing.UUID, boot.CPU, boot.MemoryMiB); setErr != nil {
+						fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh shape of stale %q failed: %v\n", name, setErr)
 					}
 				}
 			}

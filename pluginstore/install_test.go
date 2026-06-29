@@ -23,7 +23,7 @@ type fakeClient struct {
 	deleteSG                        func(in *weftv1.DeleteSecurityGroupRequest) (*weftv1.DeleteSecurityGroupResponse, error)
 	createVolume                    func(in *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error)
 	deleteVolume                    func(in *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error)
-	microvmRun                      func(vmName, image, project, hostUUID string) error
+	microvmRun                      func(vmName, image, project, hostUUID string, cpu uint32, memMB uint64) error
 	setVMProperties                 func(in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error)
 	listHosts                       func(in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error)
 
@@ -120,11 +120,11 @@ func (f *fakeClient) DeleteVolume(_ context.Context, in *weftv1.DeleteVolumeRequ
 	}
 	return &weftv1.DeleteVolumeResponse{}, nil
 }
-func (f *fakeClient) MicroVMRun(_ context.Context, vmName, image, project, hostUUID string) error {
+func (f *fakeClient) MicroVMRun(_ context.Context, vmName, image, project, hostUUID string, cpu uint32, memMB uint64) error {
 	f.creates++
-	f.microvmRuns = append(f.microvmRuns, microvmCall{Name: vmName, Image: image, Project: project, HostUUID: hostUUID})
+	f.microvmRuns = append(f.microvmRuns, microvmCall{Name: vmName, Image: image, Project: project, HostUUID: hostUUID, CPU: cpu, MemMB: memMB})
 	if f.microvmRun != nil {
-		return f.microvmRun(vmName, image, project, hostUUID)
+		return f.microvmRun(vmName, image, project, hostUUID, cpu, memMB)
 	}
 	return nil
 }
@@ -158,6 +158,8 @@ type microvmCall struct {
 	Image    string
 	Project  string
 	HostUUID string
+	CPU      uint32
+	MemMB    uint64
 }
 
 // loadDemo parses the fixture from manifest_test.go.

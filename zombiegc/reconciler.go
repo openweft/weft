@@ -411,6 +411,28 @@ func (r *Reconciler) classify(vm weft.VM, hostByUUID map[string]weft.Host, proje
 	case weft.VMStateRunning, weft.VMStateCreated:
 		// fallthrough into the classification below.
 	case weft.VMStateZombie:
+		// A previously-classified zombie may have come back to
+		// life — typical sequence : agent crashed → zombiegc
+		// flagged → operator restarted weft-agent → self-heal
+		// restarted qemu → state should reset to Running. Without
+		// the live probe here, classifyExistingZombie sticks the
+		// "awaiting delete" label forever even when the process is
+		// patently alive (operator-reported 2026-06-29 "encore des
+		// microvm en state zombie" after a successful self-heal
+		// pass). For the local host : if the qemu probe says
+		// alive, flip state back to Running + drop the zombie
+		// record on this sweep. Cross-host probes aren't available
+		// from this side, so they keep the existing semantics.
+		if vm.HostUUID == r.localHostUUID && r.probe != nil && r.probe.IsVMRunning(vm.Name) {
+			if err := r.adp.SetVMState(vm.UUID, weft.VMStateRunning); err != nil {
+				r.log.Warn("zombiegc : un-zombie failed",
+					"vm", vm.Name, "uuid", vm.UUID, "err", err)
+			} else {
+				r.log.Info("zombiegc : un-zombie (qemu alive)",
+					"vm", vm.Name, "uuid", vm.UUID)
+				return Zombie{}, false
+			}
+		}
 		return r.classifyExistingZombie(vm, hostByUUID, now), true
 	default:
 		return Zombie{}, false

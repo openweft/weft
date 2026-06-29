@@ -165,6 +165,11 @@ func buildDriverHandler(a weft.VZAdapter) func(context.Context, *weftv1.DriverRe
 					// record instead of falling back to the
 					// synthetic "microvm/direct_linux" label.
 					Image: op.RegisterMicroVm.Image,
+					// V0.4.72 : workload-shape metadata for the
+					// FLAVOR resolver. The microVM kernel
+					// ignores these — purely registry info.
+					CPU:       int(op.RegisterMicroVm.Cpu),
+					MemoryMiB: int(op.RegisterMicroVm.MemMb),
 				},
 				toMicroVMShares(op.RegisterMicroVm.Shares),
 			)
