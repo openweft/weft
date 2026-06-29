@@ -3800,6 +3800,28 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
+			// Stale registry entry but the local dir was just
+			// rebuilt (operator cleaned $stateDir/vz/.../<vm> by
+			// hand) : RegisterVM rejects the duplicate name, yet
+			// we now hold the canonical config.json + boot artefacts
+			// for this host. Lift the existing record's HostUUID +
+			// Image so the cross-host inventory converges on the
+			// fresh registration instead of staying frozen on the
+			// previous host's stale labels. setHost / setImage are
+			// best-effort and self-skip when already equal.
+			if existing, ok := a.vmReg.lookupByName(projectUUID, name); ok && existing.UUID != "" {
+				local := a.localHostUUID()
+				if local != "" && existing.HostUUID != local {
+					if setErr := a.vmReg.setHost(existing.UUID, local); setErr != nil {
+						fmt.Fprintf(os.Stderr, "weft: register-microvm: claim ownership of stale %q failed: %v\n", name, setErr)
+					}
+				}
+				if regImage != "" && existing.Image != regImage {
+					if setErr := a.vmReg.setImage(existing.UUID, regImage); setErr != nil {
+						fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh image label of stale %q failed: %v\n", name, setErr)
+					}
+				}
+			}
 		} else {
 			// AF_VSOCK CID allocation : deterministic hash of
 			// (projectUUID, name). Written into config.json (above)
