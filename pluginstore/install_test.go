@@ -39,6 +39,17 @@ type fakeClient struct {
 	delVols     []*weftv1.DeleteVolumeRequest
 	microvmRuns []microvmCall
 	setProperties []*weftv1.SetVMPropertiesRequest
+
+	pullImage func(in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error)
+	pulls     []*weftv1.PullImageRequest
+}
+
+func (f *fakeClient) PullImage(_ context.Context, in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error) {
+	f.pulls = append(f.pulls, in)
+	if f.pullImage != nil {
+		return f.pullImage(in)
+	}
+	return &weftv1.PullImageResponse{}, nil
 }
 
 func (f *fakeClient) CreateNetwork(_ context.Context, in *weftv1.CreateNetworkRequest) (*weftv1.CreateNetworkResponse, error) {
@@ -170,6 +181,40 @@ func TestInstall_HappyPath(t *testing.T) {
 	// Secret input must be masked in stored record.
 	if inst.Inputs["token"] != "***" {
 		t.Errorf("expected secret token to be masked, got %q", inst.Inputs["token"])
+	}
+	// Pre-pull invariant : the manifest's unique vm.Image must
+	// have been pulled before any CreateVM call landed. The demo
+	// has one VM block with one image, so exactly one PullImage
+	// call is expected.
+	if got := len(c.pulls); got != 1 {
+		t.Errorf("expected 1 PullImage call, got %d", got)
+	}
+}
+
+// TestInstall_PullImageFailureRollsBack : a PullImage failure must
+// roll back the partial install (networks / SGs already created)
+// the same way a CreateVM failure does. Otherwise an outage on the
+// OCI registry would leave dangling cluster state after every
+// failed install attempt.
+func TestInstall_PullImageFailureRollsBack(t *testing.T) {
+	c := &fakeClient{
+		pullImage: func(in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error) {
+			return nil, errors.New("registry down")
+		},
+	}
+	mgr := NewManager(c, NewMemStore())
+	m := loadDemo(t)
+	_, err := mgr.Install(context.Background(), m, "proj", map[string]any{"token": "abc"})
+	if err == nil {
+		t.Fatal("expected install to fail on pull error")
+	}
+	if got := len(c.createVMs); got != 0 {
+		t.Errorf("CreateVM fired despite pull failure : %d times", got)
+	}
+	// Rollback should have torn down the networks + SGs that did
+	// land before the pull step.
+	if got := len(c.delNetworks); got != len(c.createNets) {
+		t.Errorf("rollback : %d DeleteNetwork vs %d CreateNetwork", len(c.delNetworks), len(c.createNets))
 	}
 }
 
