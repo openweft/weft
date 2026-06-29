@@ -23,7 +23,7 @@ type fakeClient struct {
 	deleteSG                        func(in *weftv1.DeleteSecurityGroupRequest) (*weftv1.DeleteSecurityGroupResponse, error)
 	createVolume                    func(in *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error)
 	deleteVolume                    func(in *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error)
-	microvmRun                      func(image, project string) error
+	microvmRun                      func(vmName, image, project string) error
 	setVMProperties                 func(in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error)
 
 	// Call counters
@@ -119,11 +119,11 @@ func (f *fakeClient) DeleteVolume(_ context.Context, in *weftv1.DeleteVolumeRequ
 	}
 	return &weftv1.DeleteVolumeResponse{}, nil
 }
-func (f *fakeClient) MicroVMRun(_ context.Context, image, project string) error {
+func (f *fakeClient) MicroVMRun(_ context.Context, vmName, image, project string) error {
 	f.creates++
-	f.microvmRuns = append(f.microvmRuns, microvmCall{Image: image, Project: project})
+	f.microvmRuns = append(f.microvmRuns, microvmCall{Name: vmName, Image: image, Project: project})
 	if f.microvmRun != nil {
-		return f.microvmRun(image, project)
+		return f.microvmRun(vmName, image, project)
 	}
 	return nil
 }
@@ -136,6 +136,7 @@ func (f *fakeClient) SetVMProperties(_ context.Context, in *weftv1.SetVMProperti
 }
 
 type microvmCall struct {
+	Name    string
 	Image   string
 	Project string
 }
