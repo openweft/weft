@@ -17,7 +17,7 @@
 
 service "irods" {
   description = "3-DC iRODS data-management plane — federated collections + replicated resources"
-  oci_image   = "ghcr.io/openweft/weft-ha-irods:v0.2.0-rc1"
+  oci_image   = "ghcr.io/openweft/irods-ha:v0.4.0-rc12"
 
   resources {
     cpu_count  = 2
