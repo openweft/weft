@@ -55,3 +55,14 @@ tasks:
       WEFT_INTEGRATION_HOSTS_PREFIX: '{{.WEFT_INTEGRATION_HOSTS_PREFIX | default "192.168.64"}}'
     cmds:
       - go test -tags integration -timeout 30m ./tests/integration/3host/...
+
+  e2e:
+    desc: "Live end-to-end smoke against a running cluster (dial WEFT_SOCKET, default ~/.weft/weft.sock). Override --suite=full for plugin lifecycle tests."
+    cmds:
+      - go run ./cmd/weft-e2e {{.CLI_ARGS}}
+
+  e2e:build:
+    desc: "Build the weft-e2e binary into ./bin/weft-e2e."
+    cmds:
+      - mkdir -p ./bin
+      - CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ./bin/weft-e2e ./cmd/weft-e2e
