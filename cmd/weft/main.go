@@ -1168,6 +1168,36 @@ type weftServer struct {
 // projectNameFor resolves a project UUID to its operator-facing
 // name via the Adapter's project registry. Returns "" on miss so
 // callers can decide whether to substitute the UUID or "—".
+// resolveOwningHost looks up (name, project) in the inventory and
+// returns the VM record's HostUUID. Empty string when no match.
+// Shared by Start/Stop/Restart/Delete handlers so a request that
+// arrives without a host_uuid (older clients pre-host_uuid field,
+// or callers that don't know the placement) still routes to the
+// owning agent via the dispatch chain instead of falling into the
+// local-default-project resolver — which produces the operator-
+// reported "kernel not found at state/vz/<usr-admin>/<vm>" trail.
+//
+// Project disambiguation : accepts both UUID and display name, so
+// the CLI's `--project infra` works regardless of the registry's
+// internal projection.
+func resolveOwningHost(adp weft.VZAdapter, name, project string) string {
+	for _, vm := range adp.VMs() {
+		if vm.Name != name {
+			continue
+		}
+		if project != "" {
+			if vm.ProjectUUID != project {
+				projName := projectNameFor(adp, vm.ProjectUUID)
+				if projName != project {
+					continue
+				}
+			}
+		}
+		return vm.HostUUID
+	}
+	return ""
+}
+
 // maxRestartsForVM finds the SchedulingRule whose selector covers
 // this VM and returns its respawn.max_restarts. Used by the
 // operator-facing UI to render "RESTARTS=N/M" without a second
@@ -1569,6 +1599,11 @@ func (s *weftServer) StartVM(ctx context.Context, req *weftv1.StartVMRequest) (*
 	// inventory (legacy on-disk VM) — the empty `driver_kind=""` series
 	// captures it without conflating with any driver.
 	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	if req.HostUuid == "" {
+		if h := resolveOwningHost(s.adp, req.Name, req.Project); h != "" {
+			req.HostUuid = h
+		}
+	}
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchStartVM(ctx, req)
 	}
@@ -1585,6 +1620,11 @@ func (s *weftServer) StopVM(ctx context.Context, req *weftv1.StopVMRequest) (*we
 		return nil, err
 	}
 	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	if req.HostUuid == "" {
+		if h := resolveOwningHost(s.adp, req.Name, req.Project); h != "" {
+			req.HostUuid = h
+		}
+	}
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchStopVM(ctx, req)
 	}
@@ -1620,21 +1660,8 @@ func (s *weftServer) RestartVM(ctx context.Context, req *weftv1.RestartVMRequest
 	// caller-default-project resolver → "kernel not found at
 	// state/vz/<usr-admin>/<vm>".
 	if req.HostUuid == "" {
-		wantProject := req.Project
-		for _, vm := range s.adp.VMs() {
-			if vm.Name != req.Name {
-				continue
-			}
-			if wantProject != "" {
-				projName := projectNameFor(s.adp, vm.ProjectUUID)
-				if vm.ProjectUUID != wantProject && projName != wantProject {
-					continue
-				}
-			}
-			req.HostUuid = vm.HostUUID
-			break
-		}
-		if req.HostUuid != "" {
+		if h := resolveOwningHost(s.adp, req.Name, req.Project); h != "" {
+			req.HostUuid = h
 			logger.Printf("RestartVM %s: auto-resolved host=%s", req.Name, req.HostUuid)
 		}
 	}
@@ -1724,6 +1751,11 @@ func (s *weftServer) DeleteVM(ctx context.Context, req *weftv1.DeleteVMRequest) 
 	// would be empty on the success path. Resolving up-front means a
 	// successful DELETE is still counted against the right driver kind.
 	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	if req.HostUuid == "" {
+		if h := resolveOwningHost(s.adp, req.Name, req.Project); h != "" {
+			req.HostUuid = h
+		}
+	}
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchDeleteVM(ctx, req)
 	}
