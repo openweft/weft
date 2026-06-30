@@ -42,6 +42,7 @@ import (
 // operators muscle-memory'd them.
 //
 //	weft cluster status         — health overview banner
+//	weft cluster backup         — etcd snapshot for disaster recovery
 //	weft cluster verify-images  — pull-readiness check
 func newClusterCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	cmd := &cobra.Command{
@@ -50,6 +51,7 @@ func newClusterCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	}
 	cmd.AddCommand(
 		clusterCmd.StatusCommand(socket, sshSocket, sshKey),
+		clusterCmd.BackupCommand(),
 		newVerifyImagesCmd(),
 	)
 	return cmd
