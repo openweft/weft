@@ -35,6 +35,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2/hclsimple"
@@ -57,6 +59,88 @@ type Flavor struct {
 	RAM         string `json:"ram"`
 	EphemeralGB int    `json:"ephemeral_gb"`
 	GPU         string `json:"gpu,omitempty"`
+}
+
+// RAMToMiB parses the Flavor.RAM string ("256Mi", "4Gi", "8192") and
+// returns the equivalent MiB. 0 on unparseable input. The exported
+// helper exists so admission paths (CreateVMRequest, RegisterMicroVMRequest)
+// can compare a wire-supplied MemMb against a catalogue Flavor without
+// re-implementing the suffix parser. Accepts the same shapes as the
+// TUI / CLI parser so a flavor entry written by one tool is reachable
+// by the other.
+func RAMToMiB(s string) int {
+	if s == "" {
+		return 0
+	}
+	low := strings.ToLower(s)
+	switch {
+	case strings.HasSuffix(low, "gib"):
+		n := strings.TrimSuffix(low, "gib")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v * 1024
+	case strings.HasSuffix(low, "gi"):
+		n := strings.TrimSuffix(low, "gi")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v * 1024
+	case strings.HasSuffix(low, "g"):
+		n := strings.TrimSuffix(low, "g")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v * 1024
+	case strings.HasSuffix(low, "mib"):
+		n := strings.TrimSuffix(low, "mib")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v
+	case strings.HasSuffix(low, "mi"):
+		n := strings.TrimSuffix(low, "mi")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v
+	case strings.HasSuffix(low, "m"):
+		n := strings.TrimSuffix(low, "m")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// FlavorMatchByShape returns the catalogue Flavor whose (VCPU, RAM)
+// pair matches the supplied (vcpu, memMiB). Returns ("", false) on
+// no match — used by admission to gate "you can only boot a known
+// flavor" and by the TUI/CLI to render the FLAVOR column without
+// surfacing "custom" (which has no operational meaning).
+//
+// Both axes must match exactly. A workload that wants intermediate
+// shape has to land a new Flavor entry in the catalogue first ;
+// the rejection is deliberate so the operator stays in control of
+// the envelope set.
+func (r *flavorRegistry) FlavorMatchByShape(vcpu int, memMiB int) (Flavor, bool) {
+	for _, f := range r.List() {
+		if f.VCPU == vcpu && RAMToMiB(f.RAM) == memMiB {
+			return f, true
+		}
+	}
+	return Flavor{}, false
 }
 
 // flavorsRegistryFileName is the conventional file path relative to
