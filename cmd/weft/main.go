@@ -213,7 +213,7 @@ running agent.`,
 	root.AddCommand(newInfraCmd())
 	root.AddCommand(newUpCmd())
 	root.AddCommand(newDownCmd())
-	root.AddCommand(newClusterCmd())
+	root.AddCommand(newClusterCmd(&socketPath, &sshSocket, &sshKey))
 	root.AddCommand(newAttestCmd())
 
 	// Client subcommands (was: weft). All speak gRPC to the running agent.
