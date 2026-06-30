@@ -55,6 +55,13 @@ type Client interface {
 	// ListHosts feeds the per-replica host picker for
 	// placement-aware installs. Empty filter = whole cluster.
 	ListHosts(ctx context.Context, in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error)
+	// V0.4.74 : the Install pipeline calls these when Create fails
+	// with "name already in use" — same qualified name, distinct
+	// instance UUID would otherwise loop forever as the cluster
+	// dirties. Adopt the existing UUID instead.
+	ListNetworks(ctx context.Context, in *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error)
+	ListSecurityGroups(ctx context.Context, in *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error)
+	ListVolumes(ctx context.Context, in *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error)
 }
 
 // Manager orchestrates Install / Uninstall / List.
@@ -133,15 +140,28 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 		if nt == "" {
 			nt = "nat"
 		}
+		qname := qualifiedName(manifest.Name, uuid, spec.Name)
 		resp, err := m.client.CreateNetwork(ctx, &weftv1.CreateNetworkRequest{
 			Project:    project,
-			Name:       qualifiedName(manifest.Name, uuid, spec.Name),
+			Name:       qname,
 			Cidr:       spec.CIDR,
 			Gateway:    spec.Gateway,
 			DnsServers: spec.DNS,
 			Type:       nt,
 		})
 		if err != nil {
+			// V0.4.74 : adopt-on-collision. A previous failed install
+			// or a CLI-vs-agent state divergence can leave the
+			// network around without a matching PluginInstance —
+			// re-running Install would forever fail "name in use".
+			// Look up the existing network with the same qualified
+			// name and adopt its UUID so the rest of the pipeline
+			// (SG binding, VM placement) sees a single source of truth.
+			if existing := lookupNetworkByName(ctx, m.client, project, qname); existing != "" {
+				netUUIDByName[spec.Name] = existing
+				inst.Networks = append(inst.Networks, existing)
+				continue
+			}
 			return inst, m.rollback(ctx, inst, fmt.Errorf("create network %q: %w", spec.Name, err))
 		}
 		if resp.Network != nil {
@@ -167,13 +187,20 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 				RemoteCidr: r.RemoteCIDR,
 			})
 		}
+		qname := qualifiedName(manifest.Name, uuid, sg.Name)
 		resp, err := m.client.CreateSecurityGroup(ctx, &weftv1.CreateSecurityGroupRequest{
 			Project:     project,
-			Name:        qualifiedName(manifest.Name, uuid, sg.Name),
+			Name:        qname,
 			Description: sg.Description,
 			Rules:       rules,
 		})
 		if err != nil {
+			// adopt-on-collision (same rationale as network above).
+			if existing := lookupSecurityGroupByName(ctx, m.client, project, qname); existing != "" {
+				sgUUIDByName[sg.Name] = existing
+				inst.SecurityGroups = append(inst.SecurityGroups, existing)
+				continue
+			}
 			return inst, m.rollback(ctx, inst, fmt.Errorf("create security group %q: %w", sg.Name, err))
 		}
 		if resp.Group != nil {
@@ -295,6 +322,11 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 							Format:  fmtStr,
 						})
 						if err != nil {
+							// adopt-on-collision (same rationale).
+							if existing := lookupVolumeByName(ctx, m.client, project, volName); existing != "" {
+								inst.Volumes = append(inst.Volumes, existing)
+								continue
+							}
 							return inst, m.rollback(ctx, inst, fmt.Errorf("create volume %q: %w", volName, err))
 						}
 						if resp.Volume != nil {
@@ -486,6 +518,54 @@ func (m *Manager) rollback(ctx context.Context, inst Instance, cause error) erro
 		_, _ = m.client.DeleteNetwork(ctx, &weftv1.DeleteNetworkRequest{Uuid: n})
 	}
 	return cause
+}
+
+// lookupNetworkByName scans the project's networks for one whose
+// Name matches `qname` and returns its UUID. Empty when no match.
+// Used by Install for adopt-on-collision when CreateNetwork errors
+// "name already in use" — typically a stale resource from a
+// previous failed install OR a CLI-vs-agent state divergence.
+// Bounded by ListNetworks ; clusters with thousands of nets cap
+// out on the response page rather than this code path.
+func lookupNetworkByName(ctx context.Context, client Client, project, qname string) string {
+	resp, err := client.ListNetworks(ctx, &weftv1.ListNetworksRequest{Project: project})
+	if err != nil {
+		return ""
+	}
+	for _, n := range resp.Networks {
+		if n.Name == qname {
+			return n.Uuid
+		}
+	}
+	return ""
+}
+
+// lookupSecurityGroupByName mirrors lookupNetworkByName for SGs.
+func lookupSecurityGroupByName(ctx context.Context, client Client, project, qname string) string {
+	resp, err := client.ListSecurityGroups(ctx, &weftv1.ListSecurityGroupsRequest{Project: project})
+	if err != nil {
+		return ""
+	}
+	for _, g := range resp.Groups {
+		if g.Name == qname {
+			return g.Uuid
+		}
+	}
+	return ""
+}
+
+// lookupVolumeByName mirrors the above for volumes.
+func lookupVolumeByName(ctx context.Context, client Client, project, name string) string {
+	resp, err := client.ListVolumes(ctx, &weftv1.ListVolumesRequest{Project: project})
+	if err != nil {
+		return ""
+	}
+	for _, v := range resp.Volumes {
+		if v.Name == name {
+			return v.Uuid
+		}
+	}
+	return ""
 }
 
 // pickPlacementHosts returns the ordered host_uuid rotation the

@@ -104,3 +104,17 @@ func (a *AgentClient) PullImage(ctx context.Context, in *weftv1.PullImageRequest
 func (a *AgentClient) ListHosts(ctx context.Context, in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {
 	return a.c.ListHosts(ctx, in)
 }
+
+// ListNetworks / ListSecurityGroups / ListVolumes feed the Install
+// pipeline's adopt-on-collision path (V0.4.74) so a stale resource
+// left from a prior failed install gets adopted instead of looping
+// forever on "name already in use".
+func (a *AgentClient) ListNetworks(ctx context.Context, in *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error) {
+	return a.c.ListNetworks(ctx, in)
+}
+func (a *AgentClient) ListSecurityGroups(ctx context.Context, in *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error) {
+	return a.c.ListSecurityGroups(ctx, in)
+}
+func (a *AgentClient) ListVolumes(ctx context.Context, in *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error) {
+	return a.c.ListVolumes(ctx, in)
+}
