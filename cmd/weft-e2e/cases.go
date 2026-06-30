@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +23,7 @@ var allCases = []Case{
 	{Name: "vms/list", Suite: "smoke", Order: 20, Fn: testVMsList},
 	{Name: "vms/cross-host-visible", Suite: "smoke", Order: 21, Fn: testVMsCrossHostVisible},
 	{Name: "vms/image-label-not-placeholder", Suite: "smoke", Order: 22, Fn: testVMImageLabel},
+	{Name: "vms/flavor-matches-catalogue", Suite: "smoke", Order: 23, Fn: testVMFlavorMatchesCatalogue},
 	{Name: "vms/restart-cross-host", Suite: "smoke", Order: 30, Fn: testRestartCrossHost},
 	{Name: "plugin/catalogue-non-empty", Suite: "smoke", Order: 40, Fn: testPluginCatalogue},
 	{Name: "plugin/installed-snapshot", Suite: "smoke", Order: 41, Fn: testInstalledPlugins},
@@ -132,6 +135,103 @@ func testVMImageLabel(c *Ctx) {
 	if len(stale) > 0 {
 		c.expect(false, "%d VM(s) still carry the synthetic image placeholder : %v", len(stale), stale)
 	}
+}
+
+// testVMFlavorMatchesCatalogue asserts every VM in the inventory
+// has a (cpu, mem_mb) tuple that matches some entry in the Flavor
+// catalogue. The "custom" placeholder the TUI renders when no
+// flavor matches is a smell — it means the workload booted on a
+// shape the catalogue doesn't acknowledge. Operator directive
+// 2026-06-30 : "on ne peut pas demarrer sur autre choses que les
+// flavors listés dans le catalogue".
+//
+// Skips VMs with cpu=0 + mem_mb=0 (legacy records without the
+// shape stamped — covered by the flavor backfill on RegisterMicroVM,
+// they converge on the next restart). Reports the first non-match
+// so the failure points the operator at the offending plugin.
+func testVMFlavorMatchesCatalogue(c *Ctx) {
+	ctx, cancel := bg(10 * time.Second)
+	defer cancel()
+	flavorsResp, err := c.Client.ListFlavors(ctx, &weftv1.ListFlavorsRequest{})
+	c.require(err == nil, "ListFlavors: %v", err)
+	type shape struct{ cpu uint32; mem uint64 }
+	known := map[shape]string{}
+	for _, f := range flavorsResp.Flavors {
+		known[shape{cpu: uint32(f.Vcpu), mem: uint64(ramToMB(f.Ram))}] = f.Name
+	}
+	vmsResp, err := c.Client.ListVMs(ctx, &weftv1.ListVMsRequest{})
+	c.require(err == nil, "ListVMs: %v", err)
+	var custom []string
+	for _, v := range vmsResp.Vms {
+		if v.Cpu == 0 && v.MemMb == 0 {
+			continue
+		}
+		if _, ok := known[shape{cpu: v.Cpu, mem: v.MemMb}]; !ok {
+			custom = append(custom, fmt.Sprintf("%s(%dvCPU/%dMB)", v.Name, v.Cpu, v.MemMb))
+		}
+	}
+	if len(custom) > 0 {
+		c.expect(false, "%d VM(s) running on shapes outside the Flavor catalogue : %v", len(custom), custom)
+	}
+}
+
+// ramToMB parses a Flavor.RAM string ("4Gi", "256Mi") into MiB.
+// Mirrors weft.RAMToMiB so the e2e harness doesn't need the server-
+// side dep. Same parser, same suffixes.
+func ramToMB(s string) int {
+	if s == "" {
+		return 0
+	}
+	low := strings.ToLower(s)
+	switch {
+	case strings.HasSuffix(low, "gib"):
+		n := strings.TrimSuffix(low, "gib")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v * 1024
+	case strings.HasSuffix(low, "gi"):
+		n := strings.TrimSuffix(low, "gi")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v * 1024
+	case strings.HasSuffix(low, "g"):
+		n := strings.TrimSuffix(low, "g")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v * 1024
+	case strings.HasSuffix(low, "mib"):
+		n := strings.TrimSuffix(low, "mib")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v
+	case strings.HasSuffix(low, "mi"):
+		n := strings.TrimSuffix(low, "mi")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v
+	case strings.HasSuffix(low, "m"):
+		n := strings.TrimSuffix(low, "m")
+		v, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return v
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // testRestartCrossHost picks the first VM whose host_uuid != the

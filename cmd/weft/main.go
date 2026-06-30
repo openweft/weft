@@ -1168,6 +1168,41 @@ type weftServer struct {
 // projectNameFor resolves a project UUID to its operator-facing
 // name via the Adapter's project registry. Returns "" on miss so
 // callers can decide whether to substitute the UUID or "—".
+// enforceFlavor rejects (cpu, memMiB) tuples that don't match any
+// catalogue Flavor entry. Operator directive 2026-06-30 : "on ne
+// peut pas demarrer sur autre choses que les flavors listés dans
+// le catalogue" — workloads with arbitrary shapes drift the
+// inventory toward an unbounded set of "custom" rows ; gate at
+// admission so the catalogue stays the source of truth.
+//
+// cpu=0 + memMiB=0 short-circuits as admit : legacy callers that
+// don't supply a shape (drivers using compile-time defaults,
+// RegisterMicroVMRequest pre-V0.4.72 wire shape) are still
+// honoured. New clients always send the pair so the gate has
+// teeth in practice. nil flavors registry (single-host dev mode
+// without one) also short-circuits — same conservative posture.
+func (s *weftServer) enforceFlavor(cpu, memMiB int) error {
+	if cpu == 0 && memMiB == 0 {
+		return nil
+	}
+	if s.flavors == nil {
+		return nil
+	}
+	if _, ok := s.flavors.FlavorMatchByShape(cpu, memMiB); ok {
+		return nil
+	}
+	// Render the available shapes in the error so the operator
+	// can pick one without a second `weft flavor list` round-trip.
+	available := s.flavors.List()
+	shapes := make([]string, 0, len(available))
+	for _, f := range available {
+		shapes = append(shapes, fmt.Sprintf("%s(%dvCPU/%s)", f.Name, f.VCPU, f.RAM))
+	}
+	return status.Errorf(codes.InvalidArgument,
+		"flavor : shape vcpu=%d mem_mb=%d doesn't match any catalogue entry ; available : %s",
+		cpu, memMiB, strings.Join(shapes, ", "))
+}
+
 // resolveOwningHost looks up (name, project) in the inventory and
 // returns the VM record's HostUUID. Empty string when no match.
 // Shared by Start/Stop/Restart/Delete handlers so a request that
@@ -1700,6 +1735,15 @@ func (s *weftServer) CreateVM(ctx context.Context, req *weftv1.CreateVMRequest) 
 	if err != nil {
 		return nil, err
 	}
+	// V0.4.75 : flavor admission. The (cpu, mem) tuple must match
+	// an entry in the catalogue Flavor registry — operator
+	// directive 2026-06-30 "fait en sorte qu'on ne puisse pas
+	// demarrer sur autre choses que les flavors listés dans le
+	// catalogue". cpu=0 + mem=0 short-circuits (caller didn't
+	// specify ; legacy path / driver-default shape).
+	if err := s.enforceFlavor(int(req.Cpu), int(req.MemMb)); err != nil {
+		return nil, err
+	}
 	// Hard-cap enforcement at handler entry per
 	// docs/operations/tenant-quotas.md. ResourceExhausted is the
 	// canonical gRPC code for "request denied by a quota" — clients
@@ -2019,6 +2063,15 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 		req.Name, req.Project, req.BootIso, req.Kernel, req.Initrd, req.Cmdline, len(req.Shares))
 	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
 	if err != nil {
+		return nil, err
+	}
+	// V0.4.75 : flavor admission. RegisterMicroVMRequest carries
+	// cpu + mem_mb since weft-proto v0.4.72 ; require those values
+	// match a catalogue Flavor (operator directive 2026-06-30).
+	// cpu=0 + mem_mb=0 = legacy caller that didn't supply a shape —
+	// admit so dev workflows keep working ; new clients always send
+	// the shape so the gate has teeth in practice.
+	if err := s.enforceFlavor(int(req.Cpu), int(req.MemMb)); err != nil {
 		return nil, err
 	}
 	// RegisterMicroVM doesn't carry cpu/memory in its request (the
