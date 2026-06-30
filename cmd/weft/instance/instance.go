@@ -4,6 +4,7 @@ package instance
 import (
 	"context"
 
+	deletecmd "github.com/openweft/weft/cmd/weft/instance/delete"
 	"github.com/openweft/weft/cmd/weft/instance/gc"
 	"github.com/openweft/weft/cmd/weft/instance/logs"
 	"github.com/openweft/weft/cmd/weft/instance/property"
@@ -43,6 +44,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		sshkey.Command(socket, sshSocket, sshKey),
 		setproperties.Command(socket, sshSocket, sshKey),
 		gc.Command(socket, sshSocket, sshKey),
+		deletecmd.Command(socket, sshSocket, sshKey),
 	)
 	return cmd
 }
