@@ -128,6 +128,27 @@ func (f *fakeClient) MicroVMRun(_ context.Context, vmName, image, project, hostU
 	}
 	return nil
 }
+func (f *fakeClient) ListNetworks(_ context.Context, in *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error) {
+	out := &weftv1.ListNetworksResponse{}
+	for _, n := range f.createNets {
+		out.Networks = append(out.Networks, &weftv1.NetworkInfo{Uuid: "net-" + n.Name, Name: n.Name})
+	}
+	return out, nil
+}
+func (f *fakeClient) ListSecurityGroups(_ context.Context, in *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error) {
+	out := &weftv1.ListSecurityGroupsResponse{}
+	for _, g := range f.createSGs {
+		out.Groups = append(out.Groups, &weftv1.SecurityGroupInfo{Uuid: "sg-" + g.Name, Name: g.Name})
+	}
+	return out, nil
+}
+func (f *fakeClient) ListVolumes(_ context.Context, in *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error) {
+	out := &weftv1.ListVolumesResponse{}
+	for _, v := range f.createVols {
+		out.Volumes = append(out.Volumes, &weftv1.VolumeInfo{Uuid: "vol-" + v.Name, Name: v.Name, SizeGib: v.SizeGib})
+	}
+	return out, nil
+}
 func (f *fakeClient) ListHosts(_ context.Context, in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {
 	if f.listHosts != nil {
 		return f.listHosts(in)
