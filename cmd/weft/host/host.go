@@ -13,6 +13,7 @@
 package host
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -48,9 +49,128 @@ also register them explicitly with "weft host register".`,
 		setPropertiesCmd(socket, sshSocket, sshKey),
 		cordonCmd(socket, sshSocket, sshKey),
 		uncordonCmd(socket, sshSocket, sshKey),
+		drainCmd(socket, sshSocket, sshKey),
 		rmCmd(socket, sshSocket, sshKey),
 	)
 	return cmd
+}
+
+// drainCmd is the production-survival convenience : sets the host's
+// state to "draining" (the scheduler stops admitting new placements)
+// AND lists every VM currently owned by the host so the operator
+// knows what still needs to be migrated / deleted before a reboot
+// or decommission. Idempotent — re-running on an already-draining
+// host re-prints the inventory without an error.
+//
+// --evict deletes every VM marked `deployment.type=ci` (disposable
+// build runners) up-front so the operator only has to think about
+// the HA workloads. HA VMs are never auto-deleted ; the operator
+// migrates them via the per-plugin runbook (etcd-Patroni-style
+// failover for postgres-ha, simple delete+respawn for stateless,
+// etc.).
+//
+//	weft host drain dc2-r1-h1
+//	weft host drain dc2-r1-h1 --evict        # also drop ci VMs
+//	weft host drain dc2-r1-h1 --force        # skip the prompt
+func drainCmd(socket, sshSocket, sshKey *string) *cobra.Command {
+	var (
+		byHostname bool
+		evict      bool
+		force      bool
+	)
+	cmd := &cobra.Command{
+		Use:   "drain <uuid|hostname>",
+		Short: "Set a host to draining (no new placements) + list VMs still on it",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			uuid := args[0]
+			hostname := args[0]
+			if !byHostname && looksLikeUUID(args[0]) {
+				resp, err := c.GetHost(context.Background(), &weftv1.GetHostRequest{Uuid: args[0]})
+				if err == nil {
+					hostname = resp.Host.Hostname
+				}
+			} else {
+				resp, err := c.GetHost(context.Background(), &weftv1.GetHostRequest{Hostname: args[0]})
+				if err != nil {
+					return fmt.Errorf("GetHost %q: %w", args[0], err)
+				}
+				uuid = resp.Host.Uuid
+				hostname = resp.Host.Hostname
+			}
+			if !force {
+				fmt.Fprintf(os.Stderr, "About to drain host %s (uuid=%s). Type yes to confirm : ", hostname, uuid)
+				reader := bufio.NewReader(os.Stdin)
+				line, _ := reader.ReadString('\n')
+				if strings.TrimSpace(strings.ToLower(line)) != "yes" {
+					return fmt.Errorf("aborted")
+				}
+			}
+			if _, err := c.SetHostState(context.Background(), &weftv1.SetHostStateRequest{Uuid: uuid, State: "draining"}); err != nil {
+				return fmt.Errorf("SetHostState draining: %w", err)
+			}
+			fmt.Printf("host %s state -> draining\n", hostname)
+
+			// Walk the VM inventory + report (or evict) what's still on this host.
+			vms, err := c.ListVMs(context.Background(), &weftv1.ListVMsRequest{})
+			if err != nil {
+				return fmt.Errorf("ListVMs: %w", err)
+			}
+			var remaining []*weftv1.VMInfo
+			var evicted []string
+			for _, v := range vms.Vms {
+				if v.HostUuid != uuid {
+					continue
+				}
+				if evict && v.Properties["deployment.type"] == "ci" {
+					if _, derr := c.DeleteVM(context.Background(), &weftv1.DeleteVMRequest{
+						Name: v.Name, Project: v.Project, HostUuid: uuid,
+					}); derr != nil {
+						fmt.Fprintf(os.Stderr, "evict %s : %v\n", v.Name, derr)
+					} else {
+						evicted = append(evicted, v.Name)
+					}
+					continue
+				}
+				remaining = append(remaining, v)
+			}
+			if len(evicted) > 0 {
+				fmt.Printf("\nEvicted %d CI VM(s) :\n", len(evicted))
+				for _, n := range evicted {
+					fmt.Printf("  - %s\n", n)
+				}
+			}
+			if len(remaining) == 0 {
+				fmt.Println("\nHost is empty. Safe to reboot / decommission.")
+				return nil
+			}
+			fmt.Printf("\n%d VM(s) still on %s — migrate or delete before reboot :\n", len(remaining), hostname)
+			for _, v := range remaining {
+				dep := v.Properties["deployment.type"]
+				if dep == "" {
+					dep = "-"
+				}
+				fmt.Printf("  - %-40s project=%s deployment=%s\n", v.Name, v.Project, dep)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&byHostname, "by-hostname", false, "Treat the positional arg as a hostname (default: auto-detect UUID vs hostname)")
+	cmd.Flags().BoolVar(&evict, "evict", false, "Delete deployment.type=ci VMs on the host (disposable workloads only)")
+	cmd.Flags().BoolVar(&force, "force", false, "Skip the confirmation prompt")
+	return cmd
+}
+
+// looksLikeUUID is a cheap heuristic to disambiguate the positional
+// arg without forcing the operator to flag --by-hostname every time :
+// 36 chars + a few dashes = treat as UUID, otherwise hostname.
+func looksLikeUUID(s string) bool {
+	return len(s) == 36 && strings.Count(s, "-") == 4
 }
 
 // cordonCmd flips a host's `cordoned` flag on — the scheduler stops
