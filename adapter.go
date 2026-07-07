@@ -64,7 +64,7 @@ type VZAdapter interface {
 	GetOSFromCache(image string) string
 
 	// VZ-specific extensions
-	RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare) error
+	RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare, requestedGPUs []GPURequest) error
 	// PodCID returns the AF_VSOCK CID the agent allocated for the
 	// pod_id (= VM.Name). Used by GuestPodPlane.Attach to verify
 	// the announced pod_id against the peer's actual CID. Unknown
@@ -483,12 +483,12 @@ type Adapter struct {
 	// schedRules carry selector + target_count for nominal binding ;
 	// registryRemotes is the OCI registry alias map. See
 	// resources_adapter.go.
-	volumePropReg   *volumePropertyRegistry
-	shareReg        *shareRegistry
-	bucketReg       *bucketRegistry
-	sshKeyCatReg    *sshKeyCatalogueRegistry
-	schedRuleReg    *schedulingRuleRegistry
-	registryRemReg  *registryRemoteRegistry
+	volumePropReg  *volumePropertyRegistry
+	shareReg       *shareRegistry
+	bucketReg      *bucketRegistry
+	sshKeyCatReg   *sshKeyCatalogueRegistry
+	schedRuleReg   *schedulingRuleRegistry
+	registryRemReg *registryRemoteRegistry
 	// vmReg holds the VM inventory — one entry per managed VM,
 	// each carrying its host_uuid for multi-host dispatch. See
 	// vms.go.
@@ -519,6 +519,13 @@ type Adapter struct {
 	// scheduler.go for the interface + the default policy's
 	// rationale.
 	scheduler Scheduler
+	// gpuClaims is the exclusive GPU allocation table — tracks which
+	// physical card / MIG instance is held by which VM so a
+	// RequestedGPUs placement can't double-book hardware. Loaded from
+	// the "gpu_allocations" KV prefix when a kvStorageFactory is wired
+	// (else in-memory). Claimed by ScheduleVMExclusive, released by
+	// UnregisterVM. See gpu_alloc.go + docs/operations/gpu-sharing.md.
+	gpuClaims *gpuAllocTable
 	// driverDispatch maps host UUID → HostHandle (the four
 	// driver interfaces for that host). Populated for the local
 	// host by initLocalDrivers; remote hosts add themselves via
@@ -786,6 +793,7 @@ func (a *Adapter) afterStorageWired() VZAdapter {
 	a.initPorts()
 	a.initFloatingIPs()
 	a.initHosts()
+	a.initGPUClaims()
 	a.initVMs()
 	a.initTenantQuotas()
 	a.initTenantCaps()
@@ -1478,6 +1486,12 @@ func (a *Adapter) UnregisterVM(uuid string) error {
 	if err := a.vmReg.delete(uuid); err != nil {
 		return err
 	}
+	// Free any GPU cards / MIG instances this VM held so the hardware
+	// returns to the schedulable pool. No-op for non-GPU VMs (ReleaseVM
+	// is idempotent + cheap on an unknown UUID).
+	if a.gpuClaims != nil {
+		a.gpuClaims.ReleaseVM(uuid)
+	}
 	// Drop the in-memory pod_id→CID binding so a recycled VM
 	// name (same project + same name re-registered later) won't
 	// inherit the previous incarnation's CID expectation.
@@ -1521,6 +1535,26 @@ func (a *Adapter) initHosts() {
 		}
 	}
 	a.hostReg = reg
+}
+
+// initGPUClaims loads the GPU allocation table. KV-backed when a
+// kvStorageFactory is wired (claims survive restart + are cluster-wide
+// visible), in-memory otherwise. Load failure degrades to an empty
+// KV-backed table rather than failing bring-up — a missing claim history
+// is recoverable (worst case a stale claim lingers until its VM is
+// unregistered), an aborted boot is not.
+func (a *Adapter) initGPUClaims() {
+	if a.kvStorageFactory == nil {
+		a.gpuClaims = newGPUAllocTable()
+		return
+	}
+	kv := a.kvStorageFactory("gpu_allocations")
+	t, err := loadGPUAllocTableKV(context.Background(), kv)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weft: load gpu allocations (kv): %v\n", err)
+		t = newGPUAllocTableKV(kv)
+	}
+	a.gpuClaims = t
 }
 
 // WatchHostRegistry mirrors WatchVMRegistry for host inventory : KV
@@ -3539,7 +3573,7 @@ type MicroVMBoot struct {
 //
 // To force a full re-registration (re-copy boot artefacts) the
 // operator deletes the VM first (DeleteVM).
-func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare) error {
+func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare, requestedGPUs []GPURequest) error {
 	if a.VMExistsIn(project, name) {
 		projUUID := a.ResolveProjectUUID(project)
 		local := a.LocalHostUUID()
@@ -3732,108 +3766,47 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		_ = a.autoRenderNATSAuthorization()
 	}
 
-	// config.json shape matching what runvm.go's vmCfgJSON decodes.
-	// Keep the JSON keys explicit so a future refactor of either
-	// side flags the schema mismatch loudly.
-	type shareEntry struct {
-		Tag      string `json:"tag"`
-		Path     string `json:"path"`
-		ReadOnly bool   `json:"read_only,omitempty"`
-	}
-	entries := make([]shareEntry, len(shares))
-	for i, s := range shares {
-		if s.Tag == "" || s.Path == "" {
-			_ = os.RemoveAll(dir)
-			return fmt.Errorf("vz register-microvm: share #%d needs both Tag and Path", i)
-		}
-		exposePath := s.Path
-		if s.Clone {
-			// macOS clonefile(2) is recursive on directories and
-			// produces an APFS copy-on-write clone in O(metadata).
-			// Destination must NOT pre-exist (the syscall fails with
-			// EEXIST otherwise) — we create the parent dir but let
-			// clonefile create the leaf. The clone lives under vmDir
-			// so DeleteVM's RemoveAll handles cleanup automatically.
-			clonePath := filepath.Join(dir, s.Tag)
-			if err := cloneOrCopyTree(s.Path, clonePath); err != nil {
-				_ = os.RemoveAll(dir)
-				return fmt.Errorf("vz register-microvm: stage share %q -> %q: %w", s.Path, clonePath, err)
-			}
-			exposePath = clonePath
-		}
-		entries[i] = shareEntry{Tag: s.Tag, Path: exposePath, ReadOnly: s.ReadOnly}
-	}
-	// Pre-allocate the guest's AF_VSOCK CID before writing config.json
-	// so the driver picks it up when it bakes its qemu argv (or wires
-	// the equivalent on Apple VZ). We can't read it back from the VM
-	// inventory yet — RegisterVM lower in this function is what
-	// persists the VsockCID on the VM record — but the CID is a pure
-	// function of (projectUUID, name) at this point, so we recompute
-	// it here. The downstream call to RegisterPodCID will store the
-	// same value on the registry, and setVsockCID persists it on the
-	// VM record. Three callers, one truth — guaranteed by the hash.
-	preCID := AllocateVsockCID(projectUUID, name)
-	cfg := struct {
-		MicroVM  bool         `json:"microvm"`
-		Cmdline  string       `json:"cmdline,omitempty"`
-		Shares   []shareEntry `json:"shares,omitempty"`
-		VsockCID uint32       `json:"vsock_cid,omitempty"`
-		Image    string       `json:"image,omitempty"`
-		CPU      int          `json:"cpu,omitempty"`
-		MemMB    int          `json:"mem_mb,omitempty"`
-	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, VsockCID: preCID, Image: boot.Image, CPU: boot.CPU, MemMB: boot.MemoryMiB}
-	b, _ := json.MarshalIndent(cfg, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
-		_ = os.RemoveAll(dir)
-		return fmt.Errorf("vz register-microvm: write config: %w", err)
-	}
-
-	// Lifecycle event: the VM dir is fully provisioned and ready
-	// for StartVM. Recorded *after* every artefact is on disk so
-	// the "registered" stamp truly marks "ready to boot".
+	// VM inventory entry — created BEFORE config.json so we have the
+	// UUID to key the GPU claim on (and so UnregisterVM can release it).
+	// Best-effort for non-GPU VMs: failure only loses the multi-host
+	// dispatch path (handled by the hypervisorForVM fallback).
+	//
+	// Image preference : the caller-supplied OCI ref (boot.Image) wins
+	// when set — it's the operator-meaningful identity for the workload
+	// ("weft-etcd:v3.6.0" reads better than the internal
+	// "microvm/direct_linux" boot-mode label). Falls back to
+	// "microvm/<mode>" for callers that don't pass an OCI ref, keeping
+	// the existing audit semantics.
 	mode := "uki"
 	if boot.Kernel != "" {
 		mode = "direct_linux"
 	}
-	RecordEvent(dir, "registered", map[string]string{"mode": mode})
-	// VM inventory entry — best-effort. Same rationale as in
-	// CloneVM: the VM is fully provisioned on disk; failure to
-	// register only loses the multi-host dispatch path (handled
-	// by the hypervisorForVM fallback).
-	//
-	// Image preference : the caller-supplied OCI ref (boot.Image)
-	// wins when set — it's the operator-meaningful identity for
-	// the workload ("weft-etcd:v3.6.0" reads better than the
-	// internal "microvm/direct_linux" boot-mode label). Falls
-	// back to "microvm/<mode>" for callers that don't pass an
-	// OCI ref (legacy paths + bare-direct-Linux registrations),
-	// keeping the existing audit semantics.
 	regImage := boot.Image
 	if regImage == "" {
 		regImage = "microvm/" + mode
 	}
+	var vmUUID string
+	var gpuPCI, gpuMIG []string
 	if a.vmReg != nil {
-		projectUUID := a.ResolveProjectUUID(project)
-		registered, err := a.RegisterVM(CreateVMSpec{
-			ProjectUUID: projectUUID,
-			Name:        name,
-			HostUUID:    a.localHostUUID(),
-			Image:       regImage,
-			CPUCount:    boot.CPU,
-			MemoryMiB:   boot.MemoryMiB,
+		vm, err := a.RegisterVM(CreateVMSpec{
+			ProjectUUID:   a.ResolveProjectUUID(project),
+			Name:          name,
+			HostUUID:      a.localHostUUID(),
+			Image:         regImage,
+			CPUCount:      boot.CPU,
+			MemoryMiB:     boot.MemoryMiB,
+			RequestedGPUs: requestedGPUs,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
-			// Stale registry entry but the local dir was just
-			// rebuilt (operator cleaned $stateDir/vz/.../<vm> by
-			// hand) : RegisterVM rejects the duplicate name, yet
-			// we now hold the canonical config.json + boot artefacts
-			// for this host. Lift the existing record's HostUUID +
-			// Image so the cross-host inventory converges on the
-			// fresh registration instead of staying frozen on the
-			// previous host's stale labels. setHost / setImage are
-			// best-effort and self-skip when already equal.
-			if existing, ok := a.vmReg.lookupByName(projectUUID, name); ok && existing.UUID != "" {
+			// Stale registry entry but the local dir was just rebuilt
+			// (operator cleaned $stateDir/vz/.../<vm> by hand):
+			// RegisterVM rejects the duplicate name, yet we now hold
+			// the canonical config.json + boot artefacts for this host.
+			// Lift the existing record's HostUUID / Image / shape so the
+			// cross-host inventory converges on the fresh registration.
+			// Best-effort; self-skip when already equal.
+			if existing, ok := a.vmReg.lookupByName(a.ResolveProjectUUID(project), name); ok && existing.UUID != "" {
 				local := a.localHostUUID()
 				if local != "" && existing.HostUUID != local {
 					if setErr := a.vmReg.setHost(existing.UUID, local); setErr != nil {
@@ -3852,27 +3825,111 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 				}
 			}
 		} else {
-			// AF_VSOCK CID allocation : deterministic hash of
-			// (projectUUID, name). Written into config.json (above)
-			// + the VM record so the QEMU driver binds the device
-			// at StartVM. Re-computed here from the same hash inputs
-			// — pure, no need to thread preCID down.
-			//
-			// Note (v0.4.51) : the in-memory podCIDs registry is NOT
-			// stamped here anymore. It self-populates via the
-			// GuestPodPlane.Attach autoregister-on-first-Hello path
-			// using peer.CID() from the kernel — which is the truth
-			// for both backends (QEMU binds the CID we asked for ;
-			// Apple VZ picks its own CID we can't query). This
-			// removes the v0.4.46-era bug where VZ-backed VMs got
-			// rejected by strict-when-known because the allocator's
-			// pick disagreed with VZ's kernel assignment.
-			cid := AllocateVsockCID(projectUUID, name)
-			if cid != 0 {
-				if err := a.vmReg.setVsockCID(registered.UUID, cid); err != nil {
-					fmt.Fprintf(os.Stderr, "weft: register-microvm: persist vsock_cid: %v\n", err)
-				}
+			vmUUID = vm.UUID
+		}
+	}
+	// From here on an inventory entry (and, below, a GPU claim) may exist
+	// keyed by vmUUID, so every failure must release them too — not just
+	// remove the dir. UnregisterVM is a no-op for an empty/unknown UUID
+	// and also releases the VM's GPU claims (see UnregisterVM).
+	cleanupRegistered := func() {
+		if vmUUID != "" {
+			_ = a.UnregisterVM(vmUUID)
+		}
+		_ = os.RemoveAll(dir)
+	}
+	// GPU passthrough : claim the concrete cards / MIG instances on the
+	// local host and feed their resource ids into config.json so the
+	// driver emits the matching vfio-pci devices. A GPU VM MUST have an
+	// inventory UUID (the claim + release hang off it) and MUST get its
+	// resources — booting a GPU VM with no GPU is worse than failing, so
+	// both are hard errors that tear down the half-provisioned dir.
+	if len(requestedGPUs) > 0 {
+		if vmUUID == "" {
+			cleanupRegistered()
+			return fmt.Errorf("vz register-microvm: GPU request needs a VM inventory entry, but registration failed")
+		}
+		claims, err := a.claimGPUsForVM(vmUUID, requestedGPUs, time.Now().UnixNano())
+		if err != nil {
+			cleanupRegistered()
+			return fmt.Errorf("vz register-microvm: claim GPUs: %w", err)
+		}
+		gpuPCI, gpuMIG = splitClaimsForDriver(claims)
+	}
+
+	// config.json shape matching what runvm.go's vmCfgJSON decodes.
+	// Keep the JSON keys explicit so a future refactor of either
+	// side flags the schema mismatch loudly.
+	type shareEntry struct {
+		Tag      string `json:"tag"`
+		Path     string `json:"path"`
+		ReadOnly bool   `json:"read_only,omitempty"`
+	}
+	entries := make([]shareEntry, len(shares))
+	for i, s := range shares {
+		if s.Tag == "" || s.Path == "" {
+			cleanupRegistered()
+			return fmt.Errorf("vz register-microvm: share #%d needs both Tag and Path", i)
+		}
+		exposePath := s.Path
+		if s.Clone {
+			// macOS clonefile(2) is recursive on directories and
+			// produces an APFS copy-on-write clone in O(metadata).
+			// Destination must NOT pre-exist (the syscall fails with
+			// EEXIST otherwise) — we create the parent dir but let
+			// clonefile create the leaf. The clone lives under vmDir
+			// so DeleteVM's RemoveAll handles cleanup automatically.
+			clonePath := filepath.Join(dir, s.Tag)
+			if err := cloneOrCopyTree(s.Path, clonePath); err != nil {
+				cleanupRegistered()
+				return fmt.Errorf("vz register-microvm: stage share %q -> %q: %w", s.Path, clonePath, err)
 			}
+			exposePath = clonePath
+		}
+		entries[i] = shareEntry{Tag: s.Tag, Path: exposePath, ReadOnly: s.ReadOnly}
+	}
+	// Pre-allocate the guest's AF_VSOCK CID before writing config.json
+	// so the driver picks it up when it bakes its qemu argv (or wires
+	// the equivalent on Apple VZ). We can't read it back from the VM
+	// inventory yet — RegisterVM lower in this function is what
+	// persists the VsockCID on the VM record — but the CID is a pure
+	// function of (projectUUID, name) at this point, so we recompute
+	// it here. The downstream call to RegisterPodCID will store the
+	// same value on the registry, and setVsockCID persists it on the
+	// VM record. Three callers, one truth — guaranteed by the hash.
+	preCID := AllocateVsockCID(projectUUID, name)
+	cfg := struct {
+		MicroVM        bool         `json:"microvm"`
+		Cmdline        string       `json:"cmdline,omitempty"`
+		Shares         []shareEntry `json:"shares,omitempty"`
+		VsockCID       uint32       `json:"vsock_cid,omitempty"`
+		Image          string       `json:"image,omitempty"`
+		CPU            int          `json:"cpu,omitempty"`
+		MemMB          int          `json:"mem_mb,omitempty"`
+		PCIPassthrough []string     `json:"pci_passthrough,omitempty"`
+		MIGDevices     []string     `json:"mig_devices,omitempty"`
+	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, VsockCID: preCID, Image: boot.Image, CPU: boot.CPU, MemMB: boot.MemoryMiB, PCIPassthrough: gpuPCI, MIGDevices: gpuMIG}
+	b, _ := json.MarshalIndent(cfg, "", "  ")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
+		cleanupRegistered()
+		return fmt.Errorf("vz register-microvm: write config: %w", err)
+	}
+
+	// Lifecycle event: the VM dir is fully provisioned and ready
+	// for StartVM. Recorded *after* every artefact is on disk so
+	// the "registered" stamp truly marks "ready to boot". The VM
+	// inventory entry (+ any GPU claim) was created earlier so its
+	// UUID could key the claim; see the block above.
+	RecordEvent(dir, "registered", map[string]string{"mode": mode})
+	// Persist the AF_VSOCK CID on the VM record (when it registered)
+	// so the QEMU driver binds the device at StartVM — the same value
+	// baked into config.json above. The in-memory podCIDs registry is
+	// NOT stamped here: it self-populates via the GuestPodPlane.Attach
+	// autoregister-on-first-Hello path using peer.CID() from the kernel
+	// (truth for both backends; VZ picks its own CID we can't query).
+	if vmUUID != "" && preCID != 0 {
+		if err := a.vmReg.setVsockCID(vmUUID, preCID); err != nil {
+			fmt.Fprintf(os.Stderr, "weft: register-microvm: persist vsock_cid: %v\n", err)
 		}
 	}
 	return nil

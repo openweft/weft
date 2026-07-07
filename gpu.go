@@ -66,6 +66,48 @@ type GPU struct {
 	MemoryGiB  int    `json:"memory_gib,omitempty"`  // per-card memory
 	MIGCapable bool   `json:"mig_capable,omitempty"` // H200 yes, RTX 6000 Ada no
 	PCIBDF     string `json:"pci_bdf,omitempty"`     // "0000:65:00.0" — set by detectGPUs at runtime
+	// NVLinkDomain labels the NVLink island this card sits in. On a
+	// 2×NVL4 node the eight cards split into two domains ("nvl4-a" /
+	// "nvl4-b") : NVLink P2P is full bandwidth WITHIN a domain and
+	// falls back to PCIe ACROSS domains. The scheduler uses it to
+	// keep a multi-GPU (count > 1) tensor-parallel request inside one
+	// domain. Operator-seedable via the host `gpu { nvlink_domain = …
+	// }` HCL block ; detection fills it from `nvidia-smi topo`. Empty
+	// = single-domain / unknown, in which case same-domain affinity
+	// is a no-op. See docs/operations/gpu-sharing.md.
+	NVLinkDomain string `json:"nvlink_domain,omitempty"`
+	// MIGInstances is the set of Multi-Instance-GPU slices carved out
+	// of this card, each independently attachable to one microVM via
+	// the mediated-device VFIO path. Non-empty only on MIG-capable
+	// cards that have been partitioned. Like PCIBDF this is
+	// RUNTIME-DETECTED (nvidia-smi mig -lgi + /sys/bus/mdev) and is
+	// NOT round-tripped through the host-registry HCL — detection
+	// repopulates it at each registration. A card reports EITHER a
+	// whole-card resource (via PCIBDF) OR its MIG instances, never
+	// both, so whole-card and MIG claims can't overlap.
+	MIGInstances []MIGInstance `json:"mig_instances,omitempty"`
+}
+
+// MIGInstance is one realised Multi-Instance-GPU slice of a parent
+// H200, exposed to the host as a VFIO mediated device. It is the
+// allocatable unit the claim layer holds for an MIG-sliced
+// GPURequest : one MIGInstance is attached to at most one microVM at
+// a time (see gpu_alloc.go).
+//
+// UUID is the MIG / mdev device UUID — the value the QEMU driver
+// passes as `-device vfio-pci,sysfsdev=/sys/bus/mdev/devices/<uuid>`
+// (whole cards go through `host=<BDF>` instead). ParentBDF ties the
+// slice back to its physical card so the detector / scheduler can
+// reason about per-card capacity. GIID / CIID are the GPU-instance
+// and compute-instance ids from `nvidia-smi mig -lgi` / `-lci`, kept
+// for diagnostics and the driver's sysfs lookup.
+type MIGInstance struct {
+	ParentBDF string `json:"parent_bdf"`           // "0000:65:00.0" — physical card
+	Profile   string `json:"profile"`              // "1g.18gb" / "2g.35gb" / "3g.71gb" / ...
+	GIID      int    `json:"gi_id,omitempty"`      // GPU-instance id
+	CIID      int    `json:"ci_id,omitempty"`      // compute-instance id
+	UUID      string `json:"uuid"`                 // MIG / mdev device UUID — sysfsdev= for the QEMU driver
+	MemoryGiB int    `json:"memory_gib,omitempty"` // slice memory
 }
 
 // GPURequest is what one VM asks for. Vendor is required (the only
@@ -228,19 +270,101 @@ func gpuRequestSatisfied(req GPURequest, gpus []GPU) bool {
 	}
 	matched := 0
 	for _, g := range gpus {
-		if !strings.EqualFold(g.Vendor, req.Vendor) {
-			continue
-		}
-		if req.Model != "" && !strings.EqualFold(req.Model, GPUModelAny) {
-			if !strings.EqualFold(g.Model, req.Model) {
-				continue
-			}
-		}
-		if req.MIGSlice != "" && !g.MIGCapable {
+		if !gpuCardMatches(req, g) {
 			continue
 		}
 		matched++
 		if matched >= want {
+			return true
+		}
+	}
+	return false
+}
+
+// gpuCardMatches reports whether one physical card satisfies the
+// vendor / model / MIG-capability predicate of a GPURequest. Extracted
+// so the non-exclusive matcher (gpuRequestSatisfied) and the
+// exclusivity-aware one (gpuRequestSatisfiedExcl) share one definition
+// of "this card is the right kind" — the only difference between them
+// is whether they also consult the claim table.
+//
+// Model="" or the wildcard "any" matches every model from the vendor.
+// A non-empty MIGSlice filters to MIG-capable cards (the H200 qualifies,
+// RTX 6000 Ada does not).
+func gpuCardMatches(req GPURequest, g GPU) bool {
+	if !strings.EqualFold(g.Vendor, req.Vendor) {
+		return false
+	}
+	if req.Model != "" && !strings.EqualFold(req.Model, GPUModelAny) {
+		if !strings.EqualFold(g.Model, req.Model) {
+			return false
+		}
+	}
+	if req.MIGSlice != "" && !g.MIGCapable {
+		return false
+	}
+	return true
+}
+
+// gpuRequestSatisfiedExcl is the exclusivity-aware counterpart of
+// gpuRequestSatisfied : a host satisfies the request only if it carries
+// enough UNCLAIMED matching resources. `claimed` reports whether a given
+// resource id (the PCI BDF for a whole card, the MIG-instance UUID for a
+// slice) is already held — the caller binds it to one host so the matcher
+// stays a pure function of (request, inventory, claim-view) and is
+// trivially testable.
+//
+// Two counting modes, mirroring how the resource is attached to a guest :
+//
+//   - MIG request (req.MIGSlice != "") — count unclaimed MIGInstances of
+//     the requested profile on MIG-capable matching cards. The H200 is
+//     the only fleet SKU that produces any.
+//   - Whole-card request — count unclaimed matching cards that have a
+//     known PCI BDF. Cards with an empty BDF (statically seeded, never
+//     detected) are SKIPPED : without a stable resource id they can't be
+//     claimed exclusively. This is the same seed-vs-detected boundary
+//     GPU.PCIBDF's doc comment already calls out ; detection always sets
+//     the BDF, so the production path is unaffected.
+//
+// Vendor is required (empty → false, matching gpuRequestSatisfied).
+func gpuRequestSatisfiedExcl(req GPURequest, gpus []GPU, claimed func(resourceID string) bool) bool {
+	if req.Vendor == "" {
+		return false
+	}
+	want := req.Count
+	if want <= 0 {
+		want = 1
+	}
+	free := 0
+	if req.MIGSlice != "" {
+		for _, g := range gpus {
+			if !gpuCardMatches(req, g) {
+				continue
+			}
+			for _, mi := range g.MIGInstances {
+				if !strings.EqualFold(mi.Profile, req.MIGSlice) {
+					continue
+				}
+				if mi.UUID == "" || claimed(mi.UUID) {
+					continue
+				}
+				free++
+				if free >= want {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, g := range gpus {
+		if !gpuCardMatches(req, g) {
+			continue
+		}
+		if g.PCIBDF == "" || claimed(g.PCIBDF) {
+			continue
+		}
+		free++
+		if free >= want {
 			return true
 		}
 	}

@@ -8,6 +8,55 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 ## [Unreleased]
 
 ### Added
+- **GPU sharing — NVLink topology + same-domain affinity** (phase 4).
+  The Linux `detectGPUs` now fills `GPU.NVLinkDomain` from `nvidia-smi
+  topo -m` (`assignNVLinkDomains`, a platform-neutral parser in
+  `gpu_topo.go`): cards are grouped into NVLink islands by `NV*`
+  adjacency (connected components), islands of ≥2 cards get a stable
+  `nvl-<minIndex>` label, lone cards stay empty. `selectGPUClaims`
+  enforces same-domain affinity for whole-card `count > 1` requests via
+  `chooseWholeCardsByDomain`: all cards must come from one island, no
+  cross-island mixing; empty domains (unknown topology / no NVLink) are
+  a no-op (degraded PCIe placement allowed). MIG requests are exempt.
+  Closes the 2×NVL4 placement story. See `docs/operations/gpu-sharing.md`.
+- **GPU sharing — MIG-instance detection** (phase 3, detection half).
+  The Linux `detectGPUs` now enumerates NVIDIA MIG instances from
+  `nvidia-smi -L` (`enumerateMIGFromSMIL`, a platform-neutral parser in
+  `gpu_mig.go`), populating `GPU.MIGInstances` with profile / mdev UUID
+  / parent BDF / per-slice memory. Enforces the EITHER/OR invariant: a
+  MIG-mode card has its whole-card `PCIBDF` cleared so it can't also be
+  claimed whole. The matching QEMU `sysfsdev=` attach lands in
+  `weft-driver-qemu`. See `docs/operations/gpu-sharing.md`.
+- **GPU sharing — scheduler wiring + persistence** (phase 2). New
+  `Adapter.ScheduleVMExclusive` picks a host **and** the concrete GPU
+  resources (whole cards by PCI BDF, MIG instances by mdev UUID),
+  claims them **all-or-nothing** via `gpuAllocTable.ClaimAll`, and
+  returns the claim list; `ResourceExhausted` when no host has enough
+  *unclaimed* capacity. `UnregisterVM` now releases a VM's GPU claims
+  so removed VMs can't leak hardware. The claim table persists
+  per-record under the `gpu_allocations` KV prefix (`gpu_alloc_kv.go`,
+  HCL records mirroring `schedulingrules_kv.go`) and reloads at
+  startup, so claims survive an agent restart and are cluster-wide
+  visible. `ScheduleVM` is unchanged — it stays a pure non-claiming
+  filter for callers that don't request GPUs. The live multi-host
+  create flow doesn't call the exclusive entry point yet (it doesn't
+  call `ScheduleVM` either — same standing deferral).
+- **GPU sharing — inventory model + counted allocation** (first of a
+  phased series, see `docs/operations/gpu-sharing.md`). `GPU` now
+  carries an `NVLinkDomain` label (operator-seedable via the host
+  `gpu { nvlink_domain = … }` HCL block, round-tripped through the KV
+  host record) and a runtime-detected `MIGInstances []MIGInstance`
+  slice — the allocatable units behind a MIG-sliced request. New
+  `gpu_alloc.go` adds an exclusive, in-memory `gpuAllocTable`
+  (whole-card claims keyed by PCI BDF, MIG claims by mdev UUID) with
+  idempotent `Claim` / `Release` / `ReleaseVM`, plus the
+  exclusivity-aware matcher `gpuRequestSatisfiedExcl` that counts only
+  *unclaimed* matching resources. This closes the modelling half of
+  the "Exclusivity boundary" gap noted in
+  `docs/operations/gpu-scheduling.md`. The scheduler and the QEMU
+  driver are **not** rewired yet — selection still uses the
+  non-exclusive matcher; scheduler wiring, etcd persistence, MIG
+  `sysfsdev=` attach, and NVLink affinity are tracked follow-ups.
 - **etcdcoord HostLiveness self-heal** (commit d0342e280). When etcd
   closes the KeepAlive channel (network blip / leader change /
   server restart), the goroutine now retries Grant + Put + KeepAlive

@@ -53,8 +53,8 @@ func TestHostRegistry_GPUInventoryRoundtrip(t *testing.T) {
 		t.Fatalf("loadHostRegistry: %v", err)
 	}
 	specGPUs := []GPU{
-		{Vendor: GPUVendorNVIDIA, Model: "H200", MemoryGiB: 141, MIGCapable: true},
-		{Vendor: GPUVendorNVIDIA, Model: "H200", MemoryGiB: 141, MIGCapable: true},
+		{Vendor: GPUVendorNVIDIA, Model: "H200", MemoryGiB: 141, MIGCapable: true, NVLinkDomain: "nvl-0"},
+		{Vendor: GPUVendorNVIDIA, Model: "H200", MemoryGiB: 141, MIGCapable: true, NVLinkDomain: "nvl-0"},
 	}
 	h, err := reg.register(RegisterHostSpec{
 		Hostname:     "gpu-01",
@@ -94,6 +94,11 @@ func TestHostRegistry_GPUInventoryRoundtrip(t *testing.T) {
 	for i, g := range reloaded.GPUs {
 		if g.Vendor != GPUVendorNVIDIA || g.Model != "H200" || g.MemoryGiB != 141 || !g.MIGCapable {
 			t.Errorf("reloaded GPU[%d] drifted: %+v", i, g)
+		}
+		// NVLinkDomain must survive the blob save→reload round-trip
+		// (regression: saveLocked once dropped it while the KV path kept it).
+		if g.NVLinkDomain != "nvl-0" {
+			t.Errorf("reloaded GPU[%d] lost NVLinkDomain: got %q, want nvl-0", i, g.NVLinkDomain)
 		}
 	}
 }

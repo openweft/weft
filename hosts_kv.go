@@ -75,6 +75,9 @@ func encodeHostRecord(h Host) []byte {
 		if g.MIGCapable {
 			gb.SetAttributeValue("mig_capable", cty.BoolVal(true))
 		}
+		if g.NVLinkDomain != "" {
+			gb.SetAttributeValue("nvlink_domain", cty.StringVal(g.NVLinkDomain))
+		}
 	}
 	for _, p := range h.PCIDevices {
 		pb := bb.AppendNewBlock("pci", []string{p.BDF}).Body()
@@ -226,6 +229,7 @@ func hostFromBlock(b hostBlock) Host {
 		gpus = append(gpus, GPU{
 			Vendor: g.Vendor, Model: g.Model,
 			MemoryGiB: g.MemoryGiB, MIGCapable: g.MIGCapable,
+			NVLinkDomain: g.NVLinkDomain,
 		})
 	}
 	var pciDevs []PCIDevice

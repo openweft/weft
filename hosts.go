@@ -346,10 +346,11 @@ type hostDriverBlock struct {
 // edit the file by SKU first. Vendor + per-card details follow
 // inside the block.
 type gpuBlock struct {
-	Model      string `hcl:",label"`
-	Vendor     string `hcl:"vendor"`
-	MemoryGiB  int    `hcl:"memory_gib,optional"`
-	MIGCapable bool   `hcl:"mig_capable,optional"`
+	Model        string `hcl:",label"`
+	Vendor       string `hcl:"vendor"`
+	MemoryGiB    int    `hcl:"memory_gib,optional"`
+	MIGCapable   bool   `hcl:"mig_capable,optional"`
+	NVLinkDomain string `hcl:"nvlink_domain,optional"`
 }
 
 // hostRegistry mirrors projectRegistry / userRegistry — global
@@ -408,10 +409,11 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			gpus = make([]GPU, 0, len(b.GPUs))
 			for _, g := range b.GPUs {
 				gpus = append(gpus, GPU{
-					Vendor:     g.Vendor,
-					Model:      g.Model,
-					MemoryGiB:  g.MemoryGiB,
-					MIGCapable: g.MIGCapable,
+					Vendor:       g.Vendor,
+					Model:        g.Model,
+					MemoryGiB:    g.MemoryGiB,
+					MIGCapable:   g.MIGCapable,
+					NVLinkDomain: g.NVLinkDomain,
 				})
 			}
 		}
@@ -543,6 +545,9 @@ func (r *hostRegistry) saveLocked() error {
 			}
 			if g.MIGCapable {
 				gb.SetAttributeValue("mig_capable", cty.BoolVal(true))
+			}
+			if g.NVLinkDomain != "" {
+				gb.SetAttributeValue("nvlink_domain", cty.StringVal(g.NVLinkDomain))
 			}
 		}
 		// PCIDevices : one nested `pci "<bdf>" { vendor_id, device_id, driver }`
