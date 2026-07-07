@@ -28,13 +28,14 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	weftclient "github.com/openweft/weft-client"
 	weftv1 "github.com/openweft/weft-proto"
@@ -43,36 +44,55 @@ import (
 
 func main() {
 	var (
-		socket    = flag.String("socket", defaultSocket(), "weft agent Unix socket path (plain)")
-		sshSocket = flag.String("ssh-socket", "", "user@host:/path/to/weft-ssh.sock for SSH transport")
-		sshKey    = flag.String("ssh-key", "", "SSH private key when --ssh-socket is set")
-		suite     = flag.String("suite", "smoke", "test suite : smoke (quick invariants) | full (smoke + plugin lifecycle + cross-host RPCs)")
-		verbose   = flag.Bool("v", false, "print each test's progress lines, not just PASS/FAIL")
-		filter    = flag.String("run", "", "regex-free substring filter — only tests whose name contains this run")
+		socket    string
+		sshSocket string
+		sshKey    string
+		suite     string
+		verbose   bool
+		filter    string
 	)
-	flag.Parse()
+	root := &cobra.Command{
+		Use:           "weft-e2e",
+		Short:         "Cluster-level end-to-end test harness for a live weft deployment",
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			client, conn, err := dial(socket, sshSocket, sshKey)
+			if err != nil {
+				return fmt.Errorf("dial: %w", err)
+			}
+			defer conn.Close()
 
-	client, conn, err := dial(*socket, *sshSocket, *sshKey)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "weft-e2e: dial: %v\n", err)
+			cases := pickSuite(suite, filter)
+			if len(cases) == 0 {
+				return fmt.Errorf("no tests matched suite=%q filter=%q", suite, filter)
+			}
+
+			runner := &Runner{
+				Client:  client,
+				Out:     os.Stdout,
+				Verbose: verbose,
+				Suite:   suite,
+			}
+			if rc := runner.Run(cases); rc != 0 {
+				os.Exit(rc)
+			}
+			return nil
+		},
+	}
+	f := root.Flags()
+	f.StringVar(&socket, "socket", defaultSocket(), "weft agent Unix socket path (plain)")
+	f.StringVar(&sshSocket, "ssh-socket", "", "user@host:/path/to/weft-ssh.sock for SSH transport")
+	f.StringVar(&sshKey, "ssh-key", "", "SSH private key when --ssh-socket is set")
+	f.StringVar(&suite, "suite", "smoke", "test suite : smoke (quick invariants) | full (smoke + plugin lifecycle + cross-host RPCs)")
+	f.BoolVarP(&verbose, "verbose", "v", false, "print each test's progress lines, not just PASS/FAIL")
+	f.StringVar(&filter, "run", "", "regex-free substring filter — only tests whose name contains this run")
+
+	if err := root.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "weft-e2e: %v\n", err)
 		os.Exit(2)
 	}
-	defer conn.Close()
-
-	cases := pickSuite(*suite, *filter)
-	if len(cases) == 0 {
-		fmt.Fprintf(os.Stderr, "weft-e2e: no tests matched suite=%q filter=%q\n", *suite, *filter)
-		os.Exit(2)
-	}
-
-	runner := &Runner{
-		Client:  client,
-		Out:     os.Stdout,
-		Verbose: *verbose,
-		Suite:   *suite,
-	}
-	rc := runner.Run(cases)
-	os.Exit(rc)
 }
 
 // dial selects the transport based on the flag combo. Mirrors the
