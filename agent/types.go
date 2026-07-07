@@ -54,6 +54,16 @@ type HostRegistration struct {
 	// Properties are operator-set free-form tags ("gpu=h100",
 	// "ssd=true"). Used by ScheduleRequest's property selectors.
 	Properties map[string]string
+	// AgentVersion is the weft binary's compile-time build version
+	// (e.g. "v0.4.55"). Stamped via -X main.version at link time ;
+	// "dev" for un-stamped builds. weft-tui / webui surface this so
+	// operators see per-host agent versions at a glance.
+	AgentVersion string
+	// DriverVersions maps each loaded driver's Kind ("vz" / "qemu"
+	// / "block" / "network" …) to its compile-time build version,
+	// collected by the agent at startup via each plugin's HostInfo()
+	// RPC. Empty for legacy hosts that don't report versions.
+	DriverVersions map[string]string
 }
 
 // HostDriverCapability is one driver subprocess running on a host,

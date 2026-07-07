@@ -11,6 +11,21 @@ enum VMState {
   VM_STATE_STOPPED    = 2;
   VM_STATE_RUNNING    = 3;
   VM_STATE_ERROR      = 4;
+  // VM_STATE_CREATED — vmDir provisioned + registered, StartVM
+  // not yet called (e.g. fresh `weft microvm register` output).
+  VM_STATE_CREATED    = 5;
+  // VM_STATE_STARTING — StartVM accepted, qemu/vz launching ;
+  // visible until the guest sends its first heartbeat.
+  VM_STATE_STARTING   = 6;
+  // VM_STATE_STOPPING — StopVM accepted, qemu/vz draining.
+  VM_STATE_STOPPING   = 7;
+  // VM_STATE_ZOMBIE — process died without going through StopVM
+  // (kernel panic, OOM, host crash mid-shutdown). zombiegc'll
+  // surface it as `weft_vm_zombies` + clean up after CIGracePeriod.
+  VM_STATE_ZOMBIE     = 8;
+  // VM_STATE_DELETING — DeleteVM accepted ; entry survives long
+  // enough for the operator-visible event to flush.
+  VM_STATE_DELETING   = 9;
 }
 
 // VMInfo describes a single VM.
@@ -45,6 +60,25 @@ message VMInfo {
   // webui Hosts→VMs drill-down, the scheduler's compliance probe)
   // map VM→Host without a second ListHosts lookup.
   string   host_uuid     = 13;
+  // V0.13.0 — administrative intent, orthogonal to `state`.
+  // Values: "active" (default), "inactive", "draining". Set by
+  // the operator (or cascaded from a parent Host/Rack/AZ) to gate
+  // scheduling + respawn without disrupting the runtime. Empty
+  // string is treated as "active" for backward compat with VMs
+  // registered before this field landed.
+  string   status        = 14;
+  // V0.4.73 — cumulative restart counter (incremented every time
+  // self-heal / respawn issues a StartVM against this VM). Paired
+  // with max_restarts so the operator-facing UI can render
+  // "RESTARTS=N/M" with a red badge when N≥M, matching Kubernetes'
+  // `kubectl get pods` column.
+  uint32   restart_count = 15;
+  // max_restarts is sourced from the SchedulingRule.RespawnPolicy
+  // that covers this VM (selector match or nominal binding) ;
+  // copied here so a single ListVMs request answers the full UI
+  // row without a second ListSchedulingRules round-trip. 0 = no
+  // policy attached (respawn disabled).
+  uint32   max_restarts  = 16;
 }
 
 // --- AvailabilityZones (AZ) ---
@@ -163,6 +197,11 @@ message ProjectInfo {
   string uuid       = 1;
   string name       = 2;
   int64  created_at_unix_ns = 3;
+  // tenant_uuid is the project's parent-tenant pointer, empty for
+  // untenanted projects (the historical default before this field
+  // landed). Set via SetProjectTenant ; powers GetProjectQuota
+  // siblings_total + tenant_cap aggregation.
+  string tenant_uuid = 4;
 }
 
 message ListProjectsRequest  {
@@ -188,6 +227,16 @@ message RenameProjectResponse { ProjectInfo project = 1; }
 // DeleteProject refuses when the project still has VMs.
 message DeleteProjectRequest  { string uuid = 1; }
 message DeleteProjectResponse {}
+
+// SetProjectTenant binds (or unbinds when tenant_uuid is empty) the
+// project to a parent Tenant. Unblocks the tenant-scoped quota
+// aggregation : GetProjectQuota.siblings_total + GetProjectQuota
+// .tenant_cap come from the project's tenant linkage ;
+// GetTenantQuota.allocated aggregates across every project bound
+// to the tenant via this RPC. Idempotent ; unknown project_uuid
+// fails with NotFound so operators don't silently mistype.
+message SetProjectTenantRequest  { string project_uuid = 1; string tenant_uuid = 2; }
+message SetProjectTenantResponse { ProjectInfo project = 1; }
 
 // --- ListVMs ---
 
@@ -250,7 +299,20 @@ message StopVMResponse {}
 // server-side lets the agent rollback (restart on the same host
 // with the same network attachments) when the start half fails.
 
-message RestartVMRequest  { string name = 1; string project = 2; }
+message RestartVMRequest  {
+  string name      = 1;
+  string project   = 2;
+  // host_uuid optionally pins the call to a specific compute host —
+  // mirrors StartVM/StopVM/DeleteVM. Empty / matching-local : the
+  // server stops + starts the VM in-process. Non-empty + remote :
+  // the call dispatches through the same transport chain as StopVM
+  // / StartVM (in-process AgentDispatch, then etcd-jobs pull
+  // fallback per [[openweft_pull_model]]) so a cross-DC restart
+  // hits the owning host instead of erroring with "kernel not
+  // found at <local-default-project-dir>/<vm>/kernel" — bug
+  // reported 2026-06-29 against redis-ha replicas.
+  string host_uuid = 3;
+}
 message RestartVMResponse {}
 
 // --- VMStatus ---
@@ -1027,6 +1089,15 @@ message RegisterMicroVMRequest {
   // micro-VMs — the client just passes the image, the server
   // handles the orchestration.
   string image = 11;
+  // cpu + mem_mb declare the workload shape the caller wants
+  // stamped on the VM record so the inventory + the TUI's FLAVOR
+  // resolver match an existing catalogue flavor (small=1/512,
+  // medium=2/2048, …) instead of falling back to "custom" when
+  // CPU/Mem are 0. The microVM kernel ignores these — it's purely
+  // metadata for the registry record. Optional ; 0 keeps the
+  // legacy "shape dictated by the boot artefacts" semantics.
+  uint32 cpu    = 12;
+  uint64 mem_mb = 13;
 }
 message RegisterMicroVMResponse {}
 
@@ -1118,6 +1189,11 @@ message PluginInstance {
   int64  installed_at_unix_ns = 4;
   string status         = 5;  // "running" | "provisioning" | "degraded" | "failed"
   string project        = 6;
+  // disabled = administratively inactive : the install side-effects
+  // (VMs, networks, SGs) stay in place, but consumer-facing gates
+  // (e.g. the TUI sidebar's RequiresPlugin filter) treat the
+  // instance as absent. Toggled via EnablePlugin / DisablePlugin.
+  bool   disabled       = 7;
 }
 
 message ListPluginCatalogueRequest  {}
@@ -1132,6 +1208,141 @@ message InstallPluginRequest {
   map<string,string> inputs = 3;
 }
 message InstallPluginResponse { string instance_uuid = 1; }
+
+// UninstallPlugin tears down a previously-installed plugin instance :
+// reverses the network / security_group / VM creation chain, then
+// removes the instance from the StateStore. Operators call this from
+// `weft plugin uninstall` and from the TUI's Plugins view (`d`).
+//
+// Identified by (name, instance_uuid) — UUID is mandatory to support
+// the multi-instance case (e.g. one runner farm per project). The
+// catalogue entry name is included for symmetry with InstallPlugin
+// + to disambiguate when an operator lost track of the UUID.
+message UninstallPluginRequest {
+  string name          = 1;  // catalogue entry name
+  string instance_uuid = 2;  // PluginInstance.instance_uuid from ListInstalledPlugins
+}
+message UninstallPluginResponse {}
+
+// EnablePlugin / DisablePlugin flip the PluginInstance.disabled flag
+// without touching the install side-effects. Idempotent — calling
+// Enable on an already-enabled instance (or Disable on an already-
+// disabled one) is a no-op success. Lets operators temporarily hide
+// a plugin from the sidebar (Disable) without paying the install /
+// uninstall cost.
+message EnablePluginRequest {
+  string name          = 1;
+  string instance_uuid = 2;
+}
+message EnablePluginResponse {}
+
+message DisablePluginRequest {
+  string name          = 1;
+  string instance_uuid = 2;
+}
+message DisablePluginResponse {}
+
+// --- PodSpec publish / read ------------------------------------------
+//
+// Operator-facing surface that lets clients (CLI, webui) push a
+// GuestPodPlane PodSpec into the agent's in-memory store, so the
+// subsequent GuestHelloAck served on the vsock stream carries the
+// operator-supplied desired state. The PodSpec wire format lives in
+// guest.proto (guestv1.PodSpec) ; this surface keeps weft.proto from
+// importing guestv1 by carrying the spec as a protojson-encoded byte
+// blob. The agent decodes via google.golang.org/protobuf/encoding/
+// protojson into a guestv1.PodSpec, then stores it via Adapter.SetPodSpec.
+//
+// Persistence : after a successful SetPodSpec, the agent dumps the
+// full registry to <stateDir>/podspecs.hcl (atomic replace) and
+// rehydrates at startup. Survives a daemon restart so operators
+// don't have to re-publish on every bounce.
+
+message SetPodSpecRequest {
+  // pod_id is the in-guest pod identifier the GuestPodPlane handler
+  // keys the registry on. Mirrors weft-microvm-init/pkg/pod.Spec.PodID
+  // and matches GuestHello.pod_id at attach time. Empty = the agent
+  // rejects with InvalidArgument.
+  string pod_id    = 1;
+  // spec_json is the protojson-encoded guestv1.PodSpec payload. The
+  // agent decodes via protojson + stores via Adapter.SetPodSpec.
+  // Passing the empty/JSON-null shape evicts the entry (same
+  // semantics as Adapter.SetPodSpec(nil)).
+  bytes  spec_json = 2;
+}
+message SetPodSpecResponse {}
+
+message GetPodSpecRequest  { string pod_id = 1; }
+message GetPodSpecResponse {
+  string pod_id    = 1;
+  bytes  spec_json = 2;  // empty when found = false
+  bool   found     = 3;
+}
+
+// --- MicroVM metrics --------------------------------------------------
+//
+// Per-VM metrology snapshot. Today the agent doesn't yet collect
+// per-VM CPU / mem / net / disk samples from the hypervisor driver
+// (Apple-VZ statistics surface, QEMU QMP query-blockstats, …) — the
+// RPC returns the zero value with sampled_at_unix_ns = 0 so the
+// webui Metrics tab can render real fields straight off the wire
+// without an Unimplemented fallback. Once the runtime telemetry
+// pipeline lands, the same response shape is populated with real
+// samples — no client change needed.
+
+message GetMicroVMMetricsRequest {
+  // Either vm_uuid OR (name + project) must be set. UUID-first
+  // lookup mirrors the rest of the per-VM RPC surface.
+  string vm_uuid = 1;
+  string name    = 2;
+  string project = 3;
+}
+message MicroVMMetricsResponse {
+  string vm_uuid             = 1;
+  int64  sampled_at_unix_ns  = 2;  // 0 = no sample taken yet
+  double cpu_percent          = 3;
+  uint64 mem_used_mib        = 4;
+  uint64 mem_total_mib       = 5;
+  uint64 net_rx_bps          = 6;
+  uint64 net_tx_bps          = 7;
+  uint64 disk_read_bps       = 8;
+  uint64 disk_write_bps      = 9;
+  uint64 uptime_ms           = 10;
+}
+
+// --- Cluster identity ----------------------------------------------
+//
+// Operators give a federated cluster a human-readable name (e.g.
+// "prod-eu", "dc1-prod", "staging") that surfaces in the TUI title
+// bar, in webui chrome, and in audit log entries. The name is
+// persisted at /weft/cluster/name in etcd ; an unset key returns
+// the empty string (the TUI / webui then hide the suffix).
+//
+// SetClusterName is admin-gated ; GetClusterInfo is open to every
+// authenticated caller because the chrome / log decoration needs
+// it at every operator session start.
+
+message GetClusterInfoRequest  {}
+message GetClusterInfoResponse {
+  // ClusterName is the operator-set name. "" when never set ;
+  // the client typically falls back to a flag or env override.
+  string cluster_name = 1;
+  // LocalHostUuid is the UUID of the agent serving this RPC —
+  // saves the client one extra roundtrip when it wants to label
+  // "you're connected to host X of cluster Y" in the chrome.
+  string local_host_uuid = 2;
+  // ControlPlaneHostUuids is the set of hosts that are MEMBERS
+  // of the etcd quorum backing this cluster. On a 3-DC HA setup
+  // all 3 hosts appear ; on hub-spoke (1 CP + N workers) only
+  // the CP appears. Server-side : matches each etcd MemberList
+  // peer URL's IP against each registered host's resolved IP.
+  // Empty when etcd isn't reachable from the serving agent or
+  // when no host resolves to a member peer URL.
+  repeated string control_plane_host_uuids = 3;
+}
+
+message SetClusterNameRequest  { string cluster_name = 1; }
+message SetClusterNameResponse { string cluster_name = 1; }
 
 // WeftService is the gRPC API exposed by weft.
 service WeftAgent {
@@ -1194,10 +1405,11 @@ service WeftAgent {
   // CreateProject is the stable identifier on-disk vmDirs are
   // keyed on; RenameProject mutates only the display name so every
   // attached VM follows the rename transparently.
-  rpc ListProjects   (ListProjectsRequest)   returns (ListProjectsResponse);
-  rpc CreateProject  (CreateProjectRequest)  returns (CreateProjectResponse);
-  rpc RenameProject  (RenameProjectRequest)  returns (RenameProjectResponse);
-  rpc DeleteProject  (DeleteProjectRequest)  returns (DeleteProjectResponse);
+  rpc ListProjects     (ListProjectsRequest)     returns (ListProjectsResponse);
+  rpc CreateProject    (CreateProjectRequest)    returns (CreateProjectResponse);
+  rpc RenameProject    (RenameProjectRequest)    returns (RenameProjectResponse);
+  rpc DeleteProject    (DeleteProjectRequest)    returns (DeleteProjectResponse);
+  rpc SetProjectTenant (SetProjectTenantRequest) returns (SetProjectTenantResponse);
 
   // Project-membership RPCs. Platform-managed alternative to
   // dex `project:<uuid>` group claims; either path grants access.
@@ -1294,6 +1506,9 @@ service WeftAgent {
   rpc SetHostState    (SetHostStateRequest)    returns (SetHostStateResponse);
   rpc SetHostProperties (SetHostPropertiesRequest) returns (SetHostPropertiesResponse);
   rpc SetVMProperties   (SetVMPropertiesRequest)   returns (SetVMPropertiesResponse);
+  // V0.13.0 : flip the VM's administrative intent (status), separate
+  // from its runtime state. Values: "active" | "inactive" | "draining".
+  rpc SetVMStatus       (SetVMStatusRequest)       returns (SetVMStatusResponse);
   rpc GetZombieReport     (GetZombieReportRequest)     returns (GetZombieReportResponse);
   rpc TriggerZombieSweep  (TriggerZombieSweepRequest)  returns (GetZombieReportResponse);
   rpc SetHostCordoned (SetHostCordonedRequest) returns (SetHostCordonedResponse);
@@ -1369,6 +1584,9 @@ service WeftAgent {
   rpc ListPluginCatalogue  (ListPluginCatalogueRequest)  returns (ListPluginCatalogueResponse);
   rpc ListInstalledPlugins (ListInstalledPluginsRequest) returns (ListInstalledPluginsResponse);
   rpc InstallPlugin        (InstallPluginRequest)        returns (InstallPluginResponse);
+  rpc UninstallPlugin      (UninstallPluginRequest)      returns (UninstallPluginResponse);
+  rpc EnablePlugin         (EnablePluginRequest)         returns (EnablePluginResponse);
+  rpc DisablePlugin        (DisablePluginRequest)        returns (DisablePluginResponse);
 
   // --- Subnets (per-network IP scopes) ---
   // Subnets are children of a Network ; cidr is immutable, gateway +
@@ -1455,6 +1673,29 @@ service WeftAgent {
   rpc SetRegistryRemote    (SetRegistryRemoteRequest)    returns (SetRegistryRemoteResponse);   // upsert
   rpc DeleteRegistryRemote (DeleteRegistryRemoteRequest) returns (DeleteRegistryRemoteResponse);
   rpc SearchRegistryRemote (SearchRegistryRemoteRequest) returns (SearchRegistryRemoteResponse);
+
+  // --- PodSpec publish / read (operator-facing surface for GuestPodPlane) ---
+  // SetPodSpec records the operator's desired PodSpec for a pod_id ;
+  // the GuestPodPlane handler serves it back to weft-init in the
+  // HelloAck frame on the vsock stream. spec_json is a protojson-
+  // encoded guestv1.PodSpec ; an empty / JSON-null body evicts the
+  // entry. Persists across daemon restarts via <stateDir>/podspecs.hcl.
+  rpc SetPodSpec (SetPodSpecRequest) returns (SetPodSpecResponse);
+  // GetPodSpec returns the currently-published PodSpec for a pod_id
+  // (or found=false when no spec has been published yet).
+  rpc GetPodSpec (GetPodSpecRequest) returns (GetPodSpecResponse);
+
+  // --- MicroVM metrics (per-VM telemetry snapshot) ---
+  // Returns the latest per-VM sample : CPU/mem/net/disk + uptime.
+  // sampled_at_unix_ns = 0 when no sample exists yet — the rest of
+  // the fields stay zero ; the webui renders the empty shape natively
+  // rather than falling back to synthetic mock data.
+  rpc GetMicroVMMetrics (GetMicroVMMetricsRequest) returns (MicroVMMetricsResponse);
+
+  // Cluster identity. GetClusterInfo is open to every authed caller
+  // (chrome decoration) ; SetClusterName is admin-only.
+  rpc GetClusterInfo (GetClusterInfoRequest) returns (GetClusterInfoResponse);
+  rpc SetClusterName (SetClusterNameRequest) returns (SetClusterNameResponse);
 }
 
 // --- Hosts -------------------------------------------------------
@@ -1484,6 +1725,96 @@ message HostInfo {
   // work. Implements the upgrade-runbook primitive previously
   // documented as proposed.
   bool   cordoned             = 14;
+  // agent_version is the build version of the weft agent process
+  // currently serving this host. Operator-visible in the TUI's
+  // Hosts tab. Set at RegisterHost time by the agent itself
+  // (compile-time main.version stamp). "" → unknown (pre-
+  // v0.4.55 agent or build without -X main.version).
+  string agent_version        = 15;
+  // driver_versions maps each loaded driver plugin's kind
+  // (e.g. "qemu", "vz", "block") to its compile-time version
+  // (e.g. "v0.5.1"). Collected by the agent at RegisterHost
+  // time by calling each driver's HostInfo() RPC (driverpb
+  // v0.5.0+ added a `version` field). Empty when no drivers
+  // are loaded or when every loaded driver is on an older
+  // driverpb that didn't report version.
+  map<string, string> driver_versions = 16;
+  // os_id is the machine-readable os-release ID field ("debian",
+  // "ubuntu", "alpine", "rhel" ; "darwin" / "openbsd" on non-Linux
+  // hosts). Empty when /etc/os-release isn't available (Linux dev
+  // images stripped) or on platforms with no equivalent (mac dev).
+  string os_id            = 17;
+  // os_version is os-release VERSION_ID ("12", "24.04", "3.20").
+  // Empty when os_id is empty.
+  string os_version       = 18;
+  // os_pretty is os-release PRETTY_NAME ("Debian GNU/Linux 12
+  // (bookworm)", "Ubuntu 24.04.1 LTS"). Human-friendly fallback
+  // when (os_id, os_version) isn't expressive enough.
+  string os_pretty        = 19;
+  // kernel_version is the running kernel release ("6.1.0-23-arm64",
+  // "Darwin 25.3.0"). uname -r on Linux ; `sysctl kern.osrelease`
+  // on Darwin. Empty when collection failed.
+  string kernel_version   = 20;
+  // network_interfaces lists every IP-bearing nic the agent saw at
+  // register time. Operator-facing : the TUI's host detail drawer
+  // renders mac/ipv4/ipv6/mtu/link-speed/state for each. Collected
+  // via /sys/class/net + netlink (Linux only) ; empty on darwin /
+  // other platforms today.
+  repeated NetworkInterface network_interfaces = 21;
+  // storage_mounts lists the local filesystems the agent saw at
+  // register time. Operator-facing : the TUI shows mountpoint +
+  // fstype + free/total bytes. Filters to ext*/xfs/btrfs/zfs/9p
+  // and skips tmpfs/proc/sysfs/cgroup at collection time.
+  repeated StorageMount storage_mounts = 22;
+  // cpu_count is the number of logical CPUs the host exposes
+  // (runtime.NumCPU on the host agent's side). Empty / 0 on the
+  // wire means "unknown" (legacy agent or collection failure).
+  int32 cpu_count = 23;
+  // memory_mib is the host's total RAM in MiB, as read from
+  // /proc/meminfo (MemTotal) on Linux. 0 means "unknown".
+  int64 memory_mib = 24;
+  // gpus is the host's physical accelerator inventory ; one entry
+  // per device. Vendor + Model identify the SKU ; memory_gib +
+  // mig_capable carry the per-card details schedulers need to
+  // match ScheduleRequest.RequestedGPUs.
+  repeated GPU gpus = 25;
+}
+
+// GPU is one accelerator on a host. Mirrors weft.GPU. Empty
+// vendor / model values are valid for the "unknown SKU" branch ;
+// memory_gib == 0 means "unknown" or non-applicable (integrated).
+message GPU {
+  string vendor      = 1;  // "NVIDIA" / "AMD" / "Intel"
+  string model       = 2;  // "H200" / "RTX-6000-Ada" / "MI300X"
+  int32  memory_gib  = 3;  // VRAM in GiB ; 0 when unknown
+  bool   mig_capable = 4;  // datacenter SKUs that support MIG slicing
+}
+
+// NetworkInterface mirrors weft.NetworkInterface — one IP-bearing
+// NIC the agent saw at register time. Address strings are CIDR
+// notation ("192.168.105.21/24" / "fe80::dead/64"). link_speed_mbps
+// is 0 when the driver doesn't expose ETHTOOL_GSET (loopback, lo
+// always 0 ; physical NICs typically 1000 / 10000 / 25000).
+message NetworkInterface {
+  string   name             = 1;  // "eth0" / "ens3"
+  string   mac              = 2;  // "00:1a:2b:3c:4d:5e"
+  repeated string ipv4_cidrs = 3;
+  repeated string ipv6_cidrs = 4;
+  int64    link_speed_mbps  = 5;  // 0 when unknown
+  int32    mtu              = 6;
+  string   operstate        = 7;  // "up" / "down" / "unknown" / "lowerlayerdown"
+}
+
+// StorageMount mirrors weft.StorageMount — one filesystem mount
+// the agent saw at register time. total_bytes / free_bytes are
+// snapshot values, not live ; the agent re-collects on heartbeat
+// to keep them within 30s of reality.
+message StorageMount {
+  string mountpoint  = 1;  // "/" / "/var/lib/weft"
+  string device      = 2;  // "/dev/vda1" / "tank/data"
+  string fstype      = 3;  // "ext4" / "btrfs" / "zfs"
+  int64  total_bytes = 4;
+  int64  free_bytes  = 5;
 }
 
 // RegisterHost adds a new host or refreshes an existing one
@@ -1502,6 +1833,17 @@ message RegisterHostRequest {
   repeated string network_types   = 8;
   repeated string volume_backends = 9;
   map<string, string> properties = 10;
+  string agent_version            = 11;
+  map<string, string> driver_versions = 12;
+  string os_id                    = 13;
+  string os_version               = 14;
+  string os_pretty                = 15;
+  string kernel_version           = 16;
+  repeated NetworkInterface network_interfaces = 17;
+  repeated StorageMount storage_mounts = 18;
+  int32  cpu_count                = 19;
+  int64  memory_mib               = 20;
+  repeated GPU gpus               = 21;
 }
 message RegisterHostResponse { HostInfo host = 1; }
 
@@ -1554,6 +1896,12 @@ message SetHostPropertiesResponse {}
 // `deployment.type=ha` is the canonical respawn-eligible marker.
 message SetVMPropertiesRequest  { string project = 1; string name = 2; map<string, string> properties = 3; }
 message SetVMPropertiesResponse { VMInfo vm = 1; }
+
+// V0.13.0 — SetVMStatus flips the operator's administrative intent.
+// Targets a VM by UUID for stability across renames. Status string:
+// "active" | "inactive" | "draining" ; empty = "active" default.
+message SetVMStatusRequest  { string uuid = 1; string status = 2; }
+message SetVMStatusResponse { VMInfo vm = 1; }
 
 // GetZombieReport exposes the latest snapshot of the agent's
 // zombiegc reconciler — what VMs it currently classifies as zombies,
@@ -1761,6 +2109,19 @@ message RegisterMicroVMOp {
   string initrd    = 5; // optional, direct-Linux mode
   string cmdline   = 6; // kernel cmdline override
   repeated MicroVMShare shares = 7;
+  // image is the OCI ref the microVM was hatched from
+  // (e.g. "ghcr.io/openweft/weft-etcd:v3.6.0"). The receiving
+  // agent stamps it into the VM record's IMAGE column so the
+  // operator-facing inventory shows the OCI source rather than
+  // the synthetic "microvm/direct_linux" placeholder. Optional ;
+  // empty preserves the legacy direct-Linux label.
+  string image = 8;
+  // cpu + mem_mb mirror RegisterMicroVMRequest.cpu/mem_mb so the
+  // dispatched op carries the same workload-shape metadata for
+  // the receiving agent's registry record. Optional ; 0 falls
+  // back to "shape dictated by boot artefacts".
+  uint32 cpu    = 9;
+  uint64 mem_mb = 10;
 }
 
 // RegisterMicroVMResult is empty — the call's only outcome is
@@ -2028,8 +2389,14 @@ message Flavor {
   string ram          = 3;  // "4Gi" / "256Mi" / raw integer = MB
   int32  ephemeral_gb = 4;
   string gpu          = 5;  // empty = none ; "1×A100-40G" etc.
-  // Reserved : 6..9 for future affinity properties / placement hints.
-  reserved 6, 7, 8, 9;
+  // Reserved : 7..9 for future affinity properties / placement hints.
+  reserved 7, 8, 9;
+  // V0.13.1 — stable UUID promoted from the name-keyed model. The
+  // server mints a UUID on first Create OR back-fills lazily for
+  // legacy records (deterministic from the name so the migration is
+  // idempotent across agents). Name remains operator-facing + still
+  // unique cluster-wide ; UUID is the wire-stable handle.
+  string uuid         = 6;
 }
 
 message ListFlavorsRequest {

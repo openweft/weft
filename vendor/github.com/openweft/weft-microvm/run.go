@@ -40,6 +40,16 @@ type Args struct {
 	// mode (i.e. when Pod is empty).
 	Image string
 
+	// Name, when non-empty, overrides the default VM identifier
+	// (which is "weft-microvm-" + refsafe(Image)). Required when
+	// the caller needs to spawn multiple VMs from the same image —
+	// HA plugin installs with `replicas = N` were silently
+	// collapsing into one VM because every Run(args) with the same
+	// Image derived the same name and the agent overwrote the
+	// prior registration. Single-instance callers can leave this
+	// empty to keep the legacy refsafe(Image) auto-naming.
+	Name string
+
 	// Cmd overrides the image's entrypoint+cmd when non-nil
 	// (equivalent to the `-- CMD…` tail in a CLI front-end, e.g.
 	// Cmd=["sh","-c","echo hi"]).
@@ -83,6 +93,30 @@ type Args struct {
 	// weft-loom-markdown), scratch dirs for build artefacts, /etc
 	// overrides for service init, etc.
 	Mounts []Mount
+
+	// CPU + MemMB declare the workload-shape metadata the receiving
+	// agent stamps on the VM record. The microVM kernel ignores
+	// them — they're inventory metadata so the TUI's FLAVOR resolver
+	// (and any catalogue-matcher downstream) shows the named flavor
+	// ("small", "medium", …) instead of "custom" when CPU/Mem are 0.
+	// Empty / zero preserves the legacy "shape dictated by the boot
+	// artefacts" behaviour.
+	CPU   uint32
+	MemMB uint64
+
+	// HostUUID pins the new microVM to a specific compute host —
+	// threaded through to RegisterMicroVMRequest.host_uuid so the
+	// agent dispatches the op to the matching `weft agent --client`
+	// stream instead of running it locally. Empty = default
+	// (server-local, single-host UX preserved).
+	//
+	// Used by pluginstore.Install when a plugin's vm block declares
+	// `placement { az = "different" }` and the installer rotates
+	// replicas across hosts/AZs for anti-affinity. The target host
+	// MUST already have the OCI image rootfs locally (the call
+	// doesn't fan out an auto-pull cross-host) — operator pre-pulls
+	// or weft-up handles that on cluster bring-up.
+	HostUUID string
 
 	// CubeFSMounts attach CubeFS volumes directly inside the guest.
 	// cfs-client (already in the initramfs at /bin/cfs-client per the
@@ -162,18 +196,27 @@ func runMicroVM(a Args) error {
 	// happens transparently the first time, subsequent runs are
 	// instant). Set WEFT_NO_AUTO_PULL=1 to disable when you want
 	// strict offline mode and prefer a hard error.
-	if _, err := os.Stat(rootfs); err != nil {
-		if os.Getenv("WEFT_NO_AUTO_PULL") == "1" {
-			return fmt.Errorf("image not pulled and WEFT_NO_AUTO_PULL=1 — run `weft-microvm pull %s` first (missing rootfs at %s)", a.Image, rootfs)
+	//
+	// When HostUUID is set we're dispatching cross-host : the
+	// rootfs path we'd check sits on the TARGET host's disk, not
+	// ours. Skip the local pull + override pass ; the caller is
+	// responsible for ensuring the target host has the image
+	// cached (typically by pre-running PullImage against that
+	// host, or by weft-up's per-host pull on bring-up).
+	if a.HostUUID == "" {
+		if _, err := os.Stat(rootfs); err != nil {
+			if os.Getenv("WEFT_NO_AUTO_PULL") == "1" {
+				return fmt.Errorf("image not pulled and WEFT_NO_AUTO_PULL=1 — run `weft-microvm pull %s` first (missing rootfs at %s)", a.Image, rootfs)
+			}
+			fmt.Fprintf(os.Stderr, "weft-microvm: image not in cache, auto-pulling %s …\n", a.Image)
+			if err := Pull(a.Image); err != nil {
+				return fmt.Errorf("auto-pull %s: %w", a.Image, err)
+			}
+			// Pull populates the same path we just checked.
 		}
-		fmt.Fprintf(os.Stderr, "weft-microvm: image not in cache, auto-pulling %s …\n", a.Image)
-		if err := Pull(a.Image); err != nil {
-			return fmt.Errorf("auto-pull %s: %w", a.Image, err)
+		if err := applyRunOverrides(rootfs, a); err != nil {
+			return err
 		}
-		// Pull populates the same path we just checked.
-	}
-	if err := applyRunOverrides(rootfs, a); err != nil {
-		return err
 	}
 	iso, err := locateBootArtefacts()
 	if err != nil {
@@ -184,7 +227,15 @@ func runMicroVM(a Args) error {
 	if tag == "" {
 		tag = "rootfs0"
 	}
-	vmName := "weft-microvm-" + rs
+	// Caller-supplied Name wins (HA plugin installs need one VM per
+	// replica even when they all share the same image). Empty Name
+	// falls back to the legacy refsafe(Image) auto-naming so
+	// single-instance callers (the `weft-microvm` CLI, dev runs)
+	// keep their stable identifier.
+	vmName := a.Name
+	if vmName == "" {
+		vmName = "weft-microvm-" + rs
+	}
 
 	// Prepare the RegisterMicroVMRequest. Two boot modes:
 	//   * direct-Linux: kernel + optional initrd + cmdline — fastest
@@ -201,8 +252,19 @@ func runMicroVM(a Args) error {
 	// the same OCI ref. clonefile shares blocks until first write,
 	// so the cost is paid only on divergence.
 	req := &weftv1.RegisterMicroVMRequest{
-		Name:    vmName,
-		Project: a.Project,
+		Name:     vmName,
+		Project:  a.Project,
+		HostUuid: a.HostUUID,
+		// Image carries the OCI ref through to the receiving
+		// agent's RegisterMicroVM ; the VM record stamps it as
+		// IMAGE so the operator inventory shows the real source
+		// (e.g. "redis:7-alpine") rather than the synthetic
+		// "microvm/direct_linux" placeholder. The boot artefacts
+		// stay direct-Linux for now — the kernel + initrd paths
+		// are still set below — but the image label is correct.
+		Image: a.Image,
+		Cpu:   a.CPU,
+		MemMb: a.MemMB,
 		Shares: []*weftv1.MicroVMShare{
 			{Tag: tag, Path: rootfs, ReadOnly: false, Clone: true},
 		},
@@ -271,8 +333,8 @@ func runMicroVM(a Args) error {
 		return fmt.Errorf("weft RegisterMicroVM: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "weft-microvm: StartVM name=%s\n", vmName)
-	if _, err := client.StartVM(ctx, &weftv1.StartVMRequest{Name: vmName}); err != nil {
+	fmt.Fprintf(os.Stderr, "weft-microvm: StartVM name=%s host=%q\n", vmName, a.HostUUID)
+	if _, err := client.StartVM(ctx, &weftv1.StartVMRequest{Name: vmName, Project: a.Project, HostUuid: a.HostUUID}); err != nil {
 		return fmt.Errorf("weft StartVM: %w", err)
 	}
 

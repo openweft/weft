@@ -220,6 +220,7 @@ plugin "irods-ha" {
 
   vm "irods" {
     image    = "ghcr.io/openweft/irods-ha:v0.1.0"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 4
     mem_mb   = 8192

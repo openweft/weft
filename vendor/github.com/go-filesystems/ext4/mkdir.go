@@ -134,6 +134,21 @@ func makeDir(f readerWriterAt, fsOffset int64, sb *superblock, path string, perm
 		if err != nil {
 			return fmt.Errorf("ext4: alloc block for %q: %w", path, err)
 		}
+
+		// The inode is allocated before the data block, so allocInode snapshots
+		// and writes the superblock while its free-block count is still one too
+		// high. allocBlocks then decrements the in-memory count and writes the
+		// corrected superblock, but the two superblock writes (both at the fixed
+		// offset 1024) are not ordered against each other by the commit
+		// dispatcher, so the stale value can land last and leave s_free_blocks
+		// off by one versus the block bitmap (e2fsck: "Free blocks count
+		// wrong"). Reconcile the on-disk superblock from the now-correct
+		// in-memory count, mirroring delete.go's post-mutation writeSuperblock.
+		// The journal path above commits the superblock correctly, so this is
+		// only needed on the non-journal path.
+		if err := writeSuperblock(f, fsOffset, sb); err != nil {
+			return err
+		}
 	}
 	physBlock := physBlocks[0]
 
@@ -252,6 +267,19 @@ func makeDir(f readerWriterAt, fsOffset int64, sb *superblock, path string, perm
 		}
 		if cleanupReserveIno != nil {
 			cleanupReserveIno()
+		}
+		// allocInodeWithTx and allocBlocksWithTx each stage a full superblock
+		// snapshot at the fixed offset 1024 into this same transaction: the
+		// inode one captures s_free_blocks_count while it is still one too high
+		// (only the inode was allocated), the block one captures the corrected
+		// value. The two staged ranges overlap and are not ordered against each
+		// other on commit, so the stale (higher) value can be the one that
+		// lands, leaving s_free_blocks off by one versus the block bitmap
+		// (e2fsck: "Free blocks count wrong"). Reconcile the on-disk superblock
+		// from the now-correct in-memory count after the transaction commits,
+		// mirroring delete.go's post-mutation writeSuperblock.
+		if err := writeSuperblock(f, fsOffset, sb); err != nil {
+			return err
 		}
 		return nil
 	}

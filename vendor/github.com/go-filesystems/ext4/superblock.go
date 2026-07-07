@@ -61,9 +61,30 @@ func readSuperblock(f readerWriterAt, fsOffset int64) (*superblock, error) {
 
 	sb.FreeInodesCount = le.Uint32(raw[16:])
 	sb.FirstDataBlock = le.Uint32(raw[20:])
-	sb.BlockSize = 1024 << le.Uint32(raw[24:])
+
+	// H3: s_log_block_size is an attacker-controlled shift count. The ext4
+	// on-disk format only permits 0..6 (block sizes 1 KiB .. 64 KiB); a larger
+	// value would shift 1024 into a zero or absurdly large BlockSize, leading
+	// to divide-by-zero or huge allocations downstream. Reject it here.
+	logBlockSize := le.Uint32(raw[24:])
+	if logBlockSize > 6 {
+		return nil, fmt.Errorf("ext4: invalid s_log_block_size %d (max 6)", logBlockSize)
+	}
+	sb.BlockSize = 1024 << logBlockSize
+
 	sb.BlocksPerGroup = le.Uint32(raw[32:])
 	sb.InodesPerGroup = le.Uint32(raw[40:])
+
+	// C2: BlocksPerGroup and InodesPerGroup are divisors throughout the
+	// decode path (e.g. numBlockGroups, inode->group mapping). A zero value
+	// from a corrupt/malicious superblock would panic with an integer
+	// divide-by-zero, so reject both here.
+	if sb.BlocksPerGroup == 0 {
+		return nil, fmt.Errorf("ext4: invalid s_blocks_per_group 0")
+	}
+	if sb.InodesPerGroup == 0 {
+		return nil, fmt.Errorf("ext4: invalid s_inodes_per_group 0")
+	}
 	sb.FeatureIncompat = le.Uint32(raw[96:])
 	sb.FeatureROCompat = le.Uint32(raw[100:])
 	copy(sb.UUID[:], raw[104:120])

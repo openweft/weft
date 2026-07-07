@@ -1,3 +1,10 @@
+//go:build !linux
+
+// metrics_test exercises the non-Linux StubReconciler (reconciler_other.go,
+// //go:build !linux) and its Prometheus surface, so it carries the same
+// constraint — on Linux the metrics path is covered through the real
+// reconciler's integration test.
+
 package floatingipnat
 
 import (

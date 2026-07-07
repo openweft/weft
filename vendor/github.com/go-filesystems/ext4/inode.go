@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"runtime"
 	"time"
+
+	"github.com/go-volumes/safeio"
 )
 
 const (
@@ -201,7 +203,7 @@ func (in *inode) extents(f readerWriterAt, fsOffset int64, sb *superblock) ([]ex
 		// readExtents, which also handles classic ext2/ext3 block maps.
 		return nil, fmt.Errorf("ext4: old-style block map not supported (inode %d)", in.num)
 	}
-	return parseExtentNode(f, fsOffset, sb, in.raw[inodeOffBlock:inodeOffBlock+60], in.num, in.raw)
+	return parseExtentRoot(f, fsOffset, sb, in.raw[inodeOffBlock:inodeOffBlock+60], in.num, in.raw)
 }
 
 // readExtents returns the data-block layout of an inode for read-only paths.
@@ -216,12 +218,44 @@ func (in *inode) readExtents(f readerWriterAt, fsOffset int64, sb *superblock) (
 	if flags&InodeFlagExtents == 0 {
 		return in.blockMapExtents(f, fsOffset, sb)
 	}
-	return parseExtentNode(f, fsOffset, sb, in.raw[inodeOffBlock:inodeOffBlock+60], in.num, in.raw)
+	return parseExtentRoot(f, fsOffset, sb, in.raw[inodeOffBlock:inodeOffBlock+60], in.num, in.raw)
+}
+
+// maxExtentDepth bounds the height of an ext4 extent tree. The on-disk format
+// caps the depth at 5 (eh_depth); a value beyond that — or a child header whose
+// depth does not strictly decrease — indicates a corrupt or malicious image.
+const maxExtentDepth = 5
+
+// parseExtentRoot is the public entry point: it starts a fresh traversal of the
+// extent tree rooted at buf (the inode's i_block area or a block-sized node),
+// carrying a cycle-detection set and the root's declared depth so child nodes
+// can be validated against the decreasing-depth invariant.
+func parseExtentRoot(f readerWriterAt, fsOffset int64, sb *superblock, buf []byte, inodeNum uint32, inodeRaw []byte) ([]extentLeaf, error) {
+	// M1: a node header is 12 bytes; refuse to read fields out of a short buf.
+	if len(buf) < 12 {
+		return nil, fmt.Errorf("ext4: extent node too small (%d bytes) in inode %d", len(buf), inodeNum)
+	}
+	rootDepth := binary.LittleEndian.Uint16(buf[6:])
+	if rootDepth > maxExtentDepth {
+		return nil, fmt.Errorf("ext4: extent tree depth %d exceeds max %d in inode %d", rootDepth, maxExtentDepth, inodeNum)
+	}
+	var visited safeio.VisitSet
+	return parseExtentNode(f, fsOffset, sb, buf, inodeNum, inodeRaw, rootDepth, &visited)
 }
 
 // parseExtentNode parses a 60-byte (or block-sized) extent node buffer.
-func parseExtentNode(f readerWriterAt, fsOffset int64, sb *superblock, buf []byte, inodeNum uint32, inodeRaw []byte) ([]extentLeaf, error) {
+//
+// expectDepth is the eh_depth this node must declare (the root's depth, or one
+// less than its parent's): this enforces the strictly-decreasing-depth
+// invariant of a valid extent tree and, combined with the maxExtentDepth bound
+// and the visited set of child physical blocks, prevents unbounded recursion
+// and cyclic/self-referential index blocks from overflowing the stack (C1).
+func parseExtentNode(f readerWriterAt, fsOffset int64, sb *superblock, buf []byte, inodeNum uint32, inodeRaw []byte, expectDepth uint16, visited *safeio.VisitSet) ([]extentLeaf, error) {
 	le := binary.LittleEndian
+	// M1: guard the 12-byte header read against a short buffer.
+	if len(buf) < 12 {
+		return nil, fmt.Errorf("ext4: extent node too small (%d bytes) in inode %d", len(buf), inodeNum)
+	}
 	magic := le.Uint16(buf[0:])
 	if magic != ExtentMagic {
 		// Test-only diagnostics: when encountering a bad extent magic,
@@ -241,6 +275,17 @@ func parseExtentNode(f readerWriterAt, fsOffset int64, sb *superblock, buf []byt
 	}
 	entries := le.Uint16(buf[2:])
 	depth := le.Uint16(buf[6:])
+
+	// C1: the node's declared depth must match what the parent expects (root
+	// depth, then strictly decreasing by one per level). This rejects a child
+	// whose eh_depth does not satisfy childDepth == parentDepth-1, which is the
+	// structural invariant that makes the tree finite.
+	if depth != expectDepth {
+		return nil, fmt.Errorf("ext4: extent node depth %d != expected %d in inode %d", depth, expectDepth, inodeNum)
+	}
+	if depth > maxExtentDepth {
+		return nil, fmt.Errorf("ext4: extent node depth %d exceeds max %d in inode %d", depth, maxExtentDepth, inodeNum)
+	}
 
 	var leaves []extentLeaf
 	for i := uint16(0); i < entries; i++ {
@@ -269,11 +314,24 @@ func parseExtentNode(f readerWriterAt, fsOffset int64, sb *superblock, buf []byt
 			leafLo := uint64(le.Uint32(e[4:]))
 			leafHi := uint64(le.Uint16(e[8:]))
 			childBlock := (leafHi << 32) | leafLo
+			// M3/C1: the child pointer must reference a real block within the
+			// filesystem; block 0 (the superblock area) is never an index
+			// block. Reject out-of-range pointers before reading.
+			if childBlock == 0 || (sb.BlocksCount != 0 && childBlock >= sb.BlocksCount) {
+				return nil, fmt.Errorf("ext4: extent index block %d out of range (blocks=%d) in inode %d", childBlock, sb.BlocksCount, inodeNum)
+			}
+			// C1: detect self-referential / cyclic index blocks. Visiting the
+			// same physical block twice means the tree loops; bail out instead
+			// of recursing forever.
+			if err := visited.Check(childBlock); err != nil {
+				return nil, fmt.Errorf("ext4: cyclic extent index block %d in inode %d: %w", childBlock, inodeNum, err)
+			}
 			childBuf, err := readRawBlock(f, fsOffset, sb, childBlock)
 			if err != nil {
 				return nil, fmt.Errorf("ext4: read extent index block %d: %w", childBlock, err)
 			}
-			sub, err := parseExtentNode(f, fsOffset, sb, childBuf, inodeNum, inodeRaw)
+			// C1: children must declare exactly depth-1 (strictly decreasing).
+			sub, err := parseExtentNode(f, fsOffset, sb, childBuf, inodeNum, inodeRaw, depth-1, visited)
 			if err != nil {
 				return nil, err
 			}
@@ -355,7 +413,28 @@ func readFileData(f readerWriterAt, fsOffset int64, sb *superblock, in *inode) (
 	if err != nil {
 		return nil, err
 	}
-	out := make([]byte, in.size)
+
+	// H2: in.size (i_size) is attacker-controlled and can be as large as
+	// 2^63-1, so `make([]byte, in.size)` would OOM the host. Bound the
+	// allocation by two independent ceilings, taking whichever is smaller:
+	//   1. the total bytes the inode's own extents can actually supply
+	//      (sum of extent block counts * BlockSize); and
+	//   2. the whole filesystem's byte size (BlocksCount * BlockSize).
+	// A file can never legitimately be larger than either, so a size beyond
+	// the ceiling is a corrupt/malicious inode and yields ErrTooLarge.
+	var extentBytes int64
+	for _, e := range ext {
+		extentBytes += int64(e.Count) * int64(sb.BlockSize)
+	}
+	fsBytes := int64(sb.BlocksCount) * int64(sb.BlockSize)
+	max := extentBytes
+	if fsBytes > 0 && fsBytes < max {
+		max = fsBytes
+	}
+	out, err := safeio.MakeBytes(int64(in.size), max)
+	if err != nil {
+		return nil, fmt.Errorf("ext4: inode %d size %d invalid: %w", in.num, in.size, err)
+	}
 	written := 0
 	// If the inode reports a non-zero size but there are no extents, treat
 	// this as an error rather than returning an empty slice silently.
@@ -366,6 +445,11 @@ func readFileData(f readerWriterAt, fsOffset int64, sb *superblock, in *inode) (
 	for _, e := range ext {
 		for blk := uint64(0); blk < uint64(e.Count); blk++ {
 			physBlock := e.PhysBlock + blk
+			// M3: validate the physical block lies within the filesystem
+			// before computing an offset and reading it.
+			if sb.BlocksCount != 0 && physBlock >= sb.BlocksCount {
+				return nil, fmt.Errorf("ext4: data block %d out of range (blocks=%d) in inode %d", physBlock, sb.BlocksCount, in.num)
+			}
 			blockOff := int64(physBlock) * int64(sb.BlockSize)
 			remain := int(in.size) - written
 			if remain <= 0 {

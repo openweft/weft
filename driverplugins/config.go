@@ -26,8 +26,9 @@ type Config struct {
 	Registry string
 	// Version is the tag for derived refs, e.g. "v0.3.1" or "latest".
 	Version string
-	// Refs overrides the full OCI ref for a hypervisor key ("vz" / "qemu"),
-	// bypassing Registry+Version. Empty/missing → derived ref.
+	// Refs overrides the full OCI ref for a hypervisor key ("vz" /
+	// "qemu" / "wasm"), bypassing Registry+Version. Empty/missing
+	// → derived ref.
 	Refs map[string]string
 	// Token is an optional bearer/password for private registries. Empty →
 	// anonymous pull (public GHCR images).
@@ -61,15 +62,23 @@ func (c *Config) ApplyEnv() {
 	if v := os.Getenv(EnvToken); v != "" {
 		c.Token = v
 	}
-	for _, hv := range []string{"vz", "qemu"} {
+	for _, hv := range knownHypervisorKinds {
 		if v := os.Getenv("WEFT_DRIVER_" + strings.ToUpper(hv) + "_REF"); v != "" {
 			c.Refs[hv] = v
 		}
 	}
 }
 
-// Ref returns the OCI reference for hypervisor key hv ("vz" / "qemu"): an
-// explicit per-hv override if set, else <Registry>/weft-driver-<hv>:<Version>.
+// knownHypervisorKinds lists the hypervisor backend keys weft
+// recognises. Order is stable and used when iterating env overrides
+// + picking a primary in multi-plugin mode. "wasm" is appended last
+// so vz/qemu still win where present — wasm is fallback for hosts
+// without hardware virt.
+var knownHypervisorKinds = []string{"vz", "qemu", "wasm"}
+
+// Ref returns the OCI reference for hypervisor key hv ("vz" /
+// "qemu" / "wasm") : an explicit per-hv override if set, else
+// <Registry>/weft-driver-<hv>:<Version>.
 func (c Config) Ref(hv string) string {
 	if r := c.Refs[hv]; r != "" {
 		return r

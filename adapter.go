@@ -24,6 +24,7 @@ import (
 	weftplugin "github.com/openweft/weft-driver-plugin"
 	driversAPI "github.com/openweft/weft-drivers"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
+	guestv1 "github.com/openweft/weft-proto/guestv1"
 	"github.com/openweft/weft/driverplugins"
 	"github.com/openweft/weft/imagestore"
 	"golang.org/x/crypto/ssh"
@@ -64,6 +65,26 @@ type VZAdapter interface {
 
 	// VZ-specific extensions
 	RegisterMicroVM(project, name string, boot MicroVMBoot, shares []MicroVMShare, requestedGPUs []GPURequest) error
+	// PodCID returns the AF_VSOCK CID the agent allocated for the
+	// pod_id (= VM.Name). Used by GuestPodPlane.Attach to verify
+	// the announced pod_id against the peer's actual CID. Unknown
+	// pods return (0, false) ; the handler interprets that as
+	// "no strict expectation, autoregister from peer.CID()".
+	PodCID(podID string) (uint32, bool)
+	// RegisterPodCID stamps a new (pod_id, cid) entry in the host's
+	// podCIDs registry. The GuestPodPlane.Attach handler uses this
+	// for the v0.4.51 autoregister-on-first-Hello path that lifts
+	// the Apple-VZ readback gap : the host can't pre-allocate the
+	// CID on VZ, but learns it from the first live stream.
+	RegisterPodCID(podID string, cid uint32)
+	// PodSpec returns the operator-supplied desired pod state, used
+	// by GuestPodPlane.Attach to populate the HelloAck. Empty + ok=
+	// false on unknown pods.
+	PodSpec(podID string) (*guestv1.PodSpec, bool)
+	// SetPodSpec publishes a PodSpec into the in-memory registry +
+	// persists the whole registry to <stateDir>/podspecs.hcl. Passing
+	// spec=nil evicts the entry. Backs the SetPodSpec WeftAgent RPC.
+	SetPodSpec(podID string, spec *guestv1.PodSpec)
 	SetVMUser(name, user string)
 	SetSSHKeyPath(path string)
 	SetChecksums(checksums map[string]string)
@@ -314,6 +335,8 @@ type VZAdapter interface {
 	ListVMsForHost(hostUUID string) []VM
 	RegisterVM(spec CreateVMSpec) (VM, error)
 	SetVMState(uuid string, state VMState) error
+	IncrementVMRestarts(uuid string) error
+	SetVMStatus(uuid, status string) error
 	MigrateVM(uuid, newHostUUID string) error
 	RenameVMInventory(uuid, newName string) error
 	UnregisterVM(uuid string) error
@@ -348,6 +371,9 @@ type VZAdapter interface {
 	SetTenantQuota(projectUUID string, q TenantQuota) error
 	EnforceTenantQuotaForVM(projectUUID string, cpu, memoryMiB int) error
 	EnforceTenantQuotaForVolume(projectUUID string, sizeGiB int) error
+	EnforceTenantQuotaForShare(projectUUID string, sizeGiB int) error
+	EnforceTenantQuotaForBucket(projectUUID string) error
+	EnforceTenantQuotaForFloatingIP(projectUUID string) error
 	// EnforceTenantQuotaForGPU returns ResourceExhausted when
 	// admitting a VM with the given RequestedGPUs would push the
 	// project's gpu_count / gpu_memory_gib allocation past its
@@ -478,6 +504,16 @@ type Adapter struct {
 	// storage blob so the two registries don't share state. See
 	// tenant_caps.go.
 	tenantCaps *tenantCapRegistry
+	// podCIDs maps pod_id (VM.Name) → AF_VSOCK CID for in-process
+	// lookups by GuestPodPlane.Attach. Persistent state lives on
+	// VM.VsockCID ; this is a hot-path cache rebuilt on agent boot
+	// from the inventory.
+	podCIDs *podCIDRegistry
+	// podSpecs holds the operator-supplied GuestPodPlane PodSpec
+	// for each microVM. GuestPodPlane.Attach reads through it to
+	// populate HelloAck ; without an entry the guest receives an
+	// empty PodSpec and the in-guest reconciler stays idle.
+	podSpecs *podSpecRegistry
 	// scheduler picks which Host runs a new VM. Defaults to
 	// FirstFitScheduler; swappable via SetScheduler. See
 	// scheduler.go for the interface + the default policy's
@@ -761,6 +797,8 @@ func (a *Adapter) afterStorageWired() VZAdapter {
 	a.initVMs()
 	a.initTenantQuotas()
 	a.initTenantCaps()
+	a.initPodCIDs()
+	a.initPodSpecs()
 	a.initResources()
 	a.scheduler = FirstFitScheduler{} // operator-overridable via SetScheduler
 	if err := a.selfRegisterHost(); err != nil {
@@ -770,9 +808,67 @@ func (a *Adapter) afterStorageWired() VZAdapter {
 		fmt.Fprintf(os.Stderr, "weft: self-register host: %v\n", err)
 	}
 	a.initLocalDrivers()
+	// Drivers are now wired in the dispatch table : refresh the host
+	// registry with the per-driver versions HostInfo() reports. This
+	// is a no-op when the local driver didn't surface a Version
+	// (legacy / dev builds without -X main.version).
+	a.refreshLocalDriverVersions()
 	a.migrateLegacyLayout()
 	a.migrateNamedProjectDirs()
 	return a
+}
+
+// refreshLocalDriverVersions queries each loaded driver's HostInfo()
+// for its compile-time build version and updates the local Host
+// registry entry's DriverVersions map. Called after initLocalDrivers
+// so the dispatch table is populated. Best-effort : a driver that
+// fails HostInfo or returns empty Version is silently skipped.
+func (a *Adapter) refreshLocalDriverVersions() {
+	if a.hostReg == nil {
+		return
+	}
+	hostUUID, err := a.loadOrCreateHostUUID()
+	if err != nil || hostUUID == "" {
+		return
+	}
+	existing, ok := a.hostReg.byUUID[hostUUID]
+	if !ok {
+		return
+	}
+	versions := map[string]string{}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	a.mu.Lock()
+	for kind, h := range a.driverDispatchSet[hostUUID] {
+		if h == nil || h.Hypervisor == nil {
+			continue
+		}
+		info, err := h.Hypervisor.HostInfo(ctx)
+		if err != nil {
+			continue
+		}
+		if info.Version != "" {
+			versions[kind] = info.Version
+		}
+	}
+	// Single-driver path : the legacy dispatch table holds one entry
+	// under the host UUID without a kind label ; that's the local
+	// driver. Query it under its self-reported hypervisor label.
+	if h, ok2 := a.driverDispatch[hostUUID]; ok2 && len(versions) == 0 && h != nil && h.Hypervisor != nil {
+		info, err := h.Hypervisor.HostInfo(ctx)
+		if err == nil && info.Version != "" {
+			versions[existing.Hypervisor] = info.Version
+		}
+	}
+	a.mu.Unlock()
+	if len(versions) == 0 {
+		return
+	}
+	a.hostReg.mu.Lock()
+	existing.DriverVersions = versions
+	a.hostReg.byUUID[hostUUID] = existing
+	_ = a.hostReg.persistOne(existing)
+	a.hostReg.mu.Unlock()
 }
 
 // initUsers loads the on-disk user registry via storageFactory.
@@ -1276,6 +1372,19 @@ func (a *Adapter) RegisterVM(spec CreateVMSpec) (VM, error) {
 
 // SetVMState transitions the VM. Validates target state +
 // publishes a `vm.state_changed` event.
+// IncrementVMRestarts bumps the VM record's RestartCount by one.
+// Called by self-heal + respawn after a successful StartVM so the
+// k8s-style "RESTARTS=N/M" UI column tracks recovery activity.
+// Returns silently when the VM isn't in the registry (legacy local-
+// only VMs without a record) ; no event is published — restart
+// activity is already covered by vm.state_changed transitions.
+func (a *Adapter) IncrementVMRestarts(uuid string) error {
+	if a.vmReg == nil {
+		return nil
+	}
+	return a.vmReg.incrementRestarts(uuid)
+}
+
 func (a *Adapter) SetVMState(uuid string, state VMState) error {
 	if a.vmReg == nil {
 		return fmt.Errorf("vm registry not initialised")
@@ -1289,6 +1398,34 @@ func (a *Adapter) SetVMState(uuid string, state VMState) error {
 		Subject:     uuid,
 		ProjectUUID: prev.ProjectUUID,
 		Meta:        map[string]string{"old_state": string(prev.State), "new_state": string(state)},
+	})
+	return nil
+}
+
+// SetVMStatus flips the operator's administrative intent
+// orthogonal to runtime State : a VM can stay state=running with
+// status=inactive (the agent leaves the runtime alone, but the
+// respawn reconciler skips it + the scheduler avoids it for
+// failover candidates). Consumed today by weft-respawn + the
+// AZ/Rack/Host inactive-cascade ; future consumers: cost reports,
+// drain orchestration, etc. 2026-06-24 operator directive.
+func (a *Adapter) SetVMStatus(uuid, status string) error {
+	if a.vmReg == nil {
+		return fmt.Errorf("vm registry not initialised")
+	}
+	prev, _ := a.vmReg.lookupByUUID(uuid)
+	if err := a.vmReg.setStatus(uuid, status); err != nil {
+		return err
+	}
+	prevStatus := prev.Status
+	if prevStatus == "" {
+		prevStatus = "active"
+	}
+	a.bus.Publish(PlatformEvent{
+		Kind:        "vm.status_changed",
+		Subject:     uuid,
+		ProjectUUID: prev.ProjectUUID,
+		Meta:        map[string]string{"old_status": prevStatus, "new_status": status},
 	})
 	return nil
 }
@@ -1354,6 +1491,12 @@ func (a *Adapter) UnregisterVM(uuid string) error {
 	// is idempotent + cheap on an unknown UUID).
 	if a.gpuClaims != nil {
 		a.gpuClaims.ReleaseVM(uuid)
+	}
+	// Drop the in-memory pod_id→CID binding so a recycled VM
+	// name (same project + same name re-registered later) won't
+	// inherit the previous incarnation's CID expectation.
+	if prev.Name != "" {
+		a.UnregisterPodCID(prev.Name)
 	}
 	a.bus.Publish(PlatformEvent{
 		Kind:        "vm.unregistered",
@@ -1527,6 +1670,27 @@ func (a *Adapter) SetHostState(uuid string, state HostState) error {
 		Subject: uuid,
 		Meta:    map[string]string{"old_state": string(prev.State), "new_state": string(state)},
 	})
+	// Cascade VM admin-status when the host's State carries an
+	// operator-intent meaning : Active / Inactive flow down to the
+	// VMs running on this host so respawn + scheduler honour the
+	// intent. Draining / Down don't cascade (those are runtime
+	// states ; transient connectivity blips would otherwise wipe
+	// the VM's admin status across the cluster). 2026-06-24 VM
+	// status MVP — operator directive.
+	var targetVMStatus string
+	switch state {
+	case HostStateActive:
+		targetVMStatus = "active"
+	case HostStateInactive:
+		targetVMStatus = "inactive"
+	default:
+		return nil
+	}
+	if a.vmReg != nil {
+		for _, v := range a.vmReg.listForHost(uuid) {
+			_ = a.SetVMStatus(v.UUID, targetVMStatus)
+		}
+	}
 	return nil
 }
 
@@ -3367,6 +3531,20 @@ type MicroVMBoot struct {
 	Kernel  string
 	Initrd  string
 	Cmdline string
+	// Image is the OCI ref the microVM was hatched from (e.g.
+	// "ghcr.io/openweft/weft-etcd:v3.6.0"). Persisted into the VM
+	// dir's config.json so ListLocal can surface it on the wire —
+	// the operator-facing IMAGE column in `weft host ls` / TUI
+	// reads from there. Optional ; empty leaves the field absent.
+	Image string
+	// CPU + MemoryMiB are the resource caps the workload requested
+	// (typically from `weft infra deploy`'s plan.hcl `resources {}`
+	// block). Stored on the inventory record + persisted into
+	// config.json so cross-host ListVMs renders the operator-
+	// meaningful values instead of 0 when the daemon hasn't yet
+	// scanned local disk.
+	CPU       int
+	MemoryMiB int
 }
 
 // RegisterMicroVM creates a VM directory wired for a microVM-style
@@ -3400,6 +3578,32 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		projUUID := a.ResolveProjectUUID(project)
 		local := a.LocalHostUUID()
 		existing, _ := a.vmReg.lookupByName(projUUID, name)
+		// VM dir on disk + no registry record = the dir survived a
+		// daemon / etcd wipe (operator nuked vmReg, agent restarted,
+		// dir still on disk). Seed the inventory by REGISTERING the
+		// VM now so the etcd / file registry catches up — without
+		// this the deploy returns idempotent-skip and the registry
+		// stays empty forever, breaking cluster-wide visibility.
+		if existing.UUID == "" {
+			regImage := boot.Image
+			if regImage == "" {
+				regImage = "microvm/direct_linux"
+			}
+			if _, err := a.RegisterVM(CreateVMSpec{
+				ProjectUUID: projUUID,
+				Name:        name,
+				HostUUID:    local,
+				Image:       regImage,
+				CPUCount:    boot.CPU,
+				MemoryMiB:   boot.MemoryMiB,
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: re-seed registry for %q failed: %v\n", name, err)
+			} else {
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: vm %q dir present but no registry record — re-seeded under host %s\n",
+					name, local)
+			}
+			return nil
+		}
 		if local != "" && existing.UUID != "" && existing.HostUUID != local {
 			if err := a.vmReg.setHost(existing.UUID, local); err != nil {
 				fmt.Fprintf(os.Stderr, "weft: register-microvm: claim local ownership of %q failed: %v\n", name, err)
@@ -3418,6 +3622,27 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		} else {
 			fmt.Fprintf(os.Stderr, "weft: register-microvm: vm %q already in project %s — idempotent skip\n",
 				name, projUUID)
+		}
+		// Lift a stale "microvm/direct_linux" Image label to the
+		// real OCI ref when the caller supplies one. Records minted
+		// before the V0.4.71 OCI plumbing carried the synthetic
+		// placeholder ; subsequent re-registrations now ship the
+		// real image and we adopt it so the operator inventory
+		// converges without a full uninstall/reinstall cycle.
+		if boot.Image != "" && existing.UUID != "" && existing.Image != boot.Image {
+			if err := a.vmReg.setImage(existing.UUID, boot.Image); err != nil {
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh image label for %q failed: %v\n", name, err)
+			}
+		}
+		// V0.4.72 : same lift for CPU + MemoryMiB so the FLAVOR
+		// resolver finds a catalogue match instead of "custom" on
+		// records minted before the workload-shape fields were
+		// threaded through. setShape no-ops when boot.CPU/Mem are
+		// 0 (caller didn't supply better data).
+		if existing.UUID != "" && (boot.CPU != 0 || boot.MemoryMiB != 0) {
+			if err := a.vmReg.setShape(existing.UUID, boot.CPU, boot.MemoryMiB); err != nil {
+				fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh shape for %q failed: %v\n", name, err)
+			}
 		}
 		return nil
 	}
@@ -3544,12 +3769,21 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 	// VM inventory entry — created BEFORE config.json so we have the
 	// UUID to key the GPU claim on (and so UnregisterVM can release it).
 	// Best-effort for non-GPU VMs: failure only loses the multi-host
-	// dispatch path (handled by the hypervisorForVM fallback). Microvm
-	// entries carry the boot mode as the Image field so audits can tell
-	// UKI/direct-Linux registrations from classic cloud-image clones.
+	// dispatch path (handled by the hypervisorForVM fallback).
+	//
+	// Image preference : the caller-supplied OCI ref (boot.Image) wins
+	// when set — it's the operator-meaningful identity for the workload
+	// ("weft-etcd:v3.6.0" reads better than the internal
+	// "microvm/direct_linux" boot-mode label). Falls back to
+	// "microvm/<mode>" for callers that don't pass an OCI ref, keeping
+	// the existing audit semantics.
 	mode := "uki"
 	if boot.Kernel != "" {
 		mode = "direct_linux"
+	}
+	regImage := boot.Image
+	if regImage == "" {
+		regImage = "microvm/" + mode
 	}
 	var vmUUID string
 	var gpuPCI, gpuMIG []string
@@ -3558,11 +3792,38 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 			ProjectUUID:   a.ResolveProjectUUID(project),
 			Name:          name,
 			HostUUID:      a.localHostUUID(),
-			Image:         "microvm/" + mode,
+			Image:         regImage,
+			CPUCount:      boot.CPU,
+			MemoryMiB:     boot.MemoryMiB,
 			RequestedGPUs: requestedGPUs,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "weft: register-microvm inventory: %v\n", err)
+			// Stale registry entry but the local dir was just rebuilt
+			// (operator cleaned $stateDir/vz/.../<vm> by hand):
+			// RegisterVM rejects the duplicate name, yet we now hold
+			// the canonical config.json + boot artefacts for this host.
+			// Lift the existing record's HostUUID / Image / shape so the
+			// cross-host inventory converges on the fresh registration.
+			// Best-effort; self-skip when already equal.
+			if existing, ok := a.vmReg.lookupByName(a.ResolveProjectUUID(project), name); ok && existing.UUID != "" {
+				local := a.localHostUUID()
+				if local != "" && existing.HostUUID != local {
+					if setErr := a.vmReg.setHost(existing.UUID, local); setErr != nil {
+						fmt.Fprintf(os.Stderr, "weft: register-microvm: claim ownership of stale %q failed: %v\n", name, setErr)
+					}
+				}
+				if regImage != "" && existing.Image != regImage {
+					if setErr := a.vmReg.setImage(existing.UUID, regImage); setErr != nil {
+						fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh image label of stale %q failed: %v\n", name, setErr)
+					}
+				}
+				if boot.CPU != 0 || boot.MemoryMiB != 0 {
+					if setErr := a.vmReg.setShape(existing.UUID, boot.CPU, boot.MemoryMiB); setErr != nil {
+						fmt.Fprintf(os.Stderr, "weft: register-microvm: refresh shape of stale %q failed: %v\n", name, setErr)
+					}
+				}
+			}
 		} else {
 			vmUUID = vm.UUID
 		}
@@ -3627,13 +3888,27 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 		}
 		entries[i] = shareEntry{Tag: s.Tag, Path: exposePath, ReadOnly: s.ReadOnly}
 	}
+	// Pre-allocate the guest's AF_VSOCK CID before writing config.json
+	// so the driver picks it up when it bakes its qemu argv (or wires
+	// the equivalent on Apple VZ). We can't read it back from the VM
+	// inventory yet — RegisterVM lower in this function is what
+	// persists the VsockCID on the VM record — but the CID is a pure
+	// function of (projectUUID, name) at this point, so we recompute
+	// it here. The downstream call to RegisterPodCID will store the
+	// same value on the registry, and setVsockCID persists it on the
+	// VM record. Three callers, one truth — guaranteed by the hash.
+	preCID := AllocateVsockCID(projectUUID, name)
 	cfg := struct {
 		MicroVM        bool         `json:"microvm"`
 		Cmdline        string       `json:"cmdline,omitempty"`
 		Shares         []shareEntry `json:"shares,omitempty"`
+		VsockCID       uint32       `json:"vsock_cid,omitempty"`
+		Image          string       `json:"image,omitempty"`
+		CPU            int          `json:"cpu,omitempty"`
+		MemMB          int          `json:"mem_mb,omitempty"`
 		PCIPassthrough []string     `json:"pci_passthrough,omitempty"`
 		MIGDevices     []string     `json:"mig_devices,omitempty"`
-	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, PCIPassthrough: gpuPCI, MIGDevices: gpuMIG}
+	}{MicroVM: true, Cmdline: boot.Cmdline, Shares: entries, VsockCID: preCID, Image: boot.Image, CPU: boot.CPU, MemMB: boot.MemoryMiB, PCIPassthrough: gpuPCI, MIGDevices: gpuMIG}
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
 		cleanupRegistered()
@@ -3646,6 +3921,17 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 	// inventory entry (+ any GPU claim) was created earlier so its
 	// UUID could key the claim; see the block above.
 	RecordEvent(dir, "registered", map[string]string{"mode": mode})
+	// Persist the AF_VSOCK CID on the VM record (when it registered)
+	// so the QEMU driver binds the device at StartVM — the same value
+	// baked into config.json above. The in-memory podCIDs registry is
+	// NOT stamped here: it self-populates via the GuestPodPlane.Attach
+	// autoregister-on-first-Hello path using peer.CID() from the kernel
+	// (truth for both backends; VZ picks its own CID we can't query).
+	if vmUUID != "" && preCID != 0 {
+		if err := a.vmReg.setVsockCID(vmUUID, preCID); err != nil {
+			fmt.Fprintf(os.Stderr, "weft: register-microvm: persist vsock_cid: %v\n", err)
+		}
+	}
 	return nil
 }
 

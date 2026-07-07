@@ -14,11 +14,13 @@ package main
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	weft "github.com/openweft/weft"
 	"github.com/openweft/weft/etcdcoord"
 	weftv1 "github.com/openweft/weft-proto"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -48,6 +50,58 @@ func toHostInfo(h weft.Host) *weftv1.HostInfo {
 			hi.Properties[k] = v
 		}
 	}
+	if h.AgentVersion != "" {
+		hi.AgentVersion = h.AgentVersion
+	}
+	if len(h.DriverVersions) > 0 {
+		hi.DriverVersions = make(map[string]string, len(h.DriverVersions))
+		for k, v := range h.DriverVersions {
+			hi.DriverVersions[k] = v
+		}
+	}
+	hi.OsId = h.OSID
+	hi.OsVersion = h.OSVersion
+	hi.OsPretty = h.OSPretty
+	hi.KernelVersion = h.KernelVersion
+	if len(h.NetworkInterfaces) > 0 {
+		hi.NetworkInterfaces = make([]*weftv1.NetworkInterface, 0, len(h.NetworkInterfaces))
+		for _, n := range h.NetworkInterfaces {
+			hi.NetworkInterfaces = append(hi.NetworkInterfaces, &weftv1.NetworkInterface{
+				Name:          n.Name,
+				Mac:           n.MAC,
+				Ipv4Cidrs:     append([]string(nil), n.IPv4CIDRs...),
+				Ipv6Cidrs:     append([]string(nil), n.IPv6CIDRs...),
+				LinkSpeedMbps: n.LinkSpeedMbps,
+				Mtu:           int32(n.MTU),
+				Operstate:     n.OperState,
+			})
+		}
+	}
+	if len(h.StorageMounts) > 0 {
+		hi.StorageMounts = make([]*weftv1.StorageMount, 0, len(h.StorageMounts))
+		for _, m := range h.StorageMounts {
+			hi.StorageMounts = append(hi.StorageMounts, &weftv1.StorageMount{
+				Mountpoint: m.Mountpoint,
+				Device:     m.Device,
+				Fstype:     m.FSType,
+				TotalBytes: m.TotalBytes,
+				FreeBytes:  m.FreeBytes,
+			})
+		}
+	}
+	hi.CpuCount = int32(h.CPUCount)
+	hi.MemoryMib = h.MemoryMiB
+	if len(h.GPUs) > 0 {
+		hi.Gpus = make([]*weftv1.GPU, 0, len(h.GPUs))
+		for _, g := range h.GPUs {
+			hi.Gpus = append(hi.Gpus, &weftv1.GPU{
+				Vendor:     g.Vendor,
+				Model:      g.Model,
+				MemoryGib:  int32(g.MemoryGiB),
+				MigCapable: g.MIGCapable,
+			})
+		}
+	}
 	return hi
 }
 
@@ -68,6 +122,65 @@ func (s *weftServer) RegisterHost(ctx context.Context, req *weftv1.RegisterHostR
 		Architecture:   req.Architecture,
 		NetworkTypes:   append([]string(nil), req.NetworkTypes...),
 		VolumeBackends: append([]string(nil), req.VolumeBackends...),
+		AgentVersion:   req.AgentVersion,
+	}
+	if len(req.DriverVersions) > 0 {
+		spec.DriverVersions = make(map[string]string, len(req.DriverVersions))
+		for k, v := range req.DriverVersions {
+			spec.DriverVersions[k] = v
+		}
+	}
+	spec.OSID = req.OsId
+	spec.OSVersion = req.OsVersion
+	spec.OSPretty = req.OsPretty
+	spec.KernelVersion = req.KernelVersion
+	if len(req.NetworkInterfaces) > 0 {
+		spec.NetworkInterfaces = make([]weft.NetworkInterface, 0, len(req.NetworkInterfaces))
+		for _, n := range req.NetworkInterfaces {
+			if n == nil {
+				continue
+			}
+			spec.NetworkInterfaces = append(spec.NetworkInterfaces, weft.NetworkInterface{
+				Name:          n.Name,
+				MAC:           n.Mac,
+				IPv4CIDRs:     append([]string(nil), n.Ipv4Cidrs...),
+				IPv6CIDRs:     append([]string(nil), n.Ipv6Cidrs...),
+				LinkSpeedMbps: n.LinkSpeedMbps,
+				MTU:           int(n.Mtu),
+				OperState:     n.Operstate,
+			})
+		}
+	}
+	if len(req.StorageMounts) > 0 {
+		spec.StorageMounts = make([]weft.StorageMount, 0, len(req.StorageMounts))
+		for _, m := range req.StorageMounts {
+			if m == nil {
+				continue
+			}
+			spec.StorageMounts = append(spec.StorageMounts, weft.StorageMount{
+				Mountpoint: m.Mountpoint,
+				Device:     m.Device,
+				FSType:     m.Fstype,
+				TotalBytes: m.TotalBytes,
+				FreeBytes:  m.FreeBytes,
+			})
+		}
+	}
+	spec.CPUCount = int(req.CpuCount)
+	spec.MemoryMiB = req.MemoryMib
+	if len(req.Gpus) > 0 {
+		spec.GPUs = make([]weft.GPU, 0, len(req.Gpus))
+		for _, g := range req.Gpus {
+			if g == nil {
+				continue
+			}
+			spec.GPUs = append(spec.GPUs, weft.GPU{
+				Vendor:     g.Vendor,
+				Model:      g.Model,
+				MemoryGiB:  int(g.MemoryGib),
+				MIGCapable: g.MigCapable,
+			})
+		}
 	}
 	if len(req.Properties) > 0 {
 		spec.Properties = make(map[string]string, len(req.Properties))
@@ -134,17 +247,22 @@ func (s *weftServer) ListHosts(ctx context.Context, req *weftv1.ListHostsRequest
 	for _, h := range hosts {
 		out = append(out, toHostInfo(h))
 	}
-	var connected []string
-	if s.dispatch != nil {
-		connected = s.dispatch.ConnectedHostUUIDs()
-	}
-	// The local agent never opens a Connect stream to itself — it
-	// talks to the Adapter directly. But it IS reachable (the
-	// caller is talking to it right now), so the dashboard should
-	// reflect that. Surface localHostUUID as connected if known
-	// and not already in the dispatch list ; otherwise operators
-	// see "connected=no" for the host they just hit, which is
-	// false negative.
+	// CONN semantics : in HA / federated topologies, every agent
+	// runs autonomously and pulls from etcd (no agent dials back
+	// to the seed via AgentDispatch). The legacy "host has a
+	// dispatch stream to ME" check therefore only ever lit up
+	// the local host, masking real liveness.
+	//
+	// New definition : "host has a live coord lease in etcd"
+	// (/weft/coord/hosts/<uuid>, TTL 10s, KeepAlived by each
+	// running agent). That's exactly what every agent already
+	// publishes, so the column reads "yes" for every host whose
+	// agent is currently alive — the natural operator question.
+	//
+	// Falls back to the dispatch-based view when etcdCli isn't
+	// wired (single-host dev / file backend) so unit tests + the
+	// legacy code path keep working.
+	connected := s.liveHostUUIDs(ctx)
 	if s.localHostUUID != "" {
 		dup := false
 		for _, u := range connected {
@@ -158,6 +276,44 @@ func (s *weftServer) ListHosts(ctx context.Context, req *weftv1.ListHostsRequest
 		}
 	}
 	return &weftv1.ListHostsResponse{Hosts: out, ConnectedHostUuids: connected}, nil
+}
+
+// liveHostUUIDs returns the set of host UUIDs that currently hold a
+// live etcd coord lease (= weft-agent process running on them, sending
+// KeepAlive). Caps the etcd Get at 2s so a flaky quorum can't stall
+// the UI's ListHosts RPC.
+//
+// When etcdCli is nil (single-host dev / file backend) falls back to
+// the legacy dispatch-stream view so tests + that mode keep working
+// without code change.
+func (s *weftServer) liveHostUUIDs(ctx context.Context) []string {
+	if s.etcdCli == nil {
+		if s.dispatch != nil {
+			return s.dispatch.ConnectedHostUUIDs()
+		}
+		return nil
+	}
+	gctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := s.etcdCli.Get(gctx, etcdcoord.HostsPrefix, clientv3.WithPrefix(), clientv3.WithKeysOnly(), clientv3.WithSerializable())
+	if err != nil || resp == nil {
+		// Fall through to legacy dispatch view on etcd hiccup —
+		// the column degrades to "only local" rather than blanking
+		// entirely, which is the same UX as before this change.
+		if s.dispatch != nil {
+			return s.dispatch.ConnectedHostUUIDs()
+		}
+		return nil
+	}
+	out := make([]string, 0, len(resp.Kvs))
+	for _, kv := range resp.Kvs {
+		key := string(kv.Key)
+		if !strings.HasPrefix(key, etcdcoord.HostsPrefix) {
+			continue
+		}
+		out = append(out, strings.TrimPrefix(key, etcdcoord.HostsPrefix))
+	}
+	return out
 }
 
 // GetHost accepts either UUID or hostname. The Adapter has
@@ -209,10 +365,10 @@ func (s *weftServer) SetHostState(ctx context.Context, req *weftv1.SetHostStateR
 	}
 	st := weft.HostState(req.State)
 	switch st {
-	case weft.HostStateActive, weft.HostStateDraining, weft.HostStateDown:
+	case weft.HostStateActive, weft.HostStateDraining, weft.HostStateDown, weft.HostStateInactive:
 		// valid
 	default:
-		return nil, status.Errorf(codes.InvalidArgument, "state must be active|draining|down (got %q)", req.State)
+		return nil, status.Errorf(codes.InvalidArgument, "state must be active|draining|down|inactive (got %q)", req.State)
 	}
 	if err := s.adp.SetHostState(req.Uuid, st); err != nil {
 		return nil, status.Errorf(codes.Internal, "set host state: %v", err)

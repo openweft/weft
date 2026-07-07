@@ -133,10 +133,39 @@ type VM struct {
 	// {"role":"loom","tier":"prod"}. Persists through HCL via a
 	// properties = { ... } attribute. Empty / nil = no properties, selector
 	// can only match by vm.name.
-	Properties   map[string]string `json:"properties,omitempty"`
-	State        VMState      `json:"state"`
-	CreatedAt    time.Time    `json:"created_at"`
+	Properties map[string]string `json:"properties,omitempty"`
+	// State is the runtime lifecycle the agent observes (created /
+	// running / stopped / zombie). Driven by the hypervisor driver
+	// + reconciler — operators rarely set it directly.
+	State VMState `json:"state"`
+	// Status is the OPERATOR's administrative intent, orthogonal to
+	// State. Values: "active" (default, scheduler + respawn touch it
+	// freely), "inactive" (frozen — respawn skips, scheduler avoids
+	// placement decisions), "draining" (finish current work but
+	// don't replace on failure). 2026-06-24 introduction motivated
+	// by the VM's parent host going inactive : the runtime keeps
+	// going but the admin signal MUST flow down so respawn /
+	// reconcilers respect the operator's intent. Empty string is
+	// treated as "active" for backward compat with VM records
+	// written before the field landed.
+	Status      string    `json:"status,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 	LastStartAt  time.Time    `json:"last_start_at,omitempty"`
+	// VsockCID is the AF_VSOCK context-id the hypervisor assigns to
+	// this guest. Allocated deterministically from the VM UUID at
+	// RegisterMicroVM time ; consumed by GuestPodPlane.Attach to
+	// verify the announced pod_id matches the peer's actual CID.
+	// 0 = unassigned (legacy VMs that pre-date the CID allocator).
+	// Drivers that don't yet honour the field still produce working
+	// VMs ; the agent-side check just stays permissive for those.
+	VsockCID uint32 `json:"vsock_cid,omitempty"`
+
+	// RestartCount is the cumulative number of times self-heal /
+	// respawn has issued a StartVM against this VM. Surfaces in
+	// the operator UI's RESTARTS column so a thrashing workload
+	// is visible at a glance, k8s-style. Persisted into the
+	// registry so the value survives an agent restart.
+	RestartCount uint32 `json:"restart_count,omitempty"`
 }
 
 // vmsDoc / vmBlock mirror the HCL schema.
@@ -157,8 +186,13 @@ type vmBlock struct {
 	RequestedPCI []requestedPCIBlock `hcl:"requested_pci,block"`
 	Properties   map[string]string   `hcl:"properties,optional"`
 	State        string              `hcl:"state,optional"`
+	// Status — administrative intent (V0.13.0). Optional so VM
+	// blocks written before the field landed still decode.
+	Status       string              `hcl:"status,optional"`
 	CreatedAt    string              `hcl:"created_at"`
 	LastStartAt  string              `hcl:"last_start_at,optional"`
+	VsockCID     int                 `hcl:"vsock_cid,optional"`
+	RestartCount int                 `hcl:"restart_count,optional"`
 }
 
 // requestedGPUBlock is the HCL on-disk shape for one GPURequest
@@ -271,8 +305,11 @@ func loadVMRegistry(ctx context.Context, storage Storage) (*vmRegistry, error) {
 			RequestedPCI:  reqPCI,
 			Properties:    copyProperties(b.Properties),
 			State:         state,
+			Status:        b.Status,
 			CreatedAt:     created,
 			LastStartAt:   lastStart,
+			VsockCID:      uint32(b.VsockCID),
+			RestartCount:  uint32(b.RestartCount),
 		}
 		reg.indexLocked(v)
 	}
@@ -407,9 +444,18 @@ func (r *vmRegistry) saveLocked() error {
 		if v.State != "" {
 			bb.SetAttributeValue("state", cty.StringVal(string(v.State)))
 		}
+		if v.Status != "" {
+			bb.SetAttributeValue("status", cty.StringVal(v.Status))
+		}
 		bb.SetAttributeValue("created_at", cty.StringVal(v.CreatedAt.Format(time.RFC3339Nano)))
 		if !v.LastStartAt.IsZero() {
 			bb.SetAttributeValue("last_start_at", cty.StringVal(v.LastStartAt.Format(time.RFC3339Nano)))
+		}
+		if v.VsockCID != 0 {
+			bb.SetAttributeValue("vsock_cid", cty.NumberUIntVal(uint64(v.VsockCID)))
+		}
+		if v.RestartCount != 0 {
+			bb.SetAttributeValue("restart_count", cty.NumberUIntVal(uint64(v.RestartCount)))
 		}
 		body.AppendNewline()
 	}
@@ -545,8 +591,10 @@ func (r *vmRegistry) reloadFromStorage(ctx context.Context) error {
 				RequestedPCI:  reqPCI,
 				Properties:    copyProperties(b.Properties),
 				State:         state,
+				Status:        b.Status,
 				CreatedAt:     created,
 				LastStartAt:   lastStart,
+				VsockCID:      uint32(b.VsockCID),
 			}
 			byUUID[v.UUID] = v
 			nameIdx[vmNameKey(v.ProjectUUID, v.Name)] = v.UUID
@@ -710,6 +758,39 @@ func (r *vmRegistry) setState(uuid string, state VMState) error {
 	return r.persistOne(v)
 }
 
+// setStatus flips the operator's administrative intent on a VM
+// (orthogonal to the runtime State). Valid values today : "active",
+// "inactive", "draining" — empty string is normalised to "active"
+// so we never persist the ambiguous mid-value. No-op when the
+// value is unchanged so the persist file doesn't churn under a
+// cascade re-apply.
+func (r *vmRegistry) setStatus(uuid, status string) error {
+	if status == "" {
+		status = "active"
+	}
+	switch status {
+	case "active", "inactive", "draining":
+	default:
+		return fmt.Errorf("unknown vm status %q (want active, inactive, or draining)", status)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	cur := v.Status
+	if cur == "" {
+		cur = "active"
+	}
+	if cur == status {
+		return nil
+	}
+	v.Status = status
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
 // setHost migrates a VM to a different host. The VM-level move
 // is a metadata flip; the actual data migration (disk image
 // transfer, network handover, mesh-peer rotation) is the
@@ -769,6 +850,85 @@ func (r *vmRegistry) setName(uuid, newName string) error {
 	return r.persistOne(v)
 }
 
+// setImage rewrites the VM record's Image label. Used by
+// RegisterMicroVM's idempotent-skip path to lift records previously
+// stamped with the synthetic "microvm/direct_linux" placeholder up
+// to the real OCI ref when a fresh registration carries one — so
+// the operator-facing inventory IMAGE column converges to the
+// correct value after a binary upgrade that wires Image through.
+// No-op when the new value matches the current one. Empty in =
+// caller hasn't supplied a better label = keep what we have.
+func (r *vmRegistry) setImage(uuid, newImage string) error {
+	if newImage == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	if v.Image == newImage {
+		return nil
+	}
+	v.Image = newImage
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
+// incrementRestarts bumps the cumulative RestartCount by one and
+// persists. Called by self-heal + respawn after a successful StartVM
+// so the operator-facing UI can show the k8s-style "RESTARTS" column.
+// Returns an error when the UUID is missing ; the no-op uuid="" path
+// is safe to call without checking.
+func (r *vmRegistry) incrementRestarts(uuid string) error {
+	if uuid == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	v.RestartCount++
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
+// setShape updates the record's CPUCount + MemoryMiB. Workload-
+// shape metadata fed to the inventory + TUI FLAVOR resolver. Used
+// by RegisterMicroVM to lift records previously stamped with the
+// CPU=0/Mem=0 placeholder (pre-V0.4.72 binaries) up to the real
+// shape on a subsequent registration. No-op when the new values
+// match the current ones. cpu==0 + memMB==0 = caller hasn't
+// supplied better data = keep what we have.
+func (r *vmRegistry) setShape(uuid string, cpu int, memMB int) error {
+	if cpu == 0 && memMB == 0 {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	changed := false
+	if cpu != 0 && v.CPUCount != cpu {
+		v.CPUCount = cpu
+		changed = true
+	}
+	if memMB != 0 && v.MemoryMiB != memMB {
+		v.MemoryMiB = memMB
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
 // setProperties replaces the property set atomically. nil/empty in →
 // property set is cleared. V0.1.8 mutator for SchedulingRule property-
 // based selectors ; the index doesn't carry properties (there's no
@@ -782,6 +942,22 @@ func (r *vmRegistry) setProperties(uuid string, properties map[string]string) er
 		return fmt.Errorf("vm %q not found", uuid)
 	}
 	v.Properties = copyProperties(properties)
+	r.byUUID[uuid] = v
+	return r.persistOne(v)
+}
+
+// setVsockCID records the AF_VSOCK CID the hypervisor will (or
+// did) assign to the VM. Persisted alongside the rest of the VM
+// record so GuestPodPlane.Attach's strict check survives agent
+// restarts.
+func (r *vmRegistry) setVsockCID(uuid string, cid uint32) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.byUUID[uuid]
+	if !ok {
+		return fmt.Errorf("vm %q not found", uuid)
+	}
+	v.VsockCID = cid
 	r.byUUID[uuid] = v
 	return r.persistOne(v)
 }

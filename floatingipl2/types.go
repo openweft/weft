@@ -121,7 +121,8 @@ func ValidateMappings(mappings []L2Mapping) error {
 }
 
 // MacvlanPrefix is the kernel interface name prefix the
-// programmer reserves. Names look like "wft-mvl-<8-hex-hash>".
+// programmer reserves. Names look like "wft-mvl-<7-hex-hash>"
+// (≤ 15 bytes, the Linux interface-name limit).
 // Operators can `ip -d link show type macvlan` to spot them ;
 // nothing else in openweft creates interfaces with this prefix.
 const MacvlanPrefix = "wft-mvl-"

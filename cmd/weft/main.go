@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -19,8 +20,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
@@ -32,6 +35,8 @@ import (
 	wefthcl "github.com/openweft/weft-hcl"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
 	weftv1 "github.com/openweft/weft-proto"
+	agentv1 "github.com/openweft/weft-proto/agentv1"
+	guestv1 "github.com/openweft/weft-proto/guestv1"
 	weftslognats "github.com/openweft/weft-slognats"
 	"github.com/openweft/weft/auditlog"
 	"github.com/openweft/weft/cmd/weft/admin"
@@ -55,6 +60,7 @@ import (
 	"github.com/openweft/weft/cmd/weft/network"
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/plugin"
+	podcmd "github.com/openweft/weft/cmd/weft/pod"
 	"github.com/openweft/weft/cmd/weft/project"
 	"github.com/openweft/weft/cmd/weft/quota"
 	"github.com/openweft/weft/cmd/weft/rack"
@@ -66,12 +72,16 @@ import (
 	"github.com/openweft/weft/cmd/weft/sshkeycatalogue"
 	"github.com/openweft/weft/cmd/weft/subnet"
 	"github.com/openweft/weft/cmd/weft/tenant"
+	upgradecmd "github.com/openweft/weft/cmd/weft/upgrade"
 	"github.com/openweft/weft/cmd/weft/user"
 	"github.com/openweft/weft/cmd/weft/volume"
 	"github.com/openweft/weft/cmd/weft/wait"
 	"github.com/openweft/weft/dhcpd"
+	"github.com/openweft/weft/etcdjobs"
 	"github.com/openweft/weft/federation"
 	"github.com/openweft/weft/firewallpub"
+	"github.com/openweft/weft/hostmetrics"
+	"github.com/openweft/weft/pluginstore"
 	"github.com/openweft/weft/floatingipnat"
 	"github.com/openweft/weft/portqos"
 	"github.com/openweft/weft/portsec"
@@ -79,6 +89,7 @@ import (
 	"github.com/openweft/weft/zombiegc"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -86,11 +97,24 @@ import (
 // logger is the process-wide logger; messages go to stderr with timestamps.
 var logger = log.New(os.Stderr, "", log.LstdFlags)
 
+// version is the weft binary's compile-time build version, stamped by
+// the release pipeline via `-ldflags "-X main.version=vX.Y.Z"`. The
+// agent reports it to the control plane on register/heartbeat so
+// weft-tui and weft-webui can surface per-host versions ; "dev" for
+// un-stamped local builds.
+var version = "dev"
+
 func main() {
 	// The host-local datapath (the AppKit VM window via vz-vm-run, and
 	// provision) moved into the weft-driver-vz plugin executable, so weft no
 	// longer forks itself for VM display and needs no main-thread OS lock.
 	defer panicReporter()
+	// Export the build version so the in-process embedded selfRegister
+	// path (host_self.go) can stamp Host.AgentVersion without importing
+	// `main`. The agent path (run_client.go) reads `version` directly via
+	// agent.Options.AgentVersion ; this env hop is only for the legacy
+	// in-process integration that doesn't construct an agent.Options.
+	os.Setenv("WEFT_VERSION", version)
 	if err := rootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -189,7 +213,7 @@ running agent.`,
 	root.AddCommand(newInfraCmd())
 	root.AddCommand(newUpCmd())
 	root.AddCommand(newDownCmd())
-	root.AddCommand(newClusterCmd())
+	root.AddCommand(newClusterCmd(&socketPath, &sshSocket, &sshKey))
 	root.AddCommand(newAttestCmd())
 
 	// Client subcommands (was: weft). All speak gRPC to the running agent.
@@ -230,6 +254,8 @@ running agent.`,
 		login.WhoamiCommand(),
 		overlaycmd.Command(),
 		plugin.Command(&socketPath, &sshSocket, &sshKey),
+		podcmd.Command(&socketPath, &sshSocket, &sshKey),
+		upgradecmd.Command(&socketPath, &sshSocket, &sshKey),
 		// Shell-completion script generator. Stateless — no socket
 		// flags, no gRPC. The script is generated against `root`
 		// (resolved via c.Root() inside completion.Command) so it
@@ -271,6 +297,7 @@ func agentCmd() *cobra.Command {
 	var attestTPMDevice string
 	var hypervisor string
 	var tcpListen string
+	var vsockPort int
 	var attestationEnabled bool
 	var az string
 	var rack string
@@ -329,6 +356,7 @@ continuity (same sockets, same registry on-disk layout).`,
 				sshSocket:          sshSocket,
 				sshAuthorizedKeys:  sshAuthorizedKeys,
 				tcpListen:          tcpListen,
+				vsockPort:          vsockPort,
 				attestationEnabled: attestationEnabled,
 				configDir:          cfgDir,
 				oidcIssuer:         oidcIssuer,
@@ -437,6 +465,7 @@ continuity (same sockets, same registry on-disk layout).`,
 	cmd.Flags().StringVar(&sshSocket, "ssh-socket", defaultSSHSocket, "Unix socket path for the SSH-secured gRPC listener (empty to disable)")
 	cmd.Flags().StringVar(&sshAuthorizedKeys, "ssh-authorized-keys", defaultAuthorizedKeys, "Path to authorized_keys for SSH client authentication")
 	cmd.Flags().StringVar(&tcpListen, "tcp-listen", "", "host:port for an additional plain-TCP gRPC listener — dev-mode cross-host bring-up; production should use the SSH transport. Empty disables.")
+	cmd.Flags().IntVar(&vsockPort, "vsock-port", 0, "AF_VSOCK port for the guest-side gRPC listener (GuestPodPlane.Attach + every other service ; guests dial CID_HOST=2 + this port). Linux-only. 0 = disabled.")
 	cmd.Flags().StringVar(&az, "az", "", "Availability-zone label for this host (matched by scheduler placement rules; mirrors $WEFT_AZ).")
 	cmd.Flags().StringVar(&rack, "rack", "", "Rack label for this host (sub-AZ placement domain; mirrors $WEFT_RACK).")
 	cmd.Flags().StringVar(&oidcIssuer, "oidc-issuer", "", "OIDC issuer URL (empty = dev mode, no token validation)")
@@ -578,6 +607,52 @@ func run(t fileConfigTargets) error {
 	// agentrespawn/agentrespawn.go for the V0.1.1 follow-ups.
 	defer startRespawnSubscriber(a, bf.bus, sf.etcdClient, logger)()
 
+	// V0.4.69 self-heal at boot : when the agent itself just came
+	// back (host reboot, systemd restart), every microVM whose
+	// registry state was "running" / "starting" is silently dead —
+	// the qemu process died with the agent, no event fires. Walk
+	// the local VM dirs + restart whichever ones are supposed to
+	// be alive. The respawn subscriber's state machine handles the
+	// runtime crashes from here on ; this pass closes the
+	// "agent itself died" gap.
+	go selfHealLocalVMs(a, logger)
+
+	// V0.4.70 host VIP : when WEFT_VIP_ADDRESS + WEFT_VIP_INTERFACE
+	// are set, spin up a hostvip.Controller that campaigns for the
+	// floating control-plane address. Pure-Go etcd election + gARP,
+	// no keepalived/VRRP daemon. The TUI dials this VIP instead of
+	// individual hosts. Conditional on etcd availability — falls
+	// back to no-op when sf.etcdClient is nil (file backend tests).
+	if sf.etcdClient != nil {
+		if closer := startHostVIP(sf.etcdClient, localHostUUID(a), logger); closer != nil {
+			defer closer()
+		}
+	}
+
+	// etcd-jobs worker (V0.4.71) : when the active control plane
+	// (whichever host holds the VIP) dispatches RegisterMicroVM /
+	// StartVM / etc. to a peer host, the in-process AgentDispatch
+	// stream is unavailable (every host runs all-in-one, none
+	// dials another as a `weft agent --client`). The fallback
+	// writes the op to /weft/jobs/<my_host_uuid>/ in etcd ; this
+	// worker watches that prefix and applies via the local
+	// Adapter. Per the openweft pull model
+	// ([[openweft_pull_model]]) : cross-daemon = pull/reconcile,
+	// no synchronous push.
+	if sf.etcdClient != nil {
+		if hostUUID := localHostUUID(a); hostUUID != "" {
+			workerCtx, workerCancel := context.WithCancel(context.Background())
+			defer workerCancel()
+			handler := buildDriverHandler(a)
+			go func() {
+				if err := etcdjobs.RunWorker(workerCtx, sf.etcdClient, hostUUID, handler); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Printf("etcdjobs: worker exited: %v", err)
+				}
+			}()
+			logger.Printf("etcdjobs: worker started ; host_uuid=%s", hostUUID)
+		}
+	}
+
 	// Local-host heartbeat ticker : keep the registry's LastSeenAt
 	// fresh for the locally-running host. The etcd liveness lease
 	// (registered above) covers cross-host failover, but the
@@ -586,6 +661,18 @@ func run(t fileConfigTargets) error {
 	// client-mode default in agent/agent.go.
 	if hostUUID := localHostUUID(a); hostUUID != "" {
 		defer startLocalHostHeartbeat(a, hostUUID, 30*time.Second, logger)()
+	}
+
+	// Per-host CPU / memory / network sampler — publishes to NATS
+	// subject `weft.host.<uuid>.metrics` every 5s so weft-tui's
+	// hosts-detail drawer + future Grafana exporter can render time
+	// series without round-tripping for each refresh. Gated on
+	// WEFT_NATS_URL : unset → sampler runs but skips Publish (dev),
+	// set → dials a dedicated conn (mirrors the slognats pattern).
+	if hostUUID := localHostUUID(a); hostUUID != "" {
+		if stop := startHostMetricsSampler(hostUUID); stop != nil {
+			defer stop()
+		}
 	}
 
 	// Auto-render the NATS authorization block on every project
@@ -699,6 +786,14 @@ func run(t fileConfigTargets) error {
 		if err := dhcpd.Register(reg); err != nil {
 			return fmt.Errorf("register dhcpd metrics: %w", err)
 		}
+		// AttachDrivers stream observability counter. See
+		// agent_control_plane.go for the result-label taxonomy. The
+		// counter is the only signal that anyone is calling the new
+		// AgentControlPlane.AttachDrivers path in the wild before
+		// the full dispatch migration lands.
+		if _, err := newAttachDriversMetrics(reg); err != nil {
+			return fmt.Errorf("register weft_attach_drivers_calls_total: %w", err)
+		}
 		// Cluster-topology gauge : weft_monitors_live = count of
 		// etcd-coord liveness leases at /weft/coord/hosts/. Tracks the
 		// number of healthy agent monitors operators can fail over to.
@@ -803,11 +898,13 @@ func run(t fileConfigTargets) error {
 	if t.attestationEnabled {
 		logger.Printf("attestation gate ENABLED — TPM host admission required for RegisterHost")
 	}
+	attachSrv := &agentControlPlaneServer{adp: a}
 	srvImpl := &weftServer{
 		cfgDir:           t.configDir,
 		mc:               mc,
 		adp:              a,
 		dispatch:         dispatchSrv,
+		attach:           attachSrv,
 		localHostUUID:    localHostUUID(a),
 		flavors:          flavorReg,
 		scripts:          scriptReg,
@@ -818,9 +915,63 @@ func run(t fileConfigTargets) error {
 		attest:           attestGate,
 		etcdCli:          sf.etcdClient,
 	}
+	// Wire the plugin manager so the WeftAgent.ListPluginCatalogue /
+	// ListInstalledPlugins / InstallPlugin RPCs return real data
+	// (previously the field was nil and the RPCs short-circuited to
+	// empty responses — operators saw "la liste plugins est vide" in
+	// the TUI even though `weft plugin list` on the CLI worked,
+	// because the CLI reads the local disk catalogue directly).
+	// etcd takes precedence over the disk path so the cluster's
+	// shared catalogue beats per-host rsync (cf. [openweft etcd
+	// embedded]). LoadCatalogue gracefully degrades to disk when
+	// etcd is empty / unreachable.
+	//
+	// Install path : the Manager needs a WeftAgent client to round-trip
+	// the Create* RPCs through (CreateNetwork / CreateSecurityGroup /
+	// CreateVM / …). Dial the agent's own Unix socket so each
+	// installer call lands back on this process — same gRPC surface
+	// the CLI's `weft plugin install` uses, just without leaving
+	// the box. Without this manager wire-up, InstallPlugin returns
+	// codes.Unavailable("plugin manager not configured").
+	pluginStateDir := os.Getenv("WEFT_PLUGIN_STATE_DIR")
+	if pluginStateDir == "" {
+		pluginStateDir = filepath.Join(filepath.Dir(t.socket), "plugins")
+	}
+	pluginsLoopback, pluginsLoopbackErr := grpc.NewClient(
+		"unix://"+t.socket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	srvImpl.plugins = &realPluginManager{
+		catalogueDir: pluginstore.DefaultCatalogueRoot(),
+		etcdCli:      sf.etcdClient,
+		state:        pluginstore.NewFileStore(pluginStateDir),
+	}
+	if pluginsLoopbackErr != nil {
+		logger.Printf("plugin manager : loopback dial failed, InstallPlugin will return Unavailable: %v", pluginsLoopbackErr)
+	} else {
+		defer pluginsLoopback.Close()
+		srvImpl.plugins.(*realPluginManager).manager = pluginstore.NewManager(
+			pluginstore.NewAgentClient(weftv1.NewWeftAgentClient(pluginsLoopback), t.socket),
+			srvImpl.plugins.(*realPluginManager).state,
+		)
+	}
 	weftv1.RegisterWeftAgentServer(srv, srvImpl)
 	weftv1.RegisterAttestationServiceServer(srv, srvImpl)
 	weftv1.RegisterAgentDispatchServer(srv, dispatchSrv)
+	// AgentControlPlane (weft-proto agentv1) is the machine-to-machine
+	// surface remote agents use for RegisterAgent / Heartbeat. Driver
+	// dispatch flows over AgentDispatch by default ; the weftServer's
+	// dispatchAny helper transparently switches to AttachDrivers when
+	// a session exists for the target host (v0.4.52). Both transports
+	// stay live ; operators choose per-deployment via the agent
+	// client's URL flag.
+	agentv1.RegisterAgentControlPlaneServer(srv, attachSrv)
+	// GuestPodPlane (weft-proto guestv1) : the bidi stream weft-init
+	// (PID 1 in microVMs) uses to report pod telemetry + receive
+	// control requests. Today over the agent's existing socket ; a
+	// future commit binds a per-VM AF_VSOCK listener for the
+	// production transport described in guest.proto.
+	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{adp: a})
 
 	// Top-level lifecycle ctx — cancelled on SIGINT/SIGTERM. The
 	// proxy plane (when --proxy is set) hangs off it so the
@@ -874,6 +1025,30 @@ func run(t fileConfigTargets) error {
 			}
 		}()
 		logger.Printf("TCP gRPC listening on %s (dev-mode, no TLS)", t.tcpListen)
+	}
+
+	// Optional AF_VSOCK listener — the guest-side transport for
+	// weft-init (GuestPodPlane.Attach). Same gRPC server (and same
+	// service registration) as Unix / TCP / SSH ; the kernel routes
+	// guest connections from VMADDR_CID_HOST to whatever port is
+	// passed here. Linux-only ; on darwin/freebsd listenVsock returns
+	// errVsockUnsupported and we skip the bind cleanly. cluster.hcl :
+	// `weft { vsock_port = 7777 }` enables it.
+	if t.vsockPort > 0 {
+		if !vsockSupported() {
+			logger.Printf("vsock listener requested (port=%d) but AF_VSOCK is unavailable on this host — skipping", t.vsockPort)
+		} else {
+			vsockLis, err := listenVsock(uint32(t.vsockPort))
+			if err != nil {
+				return fmt.Errorf("vsock listener (port=%d): %w", t.vsockPort, err)
+			}
+			go func() {
+				if err := srv.Serve(vsockLis); err != nil {
+					logger.Printf("vsock grpc server stopped: %v", err)
+				}
+			}()
+			logger.Printf("AF_VSOCK gRPC listening on port=%d (guests dial CID_HOST=%d)", t.vsockPort, 2)
+		}
 	}
 
 	// Optional SSH-secured listener — same gRPC server (and same
@@ -930,6 +1105,12 @@ type weftServer struct {
 	// Adapter directly. Set by run() at startup ; tests can
 	// leave it nil to force the all-local path.
 	dispatch *agentDispatchServer
+	// attach is the AgentControlPlane.AttachDrivers session
+	// registry — the v0.4.50+ transport that runs alongside
+	// AgentDispatch. dispatchAny() prefers it when a session
+	// exists for the target host, falls back to `dispatch`
+	// otherwise. nil in tests that bypass the gRPC stack.
+	attach *agentControlPlaneServer
 	// localHostUUID is read once at startup from the host-uuid
 	// file. Empty when the server isn't running with a
 	// self-registered local host (e.g. integration tests). Used
@@ -984,6 +1165,154 @@ type weftServer struct {
 	etcdCli *clientv3.Client
 }
 
+// projectNameFor resolves a project UUID to its operator-facing
+// name via the Adapter's project registry. Returns "" on miss so
+// callers can decide whether to substitute the UUID or "—".
+// enforceFlavor rejects (cpu, memMiB) tuples that don't match any
+// catalogue Flavor entry. Operator directive 2026-06-30 : "on ne
+// peut pas demarrer sur autre choses que les flavors listés dans
+// le catalogue" — workloads with arbitrary shapes drift the
+// inventory toward an unbounded set of "custom" rows ; gate at
+// admission so the catalogue stays the source of truth.
+//
+// cpu=0 + memMiB=0 short-circuits as admit : legacy callers that
+// don't supply a shape (drivers using compile-time defaults,
+// RegisterMicroVMRequest pre-V0.4.72 wire shape) are still
+// honoured. New clients always send the pair so the gate has
+// teeth in practice. nil flavors registry (single-host dev mode
+// without one) also short-circuits — same conservative posture.
+func (s *weftServer) enforceFlavor(cpu, memMiB int) error {
+	if cpu == 0 && memMiB == 0 {
+		return nil
+	}
+	if s.flavors == nil {
+		return nil
+	}
+	if _, ok := s.flavors.FlavorMatchByShape(cpu, memMiB); ok {
+		return nil
+	}
+	// Render the available shapes in the error so the operator
+	// can pick one without a second `weft flavor list` round-trip.
+	available := s.flavors.List()
+	shapes := make([]string, 0, len(available))
+	for _, f := range available {
+		shapes = append(shapes, fmt.Sprintf("%s(%dvCPU/%s)", f.Name, f.VCPU, f.RAM))
+	}
+	return status.Errorf(codes.InvalidArgument,
+		"flavor : shape vcpu=%d mem_mb=%d doesn't match any catalogue entry ; available : %s",
+		cpu, memMiB, strings.Join(shapes, ", "))
+}
+
+// resolveOwningHost looks up (name, project) in the inventory and
+// returns the VM record's HostUUID. Empty string when no match.
+// Shared by Start/Stop/Restart/Delete handlers so a request that
+// arrives without a host_uuid (older clients pre-host_uuid field,
+// or callers that don't know the placement) still routes to the
+// owning agent via the dispatch chain instead of falling into the
+// local-default-project resolver — which produces the operator-
+// reported "kernel not found at state/vz/<usr-admin>/<vm>" trail.
+//
+// Project disambiguation : accepts both UUID and display name, so
+// the CLI's `--project infra` works regardless of the registry's
+// internal projection.
+func resolveOwningHost(adp weft.VZAdapter, name, project string) string {
+	for _, vm := range adp.VMs() {
+		if vm.Name != name {
+			continue
+		}
+		if project != "" {
+			if vm.ProjectUUID != project {
+				projName := projectNameFor(adp, vm.ProjectUUID)
+				if projName != project {
+					continue
+				}
+			}
+		}
+		return vm.HostUUID
+	}
+	return ""
+}
+
+// maxRestartsForVM finds the SchedulingRule whose selector covers
+// this VM and returns its respawn.max_restarts. Used by the
+// operator-facing UI to render "RESTARTS=N/M" without a second
+// round-trip to ListSchedulingRules. Returns 0 when no policy
+// applies (the UI shows just "N" in that case).
+//
+// Selector grammar mirrors agentrespawn.vmsMatchingSelector :
+//   - "vm.name=foo[,vm.name=bar]" — exact name match
+//   - "key=val[,key=val2]"        — property match, OR within key
+//   - mixed → AND across keys
+//
+// When multiple rules with respawn match the same VM, the first
+// match wins (deterministic by registry order, same convention as
+// the in-process respawn reconciler).
+func maxRestartsForVM(adp weft.VZAdapter, vm weft.VM) uint32 {
+	rules := adp.SchedulingRules()
+	for _, rule := range rules {
+		if rule.Respawn == nil || !rule.Respawn.Enabled || rule.Respawn.MaxRestarts <= 0 {
+			continue
+		}
+		if !vmMatchesSelector(rule.Selector, vm) {
+			continue
+		}
+		return uint32(rule.Respawn.MaxRestarts)
+	}
+	return 0
+}
+
+// vmMatchesSelector evaluates the comma-separated k=v selector
+// against (vm.Name, vm.Properties). Same shape as
+// agentrespawn.vmsMatchingSelector but takes a single VM to avoid
+// re-doing the inventory walk.
+func vmMatchesSelector(selector string, vm weft.VM) bool {
+	if selector == "" {
+		return false
+	}
+	clauses := map[string]map[string]struct{}{}
+	for _, pair := range strings.Split(selector, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(pair), "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		if _, exists := clauses[k]; !exists {
+			clauses[k] = map[string]struct{}{}
+		}
+		clauses[k][v] = struct{}{}
+	}
+	if len(clauses) == 0 {
+		return false
+	}
+	for k, allowed := range clauses {
+		var got string
+		if k == "vm.name" {
+			got = vm.Name
+		} else if vm.Properties != nil {
+			got = vm.Properties[k]
+		}
+		if _, ok := allowed[got]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func projectNameFor(adp weft.VZAdapter, projectUUID string) string {
+	if projectUUID == "" {
+		return ""
+	}
+	p, ok := adp.ProjectByUUID(projectUUID)
+	if !ok {
+		return ""
+	}
+	return p.Name
+}
+
 func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*weftv1.ListVMsResponse, error) {
 	visible, all, err := s.adp.VisibleProjects(ctx)
 	if err != nil {
@@ -1013,6 +1342,23 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			}
 		}
 		name, _ := props["name"].(string)
+		// 2026-06-23 : phantom filter. A vmDir that's on local disk
+		// but has NO matching registry record + NO live process is
+		// a leftover from a failed deploy / manual rm / etc. The
+		// zombiegc reconciler classifies it as ZombieOrphanDir +
+		// auto-deletes it (default 1h grace, see zombiegc_wire.go).
+		// Hide it from the operator-visible listing so phantoms
+		// don't pollute `weft instance list` / the TUI between
+		// detection + cleanup. Honour the project_uuid check first
+		// — non-UUID project dirs aren't phantoms, they're legacy
+		// pre-inventory layouts that still work.
+		if projectUUID != "" {
+			_, hasRecord := s.adp.VMByName(projectUUID, name)
+			running, _ := props["Running"].(bool)
+			if !hasRecord && !running {
+				continue
+			}
+		}
 		vmState := "stopped"
 		if running, _ := props["Running"].(bool); running {
 			vmState = "running"
@@ -1043,8 +1389,10 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 		// V0.1.9 : surface VM properties by cross-referencing the
 		// inventory registry. The local-list path doesn't carry
 		// Properties in `props` ; the inventory does. Empty for VMs
-		// not in the registry (legacy local-only dev path).
+		// not in the registry (legacy local-only dev path). Also
+		// surface the V0.13.0 status field from the same record.
 		if rec, ok := s.adp.VMByName(projectUUID, name); ok {
+			info.Status = normalisedVMStatus(rec.Status)
 			if len(rec.Properties) > 0 {
 				info.Properties = make(map[string]string, len(rec.Properties))
 				for k, lv := range rec.Properties {
@@ -1054,8 +1402,101 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			if info.Uuid == "" {
 				info.Uuid = rec.UUID
 			}
+			// V0.4.59 : surface the VM's host placement so the TUI
+			// Hosts tab's VMS column + the per-VM HOST column show
+			// real values instead of "—". The inventory registry's
+			// HostUUID is the authoritative source ; ListLocal's
+			// `props` map doesn't carry it (it's local-disk truth,
+			// not registry truth).
+			if info.HostUuid == "" {
+				info.HostUuid = rec.HostUUID
+			}
+			// V0.4.61 : same backfill for Image. `weft infra deploy`
+			// writes the OCI ref to the registry, not to config.json,
+			// so the local-disk props map yields empty for infra
+			// VMs. Pull from the registry record instead.
+			if info.Image == "" {
+				info.Image = rec.Image
+			}
+			// V0.4.73 : surface the persisted restart counter +
+			// the policy ceiling for the k8s-style RESTARTS=N/M
+			// column. Always from the registry — local config.json
+			// doesn't track restart history.
+			info.RestartCount = rec.RestartCount
+			info.MaxRestarts = maxRestartsForVM(s.adp, rec)
+			// 2026-06-23 cross-host state override : when the VM's
+			// authoritative host is NOT us (the directory survives
+			// locally from an earlier deploy / migration, so
+			// ListLocal picked it up + reported "stopped" from a
+			// stale vm.pid probe), trust the cluster-wide registry
+			// state instead. Without this, peers' running VMs show
+			// up as "stopped" in the operator's terminal whenever
+			// they happen to share a project tree with this host.
+			if rec.HostUUID != "" && rec.HostUUID != s.localHostUUID && rec.State != "" {
+				info.State = stateToProto(string(rec.State))
+			}
+		}
+		// V0.4.59 backfill : ListLocal scans the local filesystem,
+		// so any VM it surfaces lives on THIS host by definition. If
+		// the registry cross-ref above didn't populate HostUuid (the
+		// VM predates the etcd-backed inventory ; it was created by
+		// an older file-backed `weft infra deploy`), fall back to
+		// the local host's UUID. Without this, the TUI's per-host
+		// VM count stays 0 even though qemus are obviously running.
+		if info.HostUuid == "" {
+			info.HostUuid = s.localHostUUID
 		}
 		vms = append(vms, info)
+	}
+	// V0.4.61 cluster-wide view : ListLocal only sees THIS host's
+	// VMs ; remote-host VMs would be invisible from any single
+	// daemon. Also iterate the inventory registry (etcd-backed in
+	// HA) and surface any record we haven't already emitted via the
+	// local-disk path. The TUI's "all hosts at a glance" view + the
+	// VMS column on the Hosts tab need this to count correctly when
+	// the operator's socket is one host but VMs run on peers.
+	emitted := make(map[string]struct{}, len(vms))
+	for _, v := range vms {
+		emitted[v.ProjectUuid+"/"+v.Name] = struct{}{}
+	}
+	for _, rec := range s.adp.VMs() {
+		key := rec.ProjectUUID + "/" + rec.Name
+		if _, dup := emitted[key]; dup {
+			continue
+		}
+		if wantProject != "" && rec.ProjectUUID != wantProject {
+			projName := projectNameFor(s.adp, rec.ProjectUUID)
+			if projName != wantProject {
+				continue
+			}
+		}
+		if !all {
+			if _, ok := visible[rec.ProjectUUID]; !ok {
+				continue
+			}
+		}
+		info := &weftv1.VMInfo{
+			Uuid:        rec.UUID,
+			Name:        rec.Name,
+			ProjectUuid: rec.ProjectUUID,
+			Project:     projectNameFor(s.adp, rec.ProjectUUID),
+			HostUuid:    rec.HostUUID,
+			State:       stateToProto(string(rec.State)),
+			Status:      normalisedVMStatus(rec.Status),
+			Cpu:         uint32(rec.CPUCount),
+			MemMb:       uint64(rec.MemoryMiB),
+			Image:       rec.Image,
+			RestartCount: rec.RestartCount,
+			MaxRestarts:  maxRestartsForVM(s.adp, rec),
+		}
+		if len(rec.Properties) > 0 {
+			info.Properties = make(map[string]string, len(rec.Properties))
+			for k, lv := range rec.Properties {
+				info.Properties[k] = lv
+			}
+		}
+		vms = append(vms, info)
+		emitted[key] = struct{}{}
 	}
 	return &weftv1.ListVMsResponse{Vms: vms}, nil
 }
@@ -1193,6 +1634,11 @@ func (s *weftServer) StartVM(ctx context.Context, req *weftv1.StartVMRequest) (*
 	// inventory (legacy on-disk VM) — the empty `driver_kind=""` series
 	// captures it without conflating with any driver.
 	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	if req.HostUuid == "" {
+		if h := resolveOwningHost(s.adp, req.Name, req.Project); h != "" {
+			req.HostUuid = h
+		}
+	}
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchStartVM(ctx, req)
 	}
@@ -1209,6 +1655,11 @@ func (s *weftServer) StopVM(ctx context.Context, req *weftv1.StopVMRequest) (*we
 		return nil, err
 	}
 	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	if req.HostUuid == "" {
+		if h := resolveOwningHost(s.adp, req.Name, req.Project); h != "" {
+			req.HostUuid = h
+		}
+	}
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchStopVM(ctx, req)
 	}
@@ -1230,11 +1681,43 @@ func (s *weftServer) StopVM(ctx context.Context, req *weftv1.StopVMRequest) (*we
 // previous client-side chain which left a half-state with no
 // rollback signal.
 func (s *weftServer) RestartVM(ctx context.Context, req *weftv1.RestartVMRequest) (*weftv1.RestartVMResponse, error) {
-	logger.Printf("RestartVM name=%s project=%s", req.Name, req.Project)
+	logger.Printf("RestartVM name=%s project=%s host=%s", req.Name, req.Project, req.HostUuid)
 	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
 		return nil, err
 	}
 	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	// Auto-resolve the owning host_uuid from the inventory when
+	// the caller didn't supply one — covers older TUI / CLI
+	// binaries that pre-date the host_uuid field on the wire and
+	// any caller that simply doesn't know placement. Without the
+	// fallback the dispatch check below sees host_uuid="" and runs
+	// the local-only path which falls into vmDir(name)'s
+	// caller-default-project resolver → "kernel not found at
+	// state/vz/<usr-admin>/<vm>".
+	if req.HostUuid == "" {
+		if h := resolveOwningHost(s.adp, req.Name, req.Project); h != "" {
+			req.HostUuid = h
+			logger.Printf("RestartVM %s: auto-resolved host=%s", req.Name, req.HostUuid)
+		}
+	}
+	// Cross-host : dispatch stop + start via the same transport
+	// chain StopVM / StartVM use (AgentDispatch in-process →
+	// etcd-jobs pull fallback). Without this, RestartVM on a VM
+	// pinned to a peer host falls into the local `vmDir(name)`
+	// resolver which defaults to the caller's user project,
+	// producing the "kernel not found at state/vz/<usr-admin>/<vm>"
+	// error instead of routing to the owning agent.
+	if s.shouldDispatch(req.HostUuid) {
+		if _, err := s.dispatchStopVM(ctx, &weftv1.StopVMRequest{Name: req.Name, Project: req.Project, HostUuid: req.HostUuid}); err != nil {
+			logger.Printf("RestartVM %s: dispatched stop leg error: %v", req.Name, err)
+			return nil, status.Errorf(codes.Internal, "restart vm (stop): %v", err)
+		}
+		if _, err := s.dispatchStartVM(ctx, &weftv1.StartVMRequest{Name: req.Name, Project: req.Project, HostUuid: req.HostUuid}); err != nil {
+			logger.Printf("RestartVM %s: dispatched start leg error: %v", req.Name, err)
+			return nil, status.Errorf(codes.Internal, "restart vm (start): %v", err)
+		}
+		return &weftv1.RestartVMResponse{}, nil
+	}
 	if err := s.adp.StopVM(req.Name); err != nil {
 		logger.Printf("RestartVM %s: stop leg error: %v", req.Name, err)
 		return nil, status.Errorf(codes.Internal, "restart vm (stop): %v", err)
@@ -1250,6 +1733,15 @@ func (s *weftServer) CreateVM(ctx context.Context, req *weftv1.CreateVMRequest) 
 	logger.Printf("CreateVM name=%s image=%s project=%s", req.Name, req.Image, req.Project)
 	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
 	if err != nil {
+		return nil, err
+	}
+	// V0.4.75 : flavor admission. The (cpu, mem) tuple must match
+	// an entry in the catalogue Flavor registry — operator
+	// directive 2026-06-30 "fait en sorte qu'on ne puisse pas
+	// demarrer sur autre choses que les flavors listés dans le
+	// catalogue". cpu=0 + mem=0 short-circuits (caller didn't
+	// specify ; legacy path / driver-default shape).
+	if err := s.enforceFlavor(int(req.Cpu), int(req.MemMb)); err != nil {
 		return nil, err
 	}
 	// Hard-cap enforcement at handler entry per
@@ -1303,6 +1795,11 @@ func (s *weftServer) DeleteVM(ctx context.Context, req *weftv1.DeleteVMRequest) 
 	// would be empty on the success path. Resolving up-front means a
 	// successful DELETE is still counted against the right driver kind.
 	RecordRPCKind(ctx, s.adp.LookupKindForVM(req.Name))
+	if req.HostUuid == "" {
+		if h := resolveOwningHost(s.adp, req.Name, req.Project); h != "" {
+			req.HostUuid = h
+		}
+	}
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchDeleteVM(ctx, req)
 	}
@@ -1568,6 +2065,15 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 	if err != nil {
 		return nil, err
 	}
+	// V0.4.75 : flavor admission. RegisterMicroVMRequest carries
+	// cpu + mem_mb since weft-proto v0.4.72 ; require those values
+	// match a catalogue Flavor (operator directive 2026-06-30).
+	// cpu=0 + mem_mb=0 = legacy caller that didn't supply a shape —
+	// admit so dev workflows keep working ; new clients always send
+	// the shape so the gate has teeth in practice.
+	if err := s.enforceFlavor(int(req.Cpu), int(req.MemMb)); err != nil {
+		return nil, err
+	}
 	// RegisterMicroVM doesn't carry cpu/memory in its request (the
 	// boot artefacts dictate the runtime shape) ; we still consult
 	// the quota so a project that has already exhausted its
@@ -1605,6 +2111,18 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 		Kernel:  req.Kernel,
 		Initrd:  req.Initrd,
 		Cmdline: req.Cmdline,
+		// req.Image stamps the OCI ref onto the VM record so
+		// ListLocal surfaces the real source (e.g. "redis:7-alpine")
+		// instead of the synthetic "microvm/direct_linux"
+		// placeholder. Empty preserves the legacy label.
+		Image: req.Image,
+		// CPU / MemoryMiB carry the workload-shape metadata so the
+		// inventory matches a catalogue flavor instead of showing
+		// "custom". Empty / zero = unspecified, same legacy path
+		// (RegisterMicroVM doesn't itself enforce limits — the boot
+		// artefacts dictate the runtime shape).
+		CPU:       int(req.Cpu),
+		MemoryMiB: int(req.MemMb),
 	}
 	// Multi-host dispatch : when req.HostUuid is set and refers
 	// to a remote host (i.e. one that has a connected `weft
@@ -1717,10 +2235,13 @@ func (s *weftServer) dispatchRegisterMicroVM(
 			Initrd:  boot.Initrd,
 			Cmdline: boot.Cmdline,
 			Shares:  wireShares,
+			Image:   req.Image,
+			Cpu:     req.Cpu,
+			MemMb:   req.MemMb,
 		},
 	}}
 	logger.Printf("RegisterMicroVM %s: dispatching to host %s", req.Name, req.HostUuid)
-	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
+	reply, err := s.dispatchAny(ctx, req.HostUuid, op)
 	if err != nil {
 		return nil, err // already a status.Status from Dispatch
 	}
@@ -1740,7 +2261,7 @@ func (s *weftServer) dispatchStartVM(ctx context.Context, req *weftv1.StartVMReq
 		StartVm: &weftv1.StartVMOp{Project: req.Project, Name: req.Name},
 	}}
 	logger.Printf("StartVM %s: dispatching to host %s", req.Name, req.HostUuid)
-	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
+	reply, err := s.dispatchAny(ctx, req.HostUuid, op)
 	if err != nil {
 		return nil, err
 	}
@@ -1759,7 +2280,7 @@ func (s *weftServer) dispatchStopVM(ctx context.Context, req *weftv1.StopVMReque
 		StopVm: &weftv1.StopVMOp{Project: req.Project, Name: req.Name},
 	}}
 	logger.Printf("StopVM %s: dispatching to host %s", req.Name, req.HostUuid)
-	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
+	reply, err := s.dispatchAny(ctx, req.HostUuid, op)
 	if err != nil {
 		return nil, err
 	}
@@ -1778,7 +2299,7 @@ func (s *weftServer) dispatchDeleteVM(ctx context.Context, req *weftv1.DeleteVMR
 		DeleteVm: &weftv1.DeleteVMOp{Project: req.Project, Name: req.Name},
 	}}
 	logger.Printf("DeleteVM %s: dispatching to host %s", req.Name, req.HostUuid)
-	reply, err := s.dispatch.Dispatch(ctx, req.HostUuid, op)
+	reply, err := s.dispatchAny(ctx, req.HostUuid, op)
 	if err != nil {
 		return nil, err
 	}
@@ -1844,6 +2365,40 @@ func startLocalHostHeartbeat(adp weft.VZAdapter, hostUUID string, interval time.
 	return func() {
 		cancel()
 		<-done
+	}
+}
+
+// startHostMetricsSampler kicks off the per-host CPU / memory / network
+// sampler that publishes to NATS subject `weft.host.<uuid>.metrics`
+// every 5s. WEFT_NATS_URL unset → publisher stays nil and the sampler
+// runs as a no-op (dev mode, file-backend tests). Returns a stop
+// closure for graceful shutdown.
+func startHostMetricsSampler(hostUUID string) func() {
+	hostname, _ := os.Hostname()
+	var pub hostmetrics.Publisher
+	var nc *nats.Conn
+	if url := os.Getenv("WEFT_NATS_URL"); url != "" {
+		c, err := nats.Connect(url, nats.Name("weft.host."+hostUUID+".metrics"))
+		if err != nil {
+			slog.Warn("hostmetrics: NATS dial failed, sampler will run as no-op", "url", url, "err", err)
+		} else {
+			pub = c
+			nc = c
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	s := hostmetrics.New(pub, hostUUID, hostname, hostmetrics.Options{Logger: slog.Default()})
+	go func() {
+		defer close(done)
+		s.Run(ctx)
+	}()
+	return func() {
+		cancel()
+		<-done
+		if nc != nil {
+			nc.Close()
+		}
 	}
 }
 
@@ -2008,6 +2563,7 @@ func toProjectInfo(p weft.Project) *weftv1.ProjectInfo {
 		Uuid:            p.UUID,
 		Name:            p.Name,
 		CreatedAtUnixNs: p.CreatedAt.UnixNano(),
+		TenantUuid:      p.TenantUUID,
 	}
 }
 
@@ -2078,6 +2634,28 @@ func (s *weftServer) DeleteProject(ctx context.Context, req *weftv1.DeleteProjec
 	}
 	logger.Printf("DeleteProject uuid=%s", req.Uuid)
 	return &weftv1.DeleteProjectResponse{}, nil
+}
+
+// SetProjectTenant binds (or unbinds when tenant_uuid is empty) the
+// project to a parent tenant. Powers the GetProjectQuota
+// siblings_total + tenant_cap aggregation (commit d9f9d46ea +
+// 5a93f38a4) without operators needing to hand-edit projects.hcl.
+func (s *weftServer) SetProjectTenant(ctx context.Context, req *weftv1.SetProjectTenantRequest) (*weftv1.SetProjectTenantResponse, error) {
+	if err := weft.RequireAdmin(ctx, "set project tenant"); err != nil {
+		return nil, err
+	}
+	if req.ProjectUuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "project_uuid is required")
+	}
+	if err := s.adp.SetProjectTenant(req.ProjectUuid, req.TenantUuid); err != nil {
+		return nil, status.Errorf(codes.NotFound, "set project tenant: %v", err)
+	}
+	p, ok := s.adp.ProjectByUUID(req.ProjectUuid)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "project %s not found after update", req.ProjectUuid)
+	}
+	logger.Printf("SetProjectTenant project=%s tenant=%s", req.ProjectUuid, req.TenantUuid)
+	return &weftv1.SetProjectTenantResponse{Project: toProjectInfo(p)}, nil
 }
 
 // ---- Tenants (top-level multi-tenant boundary) --------------------
@@ -2884,6 +3462,9 @@ func (s *weftServer) CreateShare(ctx context.Context, req *weftv1.CreateShareReq
 	if err != nil {
 		return nil, err
 	}
+	if err := s.adp.EnforceTenantQuotaForShare(projUUID, int(req.SizeGb)); err != nil {
+		return nil, err
+	}
 	sh, created, err := s.adp.CreateShare(projUUID, req.Name, req.SizeGb, req.Readonly, req.Backend)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create share: %v", err)
@@ -2976,6 +3557,9 @@ func (s *weftServer) CreateBucket(ctx context.Context, req *weftv1.CreateBucketR
 	}
 	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.adp.EnforceTenantQuotaForBucket(projUUID); err != nil {
 		return nil, err
 	}
 	b, created, err := s.adp.CreateBucket(projUUID, req.Name, req.Endpoint, req.Region, req.AccessKeyId, req.SecretAccessKey)
@@ -3459,7 +4043,7 @@ func (s *weftServer) ListFlavors(_ context.Context, _ *weftv1.ListFlavorsRequest
 	out := &weftv1.ListFlavorsResponse{Flavors: make([]*weftv1.Flavor, 0, len(all))}
 	for _, f := range all {
 		out.Flavors = append(out.Flavors, &weftv1.Flavor{
-			Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
+			Uuid: f.UUID, Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
 			EphemeralGb: int32(f.EphemeralGB), Gpu: f.GPU,
 		})
 	}
@@ -3478,7 +4062,7 @@ func (s *weftServer) GetFlavor(_ context.Context, req *weftv1.GetFlavorRequest) 
 		return nil, status.Errorf(codes.NotFound, "no such flavor: %s", req.Name)
 	}
 	return &weftv1.GetFlavorResponse{Flavor: &weftv1.Flavor{
-		Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
+		Uuid: f.UUID, Name: f.Name, Vcpu: int32(f.VCPU), Ram: f.RAM,
 		EphemeralGb: int32(f.EphemeralGB), Gpu: f.GPU,
 	}}, nil
 }
@@ -3503,7 +4087,7 @@ func (s *weftServer) SetFlavor(ctx context.Context, req *weftv1.SetFlavorRequest
 	saved, _ := s.flavors.Get(in.Name)
 	logger.Printf("SetFlavor name=%s vcpu=%d ram=%s", saved.Name, saved.VCPU, saved.RAM)
 	return &weftv1.SetFlavorResponse{Flavor: &weftv1.Flavor{
-		Name: saved.Name, Vcpu: int32(saved.VCPU), Ram: saved.RAM,
+		Uuid: saved.UUID, Name: saved.Name, Vcpu: int32(saved.VCPU), Ram: saved.RAM,
 		EphemeralGb: int32(saved.EphemeralGB), Gpu: saved.GPU,
 	}}, nil
 }
@@ -4030,6 +4614,18 @@ func stateToProto(s string) weftv1.VMState {
 		return weftv1.VMState_VM_STATE_STOPPED
 	case "not-created":
 		return weftv1.VMState_VM_STATE_NOT_CREATED
+	case "created":
+		return weftv1.VMState_VM_STATE_CREATED
+	case "starting":
+		return weftv1.VMState_VM_STATE_STARTING
+	case "stopping":
+		return weftv1.VMState_VM_STATE_STOPPING
+	case "zombie":
+		return weftv1.VMState_VM_STATE_ZOMBIE
+	case "deleting":
+		return weftv1.VMState_VM_STATE_DELETING
+	case "error":
+		return weftv1.VMState_VM_STATE_ERROR
 	default:
 		return weftv1.VMState_VM_STATE_UNSPECIFIED
 	}

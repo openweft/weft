@@ -34,12 +34,18 @@ const (
 )
 
 type HostInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
-	Hostname      string                 `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	Az            string                 `protobuf:"bytes,3,opt,name=az,proto3" json:"az,omitempty"`
-	Hypervisor    string                 `protobuf:"bytes,4,opt,name=hypervisor,proto3" json:"hypervisor,omitempty"`
-	Architecture  string                 `protobuf:"bytes,5,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Uuid         string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Hostname     string                 `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	Az           string                 `protobuf:"bytes,3,opt,name=az,proto3" json:"az,omitempty"`
+	Hypervisor   string                 `protobuf:"bytes,4,opt,name=hypervisor,proto3" json:"hypervisor,omitempty"`
+	Architecture string                 `protobuf:"bytes,5,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	// version is the driver plugin's compile-time build version
+	// (e.g. "v0.6.0"). Stamped via -X main.version=... at link
+	// time. weft uses this to populate HostInfo.driver_versions
+	// (kind → version) so operators see per-driver versions on
+	// the TUI's Hosts detail drawer. Empty for pre-v0.5.0 drivers.
+	Version       string `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -109,6 +115,13 @@ func (x *HostInfo) GetArchitecture() string {
 	return ""
 }
 
+func (x *HostInfo) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 type HostInfoResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	HostInfo      *HostInfo              `protobuf:"bytes,1,opt,name=host_info,json=hostInfo,proto3" json:"host_info,omitempty"`
@@ -154,15 +167,28 @@ func (x *HostInfoResponse) GetHostInfo() *HostInfo {
 }
 
 type VMSpec struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
-	ProjectUuid   string                 `protobuf:"bytes,2,opt,name=project_uuid,json=projectUuid,proto3" json:"project_uuid,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	CpuCount      int32                  `protobuf:"varint,4,opt,name=cpu_count,json=cpuCount,proto3" json:"cpu_count,omitempty"`
-	MemoryMib     int32                  `protobuf:"varint,5,opt,name=memory_mib,json=memoryMib,proto3" json:"memory_mib,omitempty"`
-	BootKind      string                 `protobuf:"bytes,6,opt,name=boot_kind,json=bootKind,proto3" json:"boot_kind,omitempty"`
-	BootRef       string                 `protobuf:"bytes,7,opt,name=boot_ref,json=bootRef,proto3" json:"boot_ref,omitempty"`
-	Cmdline       string                 `protobuf:"bytes,8,opt,name=cmdline,proto3" json:"cmdline,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Uuid        string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	ProjectUuid string                 `protobuf:"bytes,2,opt,name=project_uuid,json=projectUuid,proto3" json:"project_uuid,omitempty"`
+	Name        string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	CpuCount    int32                  `protobuf:"varint,4,opt,name=cpu_count,json=cpuCount,proto3" json:"cpu_count,omitempty"`
+	MemoryMib   int32                  `protobuf:"varint,5,opt,name=memory_mib,json=memoryMib,proto3" json:"memory_mib,omitempty"`
+	BootKind    string                 `protobuf:"bytes,6,opt,name=boot_kind,json=bootKind,proto3" json:"boot_kind,omitempty"`
+	BootRef     string                 `protobuf:"bytes,7,opt,name=boot_ref,json=bootRef,proto3" json:"boot_ref,omitempty"`
+	Cmdline     string                 `protobuf:"bytes,8,opt,name=cmdline,proto3" json:"cmdline,omitempty"`
+	// vsock_cid is the AF_VSOCK guest CID the agent allocated for
+	// this VM (deterministic hash of project_uuid+uuid in
+	// [0x10000, 0xfffefffe]). 0 = unassigned (legacy / no vsock).
+	// Drivers that support vsock should bind this CID on the guest's
+	// virtio-vsock device so GuestPodPlane.Attach's strict-when-known
+	// peer check sees the right CID. QEMU :
+	//
+	//	-device vhost-vsock-pci,guest-cid=<vsock_cid>
+	//
+	// Apple VZ : VZVirtioSocketDevice (note: the VZ API doesn't let
+	// userland pick a CID directly ; treat the field as advisory and
+	// record the actual one the framework assigns).
+	VsockCid      uint32 `protobuf:"varint,9,opt,name=vsock_cid,json=vsockCid,proto3" json:"vsock_cid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -251,6 +277,13 @@ func (x *VMSpec) GetCmdline() string {
 		return x.Cmdline
 	}
 	return ""
+}
+
+func (x *VMSpec) GetVsockCid() uint32 {
+	if x != nil {
+		return x.VsockCid
+	}
+	return 0
 }
 
 type DiskSpec struct {
@@ -2809,7 +2842,7 @@ var File_driverpb_driver_proto protoreflect.FileDescriptor
 
 const file_driverpb_driver_proto_rawDesc = "" +
 	"\n" +
-	"\x15driverpb/driver.proto\x12\x0eweft.driver.v1\x1a\x1bgoogle/protobuf/empty.proto\"\x8e\x01\n" +
+	"\x15driverpb/driver.proto\x12\x0eweft.driver.v1\x1a\x1bgoogle/protobuf/empty.proto\"\xa8\x01\n" +
 	"\bHostInfo\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x0e\n" +
@@ -2817,9 +2850,10 @@ const file_driverpb_driver_proto_rawDesc = "" +
 	"\n" +
 	"hypervisor\x18\x04 \x01(\tR\n" +
 	"hypervisor\x12\"\n" +
-	"\farchitecture\x18\x05 \x01(\tR\farchitecture\"I\n" +
+	"\farchitecture\x18\x05 \x01(\tR\farchitecture\x12\x18\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion\"I\n" +
 	"\x10HostInfoResponse\x125\n" +
-	"\thost_info\x18\x01 \x01(\v2\x18.weft.driver.v1.HostInfoR\bhostInfo\"\xe1\x01\n" +
+	"\thost_info\x18\x01 \x01(\v2\x18.weft.driver.v1.HostInfoR\bhostInfo\"\xfe\x01\n" +
 	"\x06VMSpec\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12!\n" +
 	"\fproject_uuid\x18\x02 \x01(\tR\vprojectUuid\x12\x12\n" +
@@ -2829,7 +2863,8 @@ const file_driverpb_driver_proto_rawDesc = "" +
 	"memory_mib\x18\x05 \x01(\x05R\tmemoryMib\x12\x1b\n" +
 	"\tboot_kind\x18\x06 \x01(\tR\bbootKind\x12\x19\n" +
 	"\bboot_ref\x18\a \x01(\tR\abootRef\x12\x18\n" +
-	"\acmdline\x18\b \x01(\tR\acmdline\"\xac\x01\n" +
+	"\acmdline\x18\b \x01(\tR\acmdline\x12\x1b\n" +
+	"\tvsock_cid\x18\t \x01(\rR\bvsockCid\"\xac\x01\n" +
 	"\bDiskSpec\x12\x1f\n" +
 	"\vvolume_uuid\x18\x01 \x01(\tR\n" +
 	"volumeUuid\x12!\n" +

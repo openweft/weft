@@ -10,6 +10,7 @@ package weft
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -182,6 +183,72 @@ func TestEnforceVolume_Unlimited(t *testing.T) {
 	// Zero cap = unlimited ; enforce should never trip.
 	if err := f.a.EnforceTenantQuotaForVolume(f.projUUID, 100000); err != nil {
 		t.Fatalf("unlimited: %v", err)
+	}
+}
+
+// TestEnforceVolume_CountLimitTrips covers the new volumes (count)
+// dimension on top of the existing volume_gib enforcement. Verifies
+// the cap-vs-allocated math counts ACTUAL volumes — not just GiB.
+func TestEnforceVolume_CountLimitTrips(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{VolumeCount: 2}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	// First two volumes admit.
+	for i := 1; i <= 2; i++ {
+		if err := f.a.EnforceTenantQuotaForVolume(f.projUUID, 1); err != nil {
+			t.Fatalf("volume %d should fit (cap=2) : %v", i, err)
+		}
+		if _, err := f.a.CreateVolume(CreateVolumeSpec{
+			ProjectUUID: f.projUUID, Name: fmt.Sprintf("v%d", i),
+			SizeGiB: 1, Format: VolumeFormatRaw,
+		}); err != nil {
+			t.Fatalf("CreateVolume %d: %v", i, err)
+		}
+	}
+	// Third one trips the cap.
+	err := f.a.EnforceTenantQuotaForVolume(f.projUUID, 1)
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("3rd volume should trip volumes cap, got %v", err)
+	}
+}
+
+// TestEnforceShare_CountAndSizeAggregates covers both axes of the
+// shares dimension : a count cap trips on the Nth share regardless
+// of size, and a shares_gib cap trips on the size sum.
+func TestEnforceShare_CountAndSizeAggregates(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{ShareCount: 1, ShareGiB: 100}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if err := f.a.EnforceTenantQuotaForShare(f.projUUID, 10); err != nil {
+		t.Fatalf("1st share under both caps : %v", err)
+	}
+	if _, _, err := f.a.CreateShare(f.projUUID, "s1", 10, false, "cubefs"); err != nil {
+		t.Fatalf("CreateShare: %v", err)
+	}
+	// 2nd share : count cap should trip (1 allocated, cap=1).
+	err := f.a.EnforceTenantQuotaForShare(f.projUUID, 1)
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("2nd share should trip shares count cap, got %v", err)
+	}
+}
+
+// TestEnforceBucket_CountTrips covers the buckets dimension.
+func TestEnforceBucket_CountTrips(t *testing.T) {
+	f := newQuotaFixture(t)
+	if err := f.a.SetTenantQuota(f.projUUID, TenantQuota{BucketCount: 1}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if err := f.a.EnforceTenantQuotaForBucket(f.projUUID); err != nil {
+		t.Fatalf("1st bucket : %v", err)
+	}
+	if _, _, err := f.a.CreateBucket(f.projUUID, "b1", "https://s3.example.com", "us-east-1", "ak", "sk"); err != nil {
+		t.Fatalf("CreateBucket: %v", err)
+	}
+	err := f.a.EnforceTenantQuotaForBucket(f.projUUID)
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("2nd bucket should trip cap, got %v", err)
 	}
 }
 

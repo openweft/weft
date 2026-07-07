@@ -117,6 +117,78 @@ func encodeHostRecord(h Host) []byte {
 	if h.WGOverlayIndex != 0 {
 		bb.SetAttributeValue("wg_overlay_index", cty.NumberIntVal(int64(h.WGOverlayIndex)))
 	}
+	if h.AgentVersion != "" {
+		bb.SetAttributeValue("agent_version", cty.StringVal(h.AgentVersion))
+	}
+	if len(h.DriverVersions) > 0 {
+		ctyMap := make(map[string]cty.Value, len(h.DriverVersions))
+		for k, v := range h.DriverVersions {
+			ctyMap[k] = cty.StringVal(v)
+		}
+		bb.SetAttributeValue("driver_versions", cty.MapVal(ctyMap))
+	}
+	if h.OSID != "" {
+		bb.SetAttributeValue("os_id", cty.StringVal(h.OSID))
+	}
+	if h.OSVersion != "" {
+		bb.SetAttributeValue("os_version", cty.StringVal(h.OSVersion))
+	}
+	if h.OSPretty != "" {
+		bb.SetAttributeValue("os_pretty", cty.StringVal(h.OSPretty))
+	}
+	if h.KernelVersion != "" {
+		bb.SetAttributeValue("kernel_version", cty.StringVal(h.KernelVersion))
+	}
+	for _, n := range h.NetworkInterfaces {
+		nb := bb.AppendNewBlock("network_interface", []string{n.Name}).Body()
+		if n.MAC != "" {
+			nb.SetAttributeValue("mac", cty.StringVal(n.MAC))
+		}
+		if len(n.IPv4CIDRs) > 0 {
+			vals := make([]cty.Value, len(n.IPv4CIDRs))
+			for i, s := range n.IPv4CIDRs {
+				vals[i] = cty.StringVal(s)
+			}
+			nb.SetAttributeValue("ipv4_cidrs", cty.ListVal(vals))
+		}
+		if len(n.IPv6CIDRs) > 0 {
+			vals := make([]cty.Value, len(n.IPv6CIDRs))
+			for i, s := range n.IPv6CIDRs {
+				vals[i] = cty.StringVal(s)
+			}
+			nb.SetAttributeValue("ipv6_cidrs", cty.ListVal(vals))
+		}
+		if n.LinkSpeedMbps > 0 {
+			nb.SetAttributeValue("link_speed_mbps", cty.NumberIntVal(n.LinkSpeedMbps))
+		}
+		if n.MTU > 0 {
+			nb.SetAttributeValue("mtu", cty.NumberIntVal(int64(n.MTU)))
+		}
+		if n.OperState != "" {
+			nb.SetAttributeValue("operstate", cty.StringVal(n.OperState))
+		}
+	}
+	for _, m := range h.StorageMounts {
+		mb := bb.AppendNewBlock("storage_mount", []string{m.Mountpoint}).Body()
+		if m.Device != "" {
+			mb.SetAttributeValue("device", cty.StringVal(m.Device))
+		}
+		if m.FSType != "" {
+			mb.SetAttributeValue("fstype", cty.StringVal(m.FSType))
+		}
+		if m.TotalBytes > 0 {
+			mb.SetAttributeValue("total_bytes", cty.NumberIntVal(m.TotalBytes))
+		}
+		if m.FreeBytes > 0 {
+			mb.SetAttributeValue("free_bytes", cty.NumberIntVal(m.FreeBytes))
+		}
+	}
+	if h.CPUCount > 0 {
+		bb.SetAttributeValue("cpu_count", cty.NumberIntVal(int64(h.CPUCount)))
+	}
+	if h.MemoryMiB > 0 {
+		bb.SetAttributeValue("memory_mib", cty.NumberIntVal(h.MemoryMiB))
+	}
 	return f.Bytes()
 }
 
@@ -185,10 +257,71 @@ func hostFromBlock(b hostBlock) Host {
 		Cordoned:       b.Cordoned,
 		LastSeenAt:     lastSeen,
 		CreatedAt:      created,
-		AKName:         b.AKName,
-		WGPublicKey:    b.WGPublicKey,
-		WGOverlayIndex: b.WGOverlayIndex,
+		AKName:            b.AKName,
+		WGPublicKey:       b.WGPublicKey,
+		WGOverlayIndex:    b.WGOverlayIndex,
+		AgentVersion:      b.AgentVersion,
+		DriverVersions:    cloneStringMap(b.DriverVersions),
+		OSID:              b.OSID,
+		OSVersion:         b.OSVersion,
+		OSPretty:          b.OSPretty,
+		KernelVersion:     b.KernelVersion,
+		NetworkInterfaces: networkInterfacesFromBlocks(b.NetworkInterfaces),
+		StorageMounts:     storageMountsFromBlocks(b.StorageMounts),
+		CPUCount:          b.CPUCount,
+		MemoryMiB:         b.MemoryMiB,
 	}
+}
+
+// networkInterfacesFromBlocks rehydrates the per-NIC HCL blocks into
+// the registry struct. Empty/nil-in → nil-out.
+func networkInterfacesFromBlocks(src []networkInterfaceBlock) []NetworkInterface {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]NetworkInterface, 0, len(src))
+	for _, n := range src {
+		out = append(out, NetworkInterface{
+			Name:          n.Name,
+			MAC:           n.MAC,
+			IPv4CIDRs:     append([]string(nil), n.IPv4CIDRs...),
+			IPv6CIDRs:     append([]string(nil), n.IPv6CIDRs...),
+			LinkSpeedMbps: n.LinkSpeedMbps,
+			MTU:           n.MTU,
+			OperState:     n.OperState,
+		})
+	}
+	return out
+}
+
+func storageMountsFromBlocks(src []storageMountBlock) []StorageMount {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]StorageMount, 0, len(src))
+	for _, m := range src {
+		out = append(out, StorageMount{
+			Mountpoint: m.Mountpoint,
+			Device:     m.Device,
+			FSType:     m.FSType,
+			TotalBytes: m.TotalBytes,
+			FreeBytes:  m.FreeBytes,
+		})
+	}
+	return out
+}
+
+// cloneStringMap returns a fresh copy of m ; nil-in → nil-out (so the
+// HCL omitempty contract is preserved on the registry side).
+func cloneStringMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // loadHostRegistryKV is the per-record load path with legacy-blob

@@ -1,0 +1,445 @@
+syntax = "proto3";
+
+// workload.proto — WASM workload + worker registry surface.
+//
+// New noun family added in weft-proto v0.13.0. Mirrors VM/MicroVM but
+// for WASM modules running on enrolled browser tabs or standalone
+// wasmtime endpoints (see docs/wasm-driver-design.md in the weft repo
+// for the full design note).
+//
+// Conventions match v0.12.0 (properties everywhere, no "labels") and
+// v0.9.0 partial-PATCH (empty string / -1 / nil = keep current ;
+// `clear_xxx` bool gates collection-valued clears).
+//
+// All messages live in the same `weft.v1` package as weft.proto ; this
+// file is a separate compilation unit so the workload surface can move
+// to its own service later without churning the existing message tags.
+
+package weft.v1;
+
+option go_package = "github.com/openweft/weft-proto;weftv1";
+
+import "google/protobuf/empty.proto";
+
+// ===== Shared shapes =====
+
+// KeyValue is the canonical "free-form k=v" pair used across the
+// workload surface. Mirrors the `map<string,string>` shape on
+// VMInfo.properties but on the wire as a repeated message — the
+// scheduler's selector grammar (comma-separated `k=v`) consumes the
+// same shape from `WasmWorkload.properties` and `WasmWorker.properties`.
+//
+// Why a repeated message instead of map<string,string> like VMInfo ?
+// Order preservation. The wasm-driver dispatches env-vars in
+// declaration order ; map<> wire encoding is unordered. For
+// `properties` (where order doesn't matter) the field is still
+// `repeated KeyValue` for shape symmetry with `env`.
+message KeyValue {
+  string key   = 1;
+  string value = 2;
+}
+
+// ===== WasmWorkload =====
+
+// WasmWorkloadState is the lifecycle state of a WASM workload. Mirrors
+// VMState but with fewer transitions — WASM has no "boot" phase, no
+// zombie scavenging (workers report failures explicitly), and no
+// long-running DELETING window (delete is instant).
+enum WasmWorkloadState {
+  WASM_STATE_UNSPECIFIED = 0;
+  // PENDING — record exists, no worker bound yet (admission accepted,
+  // scheduler hasn't picked a worker, or the previously-bound worker
+  // transitioned to GONE).
+  WASM_STATE_PENDING     = 1;
+  // RUNNING — module instantiated on a worker, executing.
+  WASM_STATE_RUNNING     = 2;
+  // FAILED — module trapped (fuel exhaustion, OOM, unreachable
+  // instruction, explicit `panic!`). Worker reports the failure ;
+  // `RestartPolicy` (when set) gates re-scheduling.
+  WASM_STATE_FAILED      = 3;
+  // STOPPED — operator-initiated stop ; module not running, record
+  // preserved. Differs from PENDING : no scheduler attempt to re-place.
+  WASM_STATE_STOPPED     = 4;
+}
+
+// RestartPolicy mirrors VM RespawnPolicy. Re-uses the same field shape
+// so the scheduler's existing reconcile loop can drive both. Optional ;
+// nil = no automatic restart on failure (workload sticks in FAILED
+// until the operator restarts it).
+message WasmRestartPolicy {
+  bool   enabled          = 1;
+  int64  grace_period_ms  = 2;
+  int32  max_restarts     = 3;
+  int64  window_ms        = 4;
+  string backoff          = 5; // "constant" | "exponential"
+  int64  initial_delay_ms = 6;
+}
+
+// WasmWorkload mirrors VMInfo/RegisterMicroVMRequest but for WASM
+// modules. The contract stays parallel so the same scheduler / planner
+// / quota code consumes it.
+message WasmWorkload {
+  string uuid          = 1;
+  string name          = 2;  // unique inside `project_uuid`
+  string project_uuid  = 3;
+
+  // module_ref is an OCI reference for a wasm artefact (mediatype
+  // application/wasm), digest-pinned, e.g.
+  //   ghcr.io/openweft/wasm-hello@sha256:abc...
+  // The agent's Image driver pulls + verifies the digest before
+  // the wasm driver sees it ; tag-only refs are rejected at admission.
+  string module_ref    = 4;
+
+  // memory_mib caps Wasmtime's linear-memory ceiling AND the browser
+  // module's WebAssembly.Memory.grow ceiling. 0 = no explicit cap
+  // (default per tenant-quota policy).
+  uint64 memory_mib    = 5;
+
+  // cpu_fuel caps deterministic execution units. Each Wasmtime
+  // instruction consumes >= 1 fuel ; module hits the cap → trap →
+  // WASM_STATE_FAILED. 0 = no fuel cap (rejected at admission for
+  // browser workers ; allowed on standalone for trusted workloads).
+  uint64 cpu_fuel      = 6;
+
+  // worker_concurrency limits how many module instances may run on
+  // one worker at once (default 1). The scheduler ignores workers
+  // already at their per-worker cap.
+  uint32 worker_concurrency = 7;
+
+  // env replicates the VM "cidata" or microVM env-injection surface.
+  // Order is preserved (repeated KeyValue, not map<>).
+  repeated KeyValue env = 8;
+
+  // capabilities lists the WASI ambient authorities the workload may
+  // request : "wasi:http", "wasi:nats", "wasi:keyvalue@<scope>".
+  // Empty = pure compute, no I/O. Every entry maps to a capability
+  // token the agent mints at Start ; the worker links a no-op WASI
+  // shim for any capability not on the list.
+  repeated string capabilities = 9;
+
+  // properties — same free-form k=v key shape as VMInfo.properties,
+  // used by the scheduler's selector grammar. NO "labels".
+  repeated KeyValue properties = 10;
+
+  WasmWorkloadState state = 11;
+
+  // worker_uuid is the worker currently bound to this workload, empty
+  // when PENDING. Updates on every (re)schedule. Stable identifier ;
+  // a worker that drops + reconnects keeps the same UUID so
+  // worker_uuid stays valid across short reconnections.
+  string worker_uuid = 12;
+
+  // ingress_url, when non-empty, is the public URL the agent's Caddy
+  // proxy exposes for the workload's wasi:http/incoming-handler
+  // (server-filled at Start ; cleared at Stop). Empty when the workload
+  // does not export wasi:http handlers.
+  string ingress_url = 13;
+
+  // restart_policy is the optional automatic restart rule, mirroring
+  // VM RespawnPolicy. nil = manual restart only.
+  WasmRestartPolicy restart_policy = 14;
+
+  // pin_worker_uuid, when set, restricts the scheduler to that exact
+  // worker. Empty = scheduler picks freely. Used by pin-to-edge
+  // persistence (V0.2 ; V0.1 honours the field as an opaque pin
+  // without the volume binding).
+  string pin_worker_uuid = 15;
+
+  int64  created_at_unix_ns = 16;
+  int64  started_at_unix_ns = 17;   // 0 when never started
+  int64  last_failed_at_unix_ns = 18; // 0 when never failed
+
+  // last_failure_message echoes the worker's trap diagnostic
+  // (e.g. "wasm trap: out of fuel"). Empty when state != FAILED ;
+  // cleared on the next successful Start.
+  string last_failure_message = 19;
+
+  // tenant_uuid is denormalised from the parent project for quota
+  // gates (saves a ListProjects round-trip on every admission). Server-
+  // filled, ignored on writes.
+  string tenant_uuid = 20;
+}
+
+// ===== Workload RPC envelopes =====
+
+// CreateWasmWorkloadRequest carries the operator-supplied fields. All
+// server-filled fields on WasmWorkload (uuid, state, *_at_unix_ns,
+// tenant_uuid, ingress_url) are ignored on the wire — the server mints
+// them.
+message CreateWasmWorkloadRequest {
+  string name          = 1;     // required, unique inside project
+  string project       = 2;     // name or UUID ; empty = caller's default
+  string module_ref    = 3;     // required, must be digest-pinned
+  uint64 memory_mib    = 4;
+  uint64 cpu_fuel      = 5;
+  uint32 worker_concurrency = 6;
+  repeated KeyValue env          = 7;
+  repeated string   capabilities = 8;
+  repeated KeyValue properties   = 9;
+  WasmRestartPolicy restart_policy = 10;
+  string pin_worker_uuid = 11;
+}
+
+message GetWasmWorkloadRequest  {
+  string uuid    = 1;
+  string name    = 2;   // alternate lookup ; requires project
+  string project = 3;
+}
+
+message ListWasmWorkloadsRequest  {
+  // Optional filters. Empty = caller's full visible set (ACL-scoped).
+  string project    = 1;  // name or UUID
+  string worker_uuid = 2; // pin to one worker
+  WasmWorkloadState state_filter = 3;   // WASM_STATE_UNSPECIFIED = all states
+  // Pagination. Empty page_token = first page. `page_size` clamped to
+  // [0, 1000] server-side ; 0 = server default (50).
+  int32  page_size  = 4;
+  string page_token = 5;
+}
+message ListWasmWorkloadsResponse {
+  repeated WasmWorkload workloads = 1;
+  string next_page_token          = 2;
+}
+
+// UpdateWasmWorkloadRequest patches the mutable fields. Empty / 0 / nil
+// = keep current. Mutating `module_ref`, `memory_mib`, `cpu_fuel`, or
+// `capabilities` does NOT hot-reload — the operator must Stop+Start
+// (or Restart) to apply ; the response carries `requires_restart=true`
+// to surface the gap.
+//
+// `clear_xxx` booleans disambiguate "keep" from "clear" on collection-
+// valued fields (matches v0.8.0/v0.9.0 pattern).
+message UpdateWasmWorkloadRequest {
+  string uuid                = 1;
+  string module_ref          = 2;  // empty = keep
+  uint64 memory_mib          = 3;  // 0 = keep ; sentinel "clear back to default" not supported (admission applies the default itself)
+  uint64 cpu_fuel            = 4;  // 0 = keep
+  uint32 worker_concurrency  = 5;  // 0 = keep
+  repeated KeyValue env          = 6;
+  bool   clear_env               = 7;
+  repeated string   capabilities = 8;
+  bool   clear_capabilities      = 9;
+  repeated KeyValue properties   = 10;
+  bool   clear_properties        = 11;
+  WasmRestartPolicy restart_policy = 12; // nil = keep ; clear via clear_restart_policy
+  bool   clear_restart_policy    = 13;
+  string pin_worker_uuid         = 14;   // empty = keep
+  bool   clear_pin_worker_uuid   = 15;
+}
+message UpdateWasmWorkloadResponse {
+  WasmWorkload workload      = 1;
+  bool         requires_restart = 2;     // true when the patched fields don't take effect without a Restart
+}
+
+message DeleteWasmWorkloadRequest  { string uuid = 1; }
+
+message StartWasmWorkloadRequest   {
+  string uuid           = 1;
+  // pin_worker_uuid optionally overrides the persisted pin for THIS
+  // Start only — handy for cordoning a worker without editing the
+  // workload. Empty = use the persisted value.
+  string pin_worker_uuid = 2;
+}
+message StopWasmWorkloadRequest    {
+  string uuid    = 1;
+  // grace_period_ms gives the module a window to flush state before
+  // the worker calls IncrementEpoch() to interrupt. 0 = use the
+  // server default (5s).
+  int32  grace_period_ms = 2;
+}
+message RestartWasmWorkloadRequest {
+  string uuid    = 1;
+  int32  grace_period_ms = 2;
+}
+
+// ===== WasmWorker =====
+
+// WasmWorkerState mirrors HostInfo.state but for the WASM worker pool.
+enum WasmWorkerState {
+  WASM_WORKER_UNSPECIFIED = 0;
+  // READY — connected, heartbeats current, accepting new workloads.
+  WASM_WORKER_READY    = 1;
+  // BUSY — connected, but already at `max_concurrency` ; scheduler
+  // skips for new placements, existing workloads run.
+  WASM_WORKER_BUSY     = 2;
+  // DRAINING — operator-set ; the scheduler refuses new placements,
+  // already-running workloads continue until they stop. Mirrors the
+  // host cordon primitive.
+  WASM_WORKER_DRAINING = 3;
+  // GONE — missed N heartbeats (default 3 × 10s). Workloads pinned
+  // here transition to WASM_STATE_PENDING and are re-scheduled. The
+  // worker record sticks around (etcd-persisted) so a reconnecting
+  // tab re-uses the same UUID.
+  WASM_WORKER_GONE     = 4;
+}
+
+// WasmWorkerKind tags the runtime that backs the worker. Drives the
+// scheduler's capability inference (browser workers cap concurrency at
+// 1 and force certain WASI shims off).
+enum WasmWorkerKind {
+  WASM_WORKER_KIND_UNSPECIFIED = 0;
+  WASM_WORKER_KIND_BROWSER     = 1; // wasm32-js in a browser tab
+  WASM_WORKER_KIND_STANDALONE  = 2; // standalone wasmtime binary
+}
+
+// WasmWorker is the per-browser/runtime endpoint enrolled as a
+// scheduling target. One worker may run many workloads up to its
+// per-worker concurrency cap.
+message WasmWorker {
+  string uuid           = 1;
+  string display_name   = 2;
+
+  // agent_uuid is the weft agent (host) that owns this worker's
+  // WebSocket connection. Workers dial INTO the agent ; the control
+  // plane addresses them by UUID through this agent. Empty = unbound
+  // (worker freshly minted, hasn't connected yet).
+  string agent_uuid     = 3;
+
+  WasmWorkerKind kind   = 4;
+
+  uint32 max_concurrency   = 5;
+  uint64 memory_budget_mib = 6;
+  // user_agent is the browser-side string when kind==BROWSER, or the
+  // "wasmtime-go vX.Y.Z" build stamp when kind==STANDALONE. Set at
+  // enrol, refreshed on reconnect. Empty when unknown.
+  string user_agent     = 7;
+
+  repeated KeyValue properties = 8;
+
+  WasmWorkerState state = 9;
+
+  // tenant_uuid is the trust boundary the worker enrolled under. One
+  // worker = one tenant in V0.1 (see open questions in the design
+  // note). Empty = unenrolled.
+  string tenant_uuid    = 10;
+
+  int64  enrolled_at_unix_ns   = 11;
+  int64  last_heartbeat_unix_ns = 12;
+  // running_workloads is the server-derived count of workloads
+  // currently in WASM_STATE_RUNNING bound to this worker. Server-
+  // filled, ignored on writes.
+  int32  running_workloads = 13;
+}
+
+// ===== Worker RPC envelopes =====
+
+// EnrolWasmWorkerRequest mints a worker record + a one-shot token the
+// remote endpoint redeems by dialling agent_ws_url. The token TTL is
+// short (5m default) and bound to the minted worker_uuid.
+//
+// The browser-facing flow is :
+//   1. Operator runs `weft wasm worker enrol --name X --concurrency N`,
+//   2. Server returns {worker_uuid, token, agent_ws_url, ca_pem},
+//   3. CLI prints a QR code embedding the URL+token,
+//   4. Browser tab dials the URL ; the agent verifies the token,
+//      promotes the worker to WASM_WORKER_READY, and persists the
+//      record in etcd.
+message EnrolWasmWorkerRequest  {
+  string name              = 1;
+  string project           = 2;     // optional ; empty = caller's default
+  WasmWorkerKind kind      = 3;
+  uint32 max_concurrency   = 4;
+  uint64 memory_budget_mib = 5;
+  repeated KeyValue properties = 6;
+  // ttl_seconds caps how long the issued token stays valid. 0 = server
+  // default (300). Capped server-side to a configurable maximum
+  // (default 3600).
+  int32  ttl_seconds       = 7;
+}
+message EnrolWasmWorkerResponse {
+  string worker_uuid  = 1;
+  string token        = 2;     // bearer ; single-use, short-TTL
+  string agent_ws_url = 3;     // wss://<agent>/wasm/connect
+  bytes  ca_pem       = 4;     // optional ; empty when public CA-signed
+  int64  token_expires_at_unix_ns = 5;
+}
+
+message GetWasmWorkerRequest  { string uuid = 1; string name = 2; }
+message GetWasmWorkerResponse { WasmWorker worker = 1; }
+
+message ListWasmWorkersRequest  {
+  string agent_uuid = 1;      // optional filter ; empty = every agent
+  string project    = 2;      // optional ACL narrow
+  WasmWorkerState state_filter = 3;
+  int32  page_size  = 4;
+  string page_token = 5;
+}
+message ListWasmWorkersResponse {
+  repeated WasmWorker workers = 1;
+  string next_page_token      = 2;
+}
+
+// UpdateWasmWorkerRequest patches the operator-mutable fields. Empty /
+// 0 / nil = keep ; collection-valued clears use the clear_xxx pattern.
+message UpdateWasmWorkerRequest {
+  string uuid              = 1;
+  string display_name      = 2;  // empty = keep
+  uint32 max_concurrency   = 3;  // 0 = keep
+  uint64 memory_budget_mib = 4;  // 0 = keep
+  repeated KeyValue properties = 5;
+  bool   clear_properties  = 6;
+}
+message UpdateWasmWorkerResponse { WasmWorker worker = 1; }
+
+// DrainWasmWorkerRequest sets the worker to WASM_WORKER_DRAINING : new
+// placements are refused, already-running workloads keep running. The
+// operator typically pairs this with a Stop on the workloads they want
+// off the worker. Idempotent — re-draining a draining worker is a no-op.
+message DrainWasmWorkerRequest  { string uuid = 1; }
+
+// UndrainWasmWorkerRequest restores a DRAINING worker to READY (or BUSY
+// if it's at max_concurrency).
+message UndrainWasmWorkerRequest { string uuid = 1; }
+
+// DeleteWasmWorkerRequest removes the worker record from the registry.
+// Refuses while running_workloads > 0 ; the operator drains + stops
+// first. `force=true` overrides and re-schedules every bound workload
+// to PENDING (operator escape hatch for a dead browser tab whose
+// record won't auto-expire fast enough).
+message DeleteWasmWorkerRequest  {
+  string uuid  = 1;
+  bool   force = 2;
+}
+message DeleteWasmWorkerResponse {
+  string deleted_uuid               = 1;
+  int32  rescheduled_workloads      = 2;
+  int32  blocked_by_running_workloads = 3;  // > 0 when refused without force
+}
+
+// ===== Service =====
+//
+// WasmWorkloadService is the operator-facing surface. It lives on the
+// same WeftAgent gRPC server as the existing nouns — clients consume
+// it through the regular weftv1 client stub. Adding it as a separate
+// service (rather than tacking RPCs onto WeftAgent) keeps the existing
+// service slim and lets the wasm surface evolve on its own cadence.
+//
+// Driver-side dispatch happens through the existing AgentDispatch
+// stream : new oneof variants (CreateWasmWorkloadOp / StartWasmWorkloadOp
+// / StopWasmWorkloadOp / DeleteWasmWorkloadOp) slot into the existing
+// DriverRequest / DriverReply envelopes. Those op definitions live
+// alongside the existing CreateVMOp / StartVMOp shapes in weft.proto
+// (this file defines the operator-facing surface only ; the driver-
+// dispatch shapes follow in a sibling PR to keep the diff small).
+
+service WasmWorkloadService {
+  // --- Workload CRUD + lifecycle ---
+  rpc CreateWasmWorkload  (CreateWasmWorkloadRequest)  returns (WasmWorkload);
+  rpc GetWasmWorkload     (GetWasmWorkloadRequest)     returns (WasmWorkload);
+  rpc ListWasmWorkloads   (ListWasmWorkloadsRequest)   returns (ListWasmWorkloadsResponse);
+  rpc UpdateWasmWorkload  (UpdateWasmWorkloadRequest)  returns (UpdateWasmWorkloadResponse);
+  rpc DeleteWasmWorkload  (DeleteWasmWorkloadRequest)  returns (google.protobuf.Empty);
+
+  rpc StartWasmWorkload   (StartWasmWorkloadRequest)   returns (WasmWorkload);
+  rpc StopWasmWorkload    (StopWasmWorkloadRequest)    returns (WasmWorkload);
+  rpc RestartWasmWorkload (RestartWasmWorkloadRequest) returns (WasmWorkload);
+
+  // --- Worker registry ---
+  rpc EnrolWasmWorker     (EnrolWasmWorkerRequest)     returns (EnrolWasmWorkerResponse);
+  rpc GetWasmWorker       (GetWasmWorkerRequest)       returns (GetWasmWorkerResponse);
+  rpc ListWasmWorkers     (ListWasmWorkersRequest)     returns (ListWasmWorkersResponse);
+  rpc UpdateWasmWorker    (UpdateWasmWorkerRequest)    returns (UpdateWasmWorkerResponse);
+  rpc DrainWasmWorker     (DrainWasmWorkerRequest)     returns (WasmWorker);
+  rpc UndrainWasmWorker   (UndrainWasmWorkerRequest)   returns (WasmWorker);
+  rpc DeleteWasmWorker    (DeleteWasmWorkerRequest)    returns (DeleteWasmWorkerResponse);
+}

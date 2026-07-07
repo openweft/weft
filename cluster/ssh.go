@@ -85,41 +85,64 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 			if h.ID != a.Host {
 				continue
 			}
-			if h.Hypervisor != "" {
-				hv = " --hypervisor=" + h.Hypervisor
-			}
-			// Default AZ to host.DC (cluster.hcl `dc` field is the AZ in
-			// the dev-cluster model), default rack to "" (single-rack).
-			if h.DC != "" {
-				az = " --az=" + h.DC
-			}
-			if h.Rack != "" {
-				rack = " --rack=" + h.Rack
-			}
+			hv = h.Hypervisor
+			az = h.DC
+			rack = h.Rack
 			break
 		}
-		// Prepend the driver-plugin OCI config so the agent pulls the right
-		// weft-driver-* from the configured registry when it's not pre-installed.
-		env := ""
-		if e := c.Drivers.Env(); len(e) > 0 {
-			env = strings.Join(e, " ") + " "
-		}
-		var args, label string
-		placement := az + rack
+		// Driver-plugin OCI config — passed through as Environment=
+		// in the unit file so the agent's plugin-pull path sees them.
+		driverEnv := c.Drivers.Env()
+		// Render the systemd unit. Per-host fields (WEFT_AZ, WEFT_RACK,
+		// WEFT_HYPERVISOR) become Environment= lines ; the rest is
+		// static and matches deploy/systemd/weft-agent.service.
+		label := "agent"
 		if a.Host == seed.ID {
-			args, label = "--server --tcp-listen=:"+controlPlanePort+hv+placement, "seed control-plane"
-		} else {
-			args, label = fmt.Sprintf("--client --control-plane=tcp:%s:%s%s%s", seed.Address, controlPlanePort, hv, placement), "join seed"
+			label = "seed agent"
 		}
-		// The agent is a long-lived daemon — detach it from the SSH session so
-		// the per-action CombinedOutput() returns once it's launched, otherwise
-		// `weft up --apply` would hang on the very first ensure-host. The
-		// pgrep guard makes the action idempotent on re-apply: if a `weft`
-		// process is already running we leave it alone instead of failing on
-		// a duplicate socket bind.
+		var envLines []string
+		envLines = append(envLines, "Environment=WEFT_RECONCILE_HOSTS_INTERVAL=30s")
+		envLines = append(envLines, "Environment=WEFT_PHANTOM_HOST_DELETE_AGE=1h")
+		if az != "" {
+			envLines = append(envLines, "Environment=WEFT_AZ="+az)
+		}
+		if rack != "" {
+			envLines = append(envLines, "Environment=WEFT_RACK="+rack)
+		}
+		if hv != "" {
+			envLines = append(envLines, "Environment=WEFT_HYPERVISOR="+hv)
+		}
+		for _, e := range driverEnv {
+			envLines = append(envLines, "Environment="+e)
+		}
+		unit := fmt.Sprintf(`[Unit]
+Description=weft control-plane / hypervisor agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin
+%s
+ExecStart=/usr/local/bin/weft agent --vsock-port=0
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+ReadWritePaths=/home/admin
+
+[Install]
+WantedBy=multi-user.target
+`, strings.Join(envLines, "\n"))
+		// Atomic install : write the unit file, reload systemd, then
+		// enable+restart. systemctl restart is idempotent (start if
+		// stopped, restart if running) so re-apply keeps the daemon
+		// in lock-step with the unit content.
 		cmd := fmt.Sprintf(
-			"pgrep -x weft >/dev/null || (nohup %sweft agent %s >/tmp/weft-agent.log 2>&1 </dev/null & sleep 0.3)   # %s",
-			env, args, label,
+			"sudo tee /etc/systemd/system/weft-agent.service >/dev/null <<'%s'\n%s%s\nsudo systemctl daemon-reload && sudo systemctl enable --now weft-agent.service   # %s",
+			heredocMarker, unit, heredocMarker, label,
 		)
 		// V0.x : mirror cluster.hcl-declared properties into the runtime
 		// host registry's labels map. The agent self-registers on startup
@@ -139,6 +162,20 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 			)
 		}
 		return a.Host, cmd
+	case EnsureAZ:
+		// Idempotent : exit 0 if the AZ already exists. `weft az
+		// create` will return an error on duplicate code ; the
+		// `|| true` swallows it. Codes are kebab-case alnum so no
+		// shell quoting needed beyond the literal value.
+		return a.Host, fmt.Sprintf(
+			"weft az create %s --name 'DC %s' 2>/dev/null || true   # idempotent AZ record",
+			a.DC, a.DC,
+		)
+	case EnsureRack:
+		return a.Host, fmt.Sprintf(
+			"weft rack create %s --az %s --name 'Rack %s' 2>/dev/null || true   # idempotent rack record",
+			a.Service, a.DC, a.Service,
+		)
 	case MeshSync:
 		// Control-plane coordination step — rendered as a logged note, NOT a
 		// remote shell command (same class as GrowQuorum below). The real
@@ -181,9 +218,15 @@ func renderAction(c *Cluster, a Action) (hostID, command string) {
 		// first PlaceReplica action lands. Without it, weft infra deploy would
 		// look up its default <moduleRoot>/infra/<svc>/plan.hcl path relative
 		// to the remote cwd, where the source tree isn't present.
+		//
+		// --replica passes the planner-decided 1-indexed replica number so
+		// the deployed VM gets a distinct name per host : without it every
+		// host's invocation would call its VM `infra-<svc>` and the etcd
+		// registry would collapse them into one record (whichever wrote
+		// first wins, the rest become invisible from the operator's view).
 		return a.Host, fmt.Sprintf(
-			"weft infra deploy %s --plan %s/%s/plan.hcl   # replica %d (dc=%s)",
-			a.Service, remoteInfraDir, a.Service, a.Replica, a.DC,
+			"weft infra deploy %s --plan %s/%s/plan.hcl --replica %d   # replica %d (dc=%s)",
+			a.Service, remoteInfraDir, a.Service, a.Replica, a.Replica, a.DC,
 		)
 	case GrowQuorum:
 		return seed.ID, fmt.Sprintf("# grow %s quorum %d→%d (etcd member-add / nats route)", a.Service, a.From, a.To)

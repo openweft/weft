@@ -26,11 +26,42 @@ type Client interface {
 	DeleteSecurityGroup(ctx context.Context, in *weftv1.DeleteSecurityGroupRequest) (*weftv1.DeleteSecurityGroupResponse, error)
 	CreateVolume(ctx context.Context, in *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error)
 	DeleteVolume(ctx context.Context, in *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error)
+	// PullImage primes the classic-VM image cache before CreateVM
+	// clones from it. The agent's CloneVM path rejects with "image X
+	// not in cache; run pull first" when missing — Install pre-pulls
+	// every unique vm.Image so the operator gets the obvious
+	// behaviour from the TUI (install just works) without having to
+	// drop to `weft images pull`. microVM plugins auto-pull inside
+	// the runtime so they're unaffected.
+	PullImage(ctx context.Context, in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error)
 	// MicroVMRun drives the host-side weft-microvm orchestration
 	// (auto-pull → RegisterMicroVM → StartVM) for the V0.5
-	// runtime="microvm" plugin path.
-	MicroVMRun(ctx context.Context, image, project string) error
+	// runtime="microvm" plugin path. The vmName must be unique per
+	// call — HA installs with N replicas pass distinct names so
+	// each register lands on its own VM record (the agent overwrote
+	// prior entries when every replica derived the same name from
+	// the image alone, 2026-06-29 fix).
+	// MicroVMRun takes a hostUUID (empty = local) so the installer
+	// can pin each HA replica to a distinct host when the plugin's
+	// vm.Placement declares anti-affinity (az/host = "different").
+	// The agent's RegisterMicroVM handler dispatches to the matching
+	// `weft agent --client` stream when hostUUID is set and non-local.
+	//
+	// cpu + memMB are the workload-shape metadata stamped on the VM
+	// record so the TUI's FLAVOR resolver names the catalogue flavor
+	// instead of showing "custom" when the registry record has 0/0.
+	MicroVMRun(ctx context.Context, vmName, image, project, hostUUID string, cpu uint32, memMB uint64) error
 	SetVMProperties(ctx context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error)
+	// ListHosts feeds the per-replica host picker for
+	// placement-aware installs. Empty filter = whole cluster.
+	ListHosts(ctx context.Context, in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error)
+	// V0.4.74 : the Install pipeline calls these when Create fails
+	// with "name already in use" — same qualified name, distinct
+	// instance UUID would otherwise loop forever as the cluster
+	// dirties. Adopt the existing UUID instead.
+	ListNetworks(ctx context.Context, in *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error)
+	ListSecurityGroups(ctx context.Context, in *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error)
+	ListVolumes(ctx context.Context, in *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error)
 }
 
 // Manager orchestrates Install / Uninstall / List.
@@ -109,15 +140,28 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 		if nt == "" {
 			nt = "nat"
 		}
+		qname := qualifiedName(manifest.Name, uuid, spec.Name)
 		resp, err := m.client.CreateNetwork(ctx, &weftv1.CreateNetworkRequest{
 			Project:    project,
-			Name:       qualifiedName(manifest.Name, uuid, spec.Name),
+			Name:       qname,
 			Cidr:       spec.CIDR,
 			Gateway:    spec.Gateway,
 			DnsServers: spec.DNS,
 			Type:       nt,
 		})
 		if err != nil {
+			// V0.4.74 : adopt-on-collision. A previous failed install
+			// or a CLI-vs-agent state divergence can leave the
+			// network around without a matching PluginInstance —
+			// re-running Install would forever fail "name in use".
+			// Look up the existing network with the same qualified
+			// name and adopt its UUID so the rest of the pipeline
+			// (SG binding, VM placement) sees a single source of truth.
+			if existing := lookupNetworkByName(ctx, m.client, project, qname); existing != "" {
+				netUUIDByName[spec.Name] = existing
+				inst.Networks = append(inst.Networks, existing)
+				continue
+			}
 			return inst, m.rollback(ctx, inst, fmt.Errorf("create network %q: %w", spec.Name, err))
 		}
 		if resp.Network != nil {
@@ -143,13 +187,20 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 				RemoteCidr: r.RemoteCIDR,
 			})
 		}
+		qname := qualifiedName(manifest.Name, uuid, sg.Name)
 		resp, err := m.client.CreateSecurityGroup(ctx, &weftv1.CreateSecurityGroupRequest{
 			Project:     project,
-			Name:        qualifiedName(manifest.Name, uuid, sg.Name),
+			Name:        qname,
 			Description: sg.Description,
 			Rules:       rules,
 		})
 		if err != nil {
+			// adopt-on-collision (same rationale as network above).
+			if existing := lookupSecurityGroupByName(ctx, m.client, project, qname); existing != "" {
+				sgUUIDByName[sg.Name] = existing
+				inst.SecurityGroups = append(inst.SecurityGroups, existing)
+				continue
+			}
 			return inst, m.rollback(ctx, inst, fmt.Errorf("create security group %q: %w", sg.Name, err))
 		}
 		if resp.Group != nil {
@@ -182,11 +233,51 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 		}
 	}
 
+	// ---- Pre-pull images so CloneVM doesn't reject ---------------
+	// The classic-VM clone path errors with "image X not in cache;
+	// run pull first" when the OCI ref isn't already cached on the
+	// host. Pull every unique vm.Image declared by the manifest
+	// up-front so the operator gets the obvious behaviour from the
+	// TUI (install just works) ; microVM plugins use weft-microvm's
+	// auto-pull inside the runtime and don't need this. The pull is
+	// idempotent — a re-pull on an already-cached image is a fast
+	// no-op on the agent. Operator-reported 2026-06-29 :
+	// 'create vm: vz clone: image redis:7-alpine not in cache'.
+	pulled := map[string]bool{}
+	for _, vm := range manifest.VMs {
+		if vm.Image == "" || pulled[vm.Image] {
+			continue
+		}
+		runtime := vm.Runtime
+		if runtime == "microvm" {
+			continue
+		}
+		if _, err := m.client.PullImage(ctx, &weftv1.PullImageRequest{Url: vm.Image}); err != nil {
+			return inst, m.rollback(ctx, inst, fmt.Errorf("pull image %q: %w", vm.Image, err))
+		}
+		pulled[vm.Image] = true
+	}
+
 	// ---- VMs (with optional per-replica volumes) -----------------
 	for _, vm := range manifest.VMs {
 		schedRule := vm.SchedulingRule
 		if schedRule == "" {
 			schedRule = m.deriveSchedulingRule(manifest, vm, uuid)
+		}
+		// Per-replica host picker. Populated when the manifest's
+		// placement block asks for anti-affinity (az/host = "different")
+		// AND the runtime is microvm — the classic-VM path goes through
+		// the agent's scheduler, which already honours SchedulingRule.
+		// The picker rotates over distinct AZ hosts (or distinct hosts
+		// inside one AZ when az isn't "different") so 3 replicas land
+		// on 3 DCs.
+		var hostPicker []string
+		if vm.Runtime == "microvm" && vm.Placement != nil {
+			picked, err := m.pickPlacementHosts(ctx, vm)
+			if err != nil {
+				return inst, m.rollback(ctx, inst, fmt.Errorf("placement %q: %w", vm.Name, err))
+			}
+			hostPicker = picked
 		}
 		netUUID := netUUIDByName[vm.Network]
 		// Resolve the optional vm count attribute. count=1 (the
@@ -231,6 +322,11 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 							Format:  fmtStr,
 						})
 						if err != nil {
+							// adopt-on-collision (same rationale).
+							if existing := lookupVolumeByName(ctx, m.client, project, volName); existing != "" {
+								inst.Volumes = append(inst.Volumes, existing)
+								continue
+							}
 							return inst, m.rollback(ctx, inst, fmt.Errorf("create volume %q: %w", volName, err))
 						}
 						if resp.Volume != nil {
@@ -256,29 +352,40 @@ func (m *Manager) Install(ctx context.Context, manifest *Manifest, project strin
 				case "microvm":
 					// V0.5 microvm runtime : the orchestration
 					// (auto-pull → RegisterMicroVM → StartVM) lives
-					// inside weft-microvm. We pass the OCI image and
-					// project ; the registry name is derived inside
-					// the library (refsafe form of the image).
-					if err := m.client.MicroVMRun(ctx, vm.Image, project); err != nil {
-						return inst, m.rollback(ctx, inst, fmt.Errorf("microvm run %q: %w", vmName, err))
+					// inside weft-microvm. We pass a per-replica
+					// vmName so HA installs (replicas=N) land N
+					// distinct VM records — passing only the image
+					// silently collapsed all replicas onto the same
+					// refsafe(Image) name (2026-06-29 fix).
+					//
+					// hostUUID is picked from the placement-aware
+					// rotation above when the manifest declares
+					// anti-affinity ; empty = server-local (the
+					// default single-host UX).
+					var hostUUID string
+					if len(hostPicker) > 0 {
+						hostUUID = hostPicker[i%len(hostPicker)]
+					}
+					if err := m.client.MicroVMRun(ctx, vmName, vm.Image, project, hostUUID, uint32(vm.CPU), uint64(vm.MemMB)); err != nil {
+						return inst, m.rollback(ctx, inst, fmt.Errorf("microvm run %q on host %q: %w", vmName, hostUUID, err))
 					}
 					// Apply plugin-declared properties (typically
 					// deployment.type=ha + role=X) so the V0.1.10
 					// respawn gate + V0.1.15 zombiegc see the
 					// workload classification. SetVMProperties is
-					// project-scoped + name-keyed.
+					// project-scoped + name-keyed ; same vmName the
+					// MicroVMRun above just registered.
 					if len(vm.Properties) > 0 {
 						properties := make(map[string]string, len(vm.Properties))
 						for k, v := range vm.Properties {
 							properties[k] = v
 						}
-						refsafeName := microvmRefsafe(vm.Image)
 						if _, err := m.client.SetVMProperties(ctx, &weftv1.SetVMPropertiesRequest{
 							Project:    project,
-							Name:       refsafeName,
+							Name:       vmName,
 							Properties: properties,
 						}); err != nil {
-							return inst, m.rollback(ctx, inst, fmt.Errorf("set properties %q: %w", refsafeName, err))
+							return inst, m.rollback(ctx, inst, fmt.Errorf("set properties %q: %w", vmName, err))
 						}
 					}
 				default:
@@ -324,6 +431,20 @@ func (m *Manager) Uninstall(ctx context.Context, name, uuid string) error {
 			errs = append(errs, fmt.Errorf("delete volume %s: %w", vol, err))
 		}
 	}
+	// Clear the SG-to-network bindings BEFORE deleting either side.
+	// Install wires every owned SG as a default on every owned
+	// network ; DeleteSecurityGroup rejects with FailedPrecondition
+	// when a network still references the SG, so the unbind has to
+	// run first. Empty SG list = no defaults, which lets the
+	// downstream DeleteSecurityGroup loop succeed cleanly.
+	for _, n := range inst.Networks {
+		if _, err := m.client.SetNetworkDefaultSecurityGroups(ctx, &weftv1.SetNetworkDefaultSecurityGroupsRequest{
+			Uuid:        n,
+			SecurityGroupUuids: nil,
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("clear default SGs on network %s: %w", n, err))
+		}
+	}
 	for _, sg := range inst.SecurityGroups {
 		if _, err := m.client.DeleteSecurityGroup(ctx, &weftv1.DeleteSecurityGroupRequest{Uuid: sg}); err != nil {
 			errs = append(errs, fmt.Errorf("delete sg %s: %w", sg, err))
@@ -349,6 +470,29 @@ func (m *Manager) List(ctx context.Context) ([]Instance, error) {
 	return m.state.List()
 }
 
+// SetDisabled flips the Disabled flag on an installed instance,
+// preserving every other side-effect (VMs keep running, etcd state
+// stays, networks remain wired). A no-op when the flag already
+// matches the requested value so callers can issue the same RPC
+// twice without surprises. Returns "not found" when the instance
+// is gone — callers can treat that as success when their intent is
+// idempotent disable-or-gone.
+func (m *Manager) SetDisabled(ctx context.Context, name, uuid string, disabled bool) error {
+	_ = ctx
+	inst, ok, err := m.state.Get(name, uuid)
+	if err != nil {
+		return fmt.Errorf("plugin set-disabled: state lookup: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("plugin set-disabled: no instance %q/%s", name, uuid)
+	}
+	if inst.Disabled == disabled {
+		return nil
+	}
+	inst.Disabled = disabled
+	return m.state.Put(inst)
+}
+
 // rollback tears down whatever was created up to the failure point.
 // Used internally by Install — best-effort, returns the original err.
 func (m *Manager) rollback(ctx context.Context, inst Instance, cause error) error {
@@ -358,6 +502,15 @@ func (m *Manager) rollback(ctx context.Context, inst Instance, cause error) erro
 	for _, vol := range inst.Volumes {
 		_, _ = m.client.DeleteVolume(ctx, &weftv1.DeleteVolumeRequest{Uuid: vol})
 	}
+	// Unbind SGs from networks BEFORE deleting either — same
+	// ordering constraint as Uninstall (DeleteSecurityGroup rejects
+	// while a network references it). Errors are swallowed since
+	// rollback runs on the unhappy path already.
+	for _, n := range inst.Networks {
+		_, _ = m.client.SetNetworkDefaultSecurityGroups(ctx, &weftv1.SetNetworkDefaultSecurityGroupsRequest{
+			Uuid: n, SecurityGroupUuids: nil,
+		})
+	}
 	for _, sg := range inst.SecurityGroups {
 		_, _ = m.client.DeleteSecurityGroup(ctx, &weftv1.DeleteSecurityGroupRequest{Uuid: sg})
 	}
@@ -365,6 +518,151 @@ func (m *Manager) rollback(ctx context.Context, inst Instance, cause error) erro
 		_, _ = m.client.DeleteNetwork(ctx, &weftv1.DeleteNetworkRequest{Uuid: n})
 	}
 	return cause
+}
+
+// lookupNetworkByName scans the project's networks for one whose
+// Name matches `qname` and returns its UUID. Empty when no match.
+// Used by Install for adopt-on-collision when CreateNetwork errors
+// "name already in use" — typically a stale resource from a
+// previous failed install OR a CLI-vs-agent state divergence.
+// Bounded by ListNetworks ; clusters with thousands of nets cap
+// out on the response page rather than this code path.
+func lookupNetworkByName(ctx context.Context, client Client, project, qname string) string {
+	resp, err := client.ListNetworks(ctx, &weftv1.ListNetworksRequest{Project: project})
+	if err != nil {
+		return ""
+	}
+	for _, n := range resp.Networks {
+		if n.Name == qname {
+			return n.Uuid
+		}
+	}
+	return ""
+}
+
+// lookupSecurityGroupByName mirrors lookupNetworkByName for SGs.
+func lookupSecurityGroupByName(ctx context.Context, client Client, project, qname string) string {
+	resp, err := client.ListSecurityGroups(ctx, &weftv1.ListSecurityGroupsRequest{Project: project})
+	if err != nil {
+		return ""
+	}
+	for _, g := range resp.Groups {
+		if g.Name == qname {
+			return g.Uuid
+		}
+	}
+	return ""
+}
+
+// lookupVolumeByName mirrors the above for volumes.
+func lookupVolumeByName(ctx context.Context, client Client, project, name string) string {
+	resp, err := client.ListVolumes(ctx, &weftv1.ListVolumesRequest{Project: project})
+	if err != nil {
+		return ""
+	}
+	for _, v := range resp.Volumes {
+		if v.Name == name {
+			return v.Uuid
+		}
+	}
+	return ""
+}
+
+// pickPlacementHosts returns the ordered host_uuid rotation the
+// installer cycles through for a microvm-runtime VM with anti-
+// affinity declared in its placement block. The replica loop picks
+// `hosts[i % len(hosts)]` so 3 replicas with az="different" against
+// a 3-DC inventory land one per DC ; 4 replicas against the same
+// inventory wrap (the 4th colocates with the 1st in the first AZ).
+//
+// Rules :
+//   - az = "different" → keep one Active host per distinct AZ (deterministic
+//     pick : first connected Active host in AZ alphabetical order).
+//   - host = "different" with az unset or "same" → keep every distinct
+//     Active host across the cluster (or inside the picked AZ when az=same).
+//   - Otherwise the rotation is empty and replicas inherit the default
+//     server-local placement.
+//
+// Returns an error when no Active host can satisfy the rule —
+// surfaces a clear "placement %q : no active hosts" rather than
+// silently degrading to single-host (which is what bit redis-ha
+// when 3 replicas all collapsed onto dc1-r1-h1).
+func (m *Manager) pickPlacementHosts(ctx context.Context, vm VMSpec) ([]string, error) {
+	if vm.Placement == nil {
+		return nil, nil
+	}
+	resp, err := m.client.ListHosts(ctx, &weftv1.ListHostsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("list hosts: %w", err)
+	}
+	connected := map[string]bool{}
+	for _, u := range resp.ConnectedHostUuids {
+		connected[u] = true
+	}
+	// Only Active + connected hosts qualify ; draining / down / cordoned
+	// hosts would let the dispatch reach them but the agent would
+	// refuse, surfacing as a noisy mid-install error.
+	type candidate struct {
+		uuid, az, hostname string
+	}
+	var cands []candidate
+	for _, h := range resp.Hosts {
+		if h.State != "active" || h.Cordoned || !connected[h.Uuid] {
+			continue
+		}
+		cands = append(cands, candidate{uuid: h.Uuid, az: h.Az, hostname: h.Hostname})
+	}
+	if len(cands) == 0 {
+		return nil, fmt.Errorf("no active+connected hosts in cluster")
+	}
+	switch vm.Placement.AZ {
+	case "different":
+		// Keep one host per AZ. AZ alphabetical, host alphabetical
+		// inside the AZ — deterministic so reinstalls land on the
+		// same DCs.
+		byAZ := map[string]candidate{}
+		var azs []string
+		for _, c := range cands {
+			if _, ok := byAZ[c.az]; ok {
+				// Keep the lexicographically-first hostname per AZ
+				// for stability across runs.
+				if c.hostname < byAZ[c.az].hostname {
+					byAZ[c.az] = c
+				}
+				continue
+			}
+			byAZ[c.az] = c
+			azs = append(azs, c.az)
+		}
+		sortStrings(azs)
+		out := make([]string, 0, len(azs))
+		for _, az := range azs {
+			out = append(out, byAZ[az].uuid)
+		}
+		return out, nil
+	default:
+		if vm.Placement.Host == "different" {
+			// Spread across every connected host without AZ constraint.
+			out := make([]string, 0, len(cands))
+			for _, c := range cands {
+				out = append(out, c.uuid)
+			}
+			return out, nil
+		}
+	}
+	return nil, nil
+}
+
+// sortStrings is a tiny ascending-sort helper for the placement
+// picker — kept inline to avoid pulling sort just for one slice.
+func sortStrings(s []string) {
+	for i := 0; i < len(s); i++ {
+		for j := i + 1; j < len(s); j++ {
+			if s[j] < s[i] {
+				s[i], s[j] = s[j], s[i]
+			}
+		}
+	}
 }
 
 // deriveSchedulingRule fabricates a per-VM scheduling rule name

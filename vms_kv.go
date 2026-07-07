@@ -90,9 +90,18 @@ func encodeVMRecord(v VM) []byte {
 	if v.State != "" {
 		bb.SetAttributeValue("state", cty.StringVal(string(v.State)))
 	}
+	if v.Status != "" {
+		bb.SetAttributeValue("status", cty.StringVal(v.Status))
+	}
 	bb.SetAttributeValue("created_at", cty.StringVal(v.CreatedAt.Format(time.RFC3339Nano)))
 	if !v.LastStartAt.IsZero() {
 		bb.SetAttributeValue("last_start_at", cty.StringVal(v.LastStartAt.Format(time.RFC3339Nano)))
+	}
+	if v.VsockCID != 0 {
+		bb.SetAttributeValue("vsock_cid", cty.NumberUIntVal(uint64(v.VsockCID)))
+	}
+	if v.RestartCount != 0 {
+		bb.SetAttributeValue("restart_count", cty.NumberUIntVal(uint64(v.RestartCount)))
 	}
 	return f.Bytes()
 }
@@ -144,8 +153,11 @@ func decodeVMRecord(blob []byte) (VM, error) {
 		RequestedPCI:  reqPCI,
 		Properties:    copyProperties(b.Properties),
 		State:         state,
+		Status:        b.Status,
 		CreatedAt:     created,
 		LastStartAt:   lastStart,
+		VsockCID:      uint32(b.VsockCID),
+		RestartCount:  uint32(b.RestartCount),
 	}, nil
 }
 
@@ -250,6 +262,8 @@ func migrateBlobToKV(ctx context.Context, blob []byte, kv KVStorage) error {
 			State:         state,
 			CreatedAt:     created,
 			LastStartAt:   lastStart,
+			VsockCID:      uint32(b.VsockCID),
+			RestartCount:  uint32(b.RestartCount),
 		}
 		if err := kv.PutOne(ctx, v.UUID, encodeVMRecord(v)); err != nil {
 			return fmt.Errorf("put migrated vm %s: %w", v.UUID, err)

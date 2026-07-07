@@ -14,6 +14,7 @@ import (
 
 	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft/pluginstore"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,19 +27,40 @@ type pluginManager interface {
 	LoadCatalogue() (map[string]*pluginstore.Manifest, error)
 	ListInstalled() ([]pluginstore.Instance, error)
 	Install(ctx context.Context, name, project string, inputs map[string]any) (pluginstore.Instance, error)
+	Uninstall(ctx context.Context, name, instanceUUID string) error
+	SetDisabled(ctx context.Context, name, instanceUUID string, disabled bool) error
 }
 
 // realPluginManager wires pluginstore.LoadCatalogue + a pluginstore.Manager
 // to the pluginManager interface. catalogueDir + manager are set at
 // startup ; either may be empty/nil when the agent is launched without
 // the plugin surface (tests, minimal dev runs).
+//
+// etcdCli, when non-nil, overrides the on-disk catalogue path : the
+// agent reads /weft/catalogue/* (cf. pluginstore.EtcdCataloguePrefix)
+// instead of catalogueDir. Matches the [openweft etcd embedded]
+// directive — cluster state lives in etcd so all 6 hosts in the
+// 3-DC fleet see the same catalogue without per-host rsync. The
+// disk path stays available as a fallback so single-host dev / tests
+// keep working.
 type realPluginManager struct {
 	catalogueDir string
 	manager      *pluginstore.Manager
 	state        pluginstore.StateStore
+	etcdCli      *clientv3.Client
 }
 
 func (r *realPluginManager) LoadCatalogue() (map[string]*pluginstore.Manifest, error) {
+	// Prefer etcd when available : the cluster's source of truth.
+	// On etcd error / empty result, fall back to disk so a temporary
+	// etcd hiccup doesn't blank the operator's catalogue view.
+	if r.etcdCli != nil {
+		cat, err := pluginstore.LoadCatalogueFromEtcd(context.Background(), r.etcdCli, "")
+		if err == nil && len(cat) > 0 {
+			return cat, nil
+		}
+		// fall through to disk
+	}
 	if r.catalogueDir == "" {
 		return map[string]*pluginstore.Manifest{}, nil
 	}
@@ -65,6 +87,28 @@ func (r *realPluginManager) Install(ctx context.Context, name, project string, i
 		return pluginstore.Instance{}, status.Error(codes.Unavailable, "plugin manager not configured")
 	}
 	return r.manager.Install(ctx, m, project, inputs)
+}
+
+// Uninstall tears down a previously-installed plugin instance via the
+// pluginstore.Manager (reverses Network / SecurityGroup / VM creation,
+// then removes the instance from the StateStore). Symmetric with
+// Install — same Manager-not-configured fallback so misconfigured
+// agents surface a clear error instead of a confusing nil-deref.
+func (r *realPluginManager) Uninstall(ctx context.Context, name, instanceUUID string) error {
+	if r.manager == nil {
+		return status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	return r.manager.Uninstall(ctx, name, instanceUUID)
+}
+
+// SetDisabled flips the Disabled flag on the named instance via the
+// StateStore. No side-effects on the install itself ; the consumer-
+// facing gate (e.g. the TUI sidebar) is what observes the flag.
+func (r *realPluginManager) SetDisabled(ctx context.Context, name, instanceUUID string, disabled bool) error {
+	if r.manager == nil {
+		return status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	return r.manager.SetDisabled(ctx, name, instanceUUID, disabled)
 }
 
 func (s *weftServer) ListPluginCatalogue(_ context.Context, _ *weftv1.ListPluginCatalogueRequest) (*weftv1.ListPluginCatalogueResponse, error) {
@@ -117,12 +161,22 @@ func (s *weftServer) ListInstalledPlugins(_ context.Context, _ *weftv1.ListInsta
 		Instances: make([]*weftv1.PluginInstance, 0, len(items)),
 	}
 	for _, i := range items {
+		// Status doubles as an admin-state hint : "running" for an
+		// enabled install, "disabled" when the operator paused it
+		// via DisablePlugin. The TUI's sidebar gate reads disabled
+		// directly off the bool ; the string is for CLI / json
+		// consumers that grep status.
+		stat := "running"
+		if i.Disabled {
+			stat = "disabled"
+		}
 		row := &weftv1.PluginInstance{
-			Name:            i.Name,
-			InstanceUuid:    i.UUID,
-			Project:         i.Project,
-			VmUuids:         append([]string(nil), i.VMs...),
-			Status:          "running",
+			Name:         i.Name,
+			InstanceUuid: i.UUID,
+			Project:      i.Project,
+			VmUuids:      append([]string(nil), i.VMs...),
+			Status:       stat,
+			Disabled:     i.Disabled,
 		}
 		if !i.InstalledAt.IsZero() {
 			row.InstalledAtUnixNs = i.InstalledAt.UnixNano()
@@ -157,4 +211,68 @@ func (s *weftServer) InstallPlugin(ctx context.Context, req *weftv1.InstallPlugi
 		return nil, status.Errorf(codes.Internal, "install: %v", err)
 	}
 	return &weftv1.InstallPluginResponse{InstanceUuid: inst.UUID}, nil
+}
+
+// UninstallPlugin reverses an Install : deletes the VMs / SGs /
+// networks the install created, then drops the instance from the
+// StateStore. Idempotent — re-calling on an already-gone instance
+// returns NotFound (caller decides whether to ignore).
+func (s *weftServer) UninstallPlugin(ctx context.Context, req *weftv1.UninstallPluginRequest) (*weftv1.UninstallPluginResponse, error) {
+	if req == nil || req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.InstanceUuid == "" {
+		return nil, status.Error(codes.InvalidArgument, "instance_uuid is required")
+	}
+	if s.plugins == nil {
+		return nil, status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	if err := s.plugins.Uninstall(ctx, req.Name, req.InstanceUuid); err != nil {
+		if st, ok := status.FromError(err); ok {
+			return nil, st.Err()
+		}
+		return nil, status.Errorf(codes.Internal, "uninstall: %v", err)
+	}
+	return &weftv1.UninstallPluginResponse{}, nil
+}
+
+// EnablePlugin flips the instance's disabled flag back to false.
+// Idempotent — a no-op when the instance is already enabled.
+func (s *weftServer) EnablePlugin(ctx context.Context, req *weftv1.EnablePluginRequest) (*weftv1.EnablePluginResponse, error) {
+	if err := s.setPluginDisabled(ctx, req.GetName(), req.GetInstanceUuid(), false); err != nil {
+		return nil, err
+	}
+	return &weftv1.EnablePluginResponse{}, nil
+}
+
+// DisablePlugin marks the instance disabled : the install side-effects
+// (VMs, networks, SGs) stay in place, but consumer-facing gates
+// (TUI sidebar's RequiresPlugin) treat it as absent.
+func (s *weftServer) DisablePlugin(ctx context.Context, req *weftv1.DisablePluginRequest) (*weftv1.DisablePluginResponse, error) {
+	if err := s.setPluginDisabled(ctx, req.GetName(), req.GetInstanceUuid(), true); err != nil {
+		return nil, err
+	}
+	return &weftv1.DisablePluginResponse{}, nil
+}
+
+// setPluginDisabled is the shared validation + dispatch for the two
+// flag-flip RPCs. Keeps Enable / Disable code paths byte-identical
+// past their entry points so a bug fix can't drift.
+func (s *weftServer) setPluginDisabled(ctx context.Context, name, instanceUUID string, disabled bool) error {
+	if name == "" {
+		return status.Error(codes.InvalidArgument, "name is required")
+	}
+	if instanceUUID == "" {
+		return status.Error(codes.InvalidArgument, "instance_uuid is required")
+	}
+	if s.plugins == nil {
+		return status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	if err := s.plugins.SetDisabled(ctx, name, instanceUUID, disabled); err != nil {
+		if st, ok := status.FromError(err); ok {
+			return st.Err()
+		}
+		return status.Errorf(codes.Internal, "set-disabled: %v", err)
+	}
+	return nil
 }

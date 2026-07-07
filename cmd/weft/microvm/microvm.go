@@ -39,6 +39,7 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 		logsCmd(socket, sshSocket, sshKey),
 		initBuildCmd(),
 		podInitBuildCmd(),
+		metricsCmd(socket, sshSocket, sshKey),
 	)
 	return cmd
 }

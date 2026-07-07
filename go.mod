@@ -1,11 +1,11 @@
 module github.com/openweft/weft
 
-go 1.26.0
+go 1.26.4
 
 require (
 	github.com/coreos/go-oidc/v3 v3.18.0
-	github.com/go-compressions/lzfse v0.0.0
-	github.com/go-diskimages/qcow2 v0.0.0
+	github.com/go-compressions/lzfse v0.1.1-0.20260620062248-135e417e8ead
+	github.com/go-diskimages/qcow2 v0.1.1-0.20260615173836-3e5a0cea6d90
 	github.com/go-diskimages/tart-oci v0.0.0-00010101000000-000000000000
 	github.com/go-grub/grub v0.0.0
 	github.com/go-jose/go-jose/v4 v4.1.4
@@ -25,11 +25,11 @@ require (
 	github.com/openweft/weft-cidata v0.2.0
 	github.com/openweft/weft-client v0.0.0
 	github.com/openweft/weft-driver-plugin v0.0.0
-	github.com/openweft/weft-drivers v0.2.0
+	github.com/openweft/weft-drivers v0.4.0
 	github.com/openweft/weft-hcl v0.4.0
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
-	github.com/openweft/weft-proto v0.12.0
+	github.com/openweft/weft-proto v0.21.0
 	github.com/openweft/weft-slognats v0.2.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
@@ -43,7 +43,10 @@ require (
 	oras.land/oras-go/v2 v2.6.0
 )
 
-require github.com/go-compressions/matchlen v0.0.0 // indirect
+require (
+	github.com/go-volumes/gpt v0.0.0-20260622072431-e1d6ba3b531c // indirect
+	github.com/go-volumes/safeio v0.0.0-20260622072324-7f8eb19f6f8c // indirect
+)
 
 require (
 	github.com/agext/levenshtein v1.2.2 // indirect
@@ -132,7 +135,7 @@ require (
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gvisor.dev/gvisor v0.0.0-20250503011706-39ed1f5ac29c // indirect
 	sigs.k8s.io/json v0.0.0-20211020170558-c049b76a60c6 // indirect

@@ -124,6 +124,7 @@ plugin "vault-ha" {
 
   vm "vault" {
     image    = "hashicorp/vault:1.18"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 2
     mem_mb   = 4096

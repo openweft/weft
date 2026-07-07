@@ -165,6 +165,7 @@ plugin "postgres-ha" {
 
   vm "postgres" {
     image    = "ghcr.io/openweft/postgres-ha:v0.2.0"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 4
     mem_mb   = 8192

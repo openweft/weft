@@ -140,9 +140,10 @@ plugin "redis-ha" {
 
   vm "redis" {
     image    = "redis:7-alpine"
+    runtime  = "microvm"
     replicas = 3
     cpu      = 2
-    mem_mb   = 6144
+    mem_mb   = 4096
     disk_gb  = 10
     network  = "redis"
 

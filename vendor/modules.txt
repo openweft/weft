@@ -38,20 +38,17 @@ github.com/dustin/go-humanize
 # github.com/fatih/color v1.18.0
 ## explicit; go 1.17
 github.com/fatih/color
-# github.com/go-compressions/lzfse v0.0.0 => ../../go-compressions/lzfse
+# github.com/go-compressions/lzfse v0.1.1-0.20260620062248-135e417e8ead => ../../go-compressions/lzfse
 ## explicit; go 1.20
 github.com/go-compressions/lzfse
-# github.com/go-compressions/matchlen v0.0.0 => ../../go-compressions/matchlen
-## explicit; go 1.20
-github.com/go-compressions/matchlen
-# github.com/go-diskimages/qcow2 v0.0.0 => ../../go-diskimages/qcow2
+# github.com/go-diskimages/qcow2 v0.1.1-0.20260615173836-3e5a0cea6d90 => ../../go-diskimages/qcow2
 ## explicit; go 1.25.0
 github.com/go-diskimages/qcow2
 # github.com/go-diskimages/tart-oci v0.0.0-00010101000000-000000000000 => ../../go-diskimages/tart-oci
 ## explicit; go 1.25.0
 github.com/go-diskimages/tart-oci
 # github.com/go-filesystems/ext4 v0.0.0 => ../../go-filesystems/ext4
-## explicit; go 1.26.0
+## explicit; go 1.26.4
 github.com/go-filesystems/ext4
 # github.com/go-filesystems/interface v0.0.0 => ../../go-filesystems/interface
 ## explicit; go 1.25.0
@@ -83,6 +80,12 @@ github.com/go-tpm2/devtpm
 # github.com/go-tpm2/tpm2 v0.5.0
 ## explicit; go 1.22
 github.com/go-tpm2/tpm2
+# github.com/go-volumes/gpt v0.0.0-20260622072431-e1d6ba3b531c
+## explicit; go 1.26.4
+github.com/go-volumes/gpt
+# github.com/go-volumes/safeio v0.0.0-20260622072324-7f8eb19f6f8c
+## explicit; go 1.26.4
+github.com/go-volumes/safeio
 # github.com/gogo/protobuf v1.3.2
 ## explicit; go 1.15
 github.com/gogo/protobuf/gogoproto
@@ -287,7 +290,7 @@ github.com/openweft/weft-client
 ## explicit; go 1.25.0
 github.com/openweft/weft-driver-plugin
 github.com/openweft/weft-driver-plugin/driverpb
-# github.com/openweft/weft-drivers v0.2.0 => ../weft-drivers
+# github.com/openweft/weft-drivers v0.4.0 => ../weft-drivers
 ## explicit; go 1.25.0
 github.com/openweft/weft-drivers
 # github.com/openweft/weft-hcl v0.4.0
@@ -301,9 +304,11 @@ github.com/openweft/weft-microvm/initbuild
 # github.com/openweft/weft-microvm-init v0.0.0 => ../weft-microvm-init
 ## explicit; go 1.25.1
 github.com/openweft/weft-microvm-init/pkg/pod
-# github.com/openweft/weft-proto v0.12.0 => ../weft-proto
+# github.com/openweft/weft-proto v0.21.0 => ../weft-proto
 ## explicit; go 1.25.0
 github.com/openweft/weft-proto
+github.com/openweft/weft-proto/agentv1
+github.com/openweft/weft-proto/guestv1
 github.com/openweft/weft-proto/introspectv1
 # github.com/openweft/weft-slognats v0.2.0
 ## explicit; go 1.26
@@ -747,6 +752,7 @@ google.golang.org/grpc/serviceconfig
 google.golang.org/grpc/stats
 google.golang.org/grpc/status
 google.golang.org/grpc/tap
+google.golang.org/grpc/test/bufconn
 # google.golang.org/protobuf v1.36.11
 ## explicit; go 1.23
 google.golang.org/protobuf/encoding/protodelim

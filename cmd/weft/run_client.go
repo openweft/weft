@@ -88,6 +88,7 @@ func runClient(t fileConfigTargets) error {
 		AttestTPM:       t.attestTPM,
 		AttestTPMDevice: t.attestTPMDevice,
 		AttestClient:    attestClient,
+		AgentVersion:    version,
 	})
 	if err != nil {
 		return fmt.Errorf("build agent: %w", err)
@@ -159,6 +160,16 @@ func buildDriverHandler(a weft.VZAdapter) func(context.Context, *weftv1.DriverRe
 					Kernel:  op.RegisterMicroVm.Kernel,
 					Initrd:  op.RegisterMicroVm.Initrd,
 					Cmdline: op.RegisterMicroVm.Cmdline,
+					// V0.4.71 : carry the OCI ref so the
+					// receiving agent stamps it on the VM
+					// record instead of falling back to the
+					// synthetic "microvm/direct_linux" label.
+					Image: op.RegisterMicroVm.Image,
+					// V0.4.72 : workload-shape metadata for the
+					// FLAVOR resolver. The microVM kernel
+					// ignores these — purely registry info.
+					CPU:       int(op.RegisterMicroVm.Cpu),
+					MemoryMiB: int(op.RegisterMicroVm.MemMb),
 				},
 				toMicroVMShares(op.RegisterMicroVm.Shares),
 				// GPU requests: RegisterMicroVMOp carries no GPU field yet,

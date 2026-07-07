@@ -53,7 +53,11 @@ func OpenFromDevice(dev blockDevice, partIndex int) (filesystem.Filesystem, erro
 }
 
 func openFromDevice(dev blockDevice, partIndex int) (filesystem.Filesystem, error) {
-	off, err := partitionOffset(dev, partIndex)
+	// Device size lets the shared go-volumes/gpt parser bound the partition
+	// table against the backing device (M2). Size() failing is non-fatal: pass
+	// 0 so partitionOffset falls back to its internal overflow-safe ceiling.
+	devSize, _ := dev.Size()
+	off, err := partitionOffset(dev, partIndex, devSize)
 	if err != nil {
 		dev.Close()
 		return nil, err

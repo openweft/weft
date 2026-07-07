@@ -57,6 +57,8 @@ func (cp adapterControlPlane) RegisterHost(ctx context.Context, reg agent.HostRe
 		NetworkTypes:   reg.NetworkTypes,
 		VolumeBackends: reg.VolumeBackends,
 		Properties:     reg.Properties,
+		AgentVersion:   reg.AgentVersion,
+		DriverVersions: reg.DriverVersions,
 	}
 	h, err := cp.a.RegisterHost(spec)
 	if err != nil {

@@ -31,6 +31,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	drivers "github.com/openweft/weft-drivers"
 )
 
 // Options bundles the agent's construction inputs.
@@ -111,6 +113,16 @@ type Options struct {
 	// attested bring-up requires the gRPC control plane (the realistic
 	// deployment — a TPM-bearing node dialing a remote control plane).
 	AttestClient AttestationClient
+	// AgentVersion is the weft binary's compile-time build version
+	// (e.g. "v0.4.55"), stamped via main.version. Propagated to the
+	// host registry on RegisterHost so weft-tui / webui can surface
+	// the per-host version. Empty for unstamped dev builds.
+	AgentVersion string
+	// DriverVersions maps each loaded driver's Kind ("vz" / "qemu")
+	// to its compile-time build version, harvested by Start() from
+	// each plugin's HostInfo() RPC. Empty when no driver plugin
+	// reports a Version.
+	DriverVersions map[string]string
 }
 
 // DriverSpec describes one driver to launch on this host : its kind
@@ -216,7 +228,9 @@ func (a *Agent) start(ctx context.Context) error {
 		// Primary = first by stable order. Until the per-kind dispatch
 		// table lands, the singleton handles point at it.
 		primaryKind := ""
-		for _, k := range []string{"vz", "qemu"} {
+		// vz/qemu win when present (hardware virt) ; wasm last as
+		// the fallback backend for hosts with no virt extensions.
+		for _, k := range []string{"vz", "qemu", "wasm"} {
 			if _, ok := set[k]; ok {
 				primaryKind = k
 				break
@@ -287,6 +301,8 @@ func (a *Agent) start(ctx context.Context) error {
 		NetworkTypes:   []string{"nat", "bridged", "isolated", "mesh"},
 		VolumeBackends: []string{"file"},
 		Properties:     attestProperties,
+		AgentVersion:   a.opts.AgentVersion,
+		DriverVersions: a.collectDriverVersions(ctx),
 	}
 	if _, err := a.opts.ControlPlane.RegisterHost(ctx, reg); err != nil {
 		return fmt.Errorf("weft-agent: RegisterHost: %w", err)
@@ -347,6 +363,58 @@ func (a *Agent) HostUUID() string { return a.hostUUID }
 // integration tests that want to inspect the same handles the control plane
 // received via AttachDrivers.
 func (a *Agent) Handles() DriverHandles { return a.handles }
+
+// collectDriverVersions harvests the build version each driver plugin
+// reports via its HostInfo() RPC and returns a Kind→Version map. The
+// agent ships this to the control plane on RegisterHost so weft-tui
+// and weft-webui can surface per-driver versions. Best-effort : a
+// plugin that fails HostInfo or returns an empty Version is silently
+// skipped (operators still see the agent_version line).
+//
+// Options.DriverVersions, when supplied (tests / static overrides),
+// wins over the live probe so callers can pin versions deterministically.
+func (a *Agent) collectDriverVersions(ctx context.Context) map[string]string {
+	if len(a.opts.DriverVersions) > 0 {
+		out := make(map[string]string, len(a.opts.DriverVersions))
+		for k, v := range a.opts.DriverVersions {
+			out[k] = v
+		}
+		return out
+	}
+	probe := func(d drivers.HypervisorDriver) string {
+		if d == nil {
+			return ""
+		}
+		c, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		info, err := d.HostInfo(c)
+		if err != nil {
+			return ""
+		}
+		return info.Version
+	}
+	out := map[string]string{}
+	if a.driverSet != nil {
+		for kind, h := range a.driverSet {
+			if v := probe(h.Hypervisor); v != "" {
+				out[kind] = v
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	if a.hypervisor != "" {
+		if v := probe(a.handles.Hypervisor); v != "" {
+			out[a.hypervisor] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
 
 // heartbeatLoop ticks the ControlPlane every HeartbeatInterval
 // until ctx is canceled. Errors are logged to stderr; the loop

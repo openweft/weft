@@ -30,9 +30,15 @@ package drivers
 type HostInfo struct {
 	UUID         string
 	Hostname     string
-	AZ           string   // availability zone label, e.g. "us-east-1a"
-	Hypervisor   string   // "apple-vz" | "qemu-kvm" | "cloud-hypervisor"
-	Architecture string   // "arm64" | "amd64" | "riscv64" | "loongarch64"
+	AZ           string // availability zone label, e.g. "us-east-1a"
+	Hypervisor   string // "apple-vz" | "qemu-kvm" | "cloud-hypervisor"
+	Architecture string // "arm64" | "amd64" | "riscv64" | "loongarch64"
+	// Version is the driver plugin's compile-time build version
+	// (e.g. "v0.6.0"). Reported via the HostInfo() RPC so weft can
+	// surface per-driver versions in the TUI / webui chrome.
+	// Empty when the driver isn't built with -X main.version (dev
+	// builds) — TUI shows "(dev)" or empty in that case.
+	Version string
 }
 
 // NetworkSpec is what NetworkDriver consumes — mirrors weft.Network
@@ -233,6 +239,17 @@ type VMSpec struct {
 	BootKind    string // "uki" | "direct_linux" | "oci_image"
 	BootRef     string // path or ref depending on BootKind
 	Cmdline     string // optional kernel cmdline override
+	// VsockCID is the AF_VSOCK guest CID the agent allocated for
+	// this VM (deterministic hash, range [0x10000, 0xfffefffe]).
+	// Drivers that support virtio-vsock must bind this exact CID
+	// so GuestPodPlane.Attach's strict-when-known peer check sees
+	// the agent's expected value. QEMU :
+	//   -device vhost-vsock-pci,guest-cid=<VsockCID>
+	// Apple VZ : VZVirtioSocketDevice (note: the API doesn't let
+	// userland pick a CID, so the field is advisory there). 0 =
+	// no CID assigned (legacy VM ; the agent then treats the pod
+	// as "unknown" and falls back to the permissive guard).
+	VsockCID uint32
 	// Disks + NICs are attached separately via AttachDisk / AttachNIC
 	// — keeping VMSpec minimal lets create-then-hot-plug flows work
 	// the same way as create-with-everything.

@@ -4,6 +4,7 @@
 package lzfse
 
 import (
+	"encoding/binary"
 	"errors"
 	"math/bits"
 )
@@ -113,6 +114,13 @@ func fseInInit(buf []byte, end int, n int) (fseInStream, error) {
 			uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48
 		s.accumNBits = n + 56
 	}
+	// The reference (fse_in_checked_init64) requires the bits above accumNBits to
+	// be zero — the encoder zeroes them, so a non-zero value means the stream is
+	// corrupt. Rejecting it here makes malformed payloads error rather than
+	// decode into wrong output.
+	if s.accumNBits < 56 || s.accumNBits >= 64 || (s.accum>>uint(s.accumNBits)) != 0 {
+		return s, errors.New("fse: invalid stream init (nonzero high bits)")
+	}
 	return s, nil
 }
 
@@ -136,10 +144,18 @@ func (s *fseInStream) fseInFlush(buf []byte, ptr *int) {
 		return
 	}
 	*ptr = newPtr
-	// Load nbytes bytes starting at newPtr, little-endian into incoming
+	// Load nbytes (<=7) bytes starting at newPtr, little-endian into incoming.
+	// When a full 8-byte little-endian word is in range we load it once and
+	// mask to nbits, avoiding the per-byte shift loop; otherwise (near the
+	// front edge of buf, where newPtr+8 would read past the end) fall back to
+	// the byte-at-a-time load.
 	var incoming uint64
-	for i := 0; i < nbytes; i++ {
-		incoming |= uint64(buf[newPtr+i]) << uint(i*8)
+	if newPtr+8 <= len(buf) {
+		incoming = binary.LittleEndian.Uint64(buf[newPtr:])
+	} else {
+		for i := 0; i < nbytes; i++ {
+			incoming |= uint64(buf[newPtr+i]) << uint(i*8)
+		}
 	}
 	// Shift accum left and OR in new bits
 	s.accum = (s.accum << uint(nbits)) | (incoming & ((1 << uint(nbits)) - 1))

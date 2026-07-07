@@ -127,6 +127,45 @@ func TestHostLiveness_LeaseExpiresAfterClientCrash(t *testing.T) {
 	}
 }
 
+// TestHostLiveness_SelfHealsAfterKeepAliveClose simulates what was
+// observed live on dc1-r2-h1 2026-06-26 : etcd closes the KeepAlive
+// stream (network blip / leader change / lease revoked externally)
+// and the agent must re-register instead of going silently dark for
+// the rest of its uptime. Pre-fix, the goroutine logged a warn and
+// returned — the host stayed gone from ConnectedHostUuids until the
+// next manual systemctl restart.
+func TestHostLiveness_SelfHealsAfterKeepAliveClose(t *testing.T) {
+	cli := embeddedEtcd(t)
+	ctx := context.Background()
+	hl, err := RegisterHostLiveness(ctx, cli, HostMetadata{HostUUID: "host-heal"},
+		LivenessOptions{LeaseTTLSec: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hl.Stop(ctx)
+	oldLease := hl.LeaseID()
+	// Force the keep-alive stream closed by revoking the lease out
+	// from under the goroutine. etcd terminates the KeepAlive channel
+	// + drops the key ; the goroutine should re-register a fresh
+	// lease and re-put the key under it.
+	if _, err := cli.Revoke(ctx, oldLease); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	// Wait up to 5s for self-heal (backoff starts at 100ms).
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := cli.Get(ctx, hl.Key())
+		if err == nil && resp.Count == 1 && hl.LeaseID() != oldLease {
+			// Self-heal observed.
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	resp, _ := cli.Get(ctx, hl.Key())
+	t.Errorf("self-heal did not run ; key count=%d  lease=%d  oldLease=%d",
+		resp.Count, hl.LeaseID(), oldLease)
+}
+
 func TestHostWatcher_InitialSnapshot(t *testing.T) {
 	cli := embeddedEtcd(t)
 	ctx, cancel := context.WithCancel(context.Background())

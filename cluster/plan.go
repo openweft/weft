@@ -15,6 +15,14 @@ import (
 type State struct {
 	Hosts  map[string]bool           // host IDs currently up (agent reachable + meshed)
 	Placed map[string]map[int]string // service → replica(1-indexed) → host ID currently placed
+	// AZs : codes already present in the inventory (CreateAZ has
+	// been called). Populated by Apply() from the seed agent before
+	// Build runs ; the planner uses it to skip emitting EnsureAZ
+	// for already-present codes.
+	AZs map[string]bool
+	// Racks : "<DC>/<rack>" tuples already present. Same shape +
+	// semantics as AZs.
+	Racks map[string]bool
 }
 
 func (s State) hostUp(id string) bool { return s.Hosts != nil && s.Hosts[id] }
@@ -46,6 +54,18 @@ const (
 	// EnsureHost: bring a hypervisor host into the cluster (start/verify its
 	// weft agent, join it to the overlay).
 	EnsureHost ActionKind = "ensure-host"
+	// EnsureAZ : create the AZ inventory record from cluster.hcl's
+	// distinct host.DC values. Runs against the seed agent so the
+	// records exist in etcd before hosts self-register and reference
+	// them by code. Idempotent — re-applying skips an existing AZ.
+	// Without this step the host registry is populated but the AZ +
+	// Rack list-panels stay empty (operator-reported bug 2026-06-23
+	// "dans la TUI il manque toujours les AZ et les racks").
+	EnsureAZ ActionKind = "ensure-az"
+	// EnsureRack : same shape as EnsureAZ but for the (DC, rack)
+	// tuples in cluster.hcl. Emitted AFTER its parent EnsureAZ so
+	// the --az lookup resolves.
+	EnsureRack ActionKind = "ensure-rack"
 	// MeshSync: (re)publish the full WireGuard peer set after membership
 	// changed — reuses wgcoord.MeshPeers + mesh.PublishAll.
 	MeshSync ActionKind = "mesh-sync"
@@ -101,6 +121,10 @@ func (a Action) String() string {
 		return fmt.Sprintf("push-cfg      %s (/etc/weft/weft.hcl, %d bytes)", a.Host, len(a.Config))
 	case EnsureHost:
 		return fmt.Sprintf("ensure-host   %s (dc=%s)", a.Host, a.DC)
+	case EnsureAZ:
+		return fmt.Sprintf("ensure-az     %s (region=%s)", a.DC, a.Service)
+	case EnsureRack:
+		return fmt.Sprintf("ensure-rack   %s/%s", a.DC, a.Service)
 	case MeshSync:
 		return fmt.Sprintf("mesh-sync     members=[%s]", strings.Join(a.Hosts, ","))
 	case EnsureKernel:
@@ -244,6 +268,31 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 			Properties: h.Properties,
 		})
 		newHosts = true
+	}
+
+	// 1bis. Ensure the inventory records (AZ + Rack) referenced by
+	// host.DC + host.Rack exist. The Host registry takes the codes
+	// as free-text labels regardless ; without these records, the
+	// TUI/webui's AZ + Rack list-panels stay empty even though the
+	// hosts show their AZ/Rack columns populated. Idempotent —
+	// `weft az create` / `weft rack create` skip when the code
+	// already exists. Runs on the seed (the only place that has
+	// the agent socket guaranteed up by this point). One action per
+	// distinct DC + per distinct (DC, rack) tuple.
+	azSeen := map[string]bool{}
+	rackSeen := map[string]bool{}
+	for _, h := range c.Hosts {
+		if h.DC != "" && !azSeen[h.DC] && !cur.AZs[h.DC] {
+			azSeen[h.DC] = true
+			p.Actions = append(p.Actions, Action{Kind: EnsureAZ, DC: h.DC, Host: c.Seed().ID})
+		}
+		if h.DC != "" && h.Rack != "" {
+			key := h.DC + "/" + h.Rack
+			if !rackSeen[key] && !cur.Racks[key] {
+				rackSeen[key] = true
+				p.Actions = append(p.Actions, Action{Kind: EnsureRack, DC: h.DC, Service: h.Rack, Host: c.Seed().ID})
+			}
+		}
 	}
 
 	// 2. Re-sync the overlay whenever membership grew.

@@ -33,17 +33,27 @@ import (
 	"github.com/openweft/weft/cluster"
 	"github.com/openweft/weft/infra"
 	"github.com/spf13/cobra"
+
+	clusterCmd "github.com/openweft/weft/cmd/weft/cluster"
 )
 
 // newClusterCmd is the parent grouping cluster-wide pre-flight + diagnostic
-// commands. Today : `verify-images`. `weft up` / `weft down` stay top-level
-// because that's how operators muscle-memory'd them.
-func newClusterCmd() *cobra.Command {
+// commands. `weft up` / `weft down` stay top-level because that's how
+// operators muscle-memory'd them.
+//
+//	weft cluster status         — health overview banner
+//	weft cluster backup         — etcd snapshot for disaster recovery
+//	weft cluster verify-images  — pull-readiness check
+func newClusterCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cluster",
 		Short: "Cluster-wide pre-flight + diagnostic commands",
 	}
-	cmd.AddCommand(newVerifyImagesCmd())
+	cmd.AddCommand(
+		clusterCmd.StatusCommand(socket, sshSocket, sshKey),
+		clusterCmd.BackupCommand(),
+		newVerifyImagesCmd(),
+	)
 	return cmd
 }
 

@@ -65,13 +65,17 @@ func (a *AgentClient) DeleteVolume(ctx context.Context, in *weftv1.DeleteVolumeR
 // AgentClient was constructed without a socket — the install path
 // degrades to a clear "wire the socket" error rather than a silent
 // classic-VM fallback.
-func (a *AgentClient) MicroVMRun(ctx context.Context, image, project string) error {
+func (a *AgentClient) MicroVMRun(ctx context.Context, vmName, image, project, hostUUID string, cpu uint32, memMB uint64) error {
 	if a.weftSocket == "" {
 		return fmt.Errorf("pluginstore: MicroVMRun called without an agent socket (plugin runtime=microvm requires NewAgentClient with a non-empty socket)")
 	}
 	return microvm.Run(microvm.Args{
+		Name:       vmName,
 		Image:      image,
 		Project:    project,
+		HostUUID:   hostUUID,
+		CPU:        cpu,
+		MemMB:      memMB,
 		Detach:     true,
 		WeftSocket: a.weftSocket,
 	})
@@ -83,4 +87,34 @@ func (a *AgentClient) MicroVMRun(ctx context.Context, image, project string) err
 // installer's microvm dispatch.
 func (a *AgentClient) SetVMProperties(ctx context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error) {
 	return a.c.SetVMProperties(ctx, in)
+}
+
+// PullImage forwards to the agent's PullImage RPC. The Install
+// pipeline calls this for every unique vm.Image before CreateVM so
+// the classic-VM clone path doesn't reject with "image X not in
+// cache". Idempotent on the agent — a re-pull on an already-cached
+// image is a fast no-op.
+func (a *AgentClient) PullImage(ctx context.Context, in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error) {
+	return a.c.PullImage(ctx, in)
+}
+
+// ListHosts forwards to the agent's ListHosts RPC. Used by the
+// placement-aware install path to pick per-replica host_uuid
+// rotations honouring anti-affinity (az/host = "different").
+func (a *AgentClient) ListHosts(ctx context.Context, in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {
+	return a.c.ListHosts(ctx, in)
+}
+
+// ListNetworks / ListSecurityGroups / ListVolumes feed the Install
+// pipeline's adopt-on-collision path (V0.4.74) so a stale resource
+// left from a prior failed install gets adopted instead of looping
+// forever on "name already in use".
+func (a *AgentClient) ListNetworks(ctx context.Context, in *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error) {
+	return a.c.ListNetworks(ctx, in)
+}
+func (a *AgentClient) ListSecurityGroups(ctx context.Context, in *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error) {
+	return a.c.ListSecurityGroups(ctx, in)
+}
+func (a *AgentClient) ListVolumes(ctx context.Context, in *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error) {
+	return a.c.ListVolumes(ctx, in)
 }

@@ -23,8 +23,9 @@ type fakeClient struct {
 	deleteSG                        func(in *weftv1.DeleteSecurityGroupRequest) (*weftv1.DeleteSecurityGroupResponse, error)
 	createVolume                    func(in *weftv1.CreateVolumeRequest) (*weftv1.CreateVolumeResponse, error)
 	deleteVolume                    func(in *weftv1.DeleteVolumeRequest) (*weftv1.DeleteVolumeResponse, error)
-	microvmRun                      func(image, project string) error
+	microvmRun                      func(vmName, image, project, hostUUID string, cpu uint32, memMB uint64) error
 	setVMProperties                 func(in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error)
+	listHosts                       func(in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error)
 
 	// Call counters
 	creates     int
@@ -39,6 +40,17 @@ type fakeClient struct {
 	delVols     []*weftv1.DeleteVolumeRequest
 	microvmRuns []microvmCall
 	setProperties []*weftv1.SetVMPropertiesRequest
+
+	pullImage func(in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error)
+	pulls     []*weftv1.PullImageRequest
+}
+
+func (f *fakeClient) PullImage(_ context.Context, in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error) {
+	f.pulls = append(f.pulls, in)
+	if f.pullImage != nil {
+		return f.pullImage(in)
+	}
+	return &weftv1.PullImageResponse{}, nil
 }
 
 func (f *fakeClient) CreateNetwork(_ context.Context, in *weftv1.CreateNetworkRequest) (*weftv1.CreateNetworkResponse, error) {
@@ -108,13 +120,51 @@ func (f *fakeClient) DeleteVolume(_ context.Context, in *weftv1.DeleteVolumeRequ
 	}
 	return &weftv1.DeleteVolumeResponse{}, nil
 }
-func (f *fakeClient) MicroVMRun(_ context.Context, image, project string) error {
+func (f *fakeClient) MicroVMRun(_ context.Context, vmName, image, project, hostUUID string, cpu uint32, memMB uint64) error {
 	f.creates++
-	f.microvmRuns = append(f.microvmRuns, microvmCall{Image: image, Project: project})
+	f.microvmRuns = append(f.microvmRuns, microvmCall{Name: vmName, Image: image, Project: project, HostUUID: hostUUID, CPU: cpu, MemMB: memMB})
 	if f.microvmRun != nil {
-		return f.microvmRun(image, project)
+		return f.microvmRun(vmName, image, project, hostUUID, cpu, memMB)
 	}
 	return nil
+}
+func (f *fakeClient) ListNetworks(_ context.Context, in *weftv1.ListNetworksRequest) (*weftv1.ListNetworksResponse, error) {
+	out := &weftv1.ListNetworksResponse{}
+	for _, n := range f.createNets {
+		out.Networks = append(out.Networks, &weftv1.NetworkInfo{Uuid: "net-" + n.Name, Name: n.Name})
+	}
+	return out, nil
+}
+func (f *fakeClient) ListSecurityGroups(_ context.Context, in *weftv1.ListSecurityGroupsRequest) (*weftv1.ListSecurityGroupsResponse, error) {
+	out := &weftv1.ListSecurityGroupsResponse{}
+	for _, g := range f.createSGs {
+		out.Groups = append(out.Groups, &weftv1.SecurityGroupInfo{Uuid: "sg-" + g.Name, Name: g.Name})
+	}
+	return out, nil
+}
+func (f *fakeClient) ListVolumes(_ context.Context, in *weftv1.ListVolumesRequest) (*weftv1.ListVolumesResponse, error) {
+	out := &weftv1.ListVolumesResponse{}
+	for _, v := range f.createVols {
+		out.Volumes = append(out.Volumes, &weftv1.VolumeInfo{Uuid: "vol-" + v.Name, Name: v.Name, SizeGib: v.SizeGib})
+	}
+	return out, nil
+}
+func (f *fakeClient) ListHosts(_ context.Context, in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error) {
+	if f.listHosts != nil {
+		return f.listHosts(in)
+	}
+	// Default fixture : 3 active+connected hosts spread across
+	// three AZs (dc1/dc2/dc3) so the placement-aware microvm install
+	// path can rotate replicas without each test re-wiring the
+	// inventory. Tests that need a specific shape (single host, all
+	// cordoned, …) override `listHosts`.
+	hosts := []*weftv1.HostInfo{
+		{Uuid: "host-dc1", Hostname: "dc1-r1-h1", Az: "dc1", State: "active"},
+		{Uuid: "host-dc2", Hostname: "dc2-r1-h1", Az: "dc2", State: "active"},
+		{Uuid: "host-dc3", Hostname: "dc3-r1-h1", Az: "dc3", State: "active"},
+	}
+	connected := []string{"host-dc1", "host-dc2", "host-dc3"}
+	return &weftv1.ListHostsResponse{Hosts: hosts, ConnectedHostUuids: connected}, nil
 }
 func (f *fakeClient) SetVMProperties(_ context.Context, in *weftv1.SetVMPropertiesRequest) (*weftv1.SetVMPropertiesResponse, error) {
 	f.setProperties = append(f.setProperties, in)
@@ -125,8 +175,12 @@ func (f *fakeClient) SetVMProperties(_ context.Context, in *weftv1.SetVMProperti
 }
 
 type microvmCall struct {
-	Image   string
-	Project string
+	Name     string
+	Image    string
+	Project  string
+	HostUUID string
+	CPU      uint32
+	MemMB    uint64
 }
 
 // loadDemo parses the fixture from manifest_test.go.
@@ -170,6 +224,40 @@ func TestInstall_HappyPath(t *testing.T) {
 	// Secret input must be masked in stored record.
 	if inst.Inputs["token"] != "***" {
 		t.Errorf("expected secret token to be masked, got %q", inst.Inputs["token"])
+	}
+	// Pre-pull invariant : the manifest's unique vm.Image must
+	// have been pulled before any CreateVM call landed. The demo
+	// has one VM block with one image, so exactly one PullImage
+	// call is expected.
+	if got := len(c.pulls); got != 1 {
+		t.Errorf("expected 1 PullImage call, got %d", got)
+	}
+}
+
+// TestInstall_PullImageFailureRollsBack : a PullImage failure must
+// roll back the partial install (networks / SGs already created)
+// the same way a CreateVM failure does. Otherwise an outage on the
+// OCI registry would leave dangling cluster state after every
+// failed install attempt.
+func TestInstall_PullImageFailureRollsBack(t *testing.T) {
+	c := &fakeClient{
+		pullImage: func(in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error) {
+			return nil, errors.New("registry down")
+		},
+	}
+	mgr := NewManager(c, NewMemStore())
+	m := loadDemo(t)
+	_, err := mgr.Install(context.Background(), m, "proj", map[string]any{"token": "abc"})
+	if err == nil {
+		t.Fatal("expected install to fail on pull error")
+	}
+	if got := len(c.createVMs); got != 0 {
+		t.Errorf("CreateVM fired despite pull failure : %d times", got)
+	}
+	// Rollback should have torn down the networks + SGs that did
+	// land before the pull step.
+	if got := len(c.delNetworks); got != len(c.createNets) {
+		t.Errorf("rollback : %d DeleteNetwork vs %d CreateNetwork", len(c.delNetworks), len(c.createNets))
 	}
 }
 
@@ -223,6 +311,67 @@ func TestInstall_PerDCPlacementSpread(t *testing.T) {
 			t.Errorf("duplicate vm name %q", vm.Name)
 		}
 		seen[vm.Name] = true
+	}
+}
+
+// TestInstall_MicroVMReplicasSpreadAcrossAZs proves the placement-
+// aware picker rotates microvm replicas over distinct AZ-pinned hosts
+// when the manifest declares `placement { az = "different" }`. Bug
+// reported 2026-06-29 : redis-ha collapsed all three replicas onto
+// dc1-r1-h1 because RegisterMicroVMRequest.host_uuid was always
+// empty ; the fix threads per-replica host_uuid through MicroVMRun.
+func TestInstall_MicroVMReplicasSpreadAcrossAZs(t *testing.T) {
+	// Parse a 3-replica microvm manifest with az=different. The minimal
+	// fixture is hand-written here so the test doesn't depend on the
+	// catalogue's latest shape.
+	const src = `
+plugin "ha-demo" {
+  version     = "v1"
+  kind        = "runner-farm"
+  description = "ha demo"
+  layout      = "ha-3dc"
+  input "token" {
+    type     = "string"
+    required = true
+  }
+  network "net" {
+    cidr = "10.0.0.0/24"
+  }
+  vm "node" {
+    image    = "ghcr.io/example/payload:v1"
+    network  = "net"
+    replicas = 3
+    runtime  = "microvm"
+    cpu      = 1
+    mem_mb   = 256
+    placement {
+      az   = "different"
+      host = "different"
+    }
+  }
+}
+`
+	m, err := ParseManifest("ha.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := &fakeClient{}
+	mgr := NewManager(c, NewMemStore())
+	if _, err := mgr.Install(context.Background(), m, "proj", map[string]any{"token": "abc"}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if len(c.microvmRuns) != 3 {
+		t.Fatalf("expected 3 MicroVMRun calls, got %d", len(c.microvmRuns))
+	}
+	hosts := map[string]int{}
+	for _, mc := range c.microvmRuns {
+		if mc.HostUUID == "" {
+			t.Errorf("replica %q has empty HostUUID — placement picker didn't fire", mc.Name)
+		}
+		hosts[mc.HostUUID]++
+	}
+	if len(hosts) != 3 {
+		t.Errorf("expected 3 distinct HostUUID across replicas, got %d : %v", len(hosts), hosts)
 	}
 }
 

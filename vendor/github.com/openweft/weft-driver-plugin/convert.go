@@ -81,6 +81,7 @@ func hostInfoToPB(h drivers.HostInfo) *driverpb.HostInfo {
 		Az:           h.AZ,
 		Hypervisor:   h.Hypervisor,
 		Architecture: h.Architecture,
+		Version:      h.Version,
 	}
 }
 
@@ -94,6 +95,7 @@ func hostInfoFromPB(p *driverpb.HostInfo) drivers.HostInfo {
 		AZ:           p.Az,
 		Hypervisor:   p.Hypervisor,
 		Architecture: p.Architecture,
+		Version:      p.Version,
 	}
 }
 
@@ -107,6 +109,7 @@ func vmSpecToPB(s drivers.VMSpec) *driverpb.VMSpec {
 		BootKind:    s.BootKind,
 		BootRef:     s.BootRef,
 		Cmdline:     s.Cmdline,
+		VsockCid:    s.VsockCID,
 	}
 }
 
@@ -123,6 +126,7 @@ func vmSpecFromPB(p *driverpb.VMSpec) drivers.VMSpec {
 		BootKind:    p.BootKind,
 		BootRef:     p.BootRef,
 		Cmdline:     p.Cmdline,
+		VsockCID:    p.VsockCid,
 	}
 }
 
