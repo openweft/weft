@@ -456,7 +456,7 @@ func deployReplicaNamed(a weft.VZAdapter, p *infra.Plan, rootfs, stateDir string
 			})
 		}
 	}
-	if err := a.RegisterMicroVM(p.Project, vmName, boot, shares); err != nil {
+	if err := a.RegisterMicroVM(p.Project, vmName, boot, shares, nil); err != nil {
 		return fmt.Errorf("register %s: %w", vmName, err)
 	}
 	logger.Printf("infra deploy: registered %s (image=%s project=%s cpu=%d mem=%dMiB replica=%d/%d)",

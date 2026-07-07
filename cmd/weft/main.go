@@ -2144,7 +2144,7 @@ func (s *weftServer) RegisterMicroVM(ctx context.Context, req *weftv1.RegisterMi
 	if s.shouldDispatch(req.HostUuid) {
 		return s.dispatchRegisterMicroVM(ctx, req, boot, shares)
 	}
-	if err := s.adp.RegisterMicroVM(req.Project, req.Name, boot, shares); err != nil {
+	if err := s.adp.RegisterMicroVM(req.Project, req.Name, boot, shares, protoGPUsToNative(req.RequestedGpus)); err != nil {
 		logger.Printf("RegisterMicroVM %s: error: %v", req.Name, err)
 		return nil, status.Errorf(codes.Internal, "register microvm: %v", err)
 	}
