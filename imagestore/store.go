@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -280,8 +281,9 @@ func (s *store) pullOCI(ctx context.Context, ref, destDir string, w io.Writer) e
 		return fmt.Errorf("imagestore oci pull: repository %s: %w", ref, err)
 	}
 	repo.Client = &auth.Client{
-		Client: retry.DefaultClient,
-		Cache:  auth.DefaultCache,
+		Client:     retry.DefaultClient,
+		Cache:      auth.DefaultCache,
+		Credential: registryCredential,
 	}
 	tag := "latest"
 	if idx := strings.LastIndex(orasRef, ":"); idx != -1 {
@@ -418,4 +420,95 @@ func (sr *streamProgressReader) Read(p []byte) (int, error) {
 		sr.ps.mu.Unlock()
 	}
 	return n, err
+}
+
+// jsonUnmarshal + base64DecodeString : thin wrappers so the credential
+// helper below stays readable without dragging the imports into the
+// function body's import-from-source path.
+func jsonUnmarshal(b []byte, v interface{}) error { return json.Unmarshal(b, v) }
+func base64DecodeString(s string) (string, error) {
+	dec, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return "", err
+	}
+	return string(dec), nil
+}
+
+// registryCredential supplies per-registry credentials to oras-go's
+// auth.Client. Resolution order :
+//
+//  1. WEFT_REGISTRY_AUTH_<HOST> env var (host upper-cased, dots →
+//     underscores) — value is a Bearer token. Example :
+//     WEFT_REGISTRY_AUTH_GHCR_IO=ghp_xxxxxxxxxxxx
+//  2. GHCR_TOKEN / GITHUB_TOKEN env vars when registry is ghcr.io
+//     (the common case — operators already have these set up for
+//     `gh` CLI usage).
+//  3. ~/.docker/config.json's auths[host].auth field — Docker's
+//     standard credential store. Decoded as "user:token" base64.
+//  4. No credentials (anonymous pull) — public images still work.
+//
+// All paths fail open : a missing/unreadable source returns empty
+// credentials so the pull proceeds anonymously. Errors are silent
+// to avoid leaking partial token data into logs.
+func registryCredential(_ context.Context, registry string) (auth.Credential, error) {
+	// 1. WEFT_REGISTRY_AUTH_<HOST> env var.
+	envKey := "WEFT_REGISTRY_AUTH_" + strings.ToUpper(strings.NewReplacer(".", "_", ":", "_", "-", "_").Replace(registry))
+	if tok := os.Getenv(envKey); tok != "" {
+		return auth.Credential{Username: "x-access-token", Password: tok}, nil
+	}
+	// 2. ghcr.io shortcuts.
+	if registry == "ghcr.io" {
+		for _, key := range []string{"GHCR_TOKEN", "GITHUB_TOKEN"} {
+			if tok := os.Getenv(key); tok != "" {
+				return auth.Credential{Username: "x-access-token", Password: tok}, nil
+			}
+		}
+	}
+	// 3. ~/.docker/config.json
+	if cred, ok := dockerConfigCredential(registry); ok {
+		return cred, nil
+	}
+	// 4. Anonymous.
+	return auth.EmptyCredential, nil
+}
+
+// dockerConfigCredential reads ~/.docker/config.json's auths[<host>].auth
+// field if present. The format is base64("user:password"). Returns
+// (cred, true) on hit, (empty, false) on miss or error.
+func dockerConfigCredential(registry string) (auth.Credential, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return auth.Credential{}, false
+	}
+	path := os.Getenv("DOCKER_CONFIG")
+	if path == "" {
+		path = filepath.Join(home, ".docker", "config.json")
+	} else {
+		path = filepath.Join(path, "config.json")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return auth.Credential{}, false
+	}
+	var cfg struct {
+		Auths map[string]struct {
+			Auth string `json:"auth"`
+		} `json:"auths"`
+	}
+	if err := jsonUnmarshal(data, &cfg); err != nil {
+		return auth.Credential{}, false
+	}
+	entry, ok := cfg.Auths[registry]
+	if !ok || entry.Auth == "" {
+		return auth.Credential{}, false
+	}
+	dec, err := base64DecodeString(entry.Auth)
+	if err != nil {
+		return auth.Credential{}, false
+	}
+	colon := strings.IndexByte(dec, ':')
+	if colon < 0 {
+		return auth.Credential{}, false
+	}
+	return auth.Credential{Username: dec[:colon], Password: dec[colon+1:]}, true
 }
