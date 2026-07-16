@@ -49,7 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -154,7 +154,7 @@ jobs:
           # parses them line-by-line.
           echo "hashes=$(sha256sum *.tar.gz | base64 -w0)" >>"$GITHUB_OUTPUT"
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@v4.1.2
 
       - name: sign release artifacts (keyless)
         # Sigstore keyless: OIDC identity = GitHub Actions runner. Drops
@@ -192,7 +192,7 @@ jobs:
           done
 
       - name: create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             stage/*.tar.gz
@@ -248,10 +248,10 @@ jobs:
       - name: chmod
         run: chmod +x image/weft
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -275,7 +275,7 @@ jobs:
 
       - name: build + push per-arch image
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         env:
           # buildkit honours SOURCE_DATE_EPOCH natively (>= 0.11) by
           # rewriting layer timestamps + the image config `created`
@@ -295,7 +295,7 @@ jobs:
             ${{ env.IMAGE }}:${{ github.ref_name }}-${{ matrix.arch }}
             ${{ env.IMAGE }}:latest-${{ matrix.arch }}
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@v4.1.2
 
       - name: sign per-arch image (keyless)
         # Sign the per-arch manifest by its content-addressed digest so
@@ -331,7 +331,7 @@ jobs:
             "${IMAGE}@${DIGEST}"
 
       - name: upload image SBOM to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: weft-image-${{ matrix.arch }}.spdx.json
           draft: true
@@ -385,7 +385,7 @@ jobs:
       packages: write
       id-token: write
     steps:
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -408,7 +408,7 @@ jobs:
             --format '{{.Manifest.Digest}}')
           echo "digest=${digest}" >>"$GITHUB_OUTPUT"
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@v4.1.2
 
       - name: sign multi-arch manifest (keyless)
         env:
