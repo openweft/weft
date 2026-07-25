@@ -12,7 +12,7 @@
 
 # Pin a specific Hub minor — JupyterHub follows semver loosely
 # and Spawner API changes have happened at minor bumps before.
-FROM jupyterhub/jupyterhub:5.2
+FROM jupyterhub/jupyterhub:5.5
 
 # Python deps :
 #   * oauthenticator       — OIDC login flow
