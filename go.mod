@@ -3,44 +3,44 @@ module github.com/openweft/weft
 go 1.26.4
 
 require (
-	github.com/coreos/go-oidc/v3 v3.18.0
-	github.com/go-compressions/lzfse v0.1.1-0.20260620062248-135e417e8ead
-	github.com/go-diskimages/qcow2 v0.1.1-0.20260615173836-3e5a0cea6d90
+	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/go-compressions/lzfse v0.3.0
+	github.com/go-diskimages/qcow2 3547301e5dd0
 	github.com/go-diskimages/tart-oci v0.0.0-00010101000000-000000000000
 	github.com/go-grub/grub v0.0.0
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-tpm2/attest v0.3.0
 	github.com/google/nftables v0.3.0
-	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.0.1
+	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
 	github.com/grpc-transports/ssh v0.2.0
 	github.com/grpc-transports/wireguard v0.3.0
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/nats-io/jwt/v2 v2.8.1
-	github.com/nats-io/nats-server/v2 v2.14.1
-	github.com/nats-io/nats.go v1.52.0
-	github.com/nats-io/nkeys v0.4.15
+	github.com/nats-io/jwt/v2 v2.8.2
+	github.com/nats-io/nats-server/v2 v2.14.5
+	github.com/nats-io/nats.go v1.53.1
+	github.com/nats-io/nkeys v0.4.16
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/openweft/weft-cidata v0.2.0
-	github.com/openweft/weft-client v0.0.0
-	github.com/openweft/weft-driver-plugin v0.0.0
+	github.com/openweft/weft-client v0.2.2
+	github.com/openweft/weft-driver-plugin v0.4.2
 	github.com/openweft/weft-drivers v0.4.0
 	github.com/openweft/weft-hcl v0.4.0
 	github.com/openweft/weft-microvm v0.2.0
-	github.com/openweft/weft-microvm-init v0.0.0
+	github.com/openweft/weft-microvm-init v0.2.4
 	github.com/openweft/weft-proto v0.21.0
-	github.com/openweft/weft-slognats v0.2.0
-	github.com/prometheus/client_golang v1.20.5
-	github.com/prometheus/client_model v0.6.1
+	github.com/openweft/weft-slognats v0.3.0
+	github.com/prometheus/client_golang v1.24.1
+	github.com/prometheus/client_model v0.6.2
 	github.com/spf13/cobra v1.10.2
-	github.com/zclconf/go-cty v1.18.1
-	go.etcd.io/etcd/client/v3 v3.6.11
-	go.etcd.io/etcd/server/v3 v3.6.11
-	golang.org/x/crypto v0.51.0
-	golang.org/x/sys v0.44.0
-	google.golang.org/grpc v1.81.1
-	oras.land/oras-go/v2 v2.6.0
+	github.com/zclconf/go-cty v1.19.0
+	go.etcd.io/etcd/client/v3 v3.7.1
+	go.etcd.io/etcd/server/v3 v3.7.1
+	golang.org/x/crypto v0.55.0
+	golang.org/x/sys v0.47.0
+	google.golang.org/grpc v1.83.0
+	oras.land/oras-go/v2 v2.6.2
 )
 
 require (
@@ -67,7 +67,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-tpm2/common v0.1.0
 	github.com/go-tpm2/devtpm v0.1.0
-	github.com/go-tpm2/tpm2 v0.5.0
+	github.com/go-tpm2/tpm2 v0.6.0
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -135,7 +135,7 @@ require (
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gvisor.dev/gvisor v0.0.0-20250503011706-39ed1f5ac29c // indirect
 	sigs.k8s.io/json v0.0.0-20211020170558-c049b76a60c6 // indirect
