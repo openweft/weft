@@ -2,5 +2,9 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "github>openweft/.github:renovate-default"
+  ],
+  "_comment_ignorePaths": "linux/ is a vendored upstream kernel tree, not our dependency surface. Renovate finds two Python manifests in it -- linux/Documentation/sphinx/requirements.txt and linux/tools/net/ynl/requirements.txt -- and opens PRs to bump the KERNEL's own docs tooling: #1 (Sphinx 2.4.5), #2 (jinja2 <3.2) and #6 (Sphinx 9) all came from that one file, and #1 and #6 contradicted each other. Those versions are upstream's business; bumping them here would diverge our copy from the tree we vendored for no benefit. The default ignorePaths already covers vendor/**, which is why the Go side never produced this noise.",
+  "ignorePaths": [
+    "linux/**"
   ]
 }
