@@ -1,5 +1,8 @@
 # Build artefacts
 /weft
+/vzd
+/bin/
+/weft-e2e
 /dist/
 /coverage.out
 /coverage.html
