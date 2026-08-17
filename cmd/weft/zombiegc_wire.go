@@ -31,8 +31,8 @@ func startZombieGC(reg *prometheus.Registry, a weft.VZAdapter) (*zombiegc.Reconc
 		return nil, func() {}
 	}
 	opts := zombiegc.Options{
-		CIGracePeriod: envDuration("WEFT_ZOMBIE_GC_CI_GRACE", 1*time.Hour),
-		SweepInterval: envDuration("WEFT_ZOMBIE_GC_SWEEP_INTERVAL", 5*time.Minute),
+		CIGracePeriod:  envDuration("WEFT_ZOMBIE_GC_CI_GRACE", 1*time.Hour),
+		SweepInterval:  envDuration("WEFT_ZOMBIE_GC_SWEEP_INTERVAL", 5*time.Minute),
 		HostDownGrace:  envDuration("WEFT_ZOMBIE_GC_HOST_DOWN_GRACE", 60*time.Second),
 		OrphanDirGrace: envDuration("WEFT_ZOMBIE_GC_ORPHAN_DIR_GRACE", 5*time.Minute),
 		// 2026-06-23 : default to 1h auto-delete for phantom vmDirs
@@ -47,7 +47,7 @@ func startZombieGC(reg *prometheus.Registry, a weft.VZAdapter) (*zombiegc.Reconc
 		// Operators who want the old mark-only behaviour set
 		// WEFT_ZOMBIE_GC_ORPHAN_DIR_DELETE_AFTER=0.
 		OrphanDirAutoDeleteAfter: envDuration("WEFT_ZOMBIE_GC_ORPHAN_DIR_DELETE_AFTER", 1*time.Hour),
-		Logger:        slog.Default(),
+		Logger:                   slog.Default(),
 	}
 	// Liveness probe : reuse the same VMStatusReader logic the
 	// respawn subscriber uses, so both subsystems see the same

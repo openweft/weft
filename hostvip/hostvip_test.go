@@ -35,11 +35,11 @@ import (
 // Optional failure hook (bindErr) flips Bind into a failure path so
 // the resign-on-failure branch is exercised.
 type fakeReconciler struct {
-	mu       sync.Mutex
-	binds    []netip.Prefix
-	unbinds  []netip.Prefix
+	mu        sync.Mutex
+	binds     []netip.Prefix
+	unbinds   []netip.Prefix
 	announces []netip.Prefix
-	bindErr  error
+	bindErr   error
 }
 
 func (f *fakeReconciler) Bind(addr netip.Prefix, _ string) error {

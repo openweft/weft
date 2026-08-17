@@ -147,12 +147,12 @@ type Controller struct {
 	rec Reconciler
 	log *slog.Logger
 
-	mu        sync.RWMutex
-	state     State
-	leader    string
-	stateCh   chan State
-	stopOnce  sync.Once
-	stop      chan struct{}
+	mu       sync.RWMutex
+	state    State
+	leader   string
+	stateCh  chan State
+	stopOnce sync.Once
+	stop     chan struct{}
 }
 
 // NewController returns a Controller ready to Run. It does NOT touch
@@ -197,14 +197,14 @@ func NewController(cfg Config, cli *clientv3.Client, rec Reconciler) (*Controlle
 //
 // Loop body :
 //
-//   1. Create a fresh etcdcoord.Election (new session, new lease).
-//   2. Campaign(ctx) → blocks until we're leader OR ctx cancelled.
-//   3. On victory : Bind + AnnounceGARP, transition to Leader.
-//   4. Watch session.Done() — when the lease drops (network blip,
-//      etcd partition, explicit Resign), we lose the VIP. Unbind
-//      + transition back to Follower + restart the loop.
-//   5. Backoff between iterations so a flapping etcd doesn't
-//      hot-spin.
+//  1. Create a fresh etcdcoord.Election (new session, new lease).
+//  2. Campaign(ctx) → blocks until we're leader OR ctx cancelled.
+//  3. On victory : Bind + AnnounceGARP, transition to Leader.
+//  4. Watch session.Done() — when the lease drops (network blip,
+//     etcd partition, explicit Resign), we lose the VIP. Unbind
+//     + transition back to Follower + restart the loop.
+//  5. Backoff between iterations so a flapping etcd doesn't
+//     hot-spin.
 func (c *Controller) Run(ctx context.Context) error {
 	backoff := 250 * time.Millisecond
 	const maxBackoff = 10 * time.Second
