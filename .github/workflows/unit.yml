@@ -50,6 +50,12 @@ jobs:
       - name: test
         run: |
           set -euo pipefail
-          pkgs=$(go list ./... | grep -v '/cmd/weft/plugin$')
+          go list ./... | grep -v '/cmd/weft/plugin$' > /tmp/pkgs.txt
+          echo "packages under test: $(wc -l < /tmp/pkgs.txt)"
+          # xargs rather than $(...) unquoted: the list is long, and word
+          # splitting is a shell detail this should not depend on. A zsh check
+          # of the same line locally passed the whole list as ONE argument and
+          # reported a failure that did not exist.
+          xargs go test -short -timeout 20m < /tmp/pkgs.txt| grep -v '/cmd/weft/plugin$')
           echo "$pkgs" | wc -l | xargs echo "packages under test:"
           go test -short -timeout 20m $pkgs
