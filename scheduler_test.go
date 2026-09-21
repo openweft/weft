@@ -111,8 +111,8 @@ func TestFirstFitScheduler_MultiDriverHost(t *testing.T) {
 	// Apple Silicon cross-arch build host : VZ covers native arm64,
 	// QEMU covers foreign archs. Same host, different driver per arch.
 	dualHost := activeHost("mac-build", func(h *Host) {
-		h.Hypervisor = ""    // Drivers is authoritative when non-empty
-		h.Architecture = ""  // ditto
+		h.Hypervisor = ""   // Drivers is authoritative when non-empty
+		h.Architecture = "" // ditto
 		h.Drivers = []HostDriver{
 			{Kind: "vz", Arches: []string{"arm64"}},
 			{Kind: "qemu", Arches: []string{"amd64", "riscv64", "loongarch64"}},
@@ -220,15 +220,29 @@ func TestAdapter_ScheduleVM_RoutesThroughHostRegistry(t *testing.T) {
 	factory := func(name string) Storage { return NewMemStorage() }
 	a := NewWithStorage(stateDir, factory).(*Adapter)
 
-	// The self-registered host is the only candidate today.
+	// The self-registered host is the only candidate today, and WHICH
+	// hypervisor it reports depends on the platform: qemu on linux, apple-vz
+	// elsewhere (host_self.go). Asking for "apple-vz" asserted a property of
+	// the machine running the test rather than of the code, and passed only on
+	// a Mac -- unnoticed until this package was first run in CI, because until
+	// then it ran nowhere but a developer's laptop.
+	//
+	// What this test is for is that ScheduleVM routes through a.Hosts(). So
+	// ask the registry what it offers, then require the scheduler to return
+	// exactly that.
+	hosts := a.Hosts()
+	if len(hosts) == 0 {
+		t.Fatal("no self-registered host; ScheduleVM has nothing to route to")
+	}
+	want := hosts[0].Hypervisor
 	got, err := a.ScheduleVM(context.Background(), ScheduleRequest{
-		Hypervisor: "apple-vz",
+		Hypervisor: want,
 	})
 	if err != nil {
-		t.Fatalf("ScheduleVM: %v", err)
+		t.Fatalf("ScheduleVM(hypervisor=%q): %v", want, err)
 	}
-	if got.Hypervisor != "apple-vz" {
-		t.Errorf("scheduled host hypervisor = %q, want apple-vz", got.Hypervisor)
+	if got.Hypervisor != want {
+		t.Errorf("scheduled host hypervisor = %q, want %q", got.Hypervisor, want)
 	}
 	// Requesting an architecture the self-registered host doesn't
 	// have should fail.

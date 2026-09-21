@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,21 +29,45 @@ func embeddedEtcd(t *testing.T) *clientv3.Client {
 	clientURL := pickURL(t)
 	peerURL := pickURL(t)
 
-	cfg := embed.NewConfig()
-	cfg.Name = "test"
-	cfg.Dir = root
-	cfg.ListenClientUrls = []url.URL{*clientURL}
-	cfg.AdvertiseClientUrls = []url.URL{*clientURL}
-	cfg.ListenPeerUrls = []url.URL{*peerURL}
-	cfg.AdvertisePeerUrls = []url.URL{*peerURL}
-	cfg.InitialCluster = cfg.Name + "=" + peerURL.String()
-	cfg.InitialClusterToken = "weft-test"
-	cfg.LogLevel = "warn"
-	cfg.LogOutputs = []string{"stderr"}
+	// pickURL asks the kernel for a free port and then CLOSES the listener, so
+	// between that close and embed.StartEtcd's bind the port is anybody's.
+	// Thirteen tests in this file each take two of them, and CI met the
+	// collision on the very first run:
+	//
+	//	embed etcd: listen tcp 127.0.0.1:33855: bind: address already in use
+	//
+	// embed.Etcd wants URLs, not an already-open listener, so the window
+	// cannot be closed -- only retried through. Fresh ports each attempt,
+	// because the loser of a race must not ask for the same port again.
+	var srv *embed.Etcd
+	for attempt := 1; ; attempt++ {
+		cfg := embed.NewConfig()
+		cfg.Name = "test"
+		cfg.Dir = root
+		cfg.ListenClientUrls = []url.URL{*clientURL}
+		cfg.AdvertiseClientUrls = []url.URL{*clientURL}
+		cfg.ListenPeerUrls = []url.URL{*peerURL}
+		cfg.AdvertisePeerUrls = []url.URL{*peerURL}
+		cfg.InitialCluster = cfg.Name + "=" + peerURL.String()
+		cfg.InitialClusterToken = "weft-test"
+		cfg.LogLevel = "warn"
+		cfg.LogOutputs = []string{"stderr"}
 
-	srv, err := embed.StartEtcd(cfg)
-	if err != nil {
-		t.Fatalf("embed etcd: %v", err)
+		var err error
+		srv, err = embed.StartEtcd(cfg)
+		if err == nil {
+			break
+		}
+		if attempt == 5 || !strings.Contains(err.Error(), "address already in use") {
+			t.Fatalf("embed etcd (attempt %d): %v", attempt, err)
+		}
+		// StartEtcd may have created files under root before failing; a fresh
+		// data dir keeps the retry from inheriting half a cluster.
+		root = filepath.Join(t.TempDir(), "etcd")
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		clientURL, peerURL = pickURL(t), pickURL(t)
 	}
 	t.Cleanup(func() { srv.Close() })
 	select {

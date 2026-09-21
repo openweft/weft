@@ -1,0 +1,61 @@
+name: unit
+
+# `go test` on every package that has tests.
+#
+# Until now it ran on four: integration-linux.yml drives floatingipnat,
+# floatingipl2, portsec and portqos with -tags=integration, and nothing else
+# in this repository ran tests at all. 83 packages have them.
+#
+# That is not a small gap in coverage. A test suite nobody runs cannot report
+# that it has gone stale, so the staleness accumulates in silence -- which is
+# exactly what happened to cmd/weft/plugin, whose tests still drive
+# --state-dir and --catalogue, both removed when 98e827b01 moved the plugin
+# catalogue onto the agent. Nine tests describe a CLI that no longer exists,
+# and nothing could say so.
+#
+# See issue #23. That package is excluded here BY NAME rather than papered
+# over: deciding what those nine tests should become (a fake agent serving
+# ListPluginCatalogue and ListInstalledPlugins, or a move to
+# integration-linux.yml against a real one) is a design question for whoever
+# owns the plugin CLI. Excluding one package is reversible and visible in this
+# file; leaving the whole repository untested was neither.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: go test (all but cmd/weft/plugin)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build
+        run: go build ./...
+
+      - name: vet
+        run: go vet ./...
+
+      # -short: the slow paths are gated behind testing.Short(), and the
+      # integration ones behind -tags=integration, which this job does not set.
+      #
+      # xargs rather than an unquoted $(...): word splitting is a shell detail
+      # this should not depend on. Checking the same line locally under zsh
+      # passed the whole list as ONE argument and reported a failure that did
+      # not exist.
+      - name: test
+        run: |
+          set -euo pipefail
+          go list ./... | grep -v '/cmd/weft/plugin$' > "$RUNNER_TEMP/pkgs.txt"
+          echo "packages under test: $(wc -l < "$RUNNER_TEMP/pkgs.txt")"
+          xargs go test -short -timeout 20m < "$RUNNER_TEMP/pkgs.txt"
