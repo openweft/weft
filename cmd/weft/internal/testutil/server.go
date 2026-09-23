@@ -140,6 +140,10 @@ type Server struct {
 	SetRegistryRemoteFn               func(context.Context, *weftv1.SetRegistryRemoteRequest) (*weftv1.SetRegistryRemoteResponse, error)
 	DeleteRegistryRemoteFn            func(context.Context, *weftv1.DeleteRegistryRemoteRequest) (*weftv1.DeleteRegistryRemoteResponse, error)
 	SearchRegistryRemoteFn            func(context.Context, *weftv1.SearchRegistryRemoteRequest) (*weftv1.SearchRegistryRemoteResponse, error)
+	ListPluginCatalogueFn             func(context.Context, *weftv1.ListPluginCatalogueRequest) (*weftv1.ListPluginCatalogueResponse, error)
+	ListInstalledPluginsFn            func(context.Context, *weftv1.ListInstalledPluginsRequest) (*weftv1.ListInstalledPluginsResponse, error)
+	InstallPluginFn                   func(context.Context, *weftv1.InstallPluginRequest) (*weftv1.InstallPluginResponse, error)
+	UninstallPluginFn                 func(context.Context, *weftv1.UninstallPluginRequest) (*weftv1.UninstallPluginResponse, error)
 }
 
 // NewServer stands up a grpc.Server on a unix socket and registers
@@ -931,4 +935,41 @@ func randomSuffix(t *testing.T) string {
 	// time.Now().UnixNano() is enough — tests are quick and the
 	// suffix is also used in tempdir creation.
 	return time.Now().Format("150405.000000000")
+}
+
+// ListPluginCatalogue and ListInstalledPlugins are what `weft plugin
+// list` and `weft plugin status` call since 98e827b01 moved the plugin
+// catalogue off disk and onto the agent. They were missing here, which
+// is why cmd/weft/plugin's tests could not be rewritten against the
+// current CLI and stayed excluded from the unit lane by name.
+func (s *Server) ListPluginCatalogue(ctx context.Context, in *weftv1.ListPluginCatalogueRequest) (*weftv1.ListPluginCatalogueResponse, error) {
+	if s.ListPluginCatalogueFn != nil {
+		return s.ListPluginCatalogueFn(ctx, in)
+	}
+	return &weftv1.ListPluginCatalogueResponse{}, nil
+}
+
+func (s *Server) ListInstalledPlugins(ctx context.Context, in *weftv1.ListInstalledPluginsRequest) (*weftv1.ListInstalledPluginsResponse, error) {
+	if s.ListInstalledPluginsFn != nil {
+		return s.ListInstalledPluginsFn(ctx, in)
+	}
+	return &weftv1.ListInstalledPluginsResponse{}, nil
+}
+
+// InstallPlugin / UninstallPlugin are the other half of the same move: since
+// v0.4.74 the CLI no longer creates the networks, security groups and VMs
+// itself, it asks the agent to. A test that still counted CreateVM calls was
+// therefore measuring a path the CLI had stopped taking.
+func (s *Server) InstallPlugin(ctx context.Context, in *weftv1.InstallPluginRequest) (*weftv1.InstallPluginResponse, error) {
+	if s.InstallPluginFn != nil {
+		return s.InstallPluginFn(ctx, in)
+	}
+	return &weftv1.InstallPluginResponse{}, nil
+}
+
+func (s *Server) UninstallPlugin(ctx context.Context, in *weftv1.UninstallPluginRequest) (*weftv1.UninstallPluginResponse, error) {
+	if s.UninstallPluginFn != nil {
+		return s.UninstallPluginFn(ctx, in)
+	}
+	return &weftv1.UninstallPluginResponse{}, nil
 }
