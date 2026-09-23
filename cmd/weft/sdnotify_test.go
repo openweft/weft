@@ -15,8 +15,21 @@ func TestSdNotify_NoSocketIsNoop(t *testing.T) {
 }
 
 func TestSdNotify_SendsPayloadToUnixgramSocket(t *testing.T) {
-	dir := t.TempDir()
-	sock := dir + "/notify.sock"
+	// ⛔ A unix socket path has a hard length limit -- sun_path is 104 bytes
+	// on darwin, 108 on linux -- and it is NOT the filesystem's PATH_MAX.
+	// t.TempDir() on macOS hands back /var/folders/<...>/T/TestSdNotify…/001,
+	// which with "/notify.sock" appended goes past 104, and the bind fails
+	// with "invalid argument" -- an error that names neither length nor path.
+	//
+	// t.Chdir puts us inside the directory so the socket can be named
+	// relatively, which is the only portable way to stay under the limit. It
+	// restores the working directory when the test ends.
+	//
+	// This failed on macOS and passed in CI, which runs ubuntu only. A test
+	// that is red on the machine people develop on gets ignored there, and
+	// that is how cmd/weft/plugin drifted for four commits.
+	t.Chdir(t.TempDir())
+	const sock = "notify.sock"
 	addr, err := net.ResolveUnixAddr("unixgram", sock)
 	if err != nil {
 		t.Fatal(err)
