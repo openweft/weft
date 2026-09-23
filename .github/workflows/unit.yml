@@ -13,12 +13,10 @@ name: unit
 # catalogue onto the agent. Nine tests describe a CLI that no longer exists,
 # and nothing could say so.
 #
-# See issue #23. That package is excluded here BY NAME rather than papered
-# over: deciding what those nine tests should become (a fake agent serving
-# ListPluginCatalogue and ListInstalledPlugins, or a move to
-# integration-linux.yml against a real one) is a design question for whoever
-# owns the plugin CLI. Excluding one package is reversible and visible in this
-# file; leaving the whole repository untested was neither.
+# cmd/weft/plugin was excluded here BY NAME until 2026-09-23: its tests
+# still drove --state-dir and --catalogue, removed when 98e827b01 moved the
+# plugin catalogue onto the agent. They now describe the current CLI and run
+# with everything else. See issue #23.
 
 on:
   push:
@@ -31,7 +29,7 @@ permissions:
 
 jobs:
   test:
-    name: go test (all but cmd/weft/plugin)
+    name: go test (every package)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -56,6 +54,6 @@ jobs:
       - name: test
         run: |
           set -euo pipefail
-          go list ./... | grep -v '/cmd/weft/plugin$' > "$RUNNER_TEMP/pkgs.txt"
+          go list ./... > "$RUNNER_TEMP/pkgs.txt"
           echo "packages under test: $(wc -l < "$RUNNER_TEMP/pkgs.txt")"
           xargs go test -short -timeout 20m < "$RUNNER_TEMP/pkgs.txt"
