@@ -85,6 +85,14 @@ func (w *Watcher) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case ev, ok := <-ch:
+			// Same race as etcdjobs.RunWorker: etcd closes ch when ctx is
+			// cancelled, so on a clean shutdown BOTH cases of this select are
+			// ready and select picks between them at random. Ask the context
+			// first, so "we asked it to stop" is never reported as "the watch
+			// died under us".
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if !ok {
 				return errors.New("etcd watch channel closed")
 			}

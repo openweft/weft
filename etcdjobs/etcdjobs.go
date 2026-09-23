@@ -210,6 +210,23 @@ func RunWorker(ctx context.Context, cli *clientv3.Client, hostUUID string, handl
 		case <-ctx.Done():
 			return ctx.Err()
 		case wresp, ok := <-wch:
+			// ⛔⛔ A CLOSED WATCH AND A CANCELLED CONTEXT ARE ONE EVENT.
+			// etcd closes wch when ctx is cancelled, so on a clean shutdown
+			// BOTH cases of this select are ready and select picks between
+			// them at random: RunWorker returned "watch channel closed"
+			// instead of context.Canceled roughly half the time. A caller
+			// testing errors.Is(err, context.Canceled) -- which is what a
+			// supervisor does, and what the round-trip test does -- saw a
+			// hard error for a shutdown it had itself asked for.
+			//
+			// Asking the context first is what distinguishes "the watch died
+			// under us" from "we asked it to stop". Measured 2026-09-23: CI
+			// met this on ubuntu; locally it took GOMAXPROCS=1 to see it at
+			// all (1/30, and 2/30 under -race), which is why it read as a
+			// flake rather than as a 50/50 race.
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if !ok {
 				return errors.New("etcdjobs: watch channel closed")
 			}
