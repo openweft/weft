@@ -111,7 +111,7 @@ will populate the claim regardless.
 
 ## 5. Verifying the integration
 
-[`weft-webui/tools/oidc-smoke/main.go`](../../../../weft-webui/tools/oidc-smoke/main.go)
+[`weft-webui/tools/oidc-smoke/main.go`](https://github.com/openweft/weft-webui/blob/main/tools/oidc-smoke/main.go)
 drives the canonical OIDC flow against Dex. For Auth0, steps 1 and
 4-5 (`/api/auth/login` redirect, callback, `/api/me`) work as-is ;
 step 3 (POSTing the login form) does not — Auth0's Universal Login

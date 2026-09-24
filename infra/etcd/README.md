@@ -9,7 +9,7 @@ Backs every weft registry through `EtcdStorage` (see
 etcd is the foundation : nothing else can come up before it. So
 **step 1 of the platform bootstrap** brings up etcd from a weft
 that's still running in **FILE** storage mode (per
-[infra_in_micro_vms.md](../../../../../../.claude/projects/-Users-david-delavennat-Documents-VCS-GIT-localhost-cloud-boot/memory/infra_in_micro_vms.md)).
+`infra_in_micro_vms`).
 
 ```sh
 # 1. weft is in FILE mode — projects.hcl on disk, no etcd yet.

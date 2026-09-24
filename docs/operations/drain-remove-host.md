@@ -53,7 +53,7 @@ weft instance start <vm-uuid>
 For SchedulingRule-managed VMs (HA platform plugins, runner pools),
 just `stop` is enough — the rule's Reconciler respawns the VM
 elsewhere automatically. Reference :
-[`project_respawn_v013_true_ha`](../../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/project_respawn_v013_true_ha.md).
+`project_respawn_v013_true_ha`.
 
 For stateful VMs (etcd members, databases) drain in this order :
 
@@ -169,7 +169,7 @@ the host re-joins automatically on next boot.
 **Removing a host with active VMs.** `weft host rm` succeeds, but
 leaves orphan VM records keyed to the deleted host UUID. ZombieGC
 (memory ref :
-[`project_zombiegc`](../../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/project_zombiegc.md))
+`project_zombiegc`)
 eventually reaps them, but reads against `weft instance ls` are noisy
 in the meantime (rows with `host=<deleted-uuid>`). Always drain first.
 

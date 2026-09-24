@@ -1,7 +1,7 @@
 # weft jupyter-user image
 
 The default OCI image for user notebook microVMs spawned by the
-[jupyterhub-ha catalogue plugin](../../docs/catalogue/jupyterhub-ha.md).
+[jupyterhub-ha catalogue plugin](../../../docs/catalogue/jupyterhub-ha.md).
 
 Published as `ghcr.io/openweft/jupyter-user:<tag>` (multi-arch
 linux/amd64 + linux/arm64, cosign-signed) by the

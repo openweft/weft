@@ -250,7 +250,7 @@ Tick `OK` when each line is green:
 The follow-up loops are documented in separate runbooks:
 
 - etcd backup / restore — [../operations/etcd-backup.md](../operations/etcd-backup.md)
-- Off-host snapshot backup — [../operations/backup.md](../operations/backup.md)
+- Off-host snapshot backup — [../operations/backup.md](../operations/etcd-backup.md)
 - HA failover — [../operations/ha-failover.md](../operations/ha-failover.md)
 - Disaster recovery (lost quorum) — [../operations/disaster-recovery.md](../operations/disaster-recovery.md)
 - Rolling upgrade v0.X → v0.Y — [../operations/upgrade.md](../operations/upgrade.md)

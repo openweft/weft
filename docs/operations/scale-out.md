@@ -295,7 +295,7 @@ in `examples/cloud-init/debian-host.yaml`.
 gives 254 host slots. That's plenty for most clusters but if you're
 heading past ~200 hosts, plan for `/22` (1022 slots) on day-0 — you
 can't widen the subnet without re-keying every peer. Memory ref :
-[`wireguard_replaces_vxlan`](../../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/wireguard_replaces_vxlan.md).
+`wireguard_replaces_vxlan`.
 
 **Mixing hypervisor kinds in one AZ.** A single AZ with both
 `qemu-kvm` and `apple-vz` hosts is supported by the scheduler but
@@ -307,7 +307,7 @@ SchedulingRule selectors) for finer distinctions.
 ## Verification (gold standard)
 
 The chaos test
-[`weft-chaos/scripts/chaos-3dc-kill-restart.sh`](../../../weft-chaos/scripts/chaos-3dc-kill-restart.sh)
+[`weft-chaos/scripts/chaos-3dc-kill-restart.sh`](https://github.com/openweft/weft-chaos/blob/main/scripts/chaos-3dc-kill-restart.sh)
 exercises the per-host lifecycle (register → schedule → kill →
 restart → recover) and is the right harness to validate that the new
 host is fully integrated. Run it against the now-4-host cluster ; a

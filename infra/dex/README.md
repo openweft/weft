@@ -59,7 +59,7 @@ once.
 
 ## Why dex over the alternatives
 
-Documented in [oidc-server-dex memory entry](../../../../../../.claude/projects/-Users-david-delavennat-Documents-VCS-GIT-localhost-cloud-boot/memory/oidc_server_dex.md).
+Documented in `oidc-server-dex`.
 TL;DR : CNCF, Go-native, identity-broker model fits the federate-
 upstream-source approach, etcd storage backend is co-tenant with
 the rest of our control plane.

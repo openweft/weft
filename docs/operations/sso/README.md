@@ -3,7 +3,7 @@
 Weft's authentication layer is a stock OIDC bearer-token validator
 (`coreos/go-oidc`) ; any provider that speaks Authorization Code +
 OIDC discovery + a `groups` claim works. Dex is what we wire in CI
-and what the [`oidc-smoke`](../../../../weft-webui/tools/oidc-smoke/main.go)
+and what the [`oidc-smoke`](https://github.com/openweft/weft-webui/blob/main/tools/oidc-smoke/main.go)
 operator drill targets, but the validator is provider-agnostic.
 
 **Before picking an IdP** read [`rbac.md`](../rbac.md) — it lays out

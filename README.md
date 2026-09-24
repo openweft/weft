@@ -10,11 +10,11 @@ The `weft agent` daemon is the privileged component of the stack. It:
 
 - Manages the full VM lifecycle (create / start / stop / delete)
 - Serves a gRPC API over a Unix socket (`~/.weft/weft.sock`)
-- Optionally exposes the same API over an SSH-secured socket (`~/.weft/weft-ssh.sock`) via [`ssh`](../../grpc-transports/ssh)
+- Optionally exposes the same API over an SSH-secured socket (`~/.weft/weft-ssh.sock`) via [`ssh`](https://github.com/grpc-transports/ssh)
 - Runs all-in-one by default (server + local driver dispatch); `--server` / `--client` split it into control-plane and per-host roles
 - Caches OCI and HTTP disk images locally (`imagestore`)
 - Injects cloud-init ISOs for SSH key provisioning
-- Dispatches per-VM lifecycle to driver plugins ([`weft-driver-vz`](../weft-driver-vz/) on macOS forks one `vz-vm-run` subprocess per graphical VM window)
+- Dispatches per-VM lifecycle to driver plugins ([`weft-driver-vz`](https://github.com/openweft/weft-driver-vz) on macOS forks one `vz-vm-run` subprocess per graphical VM window)
 
 ## Architecture
 
@@ -91,7 +91,7 @@ uses the same `clonefile(2)` syscall — there the source is a
 | `weft <noun> <verb>` | Client RPCs against a running agent (`weft instance list`, `weft image pull …`, `weft host ls`, …). |
 
 
-The driver plugin (e.g. [`weft-driver-vz`](../weft-driver-vz/)) ships the per-hypervisor subcommands (`vz-vm-run`, `vz-provision`) — invoked by the driver itself, not from the weft binary directly.
+The driver plugin (e.g. [`weft-driver-vz`](https://github.com/openweft/weft-driver-vz)) ships the per-hypervisor subcommands (`vz-vm-run`, `vz-provision`) — invoked by the driver itself, not from the weft binary directly.
 
 ## Run
 
@@ -129,7 +129,7 @@ codesign --entitlements vz.entitlements -s - bin/weft
 Two distinct models, both driven by `weft <noun>`:
 
 - **`weft instance …`** — classic full VMs (boot disk + cloud-init, EFI boot via the Apple-VZ driver).
-- **`weft microvm …`** — Docker-style microVMs: `weft microvm pull <oci-image>` then `weft microvm run <oci-image>`; the rootfs is shared over virtio-fs and booted on a shared `weft-microvm-init` kernel (no per-VM boot.iso/cloud-init). Runtime logic lives in [`weft-microvm`](../weft-microvm).
+- **`weft microvm …`** — Docker-style microVMs: `weft microvm pull <oci-image>` then `weft microvm run <oci-image>`; the rootfs is shared over virtio-fs and booted on a shared `weft-microvm-init` kernel (no per-VM boot.iso/cloud-init). Runtime logic lives in [`weft-microvm`](https://github.com/openweft/weft-microvm).
 
 ## Contributing
 
@@ -145,11 +145,11 @@ After that, every `git commit` runs `gofmt`, `golangci-lint` (forbidigo + gofmt)
 
 ## Related
 
-- [`weft-proto`](../weft-proto) — gRPC service definition
-- [`weft-webui`](../weft-webui) — web dashboard (replaces the legacy AppKit `weft-ui`)
-- [`weft-microvm`](../weft-microvm) — microVM runtime (`weft microvm`)
-- [`weft-driver-vz`](../weft-driver-vz) — Apple VZ hypervisor driver (go-plugin)
-- [`weft-driver-qemu`](../weft-driver-qemu) — QEMU/TCG hypervisor driver (go-plugin)
-- [`cloud-init`](../cloud-init) — cloud-init ISO generation
-- [`ssh`](../../grpc-transports/ssh) — SSH transport
-- [`diskimage`](../../go-diskimages/diskimage) — disk image toolkit
+- [`weft-proto`](https://github.com/openweft/weft-proto) — gRPC service definition
+- [`weft-webui`](https://github.com/openweft/weft-webui) — web dashboard (replaces the legacy AppKit `weft-ui`)
+- [`weft-microvm`](https://github.com/openweft/weft-microvm) — microVM runtime (`weft microvm`)
+- [`weft-driver-vz`](https://github.com/openweft/weft-driver-vz) — Apple VZ hypervisor driver (go-plugin)
+- [`weft-driver-qemu`](https://github.com/openweft/weft-driver-qemu) — QEMU/TCG hypervisor driver (go-plugin)
+- [`cloud-init`](https://github.com/openweft/cloud-init) — cloud-init ISO generation
+- [`ssh`](https://github.com/grpc-transports/ssh) — SSH transport
+- [`diskimage`](https://github.com/go-diskimages/diskimage) — disk image toolkit
