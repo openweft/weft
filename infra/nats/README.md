@@ -22,7 +22,7 @@ per-project `events.` subjects ; sensitive kinds (`project.*`,
 `app.` sibling carries traffic produced **by** the project's
 workloads — health pings, custom domain events — and never
 contains platform-generated events. See
-[weft-tenant-event-access memory entry](../../../../../../.claude/projects/-Users-david-delavennat-Documents-VCS-GIT-localhost-cloud-boot/memory/weft_tenant_event_access.md)
+`weft-tenant-event-access`
 for the rationale and the four-phase roadmap.
 
 ## Auth phases

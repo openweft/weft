@@ -3,7 +3,7 @@
 Three-node S3-compatible gateway in the 3-DC HA layout, one replica
 per datacenter. Replaces the previous `minio-ha` plugin (removed
 2026-06 per the openweft no-AGPL policy — see memory
-[`feedback_no_minio`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/feedback_no_minio.md)).
+`feedback_no_minio`).
 
 ## Why versitygw
 

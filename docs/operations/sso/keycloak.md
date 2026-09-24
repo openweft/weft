@@ -99,7 +99,7 @@ Variable names are pulled from `weft-webui/internal/config/config.go`.
 
 ## 5. Verifying the integration
 
-[`weft-webui/tools/oidc-smoke/main.go`](../../../../weft-webui/tools/oidc-smoke/main.go)
+[`weft-webui/tools/oidc-smoke/main.go`](https://github.com/openweft/weft-webui/blob/main/tools/oidc-smoke/main.go)
 drives the full Authorization Code flow end-to-end. It was written
 against Dex's mock connector, but the only Dex-specific assumption
 is the login-form scraping in step 3 — Keycloak's login page uses a

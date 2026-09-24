@@ -128,7 +128,7 @@ rule changes), the OTel spans from `weft-network` publishers, and
 the inter-daemon notifications that don't fit etcd watches.
 
 **Pull model, not push** (per
-[`openweft_pull_model`](../../../../README.md)) : cross-daemon
+`openweft_pull_model`) : cross-daemon
 interactions are pull/reconcile, not synchronous push. `weft-agent`
 is autosuffisant on its hot path ; `weft-network` reconciles via
 etcd watch + NATS subscribe ; SchedulingRule compliance is streamed
@@ -257,12 +257,12 @@ hot path.
   level tenant boundary (group of projects with shared quota) is a
   follow-up doc.
 - **Driver lifecycle / hot-swap** — drivers are pulled via OCI per
-  [`project_driver_plugins`](../../../../README.md) but live driver
+  `project_driver_plugins` but live driver
   upgrade requires VM drain ; runbook is in
   [operations/upgrade.md](../operations/upgrade.md) for now.
 - **Block volume replication** — `weft-block` (Longhorn fork) is
   staged but not yet in the default install ; see
-  [`project_weft_block`](../../../../README.md).
+  `project_weft_block`.
 
 ## TODO (follow-up docs)
 

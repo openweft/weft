@@ -35,17 +35,17 @@ catalogue, RBAC, supply chain.
 The user keeps standing context under `~/.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/`.
 Highest-value entries for this repo :
 
-- [`project_weft_up`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/project_weft_up.md) — bring-up planner, 1→3 extensibility.
-- [`project_driver_plugins`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/project_driver_plugins.md) — driver = external go-plugin, OCI-pulled, weft core stays CGO=0.
-- [`openweft_etcd_embedded`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/openweft_etcd_embedded.md) — embedded etcd in single-host, external in HA.
-- [`openweft_pull_model`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/openweft_pull_model.md) — cross-daemon = pull/reconcile, no synchronous push.
-- [`openweft_nominal_binding`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/openweft_nominal_binding.md) — SchedulingRule nominal vs selector.
-- [`project_microvm_first_strategy`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/project_microvm_first_strategy.md) — microVM is the default path ; `weft instance` is the escape hatch.
-- [`project_reverse_proxy_caddy`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/project_reverse_proxy_caddy.md) — Caddy embedded, no Envoy.
-- [`project_cow_clone`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/project_cow_clone.md) — reflink for VM disks, validated on btrfs+ext4.
-- [`feedback_cli_cobra`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/feedback_cli_cobra.md) — every CLI uses cobra, never stdlib `flag`.
-- [`feedback_no_autopublish_dev`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/feedback_no_autopublish_dev.md) — release workflows trigger on tag + dispatch only.
-- [`coverage_policy`](../../../.claude/projects/-Volumes-My-Shared-Files-share-github-com/memory/coverage_policy.md) — Plan B 100% on pure-Go logic, excludes generated/main/cgo.
+- `project_weft_up` — bring-up planner, 1→3 extensibility.
+- `project_driver_plugins` — driver = external go-plugin, OCI-pulled, weft core stays CGO=0.
+- `openweft_etcd_embedded` — embedded etcd in single-host, external in HA.
+- `openweft_pull_model` — cross-daemon = pull/reconcile, no synchronous push.
+- `openweft_nominal_binding` — SchedulingRule nominal vs selector.
+- `project_microvm_first_strategy` — microVM is the default path ; `weft instance` is the escape hatch.
+- `project_reverse_proxy_caddy` — Caddy embedded, no Envoy.
+- `project_cow_clone` — reflink for VM disks, validated on btrfs+ext4.
+- `feedback_cli_cobra` — every CLI uses cobra, never stdlib `flag`.
+- `feedback_no_autopublish_dev` — release workflows trigger on tag + dispatch only.
+- `coverage_policy` — Plan B 100% on pure-Go logic, excludes generated/main/cgo.
 
 ## Recent additions
 

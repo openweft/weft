@@ -104,7 +104,7 @@ emit it — keep `groups` in `WEBUI_OIDC_SCOPES`.
 
 ## 5. Verifying the integration
 
-[`weft-webui/tools/oidc-smoke/main.go`](../../../../weft-webui/tools/oidc-smoke/main.go)
+[`weft-webui/tools/oidc-smoke/main.go`](https://github.com/openweft/weft-webui/blob/main/tools/oidc-smoke/main.go)
 is the Dex-targeted smoke. Steps 1, 4, and 5 (`/api/auth/login`
 redirect → callback → `/api/me`) work unmodified against Okta. Step
 3 (POST the login form) won't : Okta uses a JS-driven login widget
