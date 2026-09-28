@@ -5,6 +5,7 @@ package filesystem_ext4
 import (
 	"fmt"
 	"io"
+	iofs "io/fs"
 	"os"
 	"sort"
 	"sync"
@@ -269,7 +270,7 @@ func (fs *ext4FS) ReadLink(path string) (string, error) {
 		break
 	}
 	if in == nil {
-		return "", fmt.Errorf("ext4: %q not found", name)
+		return "", fmt.Errorf("ext4: %q not found: %w", name, iofs.ErrNotExist)
 	}
 	if !in.isSymlink() {
 		return "", fmt.Errorf("ext4: %q is not a symbolic link", path)

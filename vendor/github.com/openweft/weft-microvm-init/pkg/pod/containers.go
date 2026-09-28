@@ -34,7 +34,7 @@ const ContainerSetVersion = 1
 // publishes whole on `weft.containers.<vmID>`. The agent diffs it
 // against the running set and converges.
 type ContainerSet struct {
-	Version    int         `json:"version"`
+	Version    int                 `json:"version"`
 	Containers []WorkloadContainer `json:"containers"`
 }
 

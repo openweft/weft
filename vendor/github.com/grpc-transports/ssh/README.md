@@ -127,3 +127,7 @@ out if they kept a breakglass key in the file.
 - [`openweft/weft-client`](https://github.com/openweft/weft-client) — SSH-tunnelled gRPC client
 - [`openweft/weft-webui`](https://github.com/openweft/weft-webui) — SSH-tunnelled gRPC client
 - [`openweft/terraform-provider-weft`](https://github.com/openweft/terraform-provider-weft) — provider gRPC transport
+
+## License
+
+BSD-3-Clause. See [LICENSE](LICENSE).

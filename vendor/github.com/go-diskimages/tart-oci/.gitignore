@@ -1,0 +1,10 @@
+# Test / coverage artifacts
+*.test
+*.out
+cover.out
+coverage.out
+testbins/
+
+# Editor / OS cruft
+.DS_Store
+*.swp
