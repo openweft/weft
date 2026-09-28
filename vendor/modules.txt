@@ -83,8 +83,8 @@ github.com/go-tpm2/common
 # github.com/go-tpm2/devtpm v0.1.0
 ## explicit; go 1.22
 github.com/go-tpm2/devtpm
-# github.com/go-tpm2/tpm2 v0.5.0
-## explicit; go 1.22
+# github.com/go-tpm2/tpm2 v0.7.0
+## explicit; go 1.26.4
 github.com/go-tpm2/tpm2
 # github.com/go-volumes/gpt v0.2.0
 ## explicit; go 1.26.4

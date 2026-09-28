@@ -5,6 +5,7 @@ package tpm2
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/go-tpm2/common"
 )
@@ -53,16 +54,51 @@ func New(t common.Transport) *TPM {
 // returned verbatim.
 func (tpm *TPM) execute(tag common.TPM_ST, cc common.TPM_CC, params []byte) ([]byte, error) {
 	cmd := common.BuildCommand(uint16(tag), uint32(cc), params)
-	rsp, err := tpm.t.Send(cmd)
-	if err != nil {
-		return nil, err
+	for attempt := 0; ; attempt++ {
+		rsp, err := tpm.t.Send(cmd)
+		if err != nil {
+			return nil, err
+		}
+		_, rc, rp, err := common.ParseResponse(rsp)
+		if err != nil {
+			return nil, err
+		}
+		if rc == uint32(common.RCSuccess) {
+			return rp, nil
+		}
+		// ⛔ TPM_RC_RETRY IS NOT A FAILURE. It is the TPM saying it could not
+		// start the command and that the caller should send it again — a
+		// warning (the 0x900 bit), not an error. Returning it as one made a
+		// busy TPM indistinguishable from a broken one.
+		//
+		// Measured 2026-09-27: openweft/weft's swtpm attestation test failed
+		// the first time it ever ran, with `command 0x00000158 failed:
+		// rc 0x00000922` — TPM2_Quote against a software TPM that had not
+		// finished starting. It passes on a warm TPM, which is why a laptop
+		// never saw it and a cold CI runner did.
+		if rc != rcRetry || attempt >= retryLimit {
+			return nil, &TPMError{CC: uint32(cc), RC: rc}
+		}
+		// Bounded and short. An unbounded wait would turn "the TPM is busy"
+		// into "the program stopped", which is worse than the error it
+		// replaces; the TPM spec puts no ceiling on it, so this one is ours
+		// and is stated rather than tuned.
+		time.Sleep(retryBackoff << attempt)
 	}
-	_, rc, rp, err := common.ParseResponse(rsp)
-	if err != nil {
-		return nil, err
-	}
-	if rc != uint32(common.RCSuccess) {
-		return nil, &TPMError{CC: uint32(cc), RC: rc}
-	}
-	return rp, nil
 }
+
+// TPM_RC_RETRY: RC_WARN (0x900) + 0x022. Named here because this library has
+// no response-code table, so nothing could tell a caller what 0x922 meant.
+// Cross-checked against google/go-tpm (`RCRetry ResponseCode = 0x922`) and
+// Microsoft's reference implementation (`TPM_RC_RETRY (RC_WARN+0x022)`).
+const rcRetry = 0x922
+
+const (
+	// retryLimit is how many extra attempts a retry earns. Six attempts at a
+	// doubling 2ms backoff is about a quarter of a second in total, which
+	// covers a self-test finishing without making a genuinely stuck TPM look
+	// like a hang.
+	retryLimit = 6
+	// retryBackoff is the first wait; each attempt doubles it.
+	retryBackoff = 2 * time.Millisecond
+)

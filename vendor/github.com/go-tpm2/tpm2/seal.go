@@ -157,6 +157,21 @@ func ccBytes(cc common.TPM_CC) []byte {
 //
 // Wire: TagSessions, CC 0x00000131. TCG "Part 3", "TPM2_CreatePrimary".
 func (tpm *TPM) CreateStoragePrimary() (handle uint32, err error) {
+	h, _, err := tpm.CreateStoragePrimaryPub()
+	return h, err
+}
+
+// CreateStoragePrimaryPub is CreateStoragePrimary that ALSO returns the storage
+// key's public point (x, y). The node exposes that point to a control plane so
+// it can WrapToPCR a secret to this exact key offline (the duplication ECDH is
+// against this public). It is the same TPM2_CreatePrimary command; only the
+// response parse extends to the TPM2B_PUBLIC outPublic's TPMS_ECC_POINT.
+//
+// Wire: TagSessions, CC 0x00000131. Response: objectHandle (u32) ||
+// parameterSize (u32) || TPM2B_PUBLIC outPublic || (creation tail, ignored).
+// TCG "TPM 2.0 Part 3: Commands", "TPM2_CreatePrimary"; "Part 2",
+// "TPMS_ECC_POINT".
+func (tpm *TPM) CreateStoragePrimaryPub() (handle uint32, pub ECCPublic, err error) {
 	body := common.PutU32(nil, uint32(common.RHOwner)) // primaryHandle
 
 	auth := marshalPasswordAuth()
@@ -170,15 +185,13 @@ func (tpm *TPM) CreateStoragePrimary() (handle uint32, err error) {
 
 	rp, err := tpm.execute(common.TagSessions, common.CCCreatePrimary, body)
 	if err != nil {
-		return 0, err
+		return 0, ECCPublic{}, err
 	}
-	// Response handle is the first u32; the rest (parameterSize, outPublic,
-	// creation data, name) is not needed to use the parent.
-	h, ok := common.GetU32(rp, 0)
-	if !ok {
-		return 0, common.ErrShortBuffer
+	h, ak, err := parseCreatePrimaryResponse(rp)
+	if err != nil {
+		return 0, ECCPublic{}, err
 	}
-	return h, nil
+	return h, ECCPublic{X: ak.X, Y: ak.Y}, nil
 }
 
 // marshalECCStoragePublic renders the TPM2B_PUBLIC for the ECC P-256

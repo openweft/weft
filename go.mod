@@ -69,7 +69,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-tpm2/common v0.1.0
 	github.com/go-tpm2/devtpm v0.1.0
-	github.com/go-tpm2/tpm2 v0.5.0
+	github.com/go-tpm2/tpm2 v0.7.0
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
