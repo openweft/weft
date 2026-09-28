@@ -3,6 +3,7 @@ package filesystem_ext4
 import (
 	"encoding/binary"
 	"fmt"
+	iofs "io/fs"
 	"strings"
 
 	"github.com/go-volumes/safeio"
@@ -191,7 +192,7 @@ func lookupPathFrom(f readerWriterAt, fsOffset int64, sb *superblock, startIno u
 	} else {
 		debugPrintf("DEBUG lookupPathFrom NOTFOUND path=%q startIno=%d component=%q (no journal) entries=%d sample=%q\n", path, startIno, parts[0], len(entries), sampleNames)
 	}
-	return nil, fmt.Errorf("ext4: %q not found", parts[0])
+	return nil, fmt.Errorf("ext4: %q not found: %w", parts[0], iofs.ErrNotExist)
 }
 
 // lookupParent resolves all path components except the last and returns the

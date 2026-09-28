@@ -9,14 +9,16 @@
 // reject overflow, and a truncated or short header returns an error instead
 // of panicking. It never auto-follows nonsensical geometry.
 //
-// Pure Go, no dependencies outside the standard library, go 1.25 / CGO=0.
+// Pure Go, no dependencies outside the standard library, go 1.26.4 / CGO=0.
 package gpt
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // SectorSize is the LBA size assumed for both MBR and GPT. Every image these
@@ -91,6 +93,13 @@ type Partition struct {
 	// TypeGUID is the GPT partition type GUID in on-disk ("wire") byte order.
 	// Zero for MBR partitions.
 	TypeGUID [16]byte
+	// UniqueGUID identifies THIS partition rather than its kind, in on-disk
+	// ("wire") byte order. Zero for MBR partitions.
+	//
+	// It is the one people write down: Linux calls it PARTUUID, and it is
+	// what a fstab or a kernel command line names when an index would move.
+	// [Partition.UUID] renders it the way those write it.
+	UniqueGUID [16]byte
 	// MBRType is the 1-byte MBR partition type (e.g. 0x83 Linux, 0xEE
 	// protective). Zero for GPT partitions.
 	MBRType byte
@@ -112,6 +121,16 @@ var (
 	AppleAPFSGUID = [16]byte{
 		0xEF, 0x57, 0x34, 0x7C, 0x00, 0x00, 0xAA, 0x11,
 		0xAA, 0x11, 0x00, 0x30, 0x65, 0x43, 0xEC, 0xAC,
+	}
+	// EFISystemPartitionGUID (the ESP) is C12A7328-F81F-11D2-BA4B-00A0C93EC93B.
+	EFISystemPartitionGUID = [16]byte{
+		0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11,
+		0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B,
+	}
+	// BIOSBootGUID is 21686148-6449-6E6F-744E-656564454649.
+	BIOSBootGUID = [16]byte{
+		0x48, 0x61, 0x68, 0x21, 0x49, 0x64, 0x6F, 0x6E,
+		0x74, 0x4E, 0x65, 0x65, 0x64, 0x45, 0x46, 0x49,
 	}
 )
 
@@ -202,8 +221,9 @@ func listGPT(r io.ReaderAt, deviceSize int64) ([]Partition, error) {
 			// Truncated entry array: stop, return what validated so far.
 			break
 		}
-		var typeGUID [16]byte
+		var typeGUID, uniqueGUID [16]byte
 		copy(typeGUID[:], buf[0:16])
+		copy(uniqueGUID[:], buf[16:32])
 		if typeGUID == zeroGUID {
 			continue // unused slot
 		}
@@ -240,10 +260,88 @@ func listGPT(r io.ReaderAt, deviceSize int64) ([]Partition, error) {
 			StartOffset: start,
 			Length:      length,
 			TypeGUID:    typeGUID,
+			UniqueGUID:  uniqueGUID,
 			Name:        decodeUTF16Name(buf, int(entrySize)),
 		})
 	}
 	return parts, nil
+}
+
+// UUID renders this partition's unique GUID the way everything else writes
+// it: 8-4-4-4-12 lower-case hexadecimal.
+//
+// ⛔ The first three groups are stored LITTLE-endian on disk and the last two
+// big-endian (UEFI 2.10 table 5-7). Printing the sixteen bytes in order gives
+// a string that looks like a GUID, is wrong, and matches nothing a person
+// copied from lsblk or blkid -- which is the whole reason to have this method
+// rather than let each caller format the array.
+//
+// An MBR partition has no such thing, and answers "".
+func (p Partition) UUID() string {
+	if p.UniqueGUID == zeroGUID {
+		return ""
+	}
+	g := p.UniqueGUID
+	return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		g[3], g[2], g[1], g[0],
+		g[5], g[4],
+		g[7], g[6],
+		g[8], g[9],
+		g[10], g[11], g[12], g[13], g[14], g[15])
+}
+
+// ParseUUID reads the 8-4-4-4-12 spelling back into on-disk byte order, so a
+// caller can compare what somebody wrote against what the table holds.
+func ParseUUID(s string) ([16]byte, error) {
+	var g [16]byte
+	clean := strings.ReplaceAll(strings.TrimSpace(s), "-", "")
+	if len(clean) != 32 {
+		return g, fmt.Errorf("gpt: %q is not a GUID: 8-4-4-4-12 hexadecimal digits", s)
+	}
+	raw, err := hex.DecodeString(clean)
+	if err != nil {
+		return g, fmt.Errorf("gpt: %q is not hexadecimal", s)
+	}
+	// Back through the same mixed endianness.
+	g[0], g[1], g[2], g[3] = raw[3], raw[2], raw[1], raw[0]
+	g[4], g[5] = raw[5], raw[4]
+	g[6], g[7] = raw[7], raw[6]
+	copy(g[8:], raw[8:])
+	return g, nil
+}
+
+// ByUUID returns the partition whose unique GUID matches, which is what a
+// caller has when an index would move.
+func ByUUID(r io.ReaderAt, deviceSize int64, uuid string) (Partition, error) {
+	want, err := ParseUUID(uuid)
+	if err != nil {
+		return Partition{}, err
+	}
+	parts, err := List(r, deviceSize)
+	if err != nil {
+		return Partition{}, err
+	}
+	for _, p := range parts {
+		if p.UniqueGUID == want {
+			return p, nil
+		}
+	}
+	return Partition{}, fmt.Errorf("%w: no partition with UUID %s", ErrNotFound, uuid)
+}
+
+// ByName returns the partition whose GPT name matches, which is what lsblk
+// shows as PARTLABEL. MBR has no such field, so an MBR table never matches.
+func ByName(r io.ReaderAt, deviceSize int64, name string) (Partition, error) {
+	parts, err := List(r, deviceSize)
+	if err != nil {
+		return Partition{}, err
+	}
+	for _, p := range parts {
+		if p.Name == name {
+			return p, nil
+		}
+	}
+	return Partition{}, fmt.Errorf("%w: no partition named %q", ErrNotFound, name)
 }
 
 // decodeUTF16Name decodes the 72-byte UTF-16LE partition name at offset 56

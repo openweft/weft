@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	weftv1 "github.com/openweft/weft-proto"
 	weftpod "github.com/openweft/weft-microvm-init/pkg/pod"
+	weftv1 "github.com/openweft/weft-proto"
 )
 
 // configTag is the virtio-fs tag of the share that carries pod.json.

@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/go-compressions/lzfse v0.1.1-0.20260620062248-135e417e8ead
-	github.com/go-diskimages/qcow2 v0.1.1-0.20260615173836-3e5a0cea6d90
+	github.com/go-diskimages/qcow2 v0.1.1-0.20260830123235-0fc975dd1441
 	github.com/go-diskimages/tart-oci v0.0.0-00010101000000-000000000000
 	github.com/go-grub/grub v0.0.0
 	github.com/go-jose/go-jose/v4 v4.1.4
@@ -37,15 +37,17 @@ require (
 	github.com/zclconf/go-cty v1.18.1
 	go.etcd.io/etcd/client/v3 v3.6.11
 	go.etcd.io/etcd/server/v3 v3.6.11
-	golang.org/x/crypto v0.51.0
-	golang.org/x/sys v0.44.0
-	google.golang.org/grpc v1.81.1
+	golang.org/x/crypto v0.57.0
+	golang.org/x/sys v0.48.0
+	google.golang.org/grpc v1.84.0
 	oras.land/oras-go/v2 v2.6.0
 )
 
 require (
-	github.com/go-volumes/gpt v0.0.0-20260622072431-e1d6ba3b531c // indirect
-	github.com/go-volumes/safeio v0.0.0-20260622072324-7f8eb19f6f8c // indirect
+	github.com/go-compressions/lz4 v0.0.0-20260703075007-8ae735f979e4 // indirect
+	github.com/go-simd/matchlen v0.3.1 // indirect
+	github.com/go-volumes/gpt v0.2.0 // indirect
+	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect
 )
 
 require (
@@ -62,7 +64,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/go-filesystems/ext4 v0.0.0 // indirect
-	github.com/go-filesystems/interface v0.0.0 // indirect
+	github.com/go-filesystems/interface v0.3.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-tpm2/common v0.1.0
@@ -114,27 +116,27 @@ require (
 	go.etcd.io/raft/v3 v3.6.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.59.0 // indirect
-	go.opentelemetry.io/otel v1.43.0 // indirect
+	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.34.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.34.0 // indirect
-	go.opentelemetry.io/otel/metric v1.43.0 // indirect
-	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
-	go.opentelemetry.io/otel/trace v1.43.0 // indirect
+	go.opentelemetry.io/otel/metric v1.44.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.44.0 // indirect
+	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.5.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	golang.org/x/mod v0.35.0 // indirect
-	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	golang.org/x/tools v0.44.0 // indirect
+	golang.org/x/tools v0.49.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20260522210424-ecfc5a8d5446 // indirect
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260706201446-f0a921348800 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gvisor.dev/gvisor v0.0.0-20250503011706-39ed1f5ac29c // indirect

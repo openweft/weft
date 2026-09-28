@@ -20,6 +20,35 @@ const (
 	lzvnEncodeMaxLiteralBacklog = 271
 )
 
+// CompressLZVN compresses src into a raw LZVN block stream (the bare LZVN
+// opcode stream terminated by the end-of-stream opcode, with no bvx block
+// wrapper). This is the exact byte format Apple stores in a decmpfs type-7
+// (LZVN inline) attribute and in each chunk of a decmpfs type-8 (LZVN
+// resource fork), and the format `liblzvn_encode_buffer` produces. Unlike
+// the LZFSE bvx2 block format, the LZVN stream format is fully
+// interoperable with Apple's decoder in both directions.
+//
+// The returned stream round-trips through DecompressLZVN and through
+// Apple's LZVN decoder. len(src) must not exceed 4 GiB (the LZVN block
+// length field is a uint32).
+func CompressLZVN(src []byte) []byte {
+	return lzvnEncodeBuffer(src)
+}
+
+// DecompressLZVN decodes a raw LZVN block stream (as produced by
+// CompressLZVN or Apple's liblzvn_encode_buffer) into at most maxOut bytes.
+// maxOut must be at least the decompressed length; callers that know the
+// exact size (e.g. a decmpfs chunk decompresses to <= 65536 bytes) should
+// pass that bound. Returns the decoded bytes.
+func DecompressLZVN(src []byte, maxOut int) ([]byte, error) {
+	dst := make([]byte, maxOut)
+	n, err := lzvnDecode(dst, src)
+	if err != nil {
+		return nil, err
+	}
+	return dst[:n], nil
+}
+
 // ---------------------------------------------------------------------------
 // LZVN decoder
 // ---------------------------------------------------------------------------

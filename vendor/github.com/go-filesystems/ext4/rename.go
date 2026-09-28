@@ -3,6 +3,7 @@ package filesystem_ext4
 import (
 	"encoding/binary"
 	"fmt"
+	iofs "io/fs"
 )
 
 // rename moves the filesystem object at oldPath to newPath.
@@ -66,7 +67,7 @@ func rename(f readerWriterAt, fsOffset int64, sb *superblock, oldPath, newPath s
 		break
 	}
 	if srcIno == nil {
-		return fmt.Errorf("ext4: rename: source %q: not found", oldPath)
+		return fmt.Errorf("ext4: rename: source %q: not found: %w", oldPath, iofs.ErrNotExist)
 	}
 
 	// --- handle existing destination ---

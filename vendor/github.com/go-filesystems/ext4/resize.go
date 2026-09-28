@@ -6,12 +6,16 @@ import (
 	"sync/atomic"
 )
 
-// Grow increases the logical size of the backing image (grow-only). This is
-// a scoped, explicit API entry point for implementing online resize behavior.
+// Grow increases the logical size of the backing image (grow-only). It is a
+// scoped, explicit API entry point for online resize.
 //
-// Current implementation: validation and plan computation only. Full
-// metadata updates (superblock, block group descriptors, bitmaps, checksums)
-// are TODO and will be implemented in follow-up work.
+// The backing file is extended and the full metadata update path runs:
+// new block groups are appended (backup superblock + GDT + reserved-GDT in
+// sparse-super groups, block/inode bitmaps, inode tables), the trailing
+// partial group's bitmap is patched, and the primary superblock, block
+// group descriptors, and checksums are refreshed to reflect the grown
+// layout. See Shrink for the reverse operation and Resize for the
+// grow-or-shrink dispatcher.
 func (fs *ext4FS) Grow(newSizeBytes int64) error {
 	if newSizeBytes <= 0 {
 		return fmt.Errorf("ext4: invalid new size %d", newSizeBytes)

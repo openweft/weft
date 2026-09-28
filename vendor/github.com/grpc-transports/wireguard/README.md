@@ -153,3 +153,7 @@ conn, err := grpc.Dial("passthrough:///target", opt)
 
 - [`openweft/weft-client`](https://github.com/openweft/weft-client) — cross-host VM-to-VM gRPC dial path (consumes this lib via go modules)
 - [`openweft/weft`](https://github.com/openweft/weft) — agent-side WireGuard listener for inter-DC mesh
+
+## License
+
+BSD-3-Clause. See [LICENSE](LICENSE).

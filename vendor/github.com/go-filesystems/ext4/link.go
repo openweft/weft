@@ -8,6 +8,7 @@ package filesystem_ext4
 import (
 	"encoding/binary"
 	"fmt"
+	iofs "io/fs"
 
 	filesystem "github.com/go-filesystems/interface"
 )
@@ -43,7 +44,7 @@ func makeLink(f readerWriterAt, fsOffset int64, sb *superblock, oldPath, newPath
 		}
 	}
 	if srcInoNum == 0 {
-		return fmt.Errorf("ext4: %q not found", oldPath)
+		return fmt.Errorf("ext4: %q not found: %w", oldPath, iofs.ErrNotExist)
 	}
 	srcIno, err := readInode(f, fsOffset, sb, srcInoNum)
 	if err != nil {

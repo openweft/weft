@@ -38,6 +38,21 @@ type Container struct {
 	Mounts     []Mount           `json:"mounts,omitempty"`
 	Resources  Resources         `json:"resources,omitempty"`
 	Privileged bool              `json:"privileged,omitempty"`
+
+	// Net selects the container's network namespace:
+	//
+	//   "" / "host" — join the POD's netns, the one the init already
+	//                 configured from Spec.Network (eth0, gateway, DNS).
+	//                 This is the default because it is the only setting
+	//                 that yields working connectivity: the init creates
+	//                 no veth pair, so a private netns has nothing but a
+	//                 loopback in it.
+	//   "none"      — a private, empty netns (deliberately offline).
+	//
+	// The VM boundary is the isolation boundary here; a per-container
+	// netns inside it buys nothing a pod is meant to have. Matches the
+	// "containers join the pod netns" contract Network documents below.
+	Net string `json:"net,omitempty"`
 }
 
 // Share is a host-mounted filesystem exposed to the guest (typically virtio-fs).
