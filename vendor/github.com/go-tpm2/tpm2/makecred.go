@@ -69,6 +69,20 @@ const (
 // (key-size) buffers for the KDF context/secret inputs.
 const p256FieldBytes = 32
 
+// generateEphemeralKey is the ephemeral P-256 key-pair generator shared by
+// MakeCredential and WrapToPCR. It is a package-level seam so tests can inject
+// a keygen failure to cover the error-propagation branch below.
+//
+// As of Go 1.24, crypto/ecdsa.GenerateKey for a supported curve no longer
+// surfaces a failing rng reader's error: it draws a fixed number of bytes and
+// masks/reduces them internally rather than looping until a value in range is
+// read, so a deliberately failing io.Reader can no longer provoke the error
+// (it either succeeds or the reader is never consulted). The production error
+// handling is still correct and required — GenerateKey's signature is fallible
+// (e.g. an unsupported curve) — so rather than drop the branch, this seam keeps
+// it reachable and covered without depending on the changed ecdsa RNG behavior.
+var generateEphemeralKey = ecdsa.GenerateKey
+
 // MakeCredentialResult is the output of MakeCredential: the two blobs a
 // verifier hands to the attesting platform for TPM2_ActivateCredential.
 type MakeCredentialResult struct {
@@ -104,7 +118,7 @@ func MakeCredential(ekPublic EKPublic, akName, credential []byte, rng io.Reader)
 	}
 
 	// Ephemeral P-256 key pair (the "secret"): de private, Qe = de*G public.
-	eph, err := ecdsa.GenerateKey(curve, rng)
+	eph, err := generateEphemeralKey(curve, rng)
 	if err != nil {
 		return MakeCredentialResult{}, err
 	}

@@ -44,6 +44,18 @@ jobs:
       - name: vet
         run: go vet ./...
 
+      # ⛔ TestRunAttestationHandshake_RealSwtpm HAS NEVER RUN. It drives a real
+      # software TPM through go-tpm2/devtpm, enrols the EK, quotes PCRs 0–7 and
+      # checks the admitted AK Name — and it skips itself when swtpm(8) is not
+      # on PATH, which it never was. A green lane over a skipped judge looks
+      # exactly like a green lane over a passing one.
+      #
+      # Found by go-fleettools/judgescan. It is the only tool in this
+      # repository's tests that the workflows never installed, and the only one
+      # reached from a Test rather than from a benchmark.
+      - name: install swtpm, the software TPM the attestation test drives
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq swtpm swtpm-tools
+
       # -short: the slow paths are gated behind testing.Short(), and the
       # integration ones behind -tags=integration, which this job does not set.
       #
@@ -57,3 +69,17 @@ jobs:
           go list ./... > "$RUNNER_TEMP/pkgs.txt"
           echo "packages under test: $(wc -l < "$RUNNER_TEMP/pkgs.txt")"
           xargs go test -short -timeout 20m < "$RUNNER_TEMP/pkgs.txt"
+
+      # A skip is not a pass, and the summary line cannot tell them apart. If
+      # swtpm stops being installed, or the test starts skipping for some other
+      # reason, this says so instead of going quietly green.
+      - name: the attestation handshake must have run
+        run: |
+          set -euo pipefail
+          out=$(go test -run TestRunAttestationHandshake_RealSwtpm -v -count=1 ./agent/ 2>&1) || { echo "$out"; exit 1; }
+          echo "$out"
+          case "$out" in
+            *"--- SKIP"*) echo "::error::the swtpm handshake skipped; the software TPM is not there"; exit 1 ;;
+            *"--- PASS"*) ;;
+            *) echo "::error::the swtpm handshake neither passed nor skipped"; exit 1 ;;
+          esac
