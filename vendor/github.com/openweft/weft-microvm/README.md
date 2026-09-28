@@ -61,11 +61,11 @@ func PackToFile(initBinary, dst string) error
 
 ## Used by
 
-- [`openweft/weft`](../weft) `cmd/weft/microvm` — the `weft microvm` command group
+- [`openweft/weft`](https://github.com/openweft/weft) `cmd/weft/microvm` — the `weft microvm` command group
   (`run` / `pull` / `ls` / `rm` / `logs` / `init-build`).
 
 ## Related
 
-- [`openweft/weft-microvm-init`](../weft-microvm-init) — guest-side `weft-microvm-init` / pod supervisor.
-- [`cloud-boot/init`](../../cloud-boot/init) — `pkg/oci` (OCI pull) + `pkg/cpio` (initramfs).
-- [`openweft/weft-proto`](../weft-proto) — `RegisterMicroVM` gRPC contract.
+- [`openweft/weft-microvm-init`](https://github.com/openweft/weft-microvm-init) — guest-side `weft-microvm-init` / pod supervisor.
+- [`cloud-boot/init`](https://github.com/cloud-boot/init) — `pkg/oci` (OCI pull) + `pkg/cpio` (initramfs).
+- [`openweft/weft-proto`](https://github.com/openweft/weft-proto) — `RegisterMicroVM` gRPC contract.

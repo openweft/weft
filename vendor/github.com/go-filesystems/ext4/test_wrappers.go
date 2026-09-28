@@ -132,7 +132,7 @@ var (
 
 // NewTempFS creates and returns a temporary formatted ext4 filesystem for tests.
 // The returned cleanup function should be deferred by the caller.
-func NewTempFS(t *testing.T) (*Ext4FS, func()) {
+func NewTempFS(t testing.TB) (*Ext4FS, func()) {
 	t.Helper()
 	f, err := os.CreateTemp("", "ext4test")
 	if err != nil {
@@ -158,7 +158,7 @@ func NewTempFS(t *testing.T) (*Ext4FS, func()) {
 // NewTempFSWithSize creates and returns a temporary formatted ext4 filesystem
 // for tests with a custom image size in bytes. The returned cleanup
 // function should be deferred by the caller.
-func NewTempFSWithSize(t *testing.T, sizeBytes int64) (*Ext4FS, func()) {
+func NewTempFSWithSize(t testing.TB, sizeBytes int64) (*Ext4FS, func()) {
 	t.Helper()
 	f, err := os.CreateTemp("", "ext4test")
 	if err != nil {
@@ -180,7 +180,7 @@ func NewTempFSWithSize(t *testing.T, sizeBytes int64) (*Ext4FS, func()) {
 }
 
 // CloneFSImage reads the backing file for an open FS into a HookMemFile copy.
-func CloneFSImage(t *testing.T, fs *Ext4FS) *HookMemFile {
+func CloneFSImage(t testing.TB, fs *Ext4FS) *HookMemFile {
 	t.Helper()
 	type nameGetter interface{ Name() string }
 	ng, ok := fs.f.(nameGetter)
@@ -499,7 +499,7 @@ func RemoveDir(f ReaderWriterAt, fsOffset int64, sb *Superblock, path string) er
 }
 
 // DirBlockForPath returns the first data block for the given path.
-func DirBlockForPath(t *testing.T, rw ReaderWriterAt, sb *Superblock, path string) uint64 {
+func DirBlockForPath(t testing.TB, rw ReaderWriterAt, sb *Superblock, path string) uint64 {
 	t.Helper()
 	dir, err := lookupPath(rw, 0, sb, path)
 	if err != nil {
@@ -516,7 +516,7 @@ func DirBlockForPath(t *testing.T, rw ReaderWriterAt, sb *Superblock, path strin
 }
 
 // RootDirBlockFor returns the first data block for the root directory.
-func RootDirBlockFor(t *testing.T, rw ReaderWriterAt, sb *Superblock) uint64 {
+func RootDirBlockFor(t testing.TB, rw ReaderWriterAt, sb *Superblock) uint64 {
 	t.Helper()
 	root, err := ReadInode(rw, 0, sb, RootIno)
 	if err != nil {
@@ -534,7 +534,7 @@ func RootDirBlockFor(t *testing.T, rw ReaderWriterAt, sb *Superblock) uint64 {
 
 // AddFastSymlink creates a symlink inode and dir entry in the live filesystem
 // (used by tests that need a quick symlink creation helper).
-func AddFastSymlink(t *testing.T, fs *Ext4FS, parentPath, name, target string) {
+func AddFastSymlink(t testing.TB, fs *Ext4FS, parentPath, name, target string) {
 	t.Helper()
 	var parent *inode
 	var err error

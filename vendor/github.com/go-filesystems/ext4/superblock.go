@@ -95,6 +95,15 @@ func readSuperblock(f readerWriterAt, fsOffset int64) (*superblock, error) {
 	if sb.InodeSize == 0 {
 		sb.InodeSize = 128
 	}
+	// s_inode_size sizes every inode buffer, and the fixed field offsets are
+	// read out of that buffer unconditionally -- i_size_high sits at 108. ext4
+	// requires at least 128 bytes, a power of two, and no more than one block.
+	// Without this a six-byte corruption of the superblock made readInode
+	// panic with "slice bounds out of range [0:48]" on an otherwise valid
+	// image, in every caller's process.
+	if sb.InodeSize < 128 || sb.InodeSize&(sb.InodeSize-1) != 0 || uint32(sb.InodeSize) > sb.BlockSize {
+		return nil, fmt.Errorf("ext4: invalid s_inode_size %d", sb.InodeSize)
+	}
 	sb.DescSize = le.Uint16(raw[0xFE:])
 	if sb.DescSize == 0 || sb.DescSize < 32 {
 		sb.DescSize = 32

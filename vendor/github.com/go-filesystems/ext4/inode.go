@@ -415,33 +415,46 @@ func readFileData(f readerWriterAt, fsOffset int64, sb *superblock, in *inode) (
 	}
 
 	// H2: in.size (i_size) is attacker-controlled and can be as large as
-	// 2^63-1, so `make([]byte, in.size)` would OOM the host. Bound the
-	// allocation by two independent ceilings, taking whichever is smaller:
-	//   1. the total bytes the inode's own extents can actually supply
-	//      (sum of extent block counts * BlockSize); and
-	//   2. the whole filesystem's byte size (BlocksCount * BlockSize).
-	// A file can never legitimately be larger than either, so a size beyond
-	// the ceiling is a corrupt/malicious inode and yields ErrTooLarge.
-	var extentBytes int64
-	for _, e := range ext {
-		extentBytes += int64(e.Count) * int64(sb.BlockSize)
-	}
-	fsBytes := int64(sb.BlocksCount) * int64(sb.BlockSize)
-	max := extentBytes
-	if fsBytes > 0 && fsBytes < max {
-		max = fsBytes
+	// 2^63-1, so `make([]byte, in.size)` would OOM the host. The only sound
+	// upper bound is the whole filesystem's byte size (BlocksCount *
+	// BlockSize): a file can never legitimately be larger than the filesystem
+	// that contains it, so a size beyond that ceiling is a corrupt/malicious
+	// inode and yields ErrTooLarge.
+	//
+	// The allocation must NOT be bounded by the bytes the inode's extents
+	// actually supply: a sparse file's i_size legitimately exceeds the sum of
+	// its allocated extents because holes contribute logical size but occupy
+	// no blocks. Bounding by extent bytes would reject valid sparse files
+	// (e.g. `truncate -s 1M` then a 3-byte tail write yields one extent but a
+	// 1 MiB i_size). The block-map path already trusts i_size the same way.
+	max := int64(sb.BlocksCount) * int64(sb.BlockSize)
+	if max <= 0 {
+		// The filesystem size is unknown (BlocksCount == 0 — only synthetic
+		// superblocks, never a real image). Fall back to the highest logical
+		// byte the extents can address so the allocation is still bounded.
+		for _, e := range ext {
+			if end := (int64(e.LogBlock) + int64(e.Count)) * int64(sb.BlockSize); end > max {
+				max = end
+			}
+		}
 	}
 	out, err := safeio.MakeBytes(int64(in.size), max)
 	if err != nil {
 		return nil, fmt.Errorf("ext4: inode %d size %d invalid: %w", in.num, in.size, err)
 	}
-	written := 0
 	// If the inode reports a non-zero size but there are no extents, treat
 	// this as an error rather than returning an empty slice silently.
 	if int(in.size) > 0 && len(ext) == 0 {
 		return nil, fmt.Errorf("ext4: inode %d has size %d but no extents", in.num, in.size)
 	}
-	// No debug logging in the read path.
+	// Copy each extent's blocks to their LOGICAL offset within the file. This
+	// is what makes sparse files read correctly: extents that are not present
+	// (holes) leave the corresponding region of `out` at its pre-zeroed value,
+	// and an extent's data lands where its ee_block says it belongs rather than
+	// being packed sequentially. `out` is already the full i_size length, so
+	// after this loop the holes are zero-filled and no short-read is possible.
+	bs := int64(sb.BlockSize)
+	size := int64(in.size)
 	for _, e := range ext {
 		for blk := uint64(0); blk < uint64(e.Count); blk++ {
 			physBlock := e.PhysBlock + blk
@@ -450,25 +463,22 @@ func readFileData(f readerWriterAt, fsOffset int64, sb *superblock, in *inode) (
 			if sb.BlocksCount != 0 && physBlock >= sb.BlocksCount {
 				return nil, fmt.Errorf("ext4: data block %d out of range (blocks=%d) in inode %d", physBlock, sb.BlocksCount, in.num)
 			}
-			blockOff := int64(physBlock) * int64(sb.BlockSize)
-			remain := int(in.size) - written
-			if remain <= 0 {
-				break
+			logOff := (int64(e.LogBlock) + int64(blk)) * bs
+			if logOff >= size {
+				// Extent block maps beyond EOF; nothing to copy for it.
+				continue
 			}
-			n := int(sb.BlockSize)
-			if n > remain {
-				n = remain
+			n := bs
+			if logOff+n > size {
+				n = size - logOff
 			}
-			if _, err := f.ReadAt(out[written:written+n], fsOffset+blockOff); err != nil {
+			blockOff := int64(physBlock) * bs
+			if _, err := f.ReadAt(out[logOff:logOff+n], fsOffset+blockOff); err != nil {
 				return nil, fmt.Errorf("ext4: read data block %d: %w", physBlock, err)
 			}
-			written += n
 		}
 	}
-	if written < int(in.size) {
-		return nil, fmt.Errorf("ext4: short read: got %d bytes, expected %d", written, in.size)
-	}
-	return out[:written], nil
+	return out, nil
 }
 
 // setSize updates the inode size fields.

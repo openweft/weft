@@ -4,7 +4,7 @@
 
 Protobuf/gRPC service definition and generated Go stubs for the `weft` daemon API.
 
-This module is the shared contract between the [`weft`](../weft) daemon + CLI, the web dashboard ([`weft-webui`](../weft-webui)), and the Terraform provider ([`terraform-provider-weft`](../terraform-provider-weft)).
+This module is the shared contract between the [`weft`](https://github.com/openweft/weft) daemon + CLI, the web dashboard ([`weft-webui`](https://github.com/openweft/weft-webui)), and the Terraform provider ([`terraform-provider-weft`](https://github.com/openweft/terraform-provider-weft)).
 
 ## Module
 
@@ -32,7 +32,7 @@ github.com/openweft/weft-proto
 
 ## Service: `Introspect` (guest-side, package `introspectv1`)
 
-Read-only inspection API a micro-VM serves on its `wg0` address for an operator CLI to reach over WireGuard (see [`weft-microvm-agent`](../weft-microvm-agent) for the server and [`weft-client/wgdial`](../weft-client/wgdial) for the client transport). Defined in `introspect.proto`, generated into the `introspectv1/` subpackage.
+Read-only inspection API a micro-VM serves on its `wg0` address for an operator CLI to reach over WireGuard (see [`weft-microvm-agent`](https://github.com/openweft/weft-microvm-agent) for the server and [`weft-client/wgdial`](https://github.com/openweft/weft-client/blob/main/wgdial) for the client transport). Defined in `introspect.proto`, generated into the `introspectv1/` subpackage.
 
 | RPC | Description |
 |-----|-------------|

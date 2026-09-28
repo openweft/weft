@@ -2,7 +2,9 @@ package filesystem_ext4
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	iofs "io/fs"
 	"sync/atomic"
 )
 
@@ -27,13 +29,26 @@ func (fs *ext4FS) DeleteFile(path string) error {
 
 // removeFile orchestrates the full file-removal sequence.
 func removeFile(f readerWriterAt, fsOffset int64, sb *superblock, path string) error {
+	// ⛔ Idempotent is not the same as silent.
+	//
+	// This used to be a bare `return nil` on any error from either lookup.
+	// The comment said "not found"; the code said "anything". A malformed
+	// path, or a lookup that failed because the image is broken, came back as
+	// a SUCCESSFUL delete -- the caller told the file was gone, nothing
+	// touched. Only the missing-path case is the documented one.
 	parent, name, err := lookupParent(f, fsOffset, sb, path)
 	if err != nil {
-		return nil // parent not found — already gone, idempotent
+		if errors.Is(err, iofs.ErrNotExist) {
+			return nil // parent not there — already gone, idempotent
+		}
+		return err
 	}
 	target, err := lookupPath(f, fsOffset, sb, path)
 	if err != nil {
-		return nil // entry not found — already gone, idempotent
+		if errors.Is(err, iofs.ErrNotExist) {
+			return nil // entry not there — already gone, idempotent
+		}
+		return err
 	}
 	if !target.isRegular() {
 		return fmt.Errorf("ext4: DeleteFile: %q is not a regular file", path)
@@ -172,13 +187,21 @@ func freeInodeSlot(f readerWriterAt, fsOffset int64, sb *superblock, inodeNum ui
 // removeDir removes the directory at path and all its contents recursively.
 // Returns nil if the path does not exist (idempotent).
 func removeDir(f readerWriterAt, fsOffset int64, sb *superblock, path string) error {
+	// Same shape as removeFile above, and the same correction: only a path
+	// that is not there is the documented idempotent case.
 	parentIno, name, err := lookupParent(f, fsOffset, sb, path)
 	if err != nil {
-		return nil // parent gone — idempotent
+		if errors.Is(err, iofs.ErrNotExist) {
+			return nil // parent not there — already gone, idempotent
+		}
+		return err
 	}
 	target, err := lookupPath(f, fsOffset, sb, path)
 	if err != nil {
-		return nil // already gone
+		if errors.Is(err, iofs.ErrNotExist) {
+			return nil // already gone, idempotent
+		}
+		return err
 	}
 	if !target.isDir() {
 		return fmt.Errorf("ext4: DeleteDir: %q is not a directory", path)

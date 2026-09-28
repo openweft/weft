@@ -48,9 +48,9 @@ import (
 //   - "name" or "name:tag"             → registry-1.docker.io/library/name[:tag]
 //   - "owner/name" or "owner/name:tag" → registry-1.docker.io/owner/name[:tag]
 //   - "docker.io/…"                    → registry-1.docker.io/…  (docker.io is
-//                                        the marketing site, not the registry;
-//                                        single-component repos gain the
-//                                        library/ prefix)
+//     the marketing site, not the registry;
+//     single-component repos gain the
+//     library/ prefix)
 //   - anything else containing a "." or ":" before the first "/" (a host) is
 //     left untouched (already FQDN, e.g. ghcr.io/foo/bar, quay.io/baz,
 //     registry.example.com:5000/svc/img).

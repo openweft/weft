@@ -13,7 +13,7 @@ by the unit tests. The recent change shortens the critical section in
 `Transaction.Commit()` and adds a regression test exercising concurrent
 commits against the sidecar journal.
 
-See the tests under `pkg/go-filesystems/ext4/test` for usage examples.
+See the tests under [`test/`](./test) for usage examples.
 
 ## Overview
 
@@ -24,6 +24,11 @@ Pure-Go read/write access to ext4 filesystem images.
 
 This package supports extents, 64-bit block numbers, flex_bg, directory
 htree indexing, CRC32c metadata checksums, and automatic partition detection.
+It also reads the classic ext2/ext3 indirect **block map** (single-, double-
+and triple-indirect), **inline data** (small files and directories stored in
+the inode/xattr area), and **sparse files** (unallocated holes read back as
+zeros) — verified against real `mke2fs`-produced ext2/ext3/ext4 images across
+block sizes (see `testdata/`).
 
 ## Production-readiness improvements (recent)
 
@@ -66,15 +71,93 @@ https://docs.kernel.org/filesystems/ext4/
 |---|---:|---|
 | Open / Close | ✅ | Supports partitioned images (MBR/GPT auto-detect) |
 | Format | ✅ | Creates ext4 images; some cross-check tests require `mke2fs` |
-| ReadFile / WriteFile | ✅ | Full file I/O supported (extents, sparse writes) |
+| ReadFile / WriteFile | ✅ | Full file I/O (extents and ext2/3 block map); sparse-file holes read back as zeros |
+| Read at an offset | ✅ | `OpenFile(path)` → `io.ReaderAt` + `Size()` (`filesystem.Opener` / `filesystem.File`). Snapshots the inode's block map — extents, ext2/3 indirect map, or inline data — and reads no file data at open, so a 4 KiB read out of a 4 GiB file costs 4 KiB. Holes read as zeros, as `ReadFile` produces them |
+| Write at an offset | ✅ | `OpenFile(path)` → `io.WriterAt` + `Truncate` + `Sync` (`filesystem.WritableFile`), for extent-mapped inodes. Writes only the bytes given, allocates only the blocks the range touches, and **keeps the file sparse**: a write far past the end leaves the gap a hole. Inline-data and ext2/3 block-map inodes come back as a plain read-only `File`, so a caller falls back rather than failing |
+| Inline data | ✅ | Reads small files and directories stored inline in the inode/xattr area |
 | MkDir / Delete / Rename | ✅ | Directory and rename operations implemented |
-| ReadLink / Symlinks | ✅ | Supported |
+| ReadLink / Symlinks | ✅ | Fast (in-inode) and slow (out-of-line) targets |
 | Metadata serialization (BGD/bitmaps/inode-table) | ✅ | Writes + `metadata_csum` supported |
-| Online resize (`Grow`) | ✅ | Adds block groups and updates superblock/BGD |
+| Online resize (`Grow` / `Shrink` / `Resize`) | ✅ | `Grow` adds block groups; `Shrink` frees already-free trailing groups (non-relocating, resize2fs-style); `Resize` dispatches to whichever direction the new size requires. `Open`/`Format` return `filesystem.Filesystem`, so callers reach these by type-asserting to an interface exposing the method, e.g. `fs.(interface{ Resize(int64) error })` |
 | IOCTLs (GetFlags/SetFlags) | ✅ | Tooling-level ioctl support implemented |
 | CheckImage / RepairImage hooks | ✅ | Programmatic fsck/repair entry points |
 | Concurrency hardening | ✅ | Per-group locks for bitmap/BGD/inode-table |
 | Test-only tracing | ✅ | Heavy tracing under `//go:build test` for diagnostics |
+
+## Reading part of a file
+
+`ReadFile` returns the whole file, which is unusable for anything serving reads on
+demand — a mount, an NFS or 9P export — where a 4 KiB request out of a 4 GiB file
+must not allocate 4 GiB. The driver implements the optional
+[`filesystem.Opener`](https://github.com/go-filesystems/interface) capability:
+
+```go
+if o, ok := fs.(filesystem.Opener); ok {
+    f, err := o.OpenFile("/var/lib/big.img")
+    if err != nil { /* ... */ }
+    defer f.Close()
+
+    buf := make([]byte, 4096)
+    n, err := f.ReadAt(buf, 1<<30) // only the bytes asked for
+    _, _ = n, err
+    _ = f.Size()                   // i_size, read at open; touches no data
+}
+```
+
+`OpenFile` snapshots the inode's block map — extent leaves for ext4, the synthesised
+equivalent for the ext2/ext3 indirect map, or the inline bytes for an inline-data
+inode — using the same `inode.readExtents` the `ReadFile` path uses, under the same
+inode lock. `ReadAt` binary-searches that map, reads whole contiguous runs in one go,
+and serves holes as zeros without touching the device. It follows `io.ReaderAt`
+exactly (`n < len(p)` only with a non-nil error, `io.EOF` at the end) and is safe to
+call concurrently.
+
+A read-only `File` is a **snapshot**: it describes the file as it was when opened. A
+file rewritten through the same `Filesystem` afterwards must be reopened.
+
+## Writing part of a file
+
+`WriteFile` replaces a whole file — and this driver's `WriteFile` frees every block
+of it and reallocates them — so a positional write expressed as `ReadFile` + splice
++ `WriteFile` costs O(filesize) *per request*, and a client writing a file in
+fixed-size blocks pays that per block. Measured over a real Linux kernel NFS mount
+against a driver without a positional write, 2 MiB in 64 KiB blocks took 23 s
+(90 kB/s), and a `soft,timeo=50` mount gave up with `EIO` partway through.
+
+The `File` returned by `OpenFile` is therefore also a
+[`filesystem.WritableFile`](https://github.com/go-filesystems/interface) — when the
+inode's layout allows it:
+
+```go
+if o, ok := fs.(filesystem.Opener); ok {
+    f, _ := o.OpenFile("/var/lib/big.img")
+    defer f.Close()
+    if w, ok := f.(filesystem.WritableFile); ok {
+        _, err := w.WriteAt(buf, 1<<30) // io.WriterAt semantics, exactly
+        _ = w.Truncate(1 << 20)         // grow is free; shrink frees blocks
+        _ = w.Sync()                    // fsync(2) on a file-backed image
+        _ = err
+    }
+    // otherwise: ReadFile, splice, WriteFile — correct, and quadratic.
+}
+```
+
+`WriteAt` reuses the extent map resolved at open, turning an offset into a physical
+block by binary search, and allocates only for the blocks the written range actually
+covers. **Sparseness is preserved**: a write far past the end allocates nothing for
+the gap, which stays a hole, costs no space, and reads back as zeros through both
+`ReadAt` and `ReadFile`. That is what ext4 means by a sparse file, and it is the
+one place this driver's `WriteAt` deliberately differs from FAT's, which has to
+allocate the gap.
+
+**Two layouts come back as a plain, read-only `File`**: an inline-data inode, and
+the classic ext2/ext3 indirect block map, whose growth would mean allocating
+indirect blocks that no write path in this package has ever produced. They are
+refused *at the probe* rather than from `WriteAt`, because the type assertion is a
+caller's only chance to learn the truth before it commits to a strategy — a `File`
+that satisfied the interface and then failed every call would force a server to
+discover the limitation one failed request at a time. Refusing at the probe is the
+difference between "slower" and "broken".
 
 ## Limitations & cautions
 
@@ -87,7 +170,8 @@ https://docs.kernel.org/filesystems/ext4/
 - Integration tests that cross-validate behavior against `e2fsprogs` (`mke2fs`,
   `e2fsck`) are provided but may be skipped on platforms lacking those tools.
 - Performance and large-scale concurrency behavior are still subjects for
-  benchmarking; see the `Next steps` section below.
+  benchmarking; see [`BENCHMARKS.md`](./BENCHMARKS.md) and the "Backoff
+  tuning summary" section below.
 
 ## Module
 
@@ -135,34 +219,34 @@ go vet ./...
 
 ### 2. Run tests with the race detector (test-only tracing requires `-tags test`)
 
-Recommended quick run (ext4 packages only):
+Recommended quick run (from the repo root):
 
 ```bash
-go test -race -tags test ./pkg/go-filesystems/ext4/... -v
+go test -race -tags test ./... -v
 ```
 
 Run the test harness package (shorter):
 
 ```bash
-go test -race -tags test ./pkg/go-filesystems/ext4/test -v
+go test -race -tags test ./test -v
 ```
 
-For the whole repository (long):
+For the whole repository (long), saving output to a local log:
 
 ```bash
-go test -race ./... 2>&1 | tee /tmp/all_tests_race.log
+go test -race ./... 2>&1 | tee all_tests_race.log
 ```
 
-To check coverage for packages you modify (useful for `diskimage` package work):
+To check coverage for the package:
 
 ```bash
-go test -tags test -coverprofile=cover.out ./pkg/go-filesystems/ext4 && go tool cover -html=cover.out
+go test -tags test -coverprofile=cover.out . && go tool cover -html=cover.out
 ```
 
 ### 3. Build without test tags to ensure no test-only dependencies leak
 
 ```bash
-go build ./pkg/go-filesystems/ext4
+go build .
 ```
 
 ## What's changed (high level)
@@ -190,10 +274,6 @@ go build ./pkg/go-filesystems/ext4
     within the standard `go test` 10-minute timeout.
   - Verified targeted and package-level tests under `-race -tags test` after changes.
 
-## Next steps
-
-  supported platforms.
-
 ## Backoff tuning summary
 
 We performed a small parameter sweep to reduce lock-order contention and
@@ -214,30 +294,24 @@ Tradeoffs:
 - Higher `attempts` with jitter spreads retries but can increase aggregate
   attempts and CPU; balance to minimize total fallbacks for your workload.
 
-Reproduce the experiments locally (examples):
+Reproduce a single data point locally (example: attempts=6, base=250µs) from
+the repo root:
 
 ```bash
-# short grid (scripts are in /tmp in the test workspace)
-bash /tmp/backoff_grid.sh
-
-# long run for a candidate (example: attempts=6 base=250µs)
 EXT4_BACKOFF_MAX_ATTEMPTS=6 EXT4_BACKOFF_BASE_US=250 \
   EXT4_LOCK_DEBUG=1 EXT4_STRESS_WORKERS=32 EXT4_STRESS_OPS_PER_WORKER=500 \
-  go test -count=1 -run 'TestStress_Concurrent/debian/concurrent_rw' -tags test ./pkg/go-filesystems/ext4/test -v
+  go test -count=1 -run 'TestStress_Concurrent/debian/concurrent_rw' -tags test ./test -v
 ```
 
-Artifacts and logs created during the sweep (on the machine that ran the
-experiments): `/tmp/backoff_grid/results.csv`, `/tmp/backoff_long_three/`,
-`/tmp/backoff_grid/` and other logs under `/tmp` (see the test scripts).
+The sweep above was produced by varying `EXT4_BACKOFF_MAX_ATTEMPTS` /
+`EXT4_BACKOFF_BASE_US` across the same command and comparing the printed
+fallback counts; no grid-running script ships in this repository, so a full
+sweep needs to be scripted by the caller.
 
 Next tuning options:
 - Run a denser grid around `(6,250)` to refine the minimum.
 - Increase allocation dispersion (`allocGroupCursor`) or subdivide BGD
   locks to reduce serialization on very hot groups.
 
-
-Contact
-
-- For questions or to request additional test runs (benchmarks, long-running
-  integration), open an issue or ask in the project chat and include the exact
-  test command you want executed.
+For questions or to request additional test runs (benchmarks, long-running
+integration), open an issue on this repository.
