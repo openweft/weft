@@ -11,8 +11,8 @@ import (
 	"context"
 	"testing"
 
-	agent "github.com/openweft/weft/agent"
 	drivers "github.com/openweft/weft-drivers"
+	agent "github.com/openweft/weft/agent"
 )
 
 // ── creds_jwt.go error paths (bad seeds) ───────────────────────

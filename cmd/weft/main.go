@@ -56,11 +56,11 @@ import (
 	"github.com/openweft/weft/cmd/weft/login"
 	"github.com/openweft/weft/cmd/weft/microvm"
 	"github.com/openweft/weft/cmd/weft/monitor"
-	"github.com/openweft/weft/cmd/weft/port"
 	"github.com/openweft/weft/cmd/weft/network"
 	"github.com/openweft/weft/cmd/weft/overlaycmd"
 	"github.com/openweft/weft/cmd/weft/plugin"
 	podcmd "github.com/openweft/weft/cmd/weft/pod"
+	"github.com/openweft/weft/cmd/weft/port"
 	"github.com/openweft/weft/cmd/weft/project"
 	"github.com/openweft/weft/cmd/weft/quota"
 	"github.com/openweft/weft/cmd/weft/rack"
@@ -80,17 +80,17 @@ import (
 	"github.com/openweft/weft/etcdjobs"
 	"github.com/openweft/weft/federation"
 	"github.com/openweft/weft/firewallpub"
+	"github.com/openweft/weft/floatingipnat"
 	"github.com/openweft/weft/hostmetrics"
 	"github.com/openweft/weft/pluginstore"
-	"github.com/openweft/weft/floatingipnat"
 	"github.com/openweft/weft/portqos"
 	"github.com/openweft/weft/portsec"
 	"github.com/openweft/weft/registryclient"
 	"github.com/openweft/weft/zombiegc"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -1476,16 +1476,16 @@ func (s *weftServer) ListVMs(ctx context.Context, req *weftv1.ListVMsRequest) (*
 			}
 		}
 		info := &weftv1.VMInfo{
-			Uuid:        rec.UUID,
-			Name:        rec.Name,
-			ProjectUuid: rec.ProjectUUID,
-			Project:     projectNameFor(s.adp, rec.ProjectUUID),
-			HostUuid:    rec.HostUUID,
-			State:       stateToProto(string(rec.State)),
-			Status:      normalisedVMStatus(rec.Status),
-			Cpu:         uint32(rec.CPUCount),
-			MemMb:       uint64(rec.MemoryMiB),
-			Image:       rec.Image,
+			Uuid:         rec.UUID,
+			Name:         rec.Name,
+			ProjectUuid:  rec.ProjectUUID,
+			Project:      projectNameFor(s.adp, rec.ProjectUUID),
+			HostUuid:     rec.HostUUID,
+			State:        stateToProto(string(rec.State)),
+			Status:       normalisedVMStatus(rec.Status),
+			Cpu:          uint32(rec.CPUCount),
+			MemMb:        uint64(rec.MemoryMiB),
+			Image:        rec.Image,
 			RestartCount: rec.RestartCount,
 			MaxRestarts:  maxRestartsForVM(s.adp, rec),
 		}

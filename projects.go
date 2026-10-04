@@ -50,11 +50,11 @@ import (
 // independently of any dex group claim. Two ways to grant access
 // today (per [[weft-uuid-keyed-resources]]'s ACL model):
 //
-//   1. dex issues the caller a `project:<uuid>` group → caller's
-//      token already carries the grant.
-//   2. an admin runs `weft project add-user <project-uuid>
-//      <user-uuid>` → the user's UUID lands in Members and
-//      callerOwnsProject resolves it via the user registry.
+//  1. dex issues the caller a `project:<uuid>` group → caller's
+//     token already carries the grant.
+//  2. an admin runs `weft project add-user <project-uuid>
+//     <user-uuid>` → the user's UUID lands in Members and
+//     callerOwnsProject resolves it via the user registry.
 //
 // Both paths union into VisibleProjects; either is sufficient.
 type Project struct {

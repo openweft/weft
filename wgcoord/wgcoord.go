@@ -141,7 +141,7 @@ type OperatorCoords struct {
 // PairInput describes one VM↔operator pairing to coordinate.
 type PairInput struct {
 	Subnet        netip.Prefix
-	Interface     string   // VM-side wg interface name (default "wg0")
+	Interface     string // VM-side wg interface name (default "wg0")
 	VMKey         Key
 	VMIndex       int      // host index of the VM in the subnet
 	VMEndpoint    Endpoint // the VM's underlay reachability

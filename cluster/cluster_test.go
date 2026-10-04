@@ -137,7 +137,7 @@ cluster "build" {
 		want      bool
 	}{
 		{"vz", "arm64", true},
-		{"vz", "amd64", false},   // VZ doesn't claim amd64 here
+		{"vz", "amd64", false}, // VZ doesn't claim amd64 here
 		{"qemu", "amd64", true},
 		{"qemu", "riscv64", true},
 		{"qemu", "arm64", false}, // QEMU's arch list excludes arm64 ; that's VZ's domain

@@ -11,8 +11,8 @@ package weft
 // release + /proc + /sys + statfs path. Build-tag gated so neither
 // the cgo-free contract nor the Linux-only syscalls leak across.
 
-func collectOSRelease(_ string) string         { return "" }
-func collectKernelVersion() string             { return "" }
+func collectOSRelease(_ string) string             { return "" }
+func collectKernelVersion() string                 { return "" }
 func collectNetworkInterfaces() []NetworkInterface { return nil }
-func collectStorageMounts() []StorageMount     { return nil }
-func collectMemoryMiB() int64                  { return 0 }
+func collectStorageMounts() []StorageMount         { return nil }
+func collectMemoryMiB() int64                      { return 0 }

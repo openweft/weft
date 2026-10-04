@@ -22,8 +22,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	weft "github.com/openweft/weft"
-	agentv1 "github.com/openweft/weft-proto/agentv1"
 	weftv1 "github.com/openweft/weft-proto"
+	agentv1 "github.com/openweft/weft-proto/agentv1"
 )
 
 // TestDispatchAny_NoTransport pins that dispatchAny on a server

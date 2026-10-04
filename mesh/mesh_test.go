@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	natsserver "github.com/nats-io/nats-server/v2/test"
+	"github.com/nats-io/nats.go"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
 	"github.com/openweft/weft/wgcoord"
 )

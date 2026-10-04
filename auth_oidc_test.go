@@ -25,10 +25,10 @@ import (
 // serves /.well-known/openid-configuration + a JWKS, and can mint
 // RS256 tokens signed by the matching private key.
 type oidcTestIssuer struct {
-	server  *httptest.Server
-	key     *rsa.PrivateKey
-	keyID   string
-	issuer  string
+	server *httptest.Server
+	key    *rsa.PrivateKey
+	keyID  string
+	issuer string
 }
 
 func newOIDCTestIssuer(t *testing.T) *oidcTestIssuer {
@@ -42,10 +42,10 @@ func newOIDCTestIssuer(t *testing.T) *oidcTestIssuer {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"issuer":                 it.issuer,
-			"jwks_uri":               it.issuer + "/keys",
-			"authorization_endpoint": it.issuer + "/auth",
-			"token_endpoint":         it.issuer + "/token",
+			"issuer":                                it.issuer,
+			"jwks_uri":                              it.issuer + "/keys",
+			"authorization_endpoint":                it.issuer + "/auth",
+			"token_endpoint":                        it.issuer + "/token",
 			"id_token_signing_alg_values_supported": []string{"RS256"},
 		})
 	})

@@ -87,9 +87,9 @@ func (rs Routes) renderCaddyConfigWith(adminSocket string, storage map[string]an
 		Handle []map[string]any `json:"handle"`
 	}
 	type caddyServer struct {
-		Listen          []string     `json:"listen"`
-		Routes          []caddyRoute `json:"routes"`
-		AutomaticHTTPS  map[string]any `json:"automatic_https,omitempty"`
+		Listen         []string       `json:"listen"`
+		Routes         []caddyRoute   `json:"routes"`
+		AutomaticHTTPS map[string]any `json:"automatic_https,omitempty"`
 	}
 	type caddyAdmin struct {
 		Listen string `json:"listen"`

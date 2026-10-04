@@ -123,11 +123,11 @@ func TestSchedulingRuleRegistry_KV_ApplyKVEventPutAndDelete(t *testing.T) {
 
 	// Synthesise a remote Put event.
 	remote := SchedulingRuleEntry{
-		UUID:         "remote-1",
-		Name:         "remote-pin",
-		Selector:     "vm.name=remote",
-		TargetCount:  2,
-		CreatedAt:    time.Now().UTC(),
+		UUID:        "remote-1",
+		Name:        "remote-pin",
+		Selector:    "vm.name=remote",
+		TargetCount: 2,
+		CreatedAt:   time.Now().UTC(),
 	}
 	blob := encodeSchedulingRuleRecord(remote)
 	reg.applyKVEvent(KVEvent{

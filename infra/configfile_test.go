@@ -277,10 +277,10 @@ func TestRenderTemplate_WordBoundary(t *testing.T) {
 		want string
 	}{
 		{"$DC", "X"},
-		{"$DCFOO", "$DCFOO"},      // word continues — don't match
-		{"$DC_extra", "$DC_extra"}, // _ is a word char — don't match
-		{"$DC,", "X,"},             // comma is non-word — match
-		{"$DC ", "X "},             // space — match
+		{"$DCFOO", "$DCFOO"},                   // word continues — don't match
+		{"$DC_extra", "$DC_extra"},             // _ is a word char — don't match
+		{"$DC,", "X,"},                         // comma is non-word — match
+		{"$DC ", "X "},                         // space — match
 		{"prefix$DCsuffix", "prefix$DCsuffix"}, // identifier continues
 		{"$PEER_DC ", "Z "},
 		{"$PEER_DCX", "$PEER_DCX"}, // not the same token

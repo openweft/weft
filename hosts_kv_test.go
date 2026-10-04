@@ -8,17 +8,17 @@ import (
 
 func TestEncodeDecodeHostRecord_RoundTrip(t *testing.T) {
 	in := Host{
-		UUID:       "h-1",
-		Hostname:   "compute-01",
-		AZ:         "us-east-1a",
-		Rack:       "r1",
-		Endpoint:   "compute-01.internal:8443",
-		Hypervisor: "qemu",
+		UUID:         "h-1",
+		Hostname:     "compute-01",
+		AZ:           "us-east-1a",
+		Rack:         "r1",
+		Endpoint:     "compute-01.internal:8443",
+		Hypervisor:   "qemu",
 		Architecture: "arm64",
-		State:      HostStateActive,
-		LastSeenAt: time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
-		CreatedAt:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-		Properties: map[string]string{"gpu": "h200", "tier": "prod"},
+		State:        HostStateActive,
+		LastSeenAt:   time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+		CreatedAt:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Properties:   map[string]string{"gpu": "h200", "tier": "prod"},
 	}
 	blob := encodeHostRecord(in)
 	got, err := decodeHostRecord(blob)

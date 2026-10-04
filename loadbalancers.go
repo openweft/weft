@@ -127,9 +127,9 @@ func (r *loadBalancerRegistry) list(projectUUID string) []LoadBalancer {
 
 // validProtocols enumerates accepted LoadBalancer protocols.
 var validLBProtocols = map[string]struct{}{
-	"l4_tcp":  {},
-	"l4_udp":  {},
-	"l7_http": {},
+	"l4_tcp":   {},
+	"l4_udp":   {},
+	"l7_http":  {},
 	"l7_https": {},
 }
 

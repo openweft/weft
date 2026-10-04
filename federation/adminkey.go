@@ -45,8 +45,8 @@ const minRSAKeyBits = 2048
 // loader and reflects the underlying crypto type ; callers don't
 // pick it.
 type AdminKey struct {
-	Algorithm string         // "ed25519" or "rsa"
-	Comment   string         // operator hint, e.g. "alice@acme.org" — not trusted
+	Algorithm string // "ed25519" or "rsa"
+	Comment   string // operator hint, e.g. "alice@acme.org" — not trusted
 	ed25519   ed25519.PublicKey
 	rsa       *rsa.PublicKey
 }

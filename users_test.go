@@ -90,9 +90,9 @@ func TestUserRegistry_RejectsAnonymous(t *testing.T) {
 	cases := []*Caller{
 		nil,
 		{},
-		{Subject: "abc"},                              // missing issuer
-		{Issuer: "https://dex"},                       // missing subject
-		{Dev: true, Subject: "dev:foo", Issuer: ""},   // dev synthetic caller
+		{Subject: "abc"},        // missing issuer
+		{Issuer: "https://dex"}, // missing subject
+		{Dev: true, Subject: "dev:foo", Issuer: ""}, // dev synthetic caller
 	}
 	for i, c := range cases {
 		_, _, err := reg.getOrCreateFromCaller(c)

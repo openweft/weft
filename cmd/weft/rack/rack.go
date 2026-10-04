@@ -18,9 +18,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft/cmd/weft/az"
 	"github.com/openweft/weft/cmd/weft/shared"
-	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -43,10 +43,10 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var azArg, format string
 	cmd := &cobra.Command{
-		Use:   "ls",
+		Use:     "ls",
 		Aliases: []string{"list"},
-		Short: "List racks (--az filters to one AZ)",
-		Args:  cobra.NoArgs,
+		Short:   "List racks (--az filters to one AZ)",
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {

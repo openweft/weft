@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openweft/weft/cmd/weft/internal/testutil"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/internal/testutil"
 	"google.golang.org/grpc"
 )
 

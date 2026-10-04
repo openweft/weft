@@ -183,9 +183,9 @@ func TestPlacementBlk_DefaultReplicaCount(t *testing.T) {
 // the operator can navigate the plan file.
 func TestPlacementBlk_RejectsInvalidProximity(t *testing.T) {
 	cases := []struct {
-		name  string
-		body  string
-		want  string // substring of the expected error
+		name string
+		body string
+		want string // substring of the expected error
 	}{
 		{"bad az", "placement {\n  az = \"differnt\"\n}", "placement.az"},
 		{"bad rack", "placement {\n  rack = \"no\"\n}", "placement.rack"},

@@ -10,12 +10,12 @@ import (
 // TestLifecycleIntegration_VMRegistryRoutesDelete is the
 // end-to-end test of the multi-host dispatch story:
 //
-//   1. Spin up an Adapter (single-host install).
-//   2. Register a fake remote host with a recording driver.
-//   3. RegisterVM placed on the fake host.
-//   4. Call DeleteVM(name) — the Adapter should route to the
-//      fake host's DeleteVM, NOT the local one.
-//   5. Verify the inventory entry is removed.
+//  1. Spin up an Adapter (single-host install).
+//  2. Register a fake remote host with a recording driver.
+//  3. RegisterVM placed on the fake host.
+//  4. Call DeleteVM(name) — the Adapter should route to the
+//     fake host's DeleteVM, NOT the local one.
+//  5. Verify the inventory entry is removed.
 //
 // This proves the integration: VM record + dispatch table are
 // the joint source of truth, and lifecycle methods consult them

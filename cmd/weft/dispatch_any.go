@@ -39,8 +39,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	agentv1 "github.com/openweft/weft-proto/agentv1"
 	weftv1 "github.com/openweft/weft-proto"
+	agentv1 "github.com/openweft/weft-proto/agentv1"
 
 	"github.com/openweft/weft/etcdjobs"
 )
@@ -50,8 +50,9 @@ import (
 // given host. Used in logs + by tests asserting which path took.
 // "attach" — AttachDrivers session is live for the host.
 // "agent_dispatch" — no AttachDrivers session ; fall back to the
-//   legacy transport (may itself have no session, in which case
-//   the actual Dispatch returns Unavailable).
+//
+//	legacy transport (may itself have no session, in which case
+//	the actual Dispatch returns Unavailable).
 func (s *weftServer) dispatchTransportLabel(hostUUID string) string {
 	if s.attach == nil {
 		return "agent_dispatch"

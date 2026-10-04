@@ -141,9 +141,9 @@ func TestVMsMatchingSelector(t *testing.T) {
 		{"vm.name=loom-1", []string{"loom-1"}},
 		{"vm.name=loom-1,vm.name=loom-2", []string{"loom-1", "loom-2"}},
 		{"role=loom", []string{"loom-1", "loom-2"}},
-		{"role=loom,tier=prod", []string{"loom-1"}}, // AND across keys
+		{"role=loom,tier=prod", []string{"loom-1"}},                   // AND across keys
 		{"role=loom,role=api", []string{"loom-1", "loom-2", "api-1"}}, // OR within key
-		{"role=loom,vm.name=loom-1", []string{"loom-1"}}, // mixed AND
+		{"role=loom,vm.name=loom-1", []string{"loom-1"}},              // mixed AND
 		{"role=missing", nil},
 		{"vm.name=lonely", []string{"lonely"}},
 		{"k=", nil}, // empty value, ignored

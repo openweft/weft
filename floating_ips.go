@@ -112,12 +112,12 @@ type floatingIPBlock struct {
 // point at this VM ?"). Locking is per-registry, not per-FIP — all
 // the methods are short.
 type floatingIPRegistry struct {
-	mu          sync.Mutex
-	storage     Storage
-	byUUID      map[string]FloatingIP
-	addrIdx     map[string]string                       // (networkUUID,address) → UUID
-	projectIdx  map[string]map[string]struct{}          // projectUUID → set-of-UUIDs
-	targetIdx   map[string]map[string]struct{}          // (kind,target) → set-of-UUIDs
+	mu         sync.Mutex
+	storage    Storage
+	byUUID     map[string]FloatingIP
+	addrIdx    map[string]string              // (networkUUID,address) → UUID
+	projectIdx map[string]map[string]struct{} // projectUUID → set-of-UUIDs
+	targetIdx  map[string]map[string]struct{} // (kind,target) → set-of-UUIDs
 }
 
 func loadFloatingIPRegistry(ctx context.Context, storage Storage) (*floatingIPRegistry, error) {

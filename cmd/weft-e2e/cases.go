@@ -154,7 +154,10 @@ func testVMFlavorMatchesCatalogue(c *Ctx) {
 	defer cancel()
 	flavorsResp, err := c.Client.ListFlavors(ctx, &weftv1.ListFlavorsRequest{})
 	c.require(err == nil, "ListFlavors: %v", err)
-	type shape struct{ cpu uint32; mem uint64 }
+	type shape struct {
+		cpu uint32
+		mem uint64
+	}
 	known := map[shape]string{}
 	for _, f := range flavorsResp.Flavors {
 		known[shape{cpu: uint32(f.Vcpu), mem: uint64(ramToMB(f.Ram))}] = f.Name

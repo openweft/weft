@@ -14,11 +14,11 @@ func TestCommand_Structure(t *testing.T) {
 		t.Errorf("root.Use : got %q, want subnet", root.Use)
 	}
 	want := map[string]bool{
-		"ls":                              false,
-		"show <uuid>":                     false,
+		"ls":                                   false,
+		"show <uuid>":                          false,
 		"create --network=<uuid> --cidr=<...>": false,
-		"update <uuid>":                   false,
-		"rm <uuid>":                       false,
+		"update <uuid>":                        false,
+		"rm <uuid>":                            false,
 	}
 	for _, sub := range root.Commands() {
 		want[sub.Use] = true

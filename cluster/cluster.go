@@ -148,7 +148,7 @@ type Host struct {
 	//   properties = { role = "control-plane", storage = "nvme" }
 	// Nil / empty = no operator constraints declared on this host.
 	Properties map[string]string `hcl:"properties,optional"`
-	SSH    *SSH              `hcl:"ssh,block"` // optional; used by the SSH-push access model
+	SSH        *SSH              `hcl:"ssh,block"` // optional; used by the SSH-push access model
 	// AgentConfig is the per-host override of the cluster-level
 	// agent_config { } block. Each non-nil field replaces the cluster
 	// default ; absent fields fall through. See AgentConfigFor.

@@ -20,17 +20,17 @@ func NewLinuxReconciler() *LinuxReconciler { return &LinuxReconciler{} }
 
 // Apply reconciles per-tap shaping. For each spec :
 //
-//	1. Lookup the tap link by name (skip with a warning if absent —
-//	   driver may not have created it yet at the time the event
-//	   landed ; next reconcile picks it up).
-//	2. Install HTB root qdisc + class with rate = EgressMbps.
-//	   This caps packets leaving the host TOWARD the VM (the
-//	   tap's egress queue from the host's POV).
-//	3. For ingress (packets leaving the VM toward the host) :
-//	   redirect to an ifb device "<tap>-ifb" via tc filter, then
-//	   shape the ifb's egress with the IngressMbps rate.
-//	   ifb is the standard linux trick for "ingress shaping" since
-//	   the kernel doesn't allow direct shaping on ingress qdiscs.
+//  1. Lookup the tap link by name (skip with a warning if absent —
+//     driver may not have created it yet at the time the event
+//     landed ; next reconcile picks it up).
+//  2. Install HTB root qdisc + class with rate = EgressMbps.
+//     This caps packets leaving the host TOWARD the VM (the
+//     tap's egress queue from the host's POV).
+//  3. For ingress (packets leaving the VM toward the host) :
+//     redirect to an ifb device "<tap>-ifb" via tc filter, then
+//     shape the ifb's egress with the IngressMbps rate.
+//     ifb is the standard linux trick for "ingress shaping" since
+//     the kernel doesn't allow direct shaping on ingress qdiscs.
 //
 // Zero rates skip the corresponding step (so a spec with only
 // EgressMbps set is fine).
@@ -126,7 +126,7 @@ func installEgressHTB(tap netlink.Link, mbps int) error {
 			Handle:    netlink.MakeHandle(RootHandleMajor, 0),
 			Parent:    netlink.HANDLE_ROOT,
 		},
-		Defcls: ClassHandleMinor,
+		Defcls:       ClassHandleMinor,
 		Rate2Quantum: 10,
 		Version:      3,
 	}

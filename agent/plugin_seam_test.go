@@ -46,9 +46,11 @@ func (seamHypervisor) DetachNIC(context.Context, string, string) error          
 
 type seamNetwork struct{}
 
-func (seamNetwork) HostInfo(context.Context) (drivers.HostInfo, error) { return drivers.HostInfo{}, nil }
+func (seamNetwork) HostInfo(context.Context) (drivers.HostInfo, error) {
+	return drivers.HostInfo{}, nil
+}
 func (seamNetwork) EnsureNetwork(context.Context, drivers.NetworkSpec) error { return nil }
-func (seamNetwork) DestroyNetwork(context.Context, string) error            { return nil }
+func (seamNetwork) DestroyNetwork(context.Context, string) error             { return nil }
 func (seamNetwork) AttachPort(context.Context, drivers.PortSpec) (drivers.NICHandle, error) {
 	return drivers.NICHandle{}, nil
 }
@@ -57,11 +59,11 @@ func (seamNetwork) RotateMeshPeer(context.Context, drivers.PortSpec) error { ret
 
 type seamVolume struct{}
 
-func (seamVolume) Name() string { return "seam" }
-func (seamVolume) Local() bool  { return true }
-func (seamVolume) HostInfo(context.Context) (drivers.HostInfo, error) { return drivers.HostInfo{}, nil }
+func (seamVolume) Name() string                                           { return "seam" }
+func (seamVolume) Local() bool                                            { return true }
+func (seamVolume) HostInfo(context.Context) (drivers.HostInfo, error)     { return drivers.HostInfo{}, nil }
 func (seamVolume) EnsureVolume(context.Context, drivers.VolumeSpec) error { return nil }
-func (seamVolume) DestroyVolume(context.Context, string) error           { return nil }
+func (seamVolume) DestroyVolume(context.Context, string) error            { return nil }
 func (seamVolume) AttachVolume(context.Context, string, string) (drivers.AttachedVolume, error) {
 	return drivers.AttachedVolume{}, nil
 }
@@ -85,13 +87,13 @@ func (seamVolume) CreateBackup(context.Context, drivers.BackupSpec) (drivers.Bac
 func (seamVolume) ListBackups(context.Context, string, string) ([]drivers.Backup, error) {
 	return nil, nil
 }
-func (seamVolume) DeleteBackup(context.Context, string) error                       { return nil }
+func (seamVolume) DeleteBackup(context.Context, string) error                      { return nil }
 func (seamVolume) RestoreBackup(context.Context, string, drivers.VolumeSpec) error { return nil }
 
 type seamImage struct{}
 
 func (seamImage) HostInfo(context.Context) (drivers.HostInfo, error) { return drivers.HostInfo{}, nil }
-func (seamImage) Pull(context.Context, string) error                { return nil }
-func (seamImage) LocalPath(context.Context, string) (string, error) { return "", nil }
-func (seamImage) Delete(context.Context, string) error              { return nil }
-func (seamImage) InCache(context.Context, string) (bool, error)     { return false, nil }
+func (seamImage) Pull(context.Context, string) error                 { return nil }
+func (seamImage) LocalPath(context.Context, string) (string, error)  { return "", nil }
+func (seamImage) Delete(context.Context, string) error               { return nil }
+func (seamImage) InCache(context.Context, string) (bool, error)      { return false, nil }

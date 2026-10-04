@@ -98,11 +98,11 @@ type Action struct {
 	Kind     ActionKind
 	Host     string // EnsureHost, PlaceReplica, EnsureImage, PushAgentConfig
 	DC       string
-	Service  string // PlaceReplica, GrowQuorum
-	Replica  int    // PlaceReplica (1-indexed)
-	From, To int    // GrowQuorum
+	Service  string   // PlaceReplica, GrowQuorum
+	Replica  int      // PlaceReplica (1-indexed)
+	From, To int      // GrowQuorum
 	Hosts    []string // MeshSync (the full desired member set)
-	Image    string // EnsureImage (OCI ref, e.g. quay.io/coreos/etcd:v3.6.0)
+	Image    string   // EnsureImage (OCI ref, e.g. quay.io/coreos/etcd:v3.6.0)
 	// Config is the rendered weft.hcl content for PushAgentConfig — carried
 	// here so renderAction is pure (no second pass over Cluster needed).
 	Config string
@@ -262,9 +262,9 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 			})
 		}
 		p.Actions = append(p.Actions, Action{
-			Kind:   EnsureHost,
-			Host:   h.ID,
-			DC:     h.DC,
+			Kind:       EnsureHost,
+			Host:       h.ID,
+			DC:         h.DC,
 			Properties: h.Properties,
 		})
 		newHosts = true
@@ -312,9 +312,9 @@ func Build(c *Cluster, infraOrder []*infra.Plan, cur State) (*Plan, error) {
 	//    before the first PlaceReplica that targets it. EnsureKernel comes
 	//    first so the kernel is on disk when RegisterMicroVM copies it into
 	//    the per-VM directory.
-	pulled := map[string]bool{}        // "<host>|<image>" → EnsureImage already emitted
-	kernelOnHost := map[string]bool{}  // "<host>" → EnsureKernel already emitted
-	initrdOnHost := map[string]bool{}  // "<host>" → EnsureInitrd already emitted
+	pulled := map[string]bool{}       // "<host>|<image>" → EnsureImage already emitted
+	kernelOnHost := map[string]bool{} // "<host>" → EnsureKernel already emitted
+	initrdOnHost := map[string]bool{} // "<host>" → EnsureInitrd already emitted
 	kernelRef, initrdRef := "", ""
 	if c.Microvm != nil {
 		kernelRef = c.Microvm.KernelRef

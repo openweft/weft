@@ -208,4 +208,3 @@ func (r *projectRegistry) applyKVEvent(ev KVEvent) {
 		}
 	}
 }
-

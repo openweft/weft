@@ -39,18 +39,18 @@ type PlatformEvent struct {
 // EventFilter is the per-subscription gate the bus applies before
 // pushing onto a subscriber's channel.
 //
-//   * KindPrefixes empty → accept every kind.
-//   * KindPrefixes non-empty → at least one entry must be a
+//   - KindPrefixes empty → accept every kind.
+//   - KindPrefixes non-empty → at least one entry must be a
 //     prefix of the event's Kind.
-//   * Visible == nil (and SeeAll false) → match nothing
+//   - Visible == nil (and SeeAll false) → match nothing
 //     (defensive default; SeeAll must be true for unscoped subs).
-//   * Visible non-nil → event's ProjectUUID must be in the set OR
+//   - Visible non-nil → event's ProjectUUID must be in the set OR
 //     the event has no ProjectUUID (global) — global events
 //     always reach every subscriber, ACL or not.
-//   * SeeAll true → bypass the Visible check entirely.
-//   * Project (when set) further narrows the result to one
+//   - SeeAll true → bypass the Visible check entirely.
+//   - Project (when set) further narrows the result to one
 //     project UUID, on top of Visible.
-//   * Subject (when set) narrows further to events whose
+//   - Subject (when set) narrows further to events whose
 //     `Subject` field matches exactly — used by weft / weft-microvm
 //     `events --vm <name>` to follow a single VM.
 type EventFilter struct {
@@ -99,9 +99,9 @@ func (f EventFilter) accepts(ev PlatformEvent) bool {
 // EventBus is the process-wide pub-sub abstraction every producer
 // and consumer talks through. Two implementations:
 //
-//   * LocalEventBus — in-process channels, default for single-host
+//   - LocalEventBus — in-process channels, default for single-host
 //     dev. No external dep at runtime.
-//   * NATSEventBus  — talks to a NATS cluster on subject
+//   - NATSEventBus  — talks to a NATS cluster on subject
 //     `weft.events.<kind>`. Production path, selected via HCL
 //     `event_bus { backend = "nats"; nats { url = ... } }`.
 //
@@ -184,7 +184,7 @@ func NewLocalEventBus() *LocalEventBus {
 //
 // The wall-clock timestamp is filled in when callers leave
 // ev.TsUnixNano == 0 so call-sites don't have to import "time".
-func (b *LocalEventBus)Publish(ev PlatformEvent) {
+func (b *LocalEventBus) Publish(ev PlatformEvent) {
 	if b == nil || b.closed.Load() {
 		return
 	}
@@ -213,7 +213,7 @@ func (b *LocalEventBus)Publish(ev PlatformEvent) {
 // drop, small enough that a stuck consumer doesn't bloat memory.
 //
 // Idempotent: calling cancel more than once is a no-op.
-func (b *LocalEventBus)Subscribe(filter EventFilter) (<-chan PlatformEvent, func()) {
+func (b *LocalEventBus) Subscribe(filter EventFilter) (<-chan PlatformEvent, func()) {
 	const bufSize = 128
 	s := &subscriber{
 		out:    make(chan PlatformEvent, bufSize),
@@ -236,7 +236,7 @@ func (b *LocalEventBus)Subscribe(filter EventFilter) (<-chan PlatformEvent, func
 
 // SubscriberCount returns the number of live subscribers — used
 // by diagnostics + tests.
-func (b *LocalEventBus)SubscriberCount() int {
+func (b *LocalEventBus) SubscriberCount() int {
 	if b == nil {
 		return 0
 	}

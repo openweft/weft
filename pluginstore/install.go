@@ -439,7 +439,7 @@ func (m *Manager) Uninstall(ctx context.Context, name, uuid string) error {
 	// downstream DeleteSecurityGroup loop succeed cleanly.
 	for _, n := range inst.Networks {
 		if _, err := m.client.SetNetworkDefaultSecurityGroups(ctx, &weftv1.SetNetworkDefaultSecurityGroupsRequest{
-			Uuid:        n,
+			Uuid:               n,
 			SecurityGroupUuids: nil,
 		}); err != nil {
 			errs = append(errs, fmt.Errorf("clear default SGs on network %s: %w", n, err))

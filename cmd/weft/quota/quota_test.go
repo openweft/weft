@@ -168,8 +168,8 @@ func TestCloneQuotas(t *testing.T) {
 func TestLooksLikeUUID(t *testing.T) {
 	cases := map[string]bool{
 		"e9c3b6c4-9ea2-4f3a-9c1d-2d5a2e3d6b7c": true,
-		"too-short": false,
-		"": false,
+		"too-short":                            false,
+		"":                                     false,
 	}
 	for in, want := range cases {
 		if got := looksLikeUUID(in); got != want {

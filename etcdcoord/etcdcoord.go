@@ -317,9 +317,9 @@ type HostEvent struct {
 
 // WatcherOptions configures a HostWatcher.
 type WatcherOptions struct {
-	Prefix    string       // defaults to HostsPrefix
-	Logger    *slog.Logger // defaults to discard
-	IncludeSelf string     // if non-empty, suppress events for this HostUUID
+	Prefix      string       // defaults to HostsPrefix
+	Logger      *slog.Logger // defaults to discard
+	IncludeSelf string       // if non-empty, suppress events for this HostUUID
 }
 
 // HostWatcher emits HostEvents on its channel until ctx is cancelled.
@@ -458,9 +458,9 @@ type Election struct {
 
 // ElectionOptions configures a leader election.
 type ElectionOptions struct {
-	Key      string        // etcd prefix the election locks on, e.g. "/weft/coord/elect/respawn/<rule_uuid>"
-	TTL      int           // session TTL in seconds ; default 10
-	Identity string        // value written to the leader key (defaults to host UUID)
+	Key      string // etcd prefix the election locks on, e.g. "/weft/coord/elect/respawn/<rule_uuid>"
+	TTL      int    // session TTL in seconds ; default 10
+	Identity string // value written to the leader key (defaults to host UUID)
 	Logger   *slog.Logger
 }
 
@@ -584,12 +584,12 @@ func (e *Election) Close() error {
 // within one TTL), and a healthy agent's session is kept alive by
 // the etcd-concurrency machinery without any work on our side.
 type ElectionPool struct {
-	cli     *clientv3.Client
-	ttlSec  int
-	log     *slog.Logger
-	mu      sync.Mutex
-	closed  bool
-	keyed   map[string]*concurrency.Session
+	cli    *clientv3.Client
+	ttlSec int
+	log    *slog.Logger
+	mu     sync.Mutex
+	closed bool
+	keyed  map[string]*concurrency.Session
 }
 
 // PoolOptions configures the pool. Zero values pick sensible

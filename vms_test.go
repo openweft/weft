@@ -47,9 +47,9 @@ func TestVMRegistry_Create(t *testing.T) {
 func TestVMRegistry_RejectsMissingFields(t *testing.T) {
 	reg, _ := loadVMRegistry(context.Background(), NewMemStorage())
 	cases := []CreateVMSpec{
-		{Name: "x", HostUUID: "h"},           // empty project
-		{ProjectUUID: "p", HostUUID: "h"},    // empty name
-		{ProjectUUID: "p", Name: "x"},        // empty host
+		{Name: "x", HostUUID: "h"},        // empty project
+		{ProjectUUID: "p", HostUUID: "h"}, // empty name
+		{ProjectUUID: "p", Name: "x"},     // empty host
 	}
 	for i, spec := range cases {
 		if _, err := reg.create(spec); err == nil {

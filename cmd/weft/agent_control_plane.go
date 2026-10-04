@@ -192,7 +192,7 @@ func (s *agentControlPlaneServer) Heartbeat(ctx context.Context, req *agentv1.He
 //
 // Observability (preserved from v0.4.49) :
 //   - weft_attach_drivers_calls_total{result=…} on every Init-accept
-//     + every termination.
+//   - every termination.
 //   - agent.attach_drivers.event PlatformEvents on every Init,
 //     Disconnect, and stray Dispatch/Result frame (Result frames
 //     that match a pending call go straight to the caller and don't
@@ -314,4 +314,3 @@ func (s *agentControlPlaneServer) forwardFrameEvent(hostUUID, rawKind string, ex
 		Meta:       meta,
 	})
 }
-

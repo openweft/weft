@@ -17,9 +17,9 @@ func TestCommand_Structure(t *testing.T) {
 	}
 	wantSub := map[string]bool{
 		"ls": false, "create <name>": false, "rm <name|uuid>": false,
-		"add-admin <name|uuid> <email>":    false,
-		"remove-admin <name|uuid> <email>": false,
-		"add-member <name|uuid> <email>":   false,
+		"add-admin <name|uuid> <email>":     false,
+		"remove-admin <name|uuid> <email>":  false,
+		"add-member <name|uuid> <email>":    false,
 		"remove-member <name|uuid> <email>": false,
 	}
 	for _, sub := range root.Commands() {
@@ -36,11 +36,11 @@ func TestLooksLikeUUID(t *testing.T) {
 	cases := map[string]bool{
 		"e9c3b6c4-9ea2-4f3a-9c1d-2d5a2e3d6b7c": true,
 		"E9C3B6C4-9EA2-4F3A-9C1D-2D5A2E3D6B7C": true,
-		"too-short": false,
+		"too-short":                            false,
 		"e9c3b6c4_9ea2_4f3a_9c1d_2d5a2e3d6b7c": false, // wrong separator
-		"e9c3b6c4-9ea2-4f3a-9c1d-2d5a2e3d6b7": false,  // 35 chars
-		"":                                            false,
-		"acme":                                        false,
+		"e9c3b6c4-9ea2-4f3a-9c1d-2d5a2e3d6b7":  false, // 35 chars
+		"":                                     false,
+		"acme":                                 false,
 	}
 	for in, want := range cases {
 		if got := looksLikeUUID(in); got != want {

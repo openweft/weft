@@ -33,14 +33,14 @@ type SchedulingRuleEntry struct {
 // without proto runtime deps. Conversion to/from the proto types
 // happens at the gRPC boundary.
 type RespawnPolicyJSON struct {
-	Enabled        bool              `json:"enabled"`
-	GracePeriodMs  int64             `json:"grace_period_ms,omitempty"`
-	MaxRestarts    int32             `json:"max_restarts,omitempty"`
-	WindowMs       int64             `json:"window_ms,omitempty"`
-	Backoff        string            `json:"backoff,omitempty"`
-	InitialDelayMs int64             `json:"initial_delay_ms,omitempty"`
-	Liveness       *HealthProbeJSON  `json:"liveness,omitempty"`
-	Readiness      *HealthProbeJSON  `json:"readiness,omitempty"`
+	Enabled        bool             `json:"enabled"`
+	GracePeriodMs  int64            `json:"grace_period_ms,omitempty"`
+	MaxRestarts    int32            `json:"max_restarts,omitempty"`
+	WindowMs       int64            `json:"window_ms,omitempty"`
+	Backoff        string           `json:"backoff,omitempty"`
+	InitialDelayMs int64            `json:"initial_delay_ms,omitempty"`
+	Liveness       *HealthProbeJSON `json:"liveness,omitempty"`
+	Readiness      *HealthProbeJSON `json:"readiness,omitempty"`
 }
 
 // HealthProbeJSON mirrors weft-proto's HealthProbe message ; same

@@ -108,10 +108,10 @@ func TestImpactedVMs_PortEvents_UseMetaVMUUID(t *testing.T) {
 func TestImpactedVMs_NetworkDefaults_OnlyInheritingPorts(t *testing.T) {
 	scope := newScope()
 	scope.portsByNetwork["net-1"] = []weft.Port{
-		{UUID: "p1", VMUUID: "vm-a", NetworkUUID: "net-1"},                                            // inherits
-		{UUID: "p2", VMUUID: "vm-b", NetworkUUID: "net-1", SecurityGroups: []string{"sg-override"}},   // not affected
-		{UUID: "p3", VMUUID: "vm-c", NetworkUUID: "net-1"},                                            // inherits
-		{UUID: "p4", VMUUID: "vm-a", NetworkUUID: "net-1"},                                            // dup VM, dedup
+		{UUID: "p1", VMUUID: "vm-a", NetworkUUID: "net-1"},                                          // inherits
+		{UUID: "p2", VMUUID: "vm-b", NetworkUUID: "net-1", SecurityGroups: []string{"sg-override"}}, // not affected
+		{UUID: "p3", VMUUID: "vm-c", NetworkUUID: "net-1"},                                          // inherits
+		{UUID: "p4", VMUUID: "vm-a", NetworkUUID: "net-1"},                                          // dup VM, dedup
 	}
 	p := New(scope, nil, silentLog())
 	got := p.ImpactedVMs(weft.PlatformEvent{

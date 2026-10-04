@@ -99,12 +99,12 @@ func (g *grpcControlPlane) RegisterHost(ctx context.Context, reg HostRegistratio
 // actually needs (the per-host capability list, the dispatch path
 // for RPCs) is already covered by two other wire surfaces :
 //
-//   1. RegisterHost.Drivers — carries the full per-kind capability
-//      matrix (Kind + Arches), so the scheduler can match
-//      arch → driver without seeing the handles themselves.
-//   2. AgentDispatch.Connect — bidirectional stream the server uses
-//      to send DriverRequest to the agent ; the agent's local
-//      DriverHandler routes the op to the right in-process handle.
+//  1. RegisterHost.Drivers — carries the full per-kind capability
+//     matrix (Kind + Arches), so the scheduler can match
+//     arch → driver without seeing the handles themselves.
+//  2. AgentDispatch.Connect — bidirectional stream the server uses
+//     to send DriverRequest to the agent ; the agent's local
+//     DriverHandler routes the op to the right in-process handle.
 //
 // So AttachDrivers over gRPC is correctly a local-side no-op for
 // the wire : the server already has the capability list, and the

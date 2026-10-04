@@ -15,11 +15,11 @@ import (
 // programmable responses. Implements the HostRegistryClient
 // surface so the gRPC stub takes it directly.
 type fakeGRPCClient struct {
-	regCalls  []*weftv1.RegisterHostRequest
-	hbCalls   []*weftv1.HeartbeatHostRequest
-	regResp   *weftv1.RegisterHostResponse
-	regErr    error
-	hbErr     error
+	regCalls []*weftv1.RegisterHostRequest
+	hbCalls  []*weftv1.HeartbeatHostRequest
+	regResp  *weftv1.RegisterHostResponse
+	regErr   error
+	hbErr    error
 }
 
 func (f *fakeGRPCClient) RegisterHost(_ context.Context, in *weftv1.RegisterHostRequest, _ ...grpc.CallOption) (*weftv1.RegisterHostResponse, error) {

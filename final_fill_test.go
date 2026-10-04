@@ -213,4 +213,3 @@ func TestListCachedImages_ReadDirError(t *testing.T) {
 		t.Errorf("ReadDir on a file should error")
 	}
 }
-

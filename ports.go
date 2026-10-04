@@ -170,7 +170,7 @@ func (r *portRegistry) unindexLocked(p Port) {
 	delete(r.macIdx, portMACKey(p.NetworkUUID, p.MAC))
 }
 
-func portIPKey(networkUUID, ip string) string  { return networkUUID + "\x00" + ip }
+func portIPKey(networkUUID, ip string) string   { return networkUUID + "\x00" + ip }
 func portMACKey(networkUUID, mac string) string { return networkUUID + "\x00" + mac }
 
 // saveLocked writes the registry via Storage. Caller holds mu.

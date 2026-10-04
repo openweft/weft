@@ -45,7 +45,7 @@ func TestStart_AttestOff_BringupUnchanged(t *testing.T) {
 		StateDir:     t.TempDir(),
 		ControlPlane: cp,
 		LocalHandles: &DriverHandles{}, // skip the driver-plugin launch
-		Properties:       map[string]string{"role": "worker"},
+		Properties:   map[string]string{"role": "worker"},
 		// AttestTPM defaults to false.
 	})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestStart_AttestOn_StampsAKName(t *testing.T) {
 		StateDir:     t.TempDir(),
 		ControlPlane: cp,
 		LocalHandles: &DriverHandles{},
-		Properties:       origProperties,
+		Properties:   origProperties,
 		AttestTPM:    true,
 		AttestClient: &fakeAttestClient{completeOk: true, granted: true, admitName: []byte(akName)},
 	})

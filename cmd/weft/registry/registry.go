@@ -38,10 +38,10 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 
 func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	return &cobra.Command{
-		Use:   "ls",
+		Use:     "ls",
 		Aliases: []string{"list"},
-		Short: "List registry aliases",
-		Args:  cobra.NoArgs,
+		Short:   "List registry aliases",
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {

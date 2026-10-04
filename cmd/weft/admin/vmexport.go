@@ -20,18 +20,18 @@ import (
 	"os"
 	"strings"
 
-	"github.com/openweft/weft/cmd/weft/shared"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/shared"
 	"github.com/spf13/cobra"
 )
 
 // vmExportCommand returns the `weft admin vm-export` cobra command.
 func vmExportCommand(socket, sshSocket, sshKey *string) *cobra.Command {
 	var (
-		out         string
-		excludeRaw  []string
-		includeRaw  []string
-		formatJSON  bool
+		out        string
+		excludeRaw []string
+		includeRaw []string
+		formatJSON bool
 	)
 	cmd := &cobra.Command{
 		Use:   "vm-export",

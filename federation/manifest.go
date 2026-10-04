@@ -112,7 +112,7 @@ func (m *FederationManifest) FindMember(name string) *Cluster {
 //   - DenyAllVerifier       : safe default, refuses every signature.
 //   - Ed25519Verifier       : single fixed ed25519 public key.
 //   - AdminKeyVerifier      : multi-key (ed25519 + RSA), rotation-friendly,
-//                             loadable from a PEM bundle. See adminkey.go.
+//     loadable from a PEM bundle. See adminkey.go.
 //
 // The cosign-keyless path (GitHub OIDC) is the next addition ;
 // the AdminKey path covers the air-gapped and SSH-key-rooted

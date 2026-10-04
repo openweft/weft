@@ -171,16 +171,16 @@ func MintUser(accountSeed []byte, name string, subscribeAllow, publishAllow []st
 // for the given user identity. Format matches what nats-server's
 // `nats.UserCredentials(...)` client option reads :
 //
-//   -----BEGIN NATS USER JWT-----
-//   <jwt>
-//   ------END NATS USER JWT------
+//	-----BEGIN NATS USER JWT-----
+//	<jwt>
+//	------END NATS USER JWT------
 //
-//   ************************* IMPORTANT *************************
-//   NKEY Seed printed below ...
+//	************************* IMPORTANT *************************
+//	NKEY Seed printed below ...
 //
-//   -----BEGIN USER NKEY SEED-----
-//   <seed>
-//   ------END USER NKEY SEED------
+//	-----BEGIN USER NKEY SEED-----
+//	<seed>
+//	------END USER NKEY SEED------
 //
 // Centralised here so the renderer + the per-VM credentials
 // materialiser ([[weft-tenant-event-access]] Phase 2 in

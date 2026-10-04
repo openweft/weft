@@ -190,9 +190,9 @@ func TestReflinkSnapshotStore_CreateRejectsEmpty(t *testing.T) {
 // small stub file on Create so the registry-first ordering and
 // path-derivation can both be asserted.
 type fakeSnapshotStore struct {
-	mu        sync.Mutex
-	creates   []fakeSnapshotCall
-	deletes   []string
+	mu         sync.Mutex
+	creates    []fakeSnapshotCall
+	deletes    []string
 	failCreate error
 	failDelete error
 }

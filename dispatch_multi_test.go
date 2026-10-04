@@ -53,8 +53,8 @@ func adapterForDispatchTests(t *testing.T) *Adapter {
 
 type noopStorage struct{}
 
-func (noopStorage) Load(c context.Context) ([]byte, error)        { return nil, nil }
-func (noopStorage) Save(c context.Context, blob []byte) error     { return nil }
+func (noopStorage) Load(c context.Context) ([]byte, error)    { return nil, nil }
+func (noopStorage) Save(c context.Context, blob []byte) error { return nil }
 
 func TestRegisterHostHandleSet_Validation(t *testing.T) {
 	a := adapterForDispatchTests(t)

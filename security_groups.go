@@ -109,8 +109,8 @@ type securityGroupRegistry struct {
 	mu         sync.Mutex
 	storage    Storage
 	byUUID     map[string]SecurityGroup
-	nameIdx    map[string]string                // (projectUUID,name) → UUID
-	projectIdx map[string]map[string]struct{}   // projectUUID → set-of-UUIDs
+	nameIdx    map[string]string              // (projectUUID,name) → UUID
+	projectIdx map[string]map[string]struct{} // projectUUID → set-of-UUIDs
 }
 
 func loadSecurityGroupRegistry(ctx context.Context, storage Storage) (*securityGroupRegistry, error) {

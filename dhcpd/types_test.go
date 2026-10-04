@@ -68,7 +68,7 @@ func TestOptions_Validate(t *testing.T) {
 		t.Errorf("happy : %v", err)
 	}
 	for name, opt := range map[string]Options{
-		"empty iface": {ServerIP: netip.MustParseAddr("10.0.0.1"), Source: good.Source},
+		"empty iface":  {ServerIP: netip.MustParseAddr("10.0.0.1"), Source: good.Source},
 		"bad serverip": {Interface: "br0", Source: good.Source},
 		"nil source":   {Interface: "br0", ServerIP: netip.MustParseAddr("10.0.0.1")},
 	} {

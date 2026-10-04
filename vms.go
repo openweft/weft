@@ -85,13 +85,13 @@ const (
 
 // VM is one entry in the inventory.
 type VM struct {
-	UUID        string    `json:"uuid"`
-	ProjectUUID string    `json:"project_uuid"`
-	Name        string    `json:"name"`
-	HostUUID    string    `json:"host_uuid"`
-	Image       string    `json:"image,omitempty"`
-	CPUCount    int       `json:"cpu_count,omitempty"`
-	MemoryMiB   int       `json:"memory_mib,omitempty"`
+	UUID        string `json:"uuid"`
+	ProjectUUID string `json:"project_uuid"`
+	Name        string `json:"name"`
+	HostUUID    string `json:"host_uuid"`
+	Image       string `json:"image,omitempty"`
+	CPUCount    int    `json:"cpu_count,omitempty"`
+	MemoryMiB   int    `json:"memory_mib,omitempty"`
 	// Architecture is the guest's required CPU arch. Drives dispatch
 	// on multi-driver hosts (Apple Silicon running VZ + QEMU
 	// side-by-side : arm64 → vz, amd64 → qemu) via
@@ -150,7 +150,7 @@ type VM struct {
 	// written before the field landed.
 	Status      string    `json:"status,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
-	LastStartAt  time.Time    `json:"last_start_at,omitempty"`
+	LastStartAt time.Time `json:"last_start_at,omitempty"`
 	// VsockCID is the AF_VSOCK context-id the hypervisor assigns to
 	// this guest. Allocated deterministically from the VM UUID at
 	// RegisterMicroVM time ; consumed by GuestPodPlane.Attach to
@@ -188,11 +188,11 @@ type vmBlock struct {
 	State        string              `hcl:"state,optional"`
 	// Status — administrative intent (V0.13.0). Optional so VM
 	// blocks written before the field landed still decode.
-	Status       string              `hcl:"status,optional"`
-	CreatedAt    string              `hcl:"created_at"`
-	LastStartAt  string              `hcl:"last_start_at,optional"`
-	VsockCID     int                 `hcl:"vsock_cid,optional"`
-	RestartCount int                 `hcl:"restart_count,optional"`
+	Status       string `hcl:"status,optional"`
+	CreatedAt    string `hcl:"created_at"`
+	LastStartAt  string `hcl:"last_start_at,optional"`
+	VsockCID     int    `hcl:"vsock_cid,optional"`
+	RestartCount int    `hcl:"restart_count,optional"`
 }
 
 // requestedGPUBlock is the HCL on-disk shape for one GPURequest
@@ -225,11 +225,11 @@ type requestedPCIBlock struct {
 // vmRegistry mirrors the multi-tenant registries (networks,
 // volumes, security_groups, ports). Four indexes:
 //
-//   byUUID    — primary lookup, every public method goes through it
-//   nameIdx   — (projectUUID,name) → UUID, scoped per project
-//   projectIdx — projectUUID → set-of-UUIDs (list-by-project)
-//   hostIdx   — hostUUID → set-of-UUIDs (list-by-host, used by the
-//               future reconciler + by HostHandle disconnect cleanup)
+//	byUUID    — primary lookup, every public method goes through it
+//	nameIdx   — (projectUUID,name) → UUID, scoped per project
+//	projectIdx — projectUUID → set-of-UUIDs (list-by-project)
+//	hostIdx   — hostUUID → set-of-UUIDs (list-by-host, used by the
+//	            future reconciler + by HostHandle disconnect cleanup)
 type vmRegistry struct {
 	mu         sync.Mutex
 	storage    Storage   // blob-mode backend (legacy / file / mem)

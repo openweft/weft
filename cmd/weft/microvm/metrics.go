@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/openweft/weft/cmd/weft/shared"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -49,16 +49,16 @@ func metricsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(map[string]any{
-					"vm_uuid":             resp.VmUuid,
-					"sampled_at_unix_ns":  resp.SampledAtUnixNs,
-					"cpu_percent":         resp.CpuPercent,
-					"mem_used_mib":        resp.MemUsedMib,
-					"mem_total_mib":       resp.MemTotalMib,
-					"net_rx_bps":          resp.NetRxBps,
-					"net_tx_bps":          resp.NetTxBps,
-					"disk_read_bps":       resp.DiskReadBps,
-					"disk_write_bps":      resp.DiskWriteBps,
-					"uptime_ms":           resp.UptimeMs,
+					"vm_uuid":            resp.VmUuid,
+					"sampled_at_unix_ns": resp.SampledAtUnixNs,
+					"cpu_percent":        resp.CpuPercent,
+					"mem_used_mib":       resp.MemUsedMib,
+					"mem_total_mib":      resp.MemTotalMib,
+					"net_rx_bps":         resp.NetRxBps,
+					"net_tx_bps":         resp.NetTxBps,
+					"disk_read_bps":      resp.DiskReadBps,
+					"disk_write_bps":     resp.DiskWriteBps,
+					"uptime_ms":          resp.UptimeMs,
 				})
 			}
 			fmt.Printf("VM            %s\n", resp.VmUuid)

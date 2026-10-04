@@ -42,8 +42,8 @@ var validShells = []string{"bash", "zsh", "fish", "powershell"}
 // vendor/github.com/spf13/cobra/args.go).
 func Command() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:       "completion <bash|zsh|fish|powershell>",
-		Short:     "Generate shell completion script",
+		Use:   "completion <bash|zsh|fish|powershell>",
+		Short: "Generate shell completion script",
 		Long: `Generate the autocompletion script for the named shell.
 
 Quick eval (lazy install, current shell only):

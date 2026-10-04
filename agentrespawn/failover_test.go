@@ -290,9 +290,9 @@ type flakyCoord struct {
 	calls     int
 }
 
-func (f *flakyCoord) LocalHostUUID() string         { return f.base.LocalHostUUID() }
-func (f *flakyCoord) VMsOnHost(h string) []VMRef    { return f.base.VMsOnHost(h) }
-func (f *flakyCoord) ListAllVMs() []VMRef           { return f.base.ListAllVMs() }
+func (f *flakyCoord) LocalHostUUID() string          { return f.base.LocalHostUUID() }
+func (f *flakyCoord) VMsOnHost(h string) []VMRef     { return f.base.VMsOnHost(h) }
+func (f *flakyCoord) ListAllVMs() []VMRef            { return f.base.ListAllVMs() }
 func (f *flakyCoord) MarkHostDown(uuid string) error { return f.base.MarkHostDown(uuid) }
 func (f *flakyCoord) ClaimVM(uuid string) error {
 	f.mu.Lock()
