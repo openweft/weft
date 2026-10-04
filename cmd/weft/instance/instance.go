@@ -4,6 +4,7 @@ package instance
 import (
 	"context"
 
+	weftv1 "github.com/openweft/weft-proto"
 	deletecmd "github.com/openweft/weft/cmd/weft/instance/delete"
 	"github.com/openweft/weft/cmd/weft/instance/gc"
 	"github.com/openweft/weft/cmd/weft/instance/logs"
@@ -19,7 +20,6 @@ import (
 	"github.com/openweft/weft/cmd/weft/instance/timings"
 	"github.com/openweft/weft/cmd/weft/instance/uefi"
 	"github.com/openweft/weft/cmd/weft/shared"
-	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 

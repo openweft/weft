@@ -18,8 +18,8 @@ import (
 	"time"
 
 	weft "github.com/openweft/weft"
-	"github.com/openweft/weft/etcdcoord"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/etcdcoord"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -438,4 +438,3 @@ func (s *weftServer) DeleteHost(ctx context.Context, req *weftv1.DeleteHostReque
 	}
 	return &weftv1.DeleteHostResponse{}, nil
 }
-

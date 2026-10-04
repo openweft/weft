@@ -625,4 +625,3 @@ func TestMaterialiseConfigFile_RenameFailure(t *testing.T) {
 		t.Errorf("error should mention rename, got: %v", err)
 	}
 }
-

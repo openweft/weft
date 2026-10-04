@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/openweft/weft/cmd/weft/internal/testutil"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/internal/testutil"
 )
 
 func strPtr(s string) *string { return &s }
@@ -16,9 +16,9 @@ func TestCommand_Structure(t *testing.T) {
 		t.Errorf("root.Use : got %q", root.Use)
 	}
 	want := map[string]bool{
-		"ls":                       false,
-		"set":                      false,
-		"rm <uuid|name>":           false,
+		"ls":                         false,
+		"set":                        false,
+		"rm <uuid|name>":             false,
 		"search <uuid|name> <query>": false,
 	}
 	for _, sub := range root.Commands() {

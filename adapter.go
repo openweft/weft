@@ -483,12 +483,12 @@ type Adapter struct {
 	// schedRules carry selector + target_count for nominal binding ;
 	// registryRemotes is the OCI registry alias map. See
 	// resources_adapter.go.
-	volumePropReg   *volumePropertyRegistry
-	shareReg        *shareRegistry
-	bucketReg       *bucketRegistry
-	sshKeyCatReg    *sshKeyCatalogueRegistry
-	schedRuleReg    *schedulingRuleRegistry
-	registryRemReg  *registryRemoteRegistry
+	volumePropReg  *volumePropertyRegistry
+	shareReg       *shareRegistry
+	bucketReg      *bucketRegistry
+	sshKeyCatReg   *sshKeyCatalogueRegistry
+	schedRuleReg   *schedulingRuleRegistry
+	registryRemReg *registryRemoteRegistry
 	// vmReg holds the VM inventory — one entry per managed VM,
 	// each carrying its host_uuid for multi-host dispatch. See
 	// vms.go.

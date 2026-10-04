@@ -89,9 +89,9 @@ type userBlock struct {
 // userRegistry is the in-memory cache plus the helpers that keep
 // it in sync with the Storage backend.
 type userRegistry struct {
-	mu        sync.Mutex
-	storage   Storage
-	byUUID    map[string]User
+	mu         sync.Mutex
+	storage    Storage
+	byUUID     map[string]User
 	subjectIdx map[string]string // "<issuer>\x00<subject>" → UUID
 }
 

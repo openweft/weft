@@ -19,8 +19,8 @@ import (
 	"github.com/nats-io/nats.go"
 
 	weft "github.com/openweft/weft"
-	"github.com/openweft/weft/firewallpub"
 	"github.com/openweft/weft-microvm-init/pkg/pod"
+	"github.com/openweft/weft/firewallpub"
 )
 
 func TestStatusReceiver_EndToEnd_NATS_to_Bus(t *testing.T) {

@@ -12,8 +12,8 @@ type fakeScope struct {
 	networks map[string]weft.Network
 }
 
-func (f *fakeScope) ListVMsForHost(h string) []weft.VM        { return f.vms[h] }
-func (f *fakeScope) ListFloatingIPs() []weft.FloatingIP       { return f.fips }
+func (f *fakeScope) ListVMsForHost(h string) []weft.VM  { return f.vms[h] }
+func (f *fakeScope) ListFloatingIPs() []weft.FloatingIP { return f.fips }
 func (f *fakeScope) NetworkByUUID(u string) (weft.Network, bool) {
 	n, ok := f.networks[u]
 	return n, ok

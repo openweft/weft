@@ -57,10 +57,10 @@ import (
 // The driver layer passes BDF through to QEMU's `-device
 // vfio-pci,host=<BDF>` flag verbatim.
 type PCIDevice struct {
-	BDF      string `json:"bdf"`                 // "0000:65:00.1"
-	VendorID string `json:"vendor_id"`           // "8086" — PCI Code (lowercase hex, no 0x prefix)
-	DeviceID string `json:"device_id"`           // "1572"
-	Driver   string `json:"driver,omitempty"`    // kernel driver bound to the device (e.g. "vfio-pci")
+	BDF      string `json:"bdf"`              // "0000:65:00.1"
+	VendorID string `json:"vendor_id"`        // "8086" — PCI Code (lowercase hex, no 0x prefix)
+	DeviceID string `json:"device_id"`        // "1572"
+	Driver   string `json:"driver,omitempty"` // kernel driver bound to the device (e.g. "vfio-pci")
 }
 
 // PCIRequest is one entry in ScheduleRequest.RequestedPCI. The

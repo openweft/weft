@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/openweft/weft/cmd/weft/internal/testutil"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/internal/testutil"
 )
 
 // TestSnapshotCommand_Structure asserts the four snapshot leaves

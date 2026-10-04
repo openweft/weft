@@ -44,7 +44,7 @@ import (
 // mirror the standard DHCPv4 options the server emits :
 //
 //   - Yiaddr      → option type 1 (subnet mask is derived from
-//                   the Lease's prefix length)
+//     the Lease's prefix length)
 //   - Router      → option 3
 //   - DNSServers  → option 6
 //   - Domain      → option 15 (optional)

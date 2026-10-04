@@ -19,8 +19,8 @@ import (
 // digest refs distinguishing host:port from host:tag).
 func TestParseImageRef(t *testing.T) {
 	cases := []struct {
-		name, in            string
-		host, repo, tag     string
+		name, in        string
+		host, repo, tag string
 	}{
 		{
 			name: "ghcr fully qualified",

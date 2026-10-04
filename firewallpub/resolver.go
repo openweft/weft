@@ -43,11 +43,11 @@ type Snapshot interface {
 //
 //  1. For every port attached to vmUUID :
 //     - pick the effective SG list (Port.SecurityGroups, falling back
-//       to Network.DefaultSecurityGroups when the port carries none).
+//     to Network.DefaultSecurityGroups when the port carries none).
 //     - resolve each SG to its rule list.
 //     - expand every remote_group reference into one rule per
-//       /32 (IPv4) or /128 (IPv6) of the other ports currently bound
-//       to that SG.
+//     /32 (IPv4) or /128 (IPv6) of the other ports currently bound
+//     to that SG.
 //
 //  2. Translate weft.SecurityRule to pod.FirewallRule (int → uint16
 //     for ports, "any" → "" for protocol, drop rules whose remote_group

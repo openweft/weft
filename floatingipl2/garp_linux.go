@@ -80,15 +80,15 @@ func buildGratuitousARPFrame(mac net.HardwareAddr, ip [4]byte) []byte {
 	copy(frame[6:12], mac)
 	binary.BigEndian.PutUint16(frame[12:14], unix.ETH_P_ARP)
 	// ARP.
-	binary.BigEndian.PutUint16(frame[14:16], 1)               // htype = Ethernet
-	binary.BigEndian.PutUint16(frame[16:18], 0x0800)          // ptype = IPv4
-	frame[18] = 6                                              // hlen
-	frame[19] = 4                                              // plen
-	binary.BigEndian.PutUint16(frame[20:22], 1)               // op = request (gARP convention)
-	copy(frame[22:28], mac)                                    // sha = sender MAC
-	copy(frame[28:32], ip[:])                                  // spa = sender IP
+	binary.BigEndian.PutUint16(frame[14:16], 1)      // htype = Ethernet
+	binary.BigEndian.PutUint16(frame[16:18], 0x0800) // ptype = IPv4
+	frame[18] = 6                                    // hlen
+	frame[19] = 4                                    // plen
+	binary.BigEndian.PutUint16(frame[20:22], 1)      // op = request (gARP convention)
+	copy(frame[22:28], mac)                          // sha = sender MAC
+	copy(frame[28:32], ip[:])                        // spa = sender IP
 	// tha = 00:00:00:00:00:00 (already zero from make)
-	copy(frame[38:42], ip[:])                                  // tpa = same IP (gARP marker)
+	copy(frame[38:42], ip[:]) // tpa = same IP (gARP marker)
 	return frame
 }
 

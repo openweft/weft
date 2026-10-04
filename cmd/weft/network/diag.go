@@ -25,8 +25,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/openweft/weft/cmd/weft/shared"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -63,10 +63,10 @@ func diagCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 // machine-readable consumer (Terraform provider, CI gate) can
 // import the shape.
 type DiagReport struct {
-	VMName       string                  `json:"vm_name"`
-	Networks     []*weftv1.NetworkInfo   `json:"networks,omitempty"`
-	FloatingIPs  []*weftv1.FloatingIPInfo `json:"floating_ips,omitempty"`
-	Ports        []*weftv1.PortInfo      `json:"ports,omitempty"`
+	VMName      string                   `json:"vm_name"`
+	Networks    []*weftv1.NetworkInfo    `json:"networks,omitempty"`
+	FloatingIPs []*weftv1.FloatingIPInfo `json:"floating_ips,omitempty"`
+	Ports       []*weftv1.PortInfo       `json:"ports,omitempty"`
 }
 
 func collectDiag(ctx context.Context, c weftv1.WeftAgentClient, vmName, project string) (*DiagReport, error) {
@@ -193,6 +193,7 @@ func dumpDiagJSON(r *DiagReport) error {
 // quad inputs that may carry a trailing dot from DNS resolution.
 // Kept here so the diag file is self-contained.
 func trimDot(s string) string { return strings.TrimSuffix(s, ".") }
+
 var _ = trimDot
 
 // fmtRate formats a Mbps integer as a column-friendly "<N>Mbps", or

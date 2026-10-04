@@ -68,15 +68,15 @@ const (
 // query later (the host could have come back online by the time
 // they look).
 type Zombie struct {
-	UUID            string
-	Name            string
-	ProjectUUID     string
-	HostUUID        string
-	Kind            ZombieKind
-	Reason          string
-	DetectedAt      time.Time
-	DeploymentType  string // properties["deployment.type"], for the action policy
-	HostDownSince   time.Time
+	UUID           string
+	Name           string
+	ProjectUUID    string
+	HostUUID       string
+	Kind           ZombieKind
+	Reason         string
+	DetectedAt     time.Time
+	DeploymentType string // properties["deployment.type"], for the action policy
+	HostDownSince  time.Time
 }
 
 // Report is the result of one Sweep. Useful for the CLI to render

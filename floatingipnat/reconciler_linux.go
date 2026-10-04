@@ -294,10 +294,10 @@ func ruleComment(vmName, kind string) []byte {
 	}
 	// NFTNL_UDATA_RULE_COMMENT = 0 ; format is type(1) + len(1) + data.
 	out := make([]byte, 0, 2+len(comment)+1)
-	out = append(out, 0)                          // type = comment
-	out = append(out, byte(len(comment)+1))       // len incl. NUL
+	out = append(out, 0)                    // type = comment
+	out = append(out, byte(len(comment)+1)) // len incl. NUL
 	out = append(out, []byte(comment)...)
-	out = append(out, 0)                          // NUL terminator
+	out = append(out, 0) // NUL terminator
 	return out
 }
 

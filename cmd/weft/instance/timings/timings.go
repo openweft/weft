@@ -23,8 +23,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/openweft/weft/cmd/weft/shared"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -101,9 +101,9 @@ func renderTimeline(events []*weftv1.TimingEvent, name string) error {
 
 func dumpJSON(events []*weftv1.TimingEvent) error {
 	type out struct {
-		Name      string            `json:"name"`
-		TsUnixNs  int64             `json:"ts_unix_ns"`
-		Meta      map[string]string `json:"meta,omitempty"`
+		Name     string            `json:"name"`
+		TsUnixNs int64             `json:"ts_unix_ns"`
+		Meta     map[string]string `json:"meta,omitempty"`
 	}
 	flat := make([]out, len(events))
 	for i, e := range events {

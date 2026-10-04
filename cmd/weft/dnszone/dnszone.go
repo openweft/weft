@@ -17,8 +17,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/openweft/weft/cmd/weft/shared"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -41,10 +41,10 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var project, format string
 	cmd := &cobra.Command{
-		Use:   "ls",
+		Use:     "ls",
 		Aliases: []string{"list"},
-		Short: "List DNS zones",
-		Args:  cobra.NoArgs,
+		Short:   "List DNS zones",
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
@@ -249,4 +249,3 @@ func dumpJSON(zones []*weftv1.DNSZoneInfo) error {
 	enc.SetIndent("", "  ")
 	return enc.Encode(flat)
 }
-

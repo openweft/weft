@@ -36,9 +36,9 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/openweft/weft"
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft/etcdcoord"
 	"github.com/openweft/weft/respawn"
-	weftv1 "github.com/openweft/weft-proto"
 )
 
 // SchedulingRulesReader is the slice of the Adapter surface the
@@ -67,16 +67,16 @@ type VMStatusReader interface {
 // expires. Captured as an interface so tests can drive failover
 // scenarios without a real etcd cluster.
 //
-//   LocalHostUUID returns the running agent's own host UUID — the
-//   target for claim operations.
+//	LocalHostUUID returns the running agent's own host UUID — the
+//	target for claim operations.
 //
-//   VMsOnHost returns the (name, project) pairs of every VM the
-//   inventory pins to hostUUID. Used to enumerate orphans when a
-//   HostDown event fires.
+//	VMsOnHost returns the (name, project) pairs of every VM the
+//	inventory pins to hostUUID. Used to enumerate orphans when a
+//	HostDown event fires.
 //
-//   ClaimVM atomically reassigns a VM's host_uuid to LocalHostUUID
-//   and publishes vm.ownership_claimed on the platform bus. Wraps
-//   adapter.MigrateVM in production.
+//	ClaimVM atomically reassigns a VM's host_uuid to LocalHostUUID
+//	and publishes vm.ownership_claimed on the platform bus. Wraps
+//	adapter.MigrateVM in production.
 //
 // V0.1.2 hooks all three to *weft.Adapter via cmd/weft/respawn_-
 // subscriber.go ; integration tests provide a fake.
@@ -129,10 +129,10 @@ type Subscriber struct {
 	// WithCoordinator ; if any is nil (specifically hostEvents),
 	// the failover path is disabled and the Subscriber behaves like
 	// V0.1 (per-host respawn only).
-	coord       HostCoordinator
-	hostEvents  <-chan etcdcoord.HostEvent
-	etcdCli     *clientv3.Client
-	electionPfx string                // defaults to "/weft/coord/elect/respawn"
+	coord        HostCoordinator
+	hostEvents   <-chan etcdcoord.HostEvent
+	etcdCli      *clientv3.Client
+	electionPfx  string                  // defaults to "/weft/coord/elect/respawn"
 	electionPool *etcdcoord.ElectionPool // V0.1.6 : reuse sessions per rule
 
 	mu       sync.Mutex

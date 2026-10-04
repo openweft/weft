@@ -10,8 +10,8 @@ import (
 	"errors"
 	"testing"
 
-	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft-client"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc"
 )
 

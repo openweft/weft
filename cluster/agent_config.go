@@ -4,7 +4,7 @@
 // that weft up pushes to /etc/weft/weft.hcl on each host, so operators don't
 // have to hand-edit the file on every node.
 //
-// IMPORTANT — duplication note
+// # IMPORTANT — duplication note
 //
 // The struct hierarchy below intentionally mirrors fileConfig in
 // cmd/weft/config.go, because the HCL we produce here is decoded by exactly
@@ -25,16 +25,16 @@ import (
 // overlays only replace cluster-level defaults when the host explicitly sets
 // the field (same precedence rule as in cmd/weft/config.go).
 type AgentConfigBlock struct {
-	Socket            *string                  `hcl:"socket,optional"`
-	SSHSocket         *string                  `hcl:"ssh_socket,optional"`
-	SSHAuthorizedKeys *string                  `hcl:"ssh_authorized_keys,optional"`
-	ConfigDir         *string                  `hcl:"config_dir,optional"`
-	MetricsListen     *string                  `hcl:"metrics_listen,optional"`
-	OIDC              *AgentOIDCBlock          `hcl:"oidc,block"`
-	Storage           *AgentStorageBlock       `hcl:"storage,block"`
-	EventBus          *AgentEventBusBlock      `hcl:"event_bus,block"`
-	NATSAuthorization *AgentNATSAuthzBlock     `hcl:"nats_authorization,block"`
-	Proxy             *AgentProxyBlock         `hcl:"proxy,block"`
+	Socket            *string              `hcl:"socket,optional"`
+	SSHSocket         *string              `hcl:"ssh_socket,optional"`
+	SSHAuthorizedKeys *string              `hcl:"ssh_authorized_keys,optional"`
+	ConfigDir         *string              `hcl:"config_dir,optional"`
+	MetricsListen     *string              `hcl:"metrics_listen,optional"`
+	OIDC              *AgentOIDCBlock      `hcl:"oidc,block"`
+	Storage           *AgentStorageBlock   `hcl:"storage,block"`
+	EventBus          *AgentEventBusBlock  `hcl:"event_bus,block"`
+	NATSAuthorization *AgentNATSAuthzBlock `hcl:"nats_authorization,block"`
+	Proxy             *AgentProxyBlock     `hcl:"proxy,block"`
 }
 
 // AgentOIDCBlock mirrors oidcBlock.
@@ -281,4 +281,3 @@ func stringListVal(xs []string) cty.Value {
 	}
 	return cty.ListVal(out)
 }
-

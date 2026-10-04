@@ -40,11 +40,11 @@ func TestPortRegistry_CreateAndLookup(t *testing.T) {
 func TestPortRegistry_RejectsMissingFields(t *testing.T) {
 	reg, _ := loadPortRegistry(context.Background(), NewMemStorage())
 	cases := []CreatePortSpec{
-		{VMUUID: "vm", NetworkUUID: "n", MAC: "m", IP: "10.0.0.1"},                  // empty project
-		{ProjectUUID: "p", NetworkUUID: "n", MAC: "m", IP: "10.0.0.1"},              // empty vm
-		{ProjectUUID: "p", VMUUID: "vm", MAC: "m", IP: "10.0.0.1"},                  // empty network
-		{ProjectUUID: "p", VMUUID: "vm", NetworkUUID: "n", IP: "10.0.0.1"},          // empty mac
-		{ProjectUUID: "p", VMUUID: "vm", NetworkUUID: "n", MAC: "m"},                // empty ip
+		{VMUUID: "vm", NetworkUUID: "n", MAC: "m", IP: "10.0.0.1"},         // empty project
+		{ProjectUUID: "p", NetworkUUID: "n", MAC: "m", IP: "10.0.0.1"},     // empty vm
+		{ProjectUUID: "p", VMUUID: "vm", MAC: "m", IP: "10.0.0.1"},         // empty network
+		{ProjectUUID: "p", VMUUID: "vm", NetworkUUID: "n", IP: "10.0.0.1"}, // empty mac
+		{ProjectUUID: "p", VMUUID: "vm", NetworkUUID: "n", MAC: "m"},       // empty ip
 	}
 	for i, spec := range cases {
 		if _, err := reg.create(spec); err == nil {

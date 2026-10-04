@@ -27,11 +27,11 @@ import (
 // the actual value). 200ms is enough to coalesce without making
 // operator-driven changes feel sluggish.
 type Watcher struct {
-	Client        *clientv3.Client
-	KeyPrefix     string // default "/weft/proxy/routes"
-	HostID        string // this host's UUID — `/<KeyPrefix>/<HostID>` is the watched key
-	Supervisor    *Supervisor
-	DebounceWait  time.Duration // default 200ms
+	Client       *clientv3.Client
+	KeyPrefix    string // default "/weft/proxy/routes"
+	HostID       string // this host's UUID — `/<KeyPrefix>/<HostID>` is the watched key
+	Supervisor   *Supervisor
+	DebounceWait time.Duration // default 200ms
 }
 
 // Run blocks until ctx is cancelled. It performs:

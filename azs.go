@@ -47,10 +47,10 @@ const azRegistryFileName = "azs"
 
 // azRegistry is the in-memory cache backed by a Storage.
 type azRegistry struct {
-	mu       sync.Mutex
-	storage  Storage
-	byUUID   map[string]AZ
-	codeIdx  map[string]string // code → uuid
+	mu      sync.Mutex
+	storage Storage
+	byUUID  map[string]AZ
+	codeIdx map[string]string // code → uuid
 }
 
 // loadAZRegistry reads the blob via Storage. Empty blob → empty

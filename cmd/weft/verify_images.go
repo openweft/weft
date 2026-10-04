@@ -390,4 +390,3 @@ func fetchAnonymousToken(host, repo string) (string, error) {
 	}
 	return t.AccessToken, nil
 }
-

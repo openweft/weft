@@ -155,7 +155,6 @@ func (a vsockAddr) String() string  { return fmt.Sprintf("vsock://%d:%d", a.cid,
 func (a vsockAddr) CID() uint32     { return a.cid }
 func (a vsockAddr) Port() uint32    { return a.port }
 
-
 // vsockSupported reports whether the running kernel exposes AF_VSOCK
 // at all. Cheap probe : open + immediately close a socket. Returns
 // false on non-Linux (the build tag handles that ; this is the

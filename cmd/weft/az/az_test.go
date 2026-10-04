@@ -32,8 +32,8 @@ func TestLooksLikeUUID(t *testing.T) {
 	cases := map[string]bool{
 		"e9c3b6c4-9ea2-4f3a-9c1d-2d5a2e3d6b7c": true,
 		"E9C3B6C4-9EA2-4F3A-9C1D-2D5A2E3D6B7C": true,
-		"DC-A":   false,
-		"":       false,
+		"DC-A":                                 false,
+		"":                                     false,
 		"toolong-e9c3b6c4-9ea2-4f3a-9c1d-2d5a": false,
 	}
 	for in, want := range cases {

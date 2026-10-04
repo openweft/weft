@@ -114,4 +114,3 @@ func TestRegister_AcceptsCustomRegisterer(t *testing.T) {
 		t.Errorf("Register(nil) should fall back to default and no-op, got %v", err)
 	}
 }
-

@@ -19,8 +19,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/openweft/weft/cmd/weft/shared"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -44,10 +44,10 @@ func Command(socket, sshSocket, sshKey *string) *cobra.Command {
 func lsCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	var project, format string
 	cmd := &cobra.Command{
-		Use:   "ls",
+		Use:     "ls",
 		Aliases: []string{"list"},
-		Short: "List networks (optionally scoped to one project)",
-		Args:  cobra.NoArgs,
+		Short:   "List networks (optionally scoped to one project)",
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, conn, err := shared.Client(*socket, *sshSocket, *sshKey)
 			if err != nil {
@@ -248,28 +248,28 @@ func renderTable(nets []*weftv1.NetworkInfo) error {
 
 func dumpJSON(nets []*weftv1.NetworkInfo) error {
 	type out struct {
-		UUID                string   `json:"uuid"`
-		ProjectUUID         string   `json:"project_uuid"`
-		Name                string   `json:"name"`
-		CIDR                string   `json:"cidr"`
-		Gateway             string   `json:"gateway,omitempty"`
-		DNSServers          []string `json:"dns_servers,omitempty"`
-		Type                string   `json:"type"`
+		UUID                  string   `json:"uuid"`
+		ProjectUUID           string   `json:"project_uuid"`
+		Name                  string   `json:"name"`
+		CIDR                  string   `json:"cidr"`
+		Gateway               string   `json:"gateway,omitempty"`
+		DNSServers            []string `json:"dns_servers,omitempty"`
+		Type                  string   `json:"type"`
 		DefaultSecurityGroups []string `json:"default_security_group_uuids,omitempty"`
-		CreatedAt           string   `json:"created_at"`
+		CreatedAt             string   `json:"created_at"`
 	}
 	flat := make([]out, len(nets))
 	for i, n := range nets {
 		flat[i] = out{
-			UUID:                n.Uuid,
-			ProjectUUID:         n.ProjectUuid,
-			Name:                n.Name,
-			CIDR:                n.Cidr,
-			Gateway:             n.Gateway,
-			DNSServers:          n.DnsServers,
-			Type:                n.Type,
+			UUID:                  n.Uuid,
+			ProjectUUID:           n.ProjectUuid,
+			Name:                  n.Name,
+			CIDR:                  n.Cidr,
+			Gateway:               n.Gateway,
+			DNSServers:            n.DnsServers,
+			Type:                  n.Type,
 			DefaultSecurityGroups: n.DefaultSecurityGroupUuids,
-			CreatedAt:           time.Unix(0, n.CreatedAtUnixNs).UTC().Format(time.RFC3339Nano),
+			CreatedAt:             time.Unix(0, n.CreatedAtUnixNs).UTC().Format(time.RFC3339Nano),
 		}
 	}
 	enc := json.NewEncoder(os.Stdout)

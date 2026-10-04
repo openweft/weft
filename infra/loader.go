@@ -105,10 +105,10 @@ type HealthBlk struct {
 // weft.GroupScheduleRequest by the deployer (cmd/weft/infra.go).
 // Per [[weft-placement-rules]].
 //
-//   count   how many replicas to deploy (default 1)
-//   az      cross-replica AZ proximity:   "same" | "different" | ""
-//   rack    cross-replica rack proximity: "same" | "different" | ""
-//   host    cross-replica host proximity: "same" | "different" | ""
+//	count   how many replicas to deploy (default 1)
+//	az      cross-replica AZ proximity:   "same" | "different" | ""
+//	rack    cross-replica rack proximity: "same" | "different" | ""
+//	host    cross-replica host proximity: "same" | "different" | ""
 //
 // AZ / Rack / Host are independent dimensions of the placement
 // hierarchy (AZ ⊃ Rack ⊃ Host). A 3-replica plan can ask "one

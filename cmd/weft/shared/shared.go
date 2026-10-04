@@ -8,10 +8,10 @@
 package shared
 
 import (
-	weftv1 "github.com/openweft/weft-proto"
-	"github.com/openweft/weft-client"
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/tw"
+	"github.com/openweft/weft-client"
+	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc"
 
 	"fmt"

@@ -26,9 +26,9 @@ import (
 	"os"
 	"text/tabwriter"
 
+	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft/cmd/weft/shared"
 	"github.com/openweft/weft/cmd/weft/tenant"
-	weftv1 "github.com/openweft/weft-proto"
 	"github.com/spf13/cobra"
 )
 
@@ -40,11 +40,11 @@ import (
 // fieldOf returns a pointer to the field on a *Quotas so applyTo and
 // readTo can mutate / read by-flag without reflection.
 type quotaDim struct {
-	flag        string // CLI flag name : "vcpu", "ram-gib", ...
-	label       string // table column / row label : "vcpu", "ram_gib", ...
-	doc         string // cobra flag help
-	tenantOnly  bool   // "projects" : meaningless at project scope
-	fieldOf     func(*weftv1.Quotas) *int32
+	flag       string // CLI flag name : "vcpu", "ram-gib", ...
+	label      string // table column / row label : "vcpu", "ram_gib", ...
+	doc        string // cobra flag help
+	tenantOnly bool   // "projects" : meaningless at project scope
+	fieldOf    func(*weftv1.Quotas) *int32
 }
 
 var quotaDims = []quotaDim{

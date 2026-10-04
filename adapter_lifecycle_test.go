@@ -32,7 +32,7 @@ import (
 // dispatch_test.go because we also need AttachDisk to silently
 // succeed.
 type fakeHypervisorRecord struct {
-	hostUUID   string
+	hostUUID    string
 	createCalls []drivers.VMSpec
 	startCalls  []string
 	stopCalls   []string

@@ -10,12 +10,13 @@
 // the same hook so reply traffic egresses with the public source.
 //
 // One table per host : "ip weft-fip-nat" with two chains —
-//   chain prerouting  { type nat hook prerouting  priority dstnat ;
-//     <per-mapping DNAT rule>
-//   }
-//   chain postrouting { type nat hook postrouting priority srcnat ;
-//     <per-mapping SNAT rule>
-//   }
+//
+//	chain prerouting  { type nat hook prerouting  priority dstnat ;
+//	  <per-mapping DNAT rule>
+//	}
+//	chain postrouting { type nat hook postrouting priority srcnat ;
+//	  <per-mapping SNAT rule>
+//	}
 //
 // Replace-set per netlink batch — same shape pkg/network in
 // weft-microvm-init uses for the in-VM firewall. A missed reconcile
@@ -87,9 +88,9 @@ func (m NATMapping) Validate() error {
 // fip-nat` confirms the daemon owns the namespace).
 //
 // Implementations :
-//   * LinuxReconciler (reconciler_linux.go) — real netlink path
+//   - LinuxReconciler (reconciler_linux.go) — real netlink path
 //     via github.com/google/nftables.
-//   * StubReconciler  (reconciler_other.go) — no-op on darwin /
+//   - StubReconciler  (reconciler_other.go) — no-op on darwin /
 //     test, records the last Apply payload for assertions.
 type Reconciler interface {
 	Apply(mappings []NATMapping) error

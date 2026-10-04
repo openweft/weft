@@ -425,7 +425,6 @@ func TestSumManifestBytes_ImageIndex_NoArchMatch(t *testing.T) {
 	}
 }
 
-
 // TestSumManifestBytes_ImageIndex_Malformed exercises the JSON-error
 // branch of the index switch arm.
 func TestSumManifestBytes_ImageIndex_Malformed(t *testing.T) {
@@ -603,4 +602,3 @@ func TestPullImage_OCI_OCIStoreError(t *testing.T) {
 		t.Fatal("expected error when oci.New cannot use destDir")
 	}
 }
-

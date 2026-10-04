@@ -24,13 +24,13 @@ func TestCommand_Structure(t *testing.T) {
 		t.Errorf("root.Use : got %q, want floating-ip", root.Use)
 	}
 	want := map[string]bool{
-		"ls":               false,
-		"show <uuid>":      false,
-		"status [<uuid>]":  false,
-		"allocate":         false,
-		"release <uuid>":   false,
-		"map <uuid>":       false,
-		"unmap <uuid>":     false,
+		"ls":              false,
+		"show <uuid>":     false,
+		"status [<uuid>]": false,
+		"allocate":        false,
+		"release <uuid>":  false,
+		"map <uuid>":      false,
+		"unmap <uuid>":    false,
 	}
 	for _, sub := range root.Commands() {
 		want[sub.Use] = true

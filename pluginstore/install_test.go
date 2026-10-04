@@ -28,17 +28,17 @@ type fakeClient struct {
 	listHosts                       func(in *weftv1.ListHostsRequest) (*weftv1.ListHostsResponse, error)
 
 	// Call counters
-	creates     int
-	createVMs   []*weftv1.CreateVMRequest
-	createSGs   []*weftv1.CreateSecurityGroupRequest
-	createNets  []*weftv1.CreateNetworkRequest
-	bindCalls   []*weftv1.SetNetworkDefaultSecurityGroupsRequest
-	createVols  []*weftv1.CreateVolumeRequest
-	delVMs      []*weftv1.DeleteVMRequest
-	delNetworks []*weftv1.DeleteNetworkRequest
-	delSGs      []*weftv1.DeleteSecurityGroupRequest
-	delVols     []*weftv1.DeleteVolumeRequest
-	microvmRuns []microvmCall
+	creates       int
+	createVMs     []*weftv1.CreateVMRequest
+	createSGs     []*weftv1.CreateSecurityGroupRequest
+	createNets    []*weftv1.CreateNetworkRequest
+	bindCalls     []*weftv1.SetNetworkDefaultSecurityGroupsRequest
+	createVols    []*weftv1.CreateVolumeRequest
+	delVMs        []*weftv1.DeleteVMRequest
+	delNetworks   []*weftv1.DeleteNetworkRequest
+	delSGs        []*weftv1.DeleteSecurityGroupRequest
+	delVols       []*weftv1.DeleteVolumeRequest
+	microvmRuns   []microvmCall
 	setProperties []*weftv1.SetVMPropertiesRequest
 
 	pullImage func(in *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error)

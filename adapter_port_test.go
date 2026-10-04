@@ -41,11 +41,11 @@ func TestAdapter_CreatePort_HappyPath_Mesh(t *testing.T) {
 		Type: NetworkTypeMesh, MeshListenPort: 51820,
 	})
 	_, err := a.CreatePort(CreatePortSpec{
-		ProjectUUID: "p",
-		VMUUID:      "vm-1",
-		NetworkUUID: n.UUID,
-		MAC:         "52:54:00:00:00:01",
-		IP:          "10.100.0.5",
+		ProjectUUID:     "p",
+		VMUUID:          "vm-1",
+		NetworkUUID:     n.UUID,
+		MAC:             "52:54:00:00:00:01",
+		IP:              "10.100.0.5",
 		WireguardPubKey: "test-pubkey",
 		MeshEndpoint:    "vm1.example.com:51820",
 	})
@@ -132,7 +132,7 @@ func TestAdapter_CreatePort_RejectsCrossProjectSG(t *testing.T) {
 		ProjectUUID: "p-2", Name: "main", CIDR: "10.0.0.0/24",
 	})
 	_, err := a.CreatePort(CreatePortSpec{
-		ProjectUUID:    "p-2", VMUUID: "vm",
+		ProjectUUID: "p-2", VMUUID: "vm",
 		NetworkUUID:    n.UUID,
 		MAC:            "52:54:00:00:00:01",
 		IP:             "10.0.0.5",

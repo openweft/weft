@@ -31,11 +31,11 @@ import (
 // into its wire shape. Mirrors toVolumeInfo (see volumes.go).
 func toVolumeSnapshotInfo(s weft.VolumeSnapshot) *weftv1.VolumeSnapshotInfo {
 	return &weftv1.VolumeSnapshotInfo{
-		Uuid:           s.UUID,
-		VolumeUuid:     s.VolumeUUID,
-		Name:           s.Name,
-		SizeGib:        int64(s.SizeGiB),
-		Project:        s.ProjectUUID,
+		Uuid:            s.UUID,
+		VolumeUuid:      s.VolumeUUID,
+		Name:            s.Name,
+		SizeGib:         int64(s.SizeGiB),
+		Project:         s.ProjectUUID,
 		CreatedAtUnixNs: s.CreatedAt.UnixNano(),
 	}
 }
@@ -103,11 +103,11 @@ func (s *weftServer) CreateVolumeSnapshot(ctx context.Context, req *weftv1.Creat
 // ListVolumeSnapshots returns every snapshot the caller can see.
 // Filtering modes :
 //
-//   * empty volume_uuid + empty project → caller's VisibleProjects
+//   - empty volume_uuid + empty project → caller's VisibleProjects
 //     dominate ; admin-shaped callers see everything.
-//   * empty volume_uuid + project set → only snapshots in that
+//   - empty volume_uuid + project set → only snapshots in that
 //     project (AuthorizeProject guards the cross-project leak).
-//   * volume_uuid set → only snapshots from that parent (and the
+//   - volume_uuid set → only snapshots from that parent (and the
 //     caller must have access to its project).
 func (s *weftServer) ListVolumeSnapshots(ctx context.Context, req *weftv1.ListVolumeSnapshotsRequest) (*weftv1.ListVolumeSnapshotsResponse, error) {
 	visible, all, err := s.adp.VisibleProjects(ctx)

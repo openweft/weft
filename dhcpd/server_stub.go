@@ -24,9 +24,9 @@ type StubServer struct {
 // have done on a real DISCOVER. Lets tests verify the lease
 // computation path end-to-end.
 type ResolveHit struct {
-	MAC     string
-	Lease   Lease
-	Issued  bool
+	MAC    string
+	Lease  Lease
+	Issued bool
 }
 
 // NewStub builds a StubServer. Returns an error on bad Options.

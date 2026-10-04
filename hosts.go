@@ -225,13 +225,13 @@ type Host struct {
 // notation ("192.168.105.21/24"). LinkSpeedMbps == 0 when the driver
 // doesn't expose the speed (loopback, virtual nics).
 type NetworkInterface struct {
-	Name           string   `json:"name"`
-	MAC            string   `json:"mac,omitempty"`
-	IPv4CIDRs      []string `json:"ipv4_cidrs,omitempty"`
-	IPv6CIDRs      []string `json:"ipv6_cidrs,omitempty"`
-	LinkSpeedMbps  int64    `json:"link_speed_mbps,omitempty"`
-	MTU            int      `json:"mtu,omitempty"`
-	OperState      string   `json:"operstate,omitempty"`
+	Name          string   `json:"name"`
+	MAC           string   `json:"mac,omitempty"`
+	IPv4CIDRs     []string `json:"ipv4_cidrs,omitempty"`
+	IPv6CIDRs     []string `json:"ipv6_cidrs,omitempty"`
+	LinkSpeedMbps int64    `json:"link_speed_mbps,omitempty"`
+	MTU           int      `json:"mtu,omitempty"`
+	OperState     string   `json:"operstate,omitempty"`
 }
 
 // StorageMount describes one filesystem mount on a host. Mirrors
@@ -281,26 +281,26 @@ type hostsDoc struct {
 }
 
 type hostBlock struct {
-	UUID           string            `hcl:",label"`
-	Hostname       string            `hcl:"hostname"`
-	AZ             string            `hcl:"az,optional"`
-	Rack           string            `hcl:"rack,optional"`
-	Endpoint       string            `hcl:"endpoint,optional"`
-	Hypervisor     string            `hcl:"hypervisor,optional"`
-	Architecture   string            `hcl:"architecture,optional"`
-	Drivers        []hostDriverBlock `hcl:"driver,block"`
-	NetworkTypes   []string          `hcl:"network_types,optional"`
-	VolumeBackends []string          `hcl:"volume_backends,optional"`
-	GPUs           []gpuBlock        `hcl:"gpu,block"`
-	PCIDevices     []pciBlock        `hcl:"pci,block"`
-	Properties     map[string]string `hcl:"properties,optional"`
-	State          string            `hcl:"state,optional"`
-	Cordoned       bool              `hcl:"cordoned,optional"`
-	LastSeenAt     string            `hcl:"last_seen_at,optional"`
-	CreatedAt      string            `hcl:"created_at"`
-	AKName         string            `hcl:"ak_name,optional"`
-	WGPublicKey    string            `hcl:"wg_public_key,optional"`
-	WGOverlayIndex int               `hcl:"wg_overlay_index,optional"`
+	UUID              string                  `hcl:",label"`
+	Hostname          string                  `hcl:"hostname"`
+	AZ                string                  `hcl:"az,optional"`
+	Rack              string                  `hcl:"rack,optional"`
+	Endpoint          string                  `hcl:"endpoint,optional"`
+	Hypervisor        string                  `hcl:"hypervisor,optional"`
+	Architecture      string                  `hcl:"architecture,optional"`
+	Drivers           []hostDriverBlock       `hcl:"driver,block"`
+	NetworkTypes      []string                `hcl:"network_types,optional"`
+	VolumeBackends    []string                `hcl:"volume_backends,optional"`
+	GPUs              []gpuBlock              `hcl:"gpu,block"`
+	PCIDevices        []pciBlock              `hcl:"pci,block"`
+	Properties        map[string]string       `hcl:"properties,optional"`
+	State             string                  `hcl:"state,optional"`
+	Cordoned          bool                    `hcl:"cordoned,optional"`
+	LastSeenAt        string                  `hcl:"last_seen_at,optional"`
+	CreatedAt         string                  `hcl:"created_at"`
+	AKName            string                  `hcl:"ak_name,optional"`
+	WGPublicKey       string                  `hcl:"wg_public_key,optional"`
+	WGOverlayIndex    int                     `hcl:"wg_overlay_index,optional"`
 	AgentVersion      string                  `hcl:"agent_version,optional"`
 	DriverVersions    map[string]string       `hcl:"driver_versions,optional"`
 	OSID              string                  `hcl:"os_id,optional"`
@@ -428,23 +428,23 @@ func loadHostRegistry(ctx context.Context, storage Storage) (*hostRegistry, erro
 			}
 		}
 		h := Host{
-			UUID:           b.UUID,
-			Hostname:       b.Hostname,
-			AZ:             b.AZ,
-			Rack:           b.Rack,
-			Endpoint:       b.Endpoint,
-			Hypervisor:     b.Hypervisor,
-			Architecture:   b.Architecture,
-			Drivers:        drivers,
-			NetworkTypes:   append([]string(nil), b.NetworkTypes...),
-			VolumeBackends: append([]string(nil), b.VolumeBackends...),
-			GPUs:           gpus,
-			PCIDevices:     pciDevs,
-			Properties:     properties,
-			State:          state,
-			Cordoned:       b.Cordoned,
-			LastSeenAt:     lastSeen,
-			CreatedAt:      created,
+			UUID:              b.UUID,
+			Hostname:          b.Hostname,
+			AZ:                b.AZ,
+			Rack:              b.Rack,
+			Endpoint:          b.Endpoint,
+			Hypervisor:        b.Hypervisor,
+			Architecture:      b.Architecture,
+			Drivers:           drivers,
+			NetworkTypes:      append([]string(nil), b.NetworkTypes...),
+			VolumeBackends:    append([]string(nil), b.VolumeBackends...),
+			GPUs:              gpus,
+			PCIDevices:        pciDevs,
+			Properties:        properties,
+			State:             state,
+			Cordoned:          b.Cordoned,
+			LastSeenAt:        lastSeen,
+			CreatedAt:         created,
 			AKName:            b.AKName,
 			WGPublicKey:       b.WGPublicKey,
 			WGOverlayIndex:    b.WGOverlayIndex,

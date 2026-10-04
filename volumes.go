@@ -105,8 +105,8 @@ type volumeRegistry struct {
 	mu         sync.Mutex
 	storage    Storage
 	byUUID     map[string]Volume
-	nameIdx    map[string]string                // (projectUUID,name) → UUID
-	projectIdx map[string]map[string]struct{}   // projectUUID → set-of-UUIDs
+	nameIdx    map[string]string              // (projectUUID,name) → UUID
+	projectIdx map[string]map[string]struct{} // projectUUID → set-of-UUIDs
 }
 
 // loadVolumeRegistry reads the blob via Storage. Empty / absent

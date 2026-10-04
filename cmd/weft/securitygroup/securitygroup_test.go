@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/openweft/weft/cmd/weft/internal/testutil"
 	weftv1 "github.com/openweft/weft-proto"
+	"github.com/openweft/weft/cmd/weft/internal/testutil"
 )
 
 func strPtr(s string) *string { return &s }

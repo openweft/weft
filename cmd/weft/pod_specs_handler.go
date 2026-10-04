@@ -108,15 +108,15 @@ func (s *weftServer) GetMicroVMMetrics(ctx context.Context, req *weftv1.GetMicro
 	// can correlate ; sampled_at_unix_ns = 0 signals "no sample taken
 	// yet" cleanly (vs. wclient's previous Unimplemented fallback).
 	return &weftv1.MicroVMMetricsResponse{
-		VmUuid:           vmUUID,
-		SampledAtUnixNs:  0,
-		CpuPercent:       0,
-		MemUsedMib:       0,
-		MemTotalMib:      0,
-		NetRxBps:         0,
-		NetTxBps:         0,
-		DiskReadBps:      0,
-		DiskWriteBps:     0,
-		UptimeMs:         0,
+		VmUuid:          vmUUID,
+		SampledAtUnixNs: 0,
+		CpuPercent:      0,
+		MemUsedMib:      0,
+		MemTotalMib:     0,
+		NetRxBps:        0,
+		NetTxBps:        0,
+		DiskReadBps:     0,
+		DiskWriteBps:    0,
+		UptimeMs:        0,
 	}, nil
 }

@@ -14,11 +14,11 @@ func TestCommand_Structure(t *testing.T) {
 		t.Errorf("root.Use : got %q, want dns-zone", root.Use)
 	}
 	want := map[string]bool{
-		"ls":                                  false,
-		"show <uuid|name>":                    false,
+		"ls":                                   false,
+		"show <uuid|name>":                     false,
 		"create --project=<...> --name=<fqdn>": false,
-		"update <uuid>":                       false,
-		"rm <uuid>":                           false,
+		"update <uuid>":                        false,
+		"rm <uuid>":                            false,
 	}
 	for _, sub := range root.Commands() {
 		want[sub.Use] = true

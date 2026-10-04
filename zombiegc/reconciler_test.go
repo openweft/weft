@@ -83,11 +83,11 @@ const localHost = "host-local-uuid"
 func setup() (*fakeAdapter, *fakeProbe) {
 	now := time.Now().UTC()
 	return &fakeAdapter{
-			hosts: []weft.Host{
-				{UUID: localHost, State: weft.HostStateActive, LastSeenAt: now},
-			},
-			projects: []weft.Project{{UUID: "p-1"}},
-		}, &fakeProbe{alive: map[string]bool{}}
+		hosts: []weft.Host{
+			{UUID: localHost, State: weft.HostStateActive, LastSeenAt: now},
+		},
+		projects: []weft.Project{{UUID: "p-1"}},
+	}, &fakeProbe{alive: map[string]bool{}}
 }
 
 func TestSweep_LocalZombie_MarkedNotDeleted(t *testing.T) {
