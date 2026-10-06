@@ -7,3 +7,8 @@
 # Editor / OS noise
 .DS_Store
 *.swp
+
+# Build outputs: never tracked (they were, 84 MB, removed 2026-10-06).
+/bin/
+/vzd
+/weft-e2e
