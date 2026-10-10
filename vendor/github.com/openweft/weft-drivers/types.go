@@ -135,17 +135,17 @@ type Snapshot struct {
 //
 // Algorithms supported by weft-block today :
 //
-//   * "chacha20-poly1305" : pure-Go AEAD via golang.org/x/crypto. 256-bit
+//   - "chacha20-poly1305" : pure-Go AEAD via golang.org/x/crypto. 256-bit
 //     keys, 96-bit nonces, fast without hardware AES, single-nonce safe
 //     up to ≈256 GiB per stream — bigger volumes get auto-chunked with
 //     per-chunk nonce derivation.
-//   * "aes-256-gcm"       : hardware-accelerated on AESNI/ARM64 ; same
+//   - "aes-256-gcm"       : hardware-accelerated on AESNI/ARM64 ; same
 //     security level as above. Pick this on hosts that have AESNI for
 //     better throughput.
 //
 // KDFs :
 //
-//   * "argon2id" (default) : memory-hard, OWASP-recommended. Params (memory,
+//   - "argon2id" (default) : memory-hard, OWASP-recommended. Params (memory,
 //     iterations, parallelism) live in the Backup descriptor so restore
 //     uses the SAME settings the create-time operator chose.
 type BackupEncryption struct {

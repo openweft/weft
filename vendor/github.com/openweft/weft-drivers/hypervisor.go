@@ -9,13 +9,13 @@ import "context"
 //
 // Lifecycle contract:
 //
-//   CreateVM   → idempotent: re-calling with same UUID is no-op
-//   StartVM    → idempotent: already-running is no-op
-//   StopVM     → idempotent: already-stopped is no-op
-//   DeleteVM   → idempotent: missing is no-op (not an error)
-//   AttachDisk → idempotent on (vmUUID, disk.VolumeUUID)
-//   DetachDisk → idempotent: missing attachment is no-op
-//   AttachNIC  / DetachNIC follow the same contract
+//	CreateVM   → idempotent: re-calling with same UUID is no-op
+//	StartVM    → idempotent: already-running is no-op
+//	StopVM     → idempotent: already-stopped is no-op
+//	DeleteVM   → idempotent: missing is no-op (not an error)
+//	AttachDisk → idempotent on (vmUUID, disk.VolumeUUID)
+//	DetachDisk → idempotent: missing attachment is no-op
+//	AttachNIC  / DetachNIC follow the same contract
 //
 // Idempotence matters because the scheduler / reconciler may
 // retry on transient failures (network blip, transient lock
@@ -24,11 +24,11 @@ import "context"
 //
 // Errors:
 //
-//   * Return a concrete error for "this can never succeed" (bad
+//   - Return a concrete error for "this can never succeed" (bad
 //     spec, hypervisor missing on host, hardware fault).
-//   * Return a wrapped context error for cancellation / timeout
+//   - Return a wrapped context error for cancellation / timeout
 //     — callers expect `errors.Is(err, ctx.Err())` to work.
-//   * NEVER panic across the interface boundary; the gRPC plugin
+//   - NEVER panic across the interface boundary; the gRPC plugin
 //     transport can't surface them cleanly.
 type HypervisorDriver interface {
 	HostInfo(ctx context.Context) (HostInfo, error)

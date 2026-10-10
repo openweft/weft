@@ -229,6 +229,30 @@ if w, ok := f.(filesystem.WritableFile); ok {
   that answer. A driver whose `Sync` guarantees nothing must say so, rather
   than return `nil` and let the caller promise durability it has not got.
 
+- `HostFile` — the optional capability of a `File` that **is a file of the
+  host**: its `Read`, `Seek` and `SyscallConn` are those of a host descriptor
+  holding exactly this file's bytes. It lets a server send the file without
+  copying it through user space: `*net.TCPConn`'s `ReadFrom` calls
+  `sendfile(2)` for a `syscall.Conn` source, which is what `net/http` does
+  with a response body. `go-filesystems/osfs` returns one; an image driver
+  does not.
+
+```go
+type HostFile interface {
+    File
+    io.ReadSeeker // the descriptor's own position
+    syscall.Conn  // the descriptor
+    HostFile()    // the promise, made on purpose
+}
+```
+
+  `HostFile()` exists only to be implemented on purpose. `Read`, `Seek` and
+  `SyscallConn` alone cannot tell: a driver whose `File` embeds the
+  `*os.File` of its image would have all three, and sending from that
+  descriptor would send the image's bytes. `Read` and `Seek` share one
+  position, so they are for a handle one goroutine reads from start to end;
+  `ReadAt` keeps `File`'s concurrency terms.
+
 - `DirEntry` — accessor interface for directory entries:
 
 ```go

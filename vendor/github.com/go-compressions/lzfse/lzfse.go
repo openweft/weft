@@ -1,7 +1,6 @@
 package lzfse
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"math/bits"
@@ -487,18 +486,25 @@ func newDecodeScratch() *decodeScratch {
 	}
 }
 
-func decodeCompressedBlock(h v1Header, payload []byte, prior []byte, sc *decodeScratch) ([]byte, error) {
+// decodeCompressedBlock decodes the block whose payload is src[start:] and
+// appends its output to prior.
+func decodeCompressedBlock(h v1Header, src []byte, start int, prior []byte, sc *decodeScratch) ([]byte, error) {
 	nLiterals := int(h.nLiterals)
 	nMatches := int(h.nMatches)
 	nLitPayload := int(h.nLiteralPayloadBytes)
 	nLMDPayload := int(h.nLMDPayloadBytes)
 
-	if nLitPayload+nLMDPayload > len(payload) {
+	if nLitPayload+nLMDPayload > len(src)-start {
 		return nil, errors.New("lzfse: payload too short")
 	}
 
-	litPayload := payload[:nLitPayload]
-	lmdPayload := payload[nLitPayload : nLitPayload+nLMDPayload]
+	// As in the reference decoder, the literal stream is bounded by the start
+	// of the input rather than of its payload. Encoders pad only the L,M,D
+	// payload, so a literal payload shorter than the stream's first 7- or
+	// 8-byte load borrows the tail of the block header, which is never decoded.
+	litEnd := start + nLitPayload
+	litStream := src[:litEnd]
+	lmdPayload := src[litEnd : litEnd+nLMDPayload]
 
 	// --- Build FSE tables (into reusable scratch) ---
 	litTable := sc.litTable
@@ -527,9 +533,8 @@ func decodeCompressedBlock(h v1Header, payload []byte, prior []byte, sc *decodeS
 	}
 	literals := sc.literals[:nLiterals]
 	{
-		litEnd := nLitPayload
 		n := int(h.literalBits)
-		in, err := fseInInit(litPayload, litEnd, n)
+		in, err := fseInInit(litStream, litEnd, n)
 		if err != nil {
 			return nil, err
 		}
@@ -553,7 +558,7 @@ func decodeCompressedBlock(h v1Header, payload []byte, prior []byte, sc *decodeS
 			return nil, errors.New("lzfse: n_literals not a multiple of 4")
 		}
 		for i := 0; i < nLiterals; i += 4 {
-			in.fseInFlush(litPayload, &ptr)
+			in.fseInFlush(litStream, &ptr)
 			literals[i+0] = fseDecode(&states[0], litTable, &in)
 			literals[i+1] = fseDecode(&states[1], litTable, &in)
 			literals[i+2] = fseDecode(&states[2], litTable, &in)
@@ -764,7 +769,7 @@ func Decompress(src []byte) ([]byte, error) {
 			if sc == nil {
 				sc = newDecodeScratch()
 			}
-			out, err = decodeCompressedBlock(h, src[pos:payloadEnd], out, sc)
+			out, err = decodeCompressedBlock(h, src[:payloadEnd], pos, out, sc)
 			if err != nil {
 				return nil, err
 			}
@@ -787,7 +792,7 @@ func Decompress(src []byte) ([]byte, error) {
 			if sc == nil {
 				sc = newDecodeScratch()
 			}
-			out, err = decodeCompressedBlock(h, src[pos:payloadEnd], out, sc)
+			out, err = decodeCompressedBlock(h, src[:payloadEnd], pos, out, sc)
 			if err != nil {
 				return nil, err
 			}
@@ -1327,11 +1332,6 @@ func compressLZFSE(src []byte) []byte {
 	allMatches := findMatches(src)
 
 	var result []byte
-	// decoded mirrors what a decompressor will have produced up to the current
-	// block. It is the back-reference history used to verify each block decodes
-	// to its raw bytes (matches may reference earlier blocks), and is kept in
-	// lock-step with the emitted output.
-	decoded := make([]byte, 0, n)
 
 	// Split matches into blocks. A block is closed when it reaches either the
 	// match cap (matchesPerBlock) OR the raw-byte cap (maxBlockRawBytes). The
@@ -1343,7 +1343,6 @@ func compressLZFSE(src []byte) []byte {
 	// resolves match distances against the whole decompressed stream.
 	start := 0
 	matchStart := 0
-	verifySc := newDecodeScratch() // reused by the per-block round-trip check
 
 	for start < n {
 		// Find end of this block by the match cap first. encodeBlock turns each
@@ -1485,7 +1484,6 @@ func compressLZFSE(src []byte) []byte {
 		if len(blockMatches) == 0 {
 			raw := src[start:blockEnd]
 			result = append(result, storedBlock(raw)...)
-			decoded = append(decoded, raw...)
 			start = blockEnd
 			matchStart = blockMatchEnd
 			continue
@@ -1512,24 +1510,7 @@ func compressLZFSE(src []byte) []byte {
 		// only errors when the buffer is shorter than that — neither
 		// failure mode is reachable here.
 		h, _ := readV1Header(v1Data)
-		v2Data := makeV2Block(h, v1Data[v1HeaderSize:])
-
-		// Guard against degenerate blocks: a block with very few symbols can
-		// produce an LMD/literal payload too short for the FSE bitstream reader
-		// to initialise (it needs several trailing bytes to seed the decoder).
-		// Rather than special-casing every such shape, verify the block decodes
-		// back to its raw bytes; if it does not, store the span uncompressed,
-		// which always round-trips. This fires only on rare small/trailing
-		// blocks, so it costs nothing on the hot path.
-		raw := src[start:blockEnd]
-		priorCopy := append([]byte(nil), decoded...)
-		dec, err := decodeCompressedBlock(h, v1Data[v1HeaderSize:], priorCopy, verifySc)
-		if err != nil || len(dec) < len(decoded) || !bytes.Equal(dec[len(decoded):], raw) {
-			result = append(result, storedBlock(raw)...)
-		} else {
-			result = append(result, v2Data...)
-		}
-		decoded = append(decoded, raw...)
+		result = append(result, makeV2Block(h, v1Data[v1HeaderSize:])...)
 		start = blockEnd
 		matchStart = blockMatchEnd
 	}
