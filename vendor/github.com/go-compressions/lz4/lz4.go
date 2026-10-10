@@ -19,7 +19,7 @@ const (
 	minMatch     = 4
 	hashLog      = 16 // 64 KiB table — the reference LZ4 fast-mode size
 	hashTableLen = 1 << hashLog
-	winSize      = 1 << 16 // LZ4 offsets are 16-bit, so the window is 64 KiB
+	winSize      = 1 << 16 // 64 KiB window; the max encodable match distance is winSize-1 (65535), since LZ4 stores the offset in a 16-bit field (a distance of exactly 65536 would encode as 0 and be rejected as corrupt on decode). Match-finder distance checks therefore use `< winSize`, not `<= winSize`.
 	mfLimit      = 12      // matches may not start in the last 12 bytes
 	lastLiterals = 5       // the last 5 bytes are always literals
 	adaptSkipLog = 7       // skip ramp on incompressible spans (matches pierrec)
@@ -82,21 +82,21 @@ func compress(src []byte, mlen func(a, b []byte) int) []byte {
 			h0 := hash6(seq)
 			r0 := int(table[h0])
 			table[h0] = int32(ip)
-			if ip-r0 <= winSize && r0 < ip && u32(src[r0:]) == uint32(seq) {
+			if ip-r0 < winSize && r0 < ip && u32(src[r0:]) == uint32(seq) {
 				ref = r0
 				break
 			}
 			h1 := hash6(seq >> 8)
 			r1 := int(table[h1])
 			table[h1] = int32(ip + 1)
-			if ip+1-r1 <= winSize && r1 < ip+1 && u32(src[r1:]) == uint32(seq>>8) {
+			if ip+1-r1 < winSize && r1 < ip+1 && u32(src[r1:]) == uint32(seq>>8) {
 				ip, ref = ip+1, r1
 				break
 			}
 			h2 := hash6(seq >> 16)
 			r2 := int(table[h2])
 			table[h2] = int32(ip + 2)
-			if ip+2-r2 <= winSize && r2 < ip+2 && u32(src[r2:]) == uint32(seq>>16) {
+			if ip+2-r2 < winSize && r2 < ip+2 && u32(src[r2:]) == uint32(seq>>16) {
 				ip, ref = ip+2, r2
 				break
 			}
@@ -118,7 +118,7 @@ func compress(src []byte, mlen func(a, b []byte) int) []byte {
 			h := hash6(lseq)
 			nref := int(table[h])
 			table[h] = int32(ip + 1)
-			if ip+1-nref <= winSize && nref < ip+1 && u32(src[nref:]) == uint32(lseq) {
+			if ip+1-nref < winSize && nref < ip+1 && u32(src[nref:]) == uint32(lseq) {
 				if nml := minMatch + mlen(src[ip+1+minMatch:matchLimit], src[nref+minMatch:]); nml > ml {
 					ip++
 					ref, ml = nref, nml

@@ -9,8 +9,8 @@ package weftdriverplugin
 import (
 	"context"
 
-	drivers "github.com/openweft/weft-drivers"
 	"github.com/openweft/weft-driver-plugin/driverpb"
+	drivers "github.com/openweft/weft-drivers"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 

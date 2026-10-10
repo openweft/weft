@@ -13,8 +13,8 @@ import (
 	"errors"
 	"fmt"
 
-	drivers "github.com/openweft/weft-drivers"
 	"github.com/openweft/weft-driver-plugin/driverpb"
+	drivers "github.com/openweft/weft-drivers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -317,10 +317,10 @@ func backupEncryptionToPB(e drivers.BackupEncryption) *driverpb.BackupEncryption
 		return nil
 	}
 	return &driverpb.BackupEncryption{
-		Algorithm:      e.Algorithm,
-		PassphraseEnv:  e.PassphraseEnv,
-		Kdf:            e.KDF,
-		KdfParams:      e.KDFParams,
+		Algorithm:     e.Algorithm,
+		PassphraseEnv: e.PassphraseEnv,
+		Kdf:           e.KDF,
+		KdfParams:     e.KDFParams,
 	}
 }
 

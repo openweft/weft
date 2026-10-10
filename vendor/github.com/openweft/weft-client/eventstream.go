@@ -4,11 +4,11 @@
 // the same shape: kind, subject, project, optional meta. Two
 // output formats:
 //
-//   * default (human): tab-separated columns
+//   - default (human): tab-separated columns
 //
-//	2026-05-23T10:23:45.123Z  vm.state.running   alpine       team-alpha   pid=12345
+//     2026-05-23T10:23:45.123Z  vm.state.running   alpine       team-alpha   pid=12345
 //
-//   * --format json: one JSON object per line, jq-friendly
+//   - --format json: one JSON object per line, jq-friendly
 //
 // Both formats stream-flush after every event so a piped consumer
 // (`weft-microvm events | grep error`) reacts in real time.

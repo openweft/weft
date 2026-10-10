@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"syscall"
 	"time"
 )
 
@@ -462,4 +463,36 @@ type WritableFile interface {
 	// nil. Returning nil from a Sync that guarantees nothing is a lie the
 	// caller cannot detect, so a driver in that position documents it.
 	Sync() error
+}
+
+// HostFile is the optional capability of a File that IS a file of the host:
+// its Read, Seek and SyscallConn are those of a host descriptor holding
+// exactly this file's bytes, at their own offsets. go-filesystems/osfs
+// returns one; an image driver does not, and must not.
+//
+// It is what lets a server send a file without copying it through user
+// space. *net.TCPConn's ReadFrom calls sendfile(2) for a source that is a
+// syscall.Conn, from the descriptor's current position: net/http does that
+// for a response body, and a server can call copy_file_range(2) or
+// sendfile(2) with an explicit offset through the descriptor itself.
+//
+// The method HostFile has no other purpose than to be implemented on
+// purpose. Read, Seek and SyscallConn alone are not enough to tell: a driver
+// whose File embeds the *os.File of its IMAGE would have all three, and
+// sending from that descriptor would send the image's bytes, not the file's.
+//
+// # Concurrency
+//
+// Read and Seek share the descriptor's position: they are for a handle that
+// one goroutine reads from start to end, as an HTTP GET that opened the file
+// for itself does. ReadAt neither reads nor moves that position and keeps
+// File's terms. Read is not bounded by Size: it reads to the host file's end
+// as it is now, and a caller bounds it with the length it sends.
+type HostFile interface {
+	File
+	io.ReadSeeker
+	syscall.Conn
+
+	// HostFile marks the promise above. It does nothing.
+	HostFile()
 }

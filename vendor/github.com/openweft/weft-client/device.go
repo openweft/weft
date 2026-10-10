@@ -2,15 +2,15 @@
 // Authorization Grant (RFC 8628) used by `weft login` to obtain a
 // token from dex without a callback URL. The flow is:
 //
-//   1. POST <issuer>/device/code with client_id + scope
-//      → returns device_code, user_code, verification_uri,
-//        verification_uri_complete, expires_in, interval.
-//   2. Display user_code + verification_uri to the operator.
-//      They open the URL in a browser and authenticate.
-//   3. Poll <issuer>/token with grant_type=urn:ietf:params:
-//      oauth:grant-type:device_code + device_code, every
-//      `interval` seconds. dex returns the access_token (plus
-//      id_token if openid was in scope) once authorisation lands.
+//  1. POST <issuer>/device/code with client_id + scope
+//     → returns device_code, user_code, verification_uri,
+//     verification_uri_complete, expires_in, interval.
+//  2. Display user_code + verification_uri to the operator.
+//     They open the URL in a browser and authenticate.
+//  3. Poll <issuer>/token with grant_type=urn:ietf:params:
+//     oauth:grant-type:device_code + device_code, every
+//     `interval` seconds. dex returns the access_token (plus
+//     id_token if openid was in scope) once authorisation lands.
 //
 // We keep this dependency-light: stdlib net/http for the requests,
 // stdlib encoding/json for the OIDC responses (the dex wire format

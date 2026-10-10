@@ -40,7 +40,7 @@ func Decompress(src []byte) ([]byte, error)
 
 `Compress` picks the format automatically: inputs ≤ 4 KiB are emitted as an
 LZVN block (one `bvxn` block followed by `bvx$` end-of-stream); larger inputs
-are emitted as LZFSE blocks (V1/V2 headers + FSE-encoded streams).
+are emitted as one or more LZFSE `bvx2` blocks (V2 headers + FSE-encoded streams).
 `Decompress` recognises every block magic Apple's reference emits and decodes
 both its own streams and reference/Apple streams of every kind, byte-for-byte
 (see the interoperability status above and [BENCHMARKS.md](BENCHMARKS.md)):
@@ -94,7 +94,7 @@ patch and minor `gomod` updates auto-merge.
 
 ## Test coverage
 
-`task test` reports **100 % statement coverage** ([`cover.out`](cover.out)).
+`task test` reports **100 % statement coverage** (`cover.out`).
 The corruption / random-garbage fuzz suites assert no-panic, so the
 decoder is safe to call on adversarial input — bad data returns an
 error rather than crashing.

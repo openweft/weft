@@ -9,7 +9,7 @@
 A clean Go implementation of the **LZ4 block format** (`CompressBlock` /
 `DecompressBlock`), wire-compatible with the reference (cross-checked against
 `pierrec/lz4`). Its compressor delegates LZ4's hot "count the matching bytes"
-inner loop (`LZ4_count`) to [matchlen](https://github.com/go-compressions/matchlen),
+inner loop (`LZ4_count`) to [matchlen](https://github.com/go-simd/matchlen),
 whose SIMD common-prefix kernel makes match extension fast.
 
 As of `matchlen` **v0.3.0**, that kernel ships SIMD on **all six** of Go's 64-bit
@@ -74,7 +74,7 @@ ramps its skip distance on incompressible spans. On a hit it applies **lazy
 matching** — it peeks one byte ahead and, if `ip+1` yields a strictly longer
 match, defers the current one — capped to short matches so the lookahead cost is
 only paid where it can help. Match-length extension is delegated to
-[matchlen](https://github.com/go-compressions/matchlen)'s SIMD kernel.
+[matchlen](https://github.com/go-simd/matchlen)'s SIMD kernel.
 
 ## Performance
 

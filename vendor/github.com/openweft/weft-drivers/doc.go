@@ -7,9 +7,9 @@
 // The split between this package and the registries in weft/ is
 // deliberate (see [[weft-driver-registry-split]] memory entry):
 //
-//   * weft/<name>.go owns data + ACL + HCL + Storage. Stays
+//   - weft/<name>.go owns data + ACL + HCL + Storage. Stays
 //     in-process. No side effects.
-//   * drivers/<name>.go owns the actual implementation that talks
+//   - drivers/<name>.go owns the actual implementation that talks
 //     to the kernel / hypervisor / SAN. Designed from day one as
 //     a context-aware interface so it can later be swapped for a
 //     go-plugin process or a remote weft-agent without touching
@@ -17,16 +17,16 @@
 //
 // All driver methods:
 //
-//   * Take `context.Context` for cancellation, deadlines, and
+//   - Take `context.Context` for cancellation, deadlines, and
 //     trace propagation.
-//   * Use protobuf-friendly types only (no in-process Go pointers,
+//   - Use protobuf-friendly types only (no in-process Go pointers,
 //     no interface-typed values inside spec structs, no maps with
 //     non-string keys). This keeps the path to a gRPC plugin
 //     boundary clear.
-//   * Are stateless from the caller's POV — drivers re-derive
+//   - Are stateless from the caller's POV — drivers re-derive
 //     everything from the spec they receive. The source of truth
 //     stays in the registries.
-//   * Are idempotent for "Ensure" / "Attach" operations — calling
+//   - Are idempotent for "Ensure" / "Attach" operations — calling
 //     them again with the same spec is a no-op, not an error.
 //     This matters for reconciliation loops.
 //
