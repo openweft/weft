@@ -40,7 +40,7 @@ jobs:
             goarch: arm64
     steps:
       - name: build twice + diff sha256
-        # Each pass runs inside its own ephemeral golang:1.26-bookworm
+        # Each pass runs inside its own ephemeral golang:1.27.2-bookworm
         # container. Working dirs (/r1, /r2) are distinct sibling
         # checkouts so $PWD, file metadata, and Go module cache lookups
         # cannot leak across the two builds. A reproducible build
@@ -60,7 +60,8 @@ jobs:
               -w /src \
               -e GOOS -e GOARCH -e TAG \
               -e CGO_ENABLED=0 \
-              golang:1.26-bookworm bash -ec '
+              -e GOTOOLCHAIN=local \
+              golang:1.27.2-bookworm bash -ec '
                 git config --global --add safe.directory /src
                 git clone --depth 1 --branch "${TAG}" "https://github.com/'"${REPO}"'.git" /work
                 cd /work
