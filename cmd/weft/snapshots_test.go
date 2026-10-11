@@ -52,7 +52,7 @@ func newSnapshotTestServer(t *testing.T) (*weftServer, *weft.Adapter) {
 	t.Helper()
 	stateDir := t.TempDir()
 	factory := func(string) weft.Storage { return weft.NewMemStorage() }
-	adp := weft.NewWithStorage(stateDir, factory).(*weft.Adapter)
+	adp := closePluginsAtCleanup(t, weft.NewWithStorage(stateDir, factory)).(*weft.Adapter)
 	adp.SetSnapshotStore(fakeSnapshotStore{})
 	s := &weftServer{adp: adp}
 	return s, adp

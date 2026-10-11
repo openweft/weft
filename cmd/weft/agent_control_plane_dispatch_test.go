@@ -106,7 +106,7 @@ func (a *fakeAgent) run(ctx context.Context, t *testing.T, client agentv1.AgentC
 // fakeAgent's stream and waits for its goroutine to exit.
 func newDispatchTestServer(t *testing.T, agent *fakeAgent) (*agentControlPlaneServer, func()) {
 	t.Helper()
-	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
+	adp := closePluginsAtCleanup(t, weft.NewWithStorage(t.TempDir(), nil)).(*weft.Adapter)
 	srv := &agentControlPlaneServer{adp: adp}
 
 	lis := bufconn.Listen(1 << 16)
@@ -207,7 +207,7 @@ func TestAttachDispatch_RoundTrip(t *testing.T) {
 // for hosts without an open stream : Dispatch returns Unavailable, not
 // a nil result or a generic Internal.
 func TestAttachDispatch_NoSessionReturnsUnavailable(t *testing.T) {
-	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
+	adp := closePluginsAtCleanup(t, weft.NewWithStorage(t.TempDir(), nil)).(*weft.Adapter)
 	srv := &agentControlPlaneServer{adp: adp}
 
 	_, err := srv.Dispatch(context.Background(), "no-such-host", &agentv1.DriverDispatchCall{
