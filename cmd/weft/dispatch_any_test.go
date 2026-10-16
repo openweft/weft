@@ -146,7 +146,7 @@ func TestDispatchAny_FallsBackToAgentDispatch(t *testing.T) {
 // happy-path cutover : a host with an AttachDrivers session takes
 // the new transport ; the opaque DriverRequest round-trip works.
 func TestDispatchAny_PrefersAttachDriversWhenSessionExists(t *testing.T) {
-	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
+	adp := closePluginsAtCleanup(t, weft.NewWithStorage(t.TempDir(), nil)).(*weft.Adapter)
 	attachSrv := &agentControlPlaneServer{adp: adp}
 
 	// Spin up the AttachDrivers gRPC service with the Dev-caller
@@ -233,7 +233,7 @@ func TestDispatchAny_PrefersAttachDriversWhenSessionExists(t *testing.T) {
 // (host has no session anywhere), we get Unavailable from the
 // fallback agent_dispatch path (which itself has no session).
 func TestDispatchAny_AttachUnavailableFallback(t *testing.T) {
-	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
+	adp := closePluginsAtCleanup(t, weft.NewWithStorage(t.TempDir(), nil)).(*weft.Adapter)
 	attachSrv := &agentControlPlaneServer{adp: adp}
 	disp := newAgentDispatchServer()
 	disp.keepaliveInterval = 0

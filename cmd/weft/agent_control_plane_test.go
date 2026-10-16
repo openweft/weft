@@ -22,7 +22,7 @@ import (
 // translate HostRegistration → RegisterHostSpec, return the assigned
 // UUID, idempotent re-register.
 func TestAgentControlPlane_RegisterAgent(t *testing.T) {
-	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
+	adp := closePluginsAtCleanup(t, weft.NewWithStorage(t.TempDir(), nil)).(*weft.Adapter)
 	s := &agentControlPlaneServer{adp: adp}
 
 	resp, err := s.RegisterAgent(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.RegisterAgentRequest{
@@ -66,7 +66,7 @@ func TestAgentControlPlane_RegisterAgent(t *testing.T) {
 // TestAgentControlPlane_RegisterAgent_EmptyRequestRejected pins the
 // InvalidArgument contract.
 func TestAgentControlPlane_RegisterAgent_EmptyRequestRejected(t *testing.T) {
-	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
+	adp := closePluginsAtCleanup(t, weft.NewWithStorage(t.TempDir(), nil)).(*weft.Adapter)
 	s := &agentControlPlaneServer{adp: adp}
 	_, err := s.RegisterAgent(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.RegisterAgentRequest{})
 	if status.Code(err) != codes.InvalidArgument {
@@ -77,7 +77,7 @@ func TestAgentControlPlane_RegisterAgent_EmptyRequestRejected(t *testing.T) {
 // TestAgentControlPlane_Heartbeat covers the heartbeat RPC against
 // a registered host + the NotFound case.
 func TestAgentControlPlane_Heartbeat(t *testing.T) {
-	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
+	adp := closePluginsAtCleanup(t, weft.NewWithStorage(t.TempDir(), nil)).(*weft.Adapter)
 	s := &agentControlPlaneServer{adp: adp}
 	// Register first.
 	if _, err := s.RegisterAgent(weft.WithCaller(context.Background(), &weft.Caller{Dev: true}), &agentv1.RegisterAgentRequest{
@@ -114,7 +114,7 @@ func TestAgentControlPlane_Heartbeat(t *testing.T) {
 // since the bidi stream's ctx is rooted at the gRPC layer, not in
 // the test goroutine.
 func TestAgentControlPlane_AttachDrivers_CounterIncrementsOnClientEOF(t *testing.T) {
-	adp := weft.NewWithStorage(t.TempDir(), nil).(*weft.Adapter)
+	adp := closePluginsAtCleanup(t, weft.NewWithStorage(t.TempDir(), nil)).(*weft.Adapter)
 
 	// Fresh isolated registry so we don't fight tests that run in
 	// parallel against prometheus.DefaultRegisterer ; mutates the

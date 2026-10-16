@@ -399,7 +399,7 @@ func TestAttestation_MissingAKName(t *testing.T) {
 // default), RegisterHost succeeds through the legacy path WITHOUT any
 // attestation, and stamps no AK Name.
 func TestRegisterHostGate_FlagOff_Unchanged(t *testing.T) {
-	a := weft.NewWithKVStorage(t.TempDir(), nil, nil)
+	a := closePluginsAtCleanup(t, weft.NewWithKVStorage(t.TempDir(), nil, nil))
 	s := &weftServer{adp: a} // attest == nil → OFF path
 	resp, err := s.RegisterHost(devCtx(), &weftv1.RegisterHostRequest{
 		Hostname: "compute-off", Hypervisor: "qemu", Architecture: "arm64",
@@ -416,7 +416,7 @@ func TestRegisterHostGate_FlagOff_Unchanged(t *testing.T) {
 // a RegisterHost carrying no admitted AK is denied.
 func TestRegisterHostGate_FlagOn_RejectsUnadmitted(t *testing.T) {
 	s, _ := newEnabledServer(t)
-	s.adp = weft.NewWithKVStorage(t.TempDir(), nil, nil)
+	s.adp = closePluginsAtCleanup(t, weft.NewWithKVStorage(t.TempDir(), nil, nil))
 
 	// No AK label at all.
 	_, err := s.RegisterHost(devCtx(), &weftv1.RegisterHostRequest{
@@ -442,7 +442,7 @@ func TestRegisterHostGate_FlagOn_RejectsUnadmitted(t *testing.T) {
 // RegisterHost with the same AK is denied).
 func TestRegisterHostGate_FlagOn_AllowsAdmitted(t *testing.T) {
 	s, _ := newEnabledServer(t)
-	s.adp = weft.NewWithKVStorage(t.TempDir(), nil, nil)
+	s.adp = closePluginsAtCleanup(t, weft.NewWithKVStorage(t.TempDir(), nil, nil))
 
 	akName := []byte("admitted-ak-name")
 	s.attest.MarkAdmitted(akName)
