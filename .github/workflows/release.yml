@@ -330,22 +330,65 @@ jobs:
             --type spdxjson \
             "${IMAGE}@${DIGEST}"
 
-      - name: upload image SBOM to GitHub Release
-        uses: softprops/action-gh-release@v2
+      # This job only holds `contents: read`, so it cannot create or
+      # edit the GitHub Release (a draft release is not found by tag,
+      # and softprops/action-gh-release then tries to create one: 403
+      # "Resource not accessible by integration"). The SBOM is handed
+      # to the `image-sbom` job, which runs after `release` has
+      # created the draft and holds `contents: write`.
+      - uses: actions/upload-artifact@v7
         with:
-          files: weft-image-${{ matrix.arch }}.spdx.json
-          draft: true
+          name: image-sbom-${{ matrix.arch }}
+          path: weft-image-${{ matrix.arch }}.spdx.json
+          if-no-files-found: error
 
       - name: expose digest for SLSA
         id: expose
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
+          set -euo pipefail
+          # Refuse anything that is not a sha256 digest before it
+          # reaches the provenance jobs.
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "unexpected image digest: '$DIGEST'" >&2; exit 1 ;;
+          esac
           # Strip the leading `sha256:` ; the SLSA reusable workflow
           # wants `<repo>:<digest>` in its `digest` input but the
           # matrix output uses the bare hex form so we can rebuild
           # the ref downstream.
           echo "image-${{ matrix.arch }}=${DIGEST#sha256:}" >>"$GITHUB_OUTPUT"
+
+  image-sbom:
+    # Attaches the per-arch image SBOMs to the draft release created by
+    # the `release` job. Needs both: the draft must exist first, and
+    # only this job holds the `contents: write` the upload requires.
+    needs: [release, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: image-sbom-*
+          path: sbom
+          merge-multiple: true
+
+      - name: upload image SBOMs to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          n=$(find sbom -name 'weft-image-*.spdx.json' | wc -l)
+          if [ "$n" -ne 2 ]; then
+            echo "expected 2 image SBOMs, found $n" >&2
+            exit 1
+          fi
+          # gh resolves a draft release by its tag name.
+          gh release upload "$TAG" sbom/weft-image-*.spdx.json --clobber
 
   provenance-image-amd64:
     needs: image
@@ -406,6 +449,10 @@ jobs:
           digest=$(docker buildx imagetools inspect \
             "${{ env.IMAGE }}:${{ github.ref_name }}" \
             --format '{{.Manifest.Digest}}')
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "unexpected index digest: '$digest'" >&2; exit 1 ;;
+          esac
           echo "digest=${digest}" >>"$GITHUB_OUTPUT"
 
       - uses: sigstore/cosign-installer@v3
