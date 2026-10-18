@@ -209,6 +209,37 @@ func embeddedEtcdJobs(t *testing.T) *clientv3.Client {
 		t.Fatalf("dial etcd: %v", err)
 	}
 	t.Cleanup(func() { cli.Close() })
+
+	// A client that has never answered is not a client, and this one has not:
+	// clientv3.New DOES NOT CONNECT. Measured against a port where nothing
+	// serves at all, it returns a nil error in 2.4 ms -- DialTimeout buys
+	// nothing without a blocking dial, and there is no blocking dial here.
+	//
+	// So the first operation in the test pays for the connection out of its OWN
+	// budget, and reports the shortfall against itself. That is what both of
+	// this package's CI failures said, in two different tests:
+	//
+	//     2026-09-23  TestWorker_HandlerErrorPropagates (11.01s)
+	//                 etcdjobs_test.go:95: Enqueue: context deadline exceeded
+	//     2026-10-17  TestWorker_IsolatesPerHost (10.61s)
+	//                 etcdjobs_test.go:154: Enqueue host-A: context deadline exceeded
+	//
+	// Both against a 10 s context, both on the test's FIRST etcd call, while the
+	// same tests take 0.22 s to 1.21 s locally, 20 runs out of 20. `go test ./...`
+	// runs this package beside others that boot their own embedded etcd --
+	// registryclient took 12.0 s in that run, hostvip 6.7 s -- on a two-core
+	// runner, and ten seconds of contended start-up is reachable.
+	//
+	// The read below is therefore not a health check for its own sake: it moves
+	// the connection OUT of every test's operation budget and onto the harness's,
+	// beside the server's own ReadyNotify wait above and with the same 30 s. A
+	// genuinely broken etcd now says so here, naming etcd; a slow start costs the
+	// tests nothing.
+	ready, cancelReady := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelReady()
+	if _, err := cli.Get(ready, "harness/ready"); err != nil {
+		t.Fatalf("etcd accepted a client but did not answer a read in 30s: %v", err)
+	}
 	return cli
 }
 
