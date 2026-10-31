@@ -1,6 +1,6 @@
 module github.com/openweft/weft
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/coreos/go-oidc/v3 v3.18.0
