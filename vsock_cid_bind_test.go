@@ -55,6 +55,7 @@ func TestInventoryPodCID(t *testing.T) {
 		{Name: "d", HostUUID: "h1", VsockCID: 2}, // reserved
 		{Name: "e", HostUUID: "h1", VsockCID: 70003},
 		{Name: "e", HostUUID: "h1", VsockCID: 70003}, // same value twice: fine
+		{Name: "f", HostUUID: "", VsockCID: 70005},
 	}
 	cases := []struct {
 		pod, host string
@@ -69,6 +70,7 @@ func TestInventoryPodCID(t *testing.T) {
 		{"c", "h1", 0, false},
 		{"d", "h1", 0, false},
 		{"e", "h1", 70003, true},
+		{"f", "", 0, false}, // empty host never matches an empty record
 		{"zz", "h1", 0, false},
 	}
 	for _, c := range cases {
@@ -95,6 +97,11 @@ func TestPodCID_RegistryWinsOverNothing(t *testing.T) {
 func TestPodCID_UnknownIsUnbound(t *testing.T) {
 	a := &Adapter{}
 	a.initPodCIDs()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("PodCID panicked on an adapter without a VM registry: %v", r)
+		}
+	}()
 	if _, ok := a.PodCID("never-started"); ok {
 		t.Fatal("an unknown pod must be unbound")
 	}

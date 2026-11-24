@@ -170,10 +170,8 @@ func inventoryPodCID(vms []VM, podID, hostUUID string) (uint32, bool) {
 // records it for pod_id name. Called at StartVM; the guest never
 // influences it.
 func (a *Adapter) bindPodCIDFromConfig(name, vmDir string) {
-	b, err := os.ReadFile(filepath.Join(vmDir, "config.json"))
-	if err != nil {
-		return
-	}
+	// A missing file reads as empty bytes, which fail to decode below.
+	b, _ := os.ReadFile(filepath.Join(vmDir, "config.json"))
 	var cfg struct {
 		VsockCID uint32 `json:"vsock_cid"`
 	}
