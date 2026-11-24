@@ -229,12 +229,64 @@ func TestGuestPodPlane_NoPeer_Refused(t *testing.T) {
 	}
 }
 
+// A peer record with no address, or a non-vsock address, is refused
+// even when the pod is bound; nothing is sent either way.
+func TestGuestPodPlane_PeerWithoutVsockIdentity_Refused(t *testing.T) {
+	h := &strictPodPlaneServer{adp: &fakeAdapter{
+		cids:  map[string]uint32{"pod-1": 4242},
+		specs: map[string]*guestv1.PodSpec{"pod-1": {PodId: "pod-1"}},
+	}}
+	for name, p := range map[string]*peer.Peer{
+		"nil addr": {},
+		"tcp addr": {Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}},
+	} {
+		stream := &noPeerStream{ctx: peer.NewContext(context.Background(), p)}
+		if err := h.Attach(stream); status.Code(err) != codes.PermissionDenied {
+			t.Errorf("%s: err=%v, want PermissionDenied", name, err)
+		}
+		if stream.sent != 0 {
+			t.Errorf("%s: a frame was sent", name)
+		}
+	}
+}
+
+// A bound pod called from its own CID is still refused when the
+// guest's reported CID disagrees with the peer's.
+func TestGuestPodPlane_BoundPodReportedMismatch_Refused(t *testing.T) {
+	adp := &fakeAdapter{
+		cids:  map[string]uint32{"pod-1": 4242},
+		specs: map[string]*guestv1.PodSpec{"pod-1": {PodId: "pod-1"}},
+	}
+	h := &strictPodPlaneServer{adp: adp}
+	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 4242})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := client.Attach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&guestv1.GuestFrame{
+		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{PodId: "pod-1", ReportedCid: 9999}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := stream.Recv(); resp != nil || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("resp=%v err=%v, want PermissionDenied and no frame", resp, err)
+	}
+}
+
 type noPeerStream struct {
 	grpc.ServerStream
 	sent int
+	ctx  context.Context
 }
 
-func (s *noPeerStream) Context() context.Context { return context.Background() }
+func (s *noPeerStream) Context() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
+}
 func (s *noPeerStream) Send(*guestv1.GuestFrame) error {
 	s.sent++
 	return nil

@@ -45,6 +45,53 @@ func TestBindPodCIDFromConfig_MissingFile(t *testing.T) {
 	}
 }
 
+func TestInventoryPodCID(t *testing.T) {
+	vms := []VM{
+		{Name: "a", HostUUID: "h1", VsockCID: 70000},
+		{Name: "a", HostUUID: "h2", VsockCID: 80000}, // other host: ignored
+		{Name: "b", HostUUID: "h1", VsockCID: 70001},
+		{Name: "b", HostUUID: "h1", VsockCID: 70002}, // ambiguous
+		{Name: "c", HostUUID: "h1", VsockCID: 0},
+		{Name: "d", HostUUID: "h1", VsockCID: 2}, // reserved
+		{Name: "e", HostUUID: "h1", VsockCID: 70003},
+		{Name: "e", HostUUID: "h1", VsockCID: 70003}, // same value twice: fine
+	}
+	cases := []struct {
+		pod, host string
+		want      uint32
+		ok        bool
+	}{
+		{"a", "h1", 70000, true},
+		{"a", "h2", 80000, true},
+		{"a", "h3", 0, false},
+		{"a", "", 0, false},
+		{"b", "h1", 0, false},
+		{"c", "h1", 0, false},
+		{"d", "h1", 0, false},
+		{"e", "h1", 70003, true},
+		{"zz", "h1", 0, false},
+	}
+	for _, c := range cases {
+		got, ok := inventoryPodCID(vms, c.pod, c.host)
+		if got != c.want || ok != c.ok {
+			t.Errorf("inventoryPodCID(%q,%q) = (%d,%v), want (%d,%v)", c.pod, c.host, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestPodCID_RegistryWinsOverNothing(t *testing.T) {
+	a := &Adapter{}
+	a.initPodCIDs()
+	a.RegisterPodCID("p", 70000)
+	if got, ok := a.PodCID("p"); !ok || got != 70000 {
+		t.Fatalf("PodCID = (%d,%v)", got, ok)
+	}
+	a.UnregisterPodCID("p")
+	if _, ok := a.PodCID("p"); ok {
+		t.Fatal("still bound after unregister")
+	}
+}
+
 func TestPodCID_UnknownIsUnbound(t *testing.T) {
 	a := &Adapter{}
 	a.initPodCIDs()

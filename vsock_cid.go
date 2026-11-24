@@ -142,9 +142,19 @@ func (a *Adapter) PodCID(podID string) (uint32, bool) {
 	if a.vmReg == nil {
 		return 0, false
 	}
+	return inventoryPodCID(a.vmReg.list(), podID, a.localHostUUID())
+}
+
+// inventoryPodCID finds the CID recorded for podID among the VMs
+// owned by hostUUID (CIDs are per hypervisor: another host's VM must
+// not bind a name here). Zero or several distinct CIDs: unbound.
+func inventoryPodCID(vms []VM, podID, hostUUID string) (uint32, bool) {
+	if hostUUID == "" {
+		return 0, false
+	}
 	var found uint32
-	for _, v := range a.vmReg.list() {
-		if v.Name != podID || v.VsockCID == 0 {
+	for _, v := range vms {
+		if v.Name != podID || v.HostUUID != hostUUID || !IsVsockGuestCID(v.VsockCID) {
 			continue
 		}
 		if found != 0 && found != v.VsockCID {
