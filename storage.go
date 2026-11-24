@@ -355,6 +355,15 @@ type KVStorage interface {
 	Prefix() string
 }
 
+// KVCreator is the optional create-if-absent capability of a
+// KVStorage (an atomic compare-and-set on "key does not exist"). The
+// vsock CID allocator uses it to claim a CID cluster-wide.
+type KVCreator interface {
+	// CreateOne stores blob at key only if key is absent and reports
+	// whether this call created it.
+	CreateOne(ctx context.Context, key string, blob []byte) (created bool, err error)
+}
+
 // KVEvent is one observation about a single record. Kind = Put for
 // create/update, Delete for removal. Value is the new blob on Put,
 // nil on Delete (carry the previous value via PrevValue when the
@@ -426,6 +435,21 @@ func (s *EtcdKVStorage) PutOne(ctx context.Context, key string, blob []byte) err
 		return fmt.Errorf("etcd kv put %s: %w", s.prefix+key, err)
 	}
 	return nil
+}
+
+// CreateOne writes the record only when the key does not exist yet, in
+// one etcd transaction (CreateRevision == 0), so concurrent agents
+// cannot both win the same key.
+func (s *EtcdKVStorage) CreateOne(ctx context.Context, key string, blob []byte) (bool, error) {
+	k := s.prefix + key
+	resp, err := s.client.Txn(ctx).
+		If(clientv3.Compare(clientv3.CreateRevision(k), "=", 0)).
+		Then(clientv3.OpPut(k, string(blob))).
+		Commit()
+	if err != nil {
+		return false, fmt.Errorf("etcd kv create %s: %w", k, err)
+	}
+	return resp.Succeeded, nil
 }
 
 // DeleteOne removes a single record. Idempotent — deleting an
@@ -579,6 +603,17 @@ func (m *MemKVStorage) PutOne(_ context.Context, key string, blob []byte) error 
 		}
 	}
 	return nil
+}
+
+// CreateOne writes the record only when the key is absent.
+func (m *MemKVStorage) CreateOne(_ context.Context, key string, blob []byte) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.data[key]; ok {
+		return false, nil
+	}
+	m.data[key] = append([]byte(nil), blob...)
+	return true, nil
 }
 
 // DeleteOne removes a record + notifies watchers with the previous value.

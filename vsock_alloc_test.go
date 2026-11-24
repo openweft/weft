@@ -1,0 +1,172 @@
+package weft
+
+import (
+	"context"
+	"strconv"
+	"testing"
+)
+
+func kvAdapter() (*Adapter, *MemKVStorage) {
+	kv := NewMemKVStorage("/weft/vsockcids/")
+	return &Adapter{kvStorageFactory: func(string) KVStorage { return kv }}, kv
+}
+
+func ckey(c uint32) string { return strconv.FormatUint(uint64(c), 10) }
+
+func TestClaimVsockCID_KVCollisionProbesForward(t *testing.T) {
+	a, kv := kvAdapter()
+	start := AllocateVsockCID("p", "vm")
+	// Another VM (maybe on another host) already owns the hash slot and the next one.
+	ctx := context.Background()
+	_ = kv.PutOne(ctx, ckey(start), []byte("q/other"))
+	_ = kv.PutOne(ctx, ckey(start+1), []byte("q/other2"))
+	got := a.claimVsockCID("p", "vm")
+	if got != start+2 {
+		t.Fatalf("claim = %d, want %d", got, start+2)
+	}
+	owner, _ := kv.GetOne(ctx, ckey(got))
+	if string(owner) != "p/vm" {
+		t.Fatalf("owner = %q", owner)
+	}
+}
+
+func TestClaimVsockCID_KVStableForSameVM(t *testing.T) {
+	a, _ := kvAdapter()
+	first := a.claimVsockCID("p", "vm")
+	if first == 0 {
+		t.Fatal("zero CID")
+	}
+	if again := a.claimVsockCID("p", "vm"); again != first {
+		t.Fatalf("second claim %d != first %d", again, first)
+	}
+}
+
+func TestClaimVsockCID_EmptyName(t *testing.T) {
+	a, _ := kvAdapter()
+	if got := a.claimVsockCID("p", ""); got != 0 {
+		t.Fatalf("got %d", got)
+	}
+}
+
+func TestClaimVsockCID_KVReuseAfterRelease(t *testing.T) {
+	a, kv := kvAdapter()
+	ctx := context.Background()
+	start := AllocateVsockCID("p", "vm")
+	_ = kv.PutOne(ctx, ckey(start), []byte("q/other"))
+	got := a.claimVsockCID("p", "vm")
+	if got == start {
+		t.Fatal("took a CID owned by another VM")
+	}
+	// A release by a non-owner must not free someone else's claim.
+	a.releaseVsockCID("p", "vm", start)
+	if v, _ := kv.GetOne(ctx, ckey(start)); string(v) != "q/other" {
+		t.Fatalf("non-owner release removed the claim: %q", v)
+	}
+	// The other VM exits: its CID is reusable by a newcomer hashing there.
+	a.releaseVsockCID("q", "other", start)
+	if v, _ := kv.GetOne(ctx, ckey(start)); v != nil {
+		t.Fatalf("claim survived release: %q", v)
+	}
+	// Own release frees the slot for reuse.
+	a.releaseVsockCID("p", "vm", got)
+	if v, _ := kv.GetOne(ctx, ckey(got)); v != nil {
+		t.Fatalf("own claim survived release: %q", v)
+	}
+	if re := a.claimVsockCID("p", "vm"); re != start {
+		t.Fatalf("after release the hash slot is free again: got %d want %d", re, start)
+	}
+}
+
+func TestClaimVsockCID_LocalFallback(t *testing.T) {
+	a := &Adapter{}
+	start := AllocateVsockCID("p", "vm")
+	a.vsockLocal = map[uint32]string{start: "q/other"}
+	got := a.claimVsockCID("p", "vm")
+	if got != start+1 {
+		t.Fatalf("claim = %d, want %d", got, start+1)
+	}
+	if again := a.claimVsockCID("p", "vm"); again != got {
+		t.Fatalf("not stable: %d vs %d", again, got)
+	}
+	a.releaseVsockCID("p", "vm", got)
+	if _, taken := a.vsockLocal[got]; taken {
+		t.Fatal("local claim survived release")
+	}
+	a.releaseVsockCID("p", "vm", start) // not the owner of start
+	if a.vsockLocal[start] != "q/other" {
+		t.Fatal("non-owner release removed a local claim")
+	}
+}
+
+func TestClaimVsockCID_DistinctVMsNeverShare(t *testing.T) {
+	a, _ := kvAdapter()
+	seen := map[uint32]string{}
+	for i := 0; i < 200; i++ {
+		name := "vm-" + strconv.Itoa(i)
+		c := a.claimVsockCID("p", name)
+		if !IsVsockGuestCID(c) {
+			t.Fatalf("%s: bad CID %d", name, c)
+		}
+		if prev, dup := seen[c]; dup {
+			t.Fatalf("%s and %s share CID %d", name, prev, c)
+		}
+		seen[c] = name
+	}
+}
+
+func inventoryAdapter(t *testing.T, a *Adapter, vms ...VM) {
+	t.Helper()
+	reg, _ := loadVMRegistry(context.Background(), NewMemStorage())
+	for _, v := range vms {
+		made, err := reg.create(CreateVMSpec{ProjectUUID: v.ProjectUUID, Name: v.Name, HostUUID: "h1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := reg.setVsockCID(made.UUID, v.VsockCID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.vmReg = reg
+}
+
+func TestClaimVsockCID_InventoryHolderIsSkipped(t *testing.T) {
+	a, _ := kvAdapter()
+	start := AllocateVsockCID("p", "vm")
+	// A VM registered before claims existed holds the hash slot.
+	inventoryAdapter(t, a, VM{ProjectUUID: "q", Name: "old", VsockCID: start})
+	if got := a.claimVsockCID("p", "vm"); got != start+1 {
+		t.Fatalf("claim = %d, want %d", got, start+1)
+	}
+}
+
+func TestClaimVsockCID_VMKeepsItsRecordedCID(t *testing.T) {
+	a, _ := kvAdapter()
+	start := AllocateVsockCID("p", "vm")
+	inventoryAdapter(t, a, VM{ProjectUUID: "p", Name: "vm", VsockCID: start + 7})
+	if got := a.claimVsockCID("p", "vm"); got != start+7 {
+		t.Fatalf("claim = %d, want its recorded %d", got, start+7)
+	}
+}
+
+func TestNextCIDWraps(t *testing.T) {
+	if got := nextCID(VsockCIDLast); got != VsockCIDFirst {
+		t.Fatalf("wrap = %d", got)
+	}
+	if got := nextCID(VsockCIDFirst); got != VsockCIDFirst+1 {
+		t.Fatalf("next = %d", got)
+	}
+}
+
+func TestMemKVCreateOne(t *testing.T) {
+	kv := NewMemKVStorage("x")
+	ctx := context.Background()
+	if ok, _ := kv.CreateOne(ctx, "k", []byte("a")); !ok {
+		t.Fatal("first create refused")
+	}
+	if ok, _ := kv.CreateOne(ctx, "k", []byte("b")); ok {
+		t.Fatal("second create succeeded")
+	}
+	if v, _ := kv.GetOne(ctx, "k"); string(v) != "a" {
+		t.Fatalf("value = %q", v)
+	}
+}

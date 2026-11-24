@@ -7,6 +7,15 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Fixed
+- **Guest vsock CIDs no longer collide.** The CID hash is now the start of
+  a probe: a CID is claimed with an etcd create-if-absent (new optional
+  `KVCreator` capability on `EtcdKVStorage` and `MemKVStorage`, store
+  name `vsockcids`) so two VMs, on any host, never share one; a VM keeps
+  its recorded CID, and the claim is released when the VM is
+  unregistered. Without a store that supports it, allocation is
+  host-local and also checks the VM inventory.
+
 ### Security
 - **Guest pod plane: pod-to-CID binding is host-side only; the vsock
   listener serves guest services only.** The agent now binds each pod
