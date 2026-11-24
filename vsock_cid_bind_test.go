@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+// podCIDSafe calls PodCID and reports a panic (a missing guard on an
+// adapter without a VM registry) as a test failure.
+func podCIDSafe(t *testing.T, a *Adapter, id string) (cid uint32, ok bool) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("PodCID panicked: %v", r)
+		}
+	}()
+	return a.PodCID(id)
+}
+
 func TestBindPodCIDFromConfig(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -28,7 +40,7 @@ func TestBindPodCIDFromConfig(t *testing.T) {
 			a := &Adapter{}
 			a.initPodCIDs()
 			a.bindPodCIDFromConfig("pod-1", dir)
-			got, ok := a.PodCID("pod-1")
+			got, ok := podCIDSafe(t, a,"pod-1")
 			if got != c.wantCID || ok != c.wantOK {
 				t.Fatalf("PodCID = (%d,%v), want (%d,%v)", got, ok, c.wantCID, c.wantOK)
 			}
@@ -40,7 +52,7 @@ func TestBindPodCIDFromConfig_MissingFile(t *testing.T) {
 	a := &Adapter{}
 	a.initPodCIDs()
 	a.bindPodCIDFromConfig("pod-1", t.TempDir())
-	if _, ok := a.PodCID("pod-1"); ok {
+	if _, ok := podCIDSafe(t, a,"pod-1"); ok {
 		t.Fatal("bound without a config")
 	}
 }
@@ -85,11 +97,11 @@ func TestPodCID_RegistryWinsOverNothing(t *testing.T) {
 	a := &Adapter{}
 	a.initPodCIDs()
 	a.RegisterPodCID("p", 70000)
-	if got, ok := a.PodCID("p"); !ok || got != 70000 {
+	if got, ok := podCIDSafe(t, a,"p"); !ok || got != 70000 {
 		t.Fatalf("PodCID = (%d,%v)", got, ok)
 	}
 	a.UnregisterPodCID("p")
-	if _, ok := a.PodCID("p"); ok {
+	if _, ok := podCIDSafe(t, a,"p"); ok {
 		t.Fatal("still bound after unregister")
 	}
 }
@@ -97,12 +109,7 @@ func TestPodCID_RegistryWinsOverNothing(t *testing.T) {
 func TestPodCID_UnknownIsUnbound(t *testing.T) {
 	a := &Adapter{}
 	a.initPodCIDs()
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("PodCID panicked on an adapter without a VM registry: %v", r)
-		}
-	}()
-	if _, ok := a.PodCID("never-started"); ok {
+	if _, ok := podCIDSafe(t, a,"never-started"); ok {
 		t.Fatal("an unknown pod must be unbound")
 	}
 }
