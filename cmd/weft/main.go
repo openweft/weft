@@ -36,7 +36,6 @@ import (
 	"github.com/openweft/weft-microvm-init/pkg/pod"
 	weftv1 "github.com/openweft/weft-proto"
 	agentv1 "github.com/openweft/weft-proto/agentv1"
-	guestv1 "github.com/openweft/weft-proto/guestv1"
 	weftslognats "github.com/openweft/weft-slognats"
 	"github.com/openweft/weft/auditlog"
 	"github.com/openweft/weft/cmd/weft/admin"
@@ -971,7 +970,8 @@ func run(t fileConfigTargets) error {
 	// control requests. Today over the agent's existing socket ; a
 	// future commit binds a per-VM AF_VSOCK listener for the
 	// production transport described in guest.proto.
-	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{adp: a})
+	// Not registered on srv : guests reach it only through the
+	// dedicated guest server (newGuestServer).
 
 	// Top-level lifecycle ctx — cancelled on SIGINT/SIGTERM. The
 	// proxy plane (when --proxy is set) hangs off it so the
@@ -1042,8 +1042,11 @@ func run(t fileConfigTargets) error {
 			if err != nil {
 				return fmt.Errorf("vsock listener (port=%d): %w", t.vsockPort, err)
 			}
+			// Dedicated guest-only server : the admin API is never
+			// reachable from a guest.
+			guestSrv := newGuestServer(a)
 			go func() {
-				if err := srv.Serve(vsockLis); err != nil {
+				if err := guestSrv.Serve(vsockLis); err != nil {
 					logger.Printf("vsock grpc server stopped: %v", err)
 				}
 			}()

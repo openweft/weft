@@ -47,20 +47,6 @@ func (f *fakeAdapter) PodSpec(podID string) (*guestv1.PodSpec, bool) {
 	return s, ok
 }
 
-// RegisterPodCID lets the GuestPodPlane handler's autoregister
-// branch update the registry the same way the production adapter
-// would. Tests assert on f.cids to verify the autoregister fired.
-func (f *fakeAdapter) RegisterPodCID(podID string, cid uint32) {
-	if f.cids == nil {
-		f.cids = map[string]uint32{}
-	}
-	if cid == 0 {
-		delete(f.cids, podID)
-		return
-	}
-	f.cids[podID] = cid
-}
-
 // makeServerWithPeer launches a bufconn-served gRPC stack that
 // stamps the supplied vsockAddr onto every incoming RPC's peer
 // info, so the GuestPodPlane handler sees the same shape it would
@@ -166,16 +152,11 @@ func TestGuestPodPlane_StrictCIDMatch_Accepts(t *testing.T) {
 	}
 }
 
-// TestGuestPodPlane_UnknownPod_FallsBackToCIDGuard exercises the
-// "permissive when unknown" half of the contract : the pod_id isn't
-// in the registry, the peer's CID is a valid non-reserved guest CID,
-// the handler proceeds. This is what protects legacy VMs registered
-// before the allocator landed (VsockCID==0).
-func TestGuestPodPlane_UnknownPod_FallsBackToCIDGuard(t *testing.T) {
-	adp := &fakeAdapter{cids: map[string]uint32{}} // empty
-	h := &strictPodPlaneServer{adp: adp}
-	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 4242}) // valid guest CID
-
+// helloDenied sends a Hello for podID from peer addr and asserts the
+// stream ends in PermissionDenied with no frame (no spec) delivered.
+func helloDenied(t *testing.T, h *strictPodPlaneServer, addr fakeVsockAddr, podID string) {
+	t.Helper()
+	client := makeServerWithPeer(t, h, addr)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	stream, err := client.Attach(ctx)
@@ -183,16 +164,163 @@ func TestGuestPodPlane_UnknownPod_FallsBackToCIDGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := stream.Send(&guestv1.GuestFrame{
-		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{PodId: "legacy-pod"}},
+		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{PodId: podID}},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := stream.Recv()
-	if err != nil {
-		t.Fatalf("recv ack: %v", err)
+	if resp != nil {
+		t.Fatalf("a refused Hello received a frame: %T", resp.Body)
 	}
-	if _, ok := resp.Body.(*guestv1.GuestFrame_HelloAck); !ok {
-		t.Errorf("got %T, want HelloAck for unknown pod (permissive path)", resp.Body)
+	if got := status.Code(err); got != codes.PermissionDenied {
+		t.Fatalf("status=%v, want PermissionDenied (err=%v)", got, err)
+	}
+}
+
+// An unbound pod id gets no spec, even from a valid guest CID.
+func TestGuestPodPlane_UnknownPod_Refused(t *testing.T) {
+	adp := &fakeAdapter{
+		cids:  map[string]uint32{},
+		specs: map[string]*guestv1.PodSpec{"pod-1": {PodId: "pod-1"}},
+	}
+	helloDenied(t, &strictPodPlaneServer{adp: adp}, fakeVsockAddr{cid: 4242}, "pod-1")
+	if len(adp.cids) != 0 {
+		t.Error("a refused Hello must not bind anything")
+	}
+}
+
+// A guest announcing another pod's id gets no spec, and the real
+// pod's binding is untouched.
+func TestGuestPodPlane_OtherPodsID_NoSpec(t *testing.T) {
+	adp := &fakeAdapter{
+		cids:  map[string]uint32{"victim": 4242, "mine": 7777},
+		specs: map[string]*guestv1.PodSpec{"victim": {PodId: "victim"}},
+	}
+	helloDenied(t, &strictPodPlaneServer{adp: adp}, fakeVsockAddr{cid: 7777}, "victim")
+	if adp.cids["victim"] != 4242 {
+		t.Error("binding changed")
+	}
+}
+
+// Reserved CIDs (0 among them) are refused before any lookup.
+func TestGuestPodPlane_ReservedCIDs_Refused(t *testing.T) {
+	for _, cid := range []uint32{0, 1, 2, 0xffffffff} {
+		adp := &fakeAdapter{
+			cids:  map[string]uint32{"pod-1": cid},
+			specs: map[string]*guestv1.PodSpec{"pod-1": {PodId: "pod-1"}},
+		}
+		helloDenied(t, &strictPodPlaneServer{adp: adp}, fakeVsockAddr{cid: cid}, "pod-1")
+	}
+}
+
+// A call with no peer information is refused, not waved through.
+func TestGuestPodPlane_NoPeer_Refused(t *testing.T) {
+	h := &strictPodPlaneServer{adp: &fakeAdapter{
+		cids:  map[string]uint32{"pod-1": 4242},
+		specs: map[string]*guestv1.PodSpec{"pod-1": {PodId: "pod-1"}},
+	}}
+	stream := &noPeerStream{}
+	err := attachNoPanic(t, h, stream)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("err=%v, want PermissionDenied", err)
+	}
+	if stream.sent != 0 {
+		t.Fatal("a frame was sent")
+	}
+}
+
+// A peer record with no address, or a non-vsock address, is refused
+// even when the pod is bound; nothing is sent either way.
+func TestGuestPodPlane_PeerWithoutVsockIdentity_Refused(t *testing.T) {
+	h := &strictPodPlaneServer{adp: &fakeAdapter{
+		cids:  map[string]uint32{"pod-1": 4242},
+		specs: map[string]*guestv1.PodSpec{"pod-1": {PodId: "pod-1"}},
+	}}
+	for name, p := range map[string]*peer.Peer{
+		"nil addr": {},
+		"tcp addr": {Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}},
+	} {
+		stream := &noPeerStream{ctx: peer.NewContext(context.Background(), p)}
+		if err := attachNoPanic(t, h, stream); status.Code(err) != codes.PermissionDenied {
+			t.Errorf("%s: err=%v, want PermissionDenied", name, err)
+		}
+		if stream.sent != 0 {
+			t.Errorf("%s: a frame was sent", name)
+		}
+	}
+}
+
+// A bound pod called from its own CID is still refused when the
+// guest's reported CID disagrees with the peer's.
+func TestGuestPodPlane_BoundPodReportedMismatch_Refused(t *testing.T) {
+	adp := &fakeAdapter{
+		cids:  map[string]uint32{"pod-1": 4242},
+		specs: map[string]*guestv1.PodSpec{"pod-1": {PodId: "pod-1"}},
+	}
+	h := &strictPodPlaneServer{adp: adp}
+	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 4242})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := client.Attach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&guestv1.GuestFrame{
+		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{PodId: "pod-1", ReportedCid: 9999}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := stream.Recv(); resp != nil || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("resp=%v err=%v, want PermissionDenied and no frame", resp, err)
+	}
+}
+
+// attachNoPanic runs the handler and turns a panic into a test
+// failure, so a missing guard is reported as an assertion.
+func attachNoPanic(t *testing.T, h *strictPodPlaneServer, s grpc.ServerStream) (err error) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("handler panicked: %v", r)
+		}
+	}()
+	return h.Attach(s.(guestv1.GuestPodPlane_AttachServer))
+}
+
+type noPeerStream struct {
+	grpc.ServerStream
+	sent  int
+	ctx   context.Context
+	first *guestv1.GuestFrame
+}
+
+func (s *noPeerStream) Context() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
+}
+func (s *noPeerStream) Send(*guestv1.GuestFrame) error {
+	s.sent++
+	return nil
+}
+func (s *noPeerStream) Recv() (*guestv1.GuestFrame, error) {
+	if f := s.first; f != nil {
+		s.first = nil
+		return f, nil
+	}
+	return nil, io.EOF
+}
+
+// Only the guest services are reachable over the vsock server.
+func TestNewGuestServer_ExposesGuestServicesOnly(t *testing.T) {
+	srv := newGuestServer(&fakeAdapter{})
+	got := srv.GetServiceInfo()
+	if len(got) != 1 {
+		t.Fatalf("services = %v, want only GuestPodPlane", got)
+	}
+	if _, ok := got["weft.guest.v1.GuestPodPlane"]; !ok {
+		t.Fatalf("services = %v, want GuestPodPlane", got)
 	}
 }
 
@@ -240,42 +368,6 @@ func TestGuestPodPlane_HelloAckCarriesPodSpec(t *testing.T) {
 	}
 }
 
-// TestGuestPodPlane_AutoRegisterOnFirstHello pins the v0.4.51
-// autoregister path : an empty registry + a valid peer CID + a
-// matching reported_cid causes the host to stamp the registry
-// with the peer's CID so subsequent Hellos enforce strict-when-known.
-// Closes the Apple-VZ readback gap.
-func TestGuestPodPlane_AutoRegisterOnFirstHello(t *testing.T) {
-	adp := &fakeAdapter{
-		cids:  map[string]uint32{}, // empty — no pre-allocation
-		specs: map[string]*guestv1.PodSpec{},
-	}
-	h := &strictPodPlaneServer{adp: adp}
-	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 4242})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	stream, err := client.Attach(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := stream.Send(&guestv1.GuestFrame{
-		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{
-			PodId:       "vz-pod",
-			ReportedCid: 4242, // matches peer.CID()
-		}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := stream.Recv(); err != nil {
-		t.Fatalf("recv ack: %v", err)
-	}
-	// The handler should have stamped the registry.
-	if got, ok := adp.cids["vz-pod"]; !ok || got != 4242 {
-		t.Errorf("autoregister failed : cids[vz-pod] = (%d,%v), want (4242,true)", got, ok)
-	}
-}
-
 // TestGuestPodPlane_ReportedCIDMismatchRejected pins the
 // guest-reported vs. peer-observed cross-check. A guest that lies
 // about its CID (reported_cid != peer.CID()) is refused before any
@@ -312,61 +404,19 @@ func TestGuestPodPlane_ReportedCIDMismatchRejected(t *testing.T) {
 	}
 }
 
-// TestGuestPodPlane_AutoRegisterMatchesPeerNotReported pins that
-// zero reported_cid is tolerated (older guests don't fill it) and
-// the host stamps the registry with peer.CID() alone. Confirms
-// backwards compat with v0.4.46-era weft-microvm-agent builds.
-func TestGuestPodPlane_AutoRegisterMatchesPeerNotReported(t *testing.T) {
-	adp := &fakeAdapter{cids: map[string]uint32{}}
-	h := &strictPodPlaneServer{adp: adp}
-	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 555})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	stream, err := client.Attach(ctx)
-	if err != nil {
-		t.Fatal(err)
+// A nil registry cannot vouch for anyone : refuse.
+func TestGuestPodPlane_NilAdapter_Refused(t *testing.T) {
+	stream := &noPeerStream{
+		ctx: peer.NewContext(context.Background(), &peer.Peer{Addr: fakeVsockAddr{cid: 4242}}),
+		first: &guestv1.GuestFrame{
+			Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{PodId: "anything"}},
+		},
 	}
-	if err := stream.Send(&guestv1.GuestFrame{
-		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{
-			PodId: "legacy-guest",
-			// ReportedCid = 0 (older build that doesn't populate)
-		}},
-	}); err != nil {
-		t.Fatal(err)
+	err := attachNoPanic(t, &strictPodPlaneServer{adp: nil}, stream)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("err=%v, want PermissionDenied", err)
 	}
-	if _, err := stream.Recv(); err != nil {
-		t.Fatalf("recv ack: %v", err)
-	}
-	if got, ok := adp.cids["legacy-guest"]; !ok || got != 555 {
-		t.Errorf("autoregister with zero reported_cid : cids[legacy-guest] = (%d,%v), want (555,true)", got, ok)
-	}
-}
-
-// TestGuestPodPlane_NilAdapter_NoStrictCheck pins the explicit
-// nil-adapter path : without an adapter the strict check is skipped,
-// only the generic non-reserved guard runs. The fake peer carries a
-// guest CID, so the call should proceed.
-func TestGuestPodPlane_NilAdapter_NoStrictCheck(t *testing.T) {
-	h := &strictPodPlaneServer{adp: nil}
-	client := makeServerWithPeer(t, h, fakeVsockAddr{cid: 4242})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	stream, err := client.Attach(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := stream.Send(&guestv1.GuestFrame{
-		Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{PodId: "anything"}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	resp, err := stream.Recv()
-	if err != nil {
-		t.Fatalf("recv ack: %v", err)
-	}
-	if _, ok := resp.Body.(*guestv1.GuestFrame_HelloAck); !ok {
-		t.Errorf("got %T, want HelloAck (nil-adapter path)", resp.Body)
+	if stream.sent != 0 {
+		t.Fatal("a frame was sent")
 	}
 }

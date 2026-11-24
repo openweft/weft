@@ -26,6 +26,9 @@ package weft
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -112,16 +115,10 @@ func (r *podCIDRegistry) Delete(podID string) {
 	delete(r.m, podID)
 }
 
-// initPodCIDs builds a fresh, empty in-memory registry. v0.4.51 :
-// the registry is now strict runtime truth — populated by
-// GuestPodPlane.Attach's autoregister-on-first-Hello path using
-// peer.CID() from the kernel. No more rehydration from VM
-// inventory, which previously baked the allocator's pick into
-// the registry and (silently) rejected Apple-VZ guests whose
-// kernel-assigned CID differed from the allocator's hash. After
-// an agent restart there's a brief window where strict-when-known
-// is dormant for each pod, until the guest's first Hello self-
-// announces ; that's the documented tradeoff.
+// initPodCIDs builds a fresh, empty in-memory registry. It is filled
+// by the host at StartVM (bindPodCIDFromConfig) and, after an agent
+// restart, PodCID falls back to the VM inventory. A guest's Hello
+// never writes to it.
 func (a *Adapter) initPodCIDs() {
 	a.podCIDs = newPodCIDRegistry()
 }
@@ -135,12 +132,61 @@ func (a *Adapter) PodCID(podID string) (uint32, bool) {
 	if a.podCIDs == nil {
 		return 0, false
 	}
-	return a.podCIDs.Get(podID)
+	if cid, ok := a.podCIDs.Get(podID); ok {
+		return cid, true
+	}
+	// After an agent restart the registry is empty while VMs keep
+	// running: rehydrate from the VM inventory, which records the CID
+	// the HOST assigned. Ambiguous names (same name in two projects)
+	// stay unbound: fail closed.
+	if a.vmReg == nil {
+		return 0, false
+	}
+	return inventoryPodCID(a.vmReg.list(), podID, a.localHostUUID())
 }
 
-// RegisterPodCID associates a pod_id with its allocated CID at
-// VM-registration time. Called by RegisterMicroVM after the VM
-// inventory entry has been created. Idempotent.
+// inventoryPodCID finds the CID recorded for podID among the VMs
+// owned by hostUUID (CIDs are per hypervisor: another host's VM must
+// not bind a name here). Zero or several distinct CIDs: unbound.
+func inventoryPodCID(vms []VM, podID, hostUUID string) (uint32, bool) {
+	if hostUUID == "" {
+		return 0, false
+	}
+	var found uint32
+	for _, v := range vms {
+		if v.Name != podID || v.HostUUID != hostUUID || !IsVsockGuestCID(v.VsockCID) {
+			continue
+		}
+		if found != 0 && found != v.VsockCID {
+			return 0, false
+		}
+		found = v.VsockCID
+	}
+	return found, found != 0
+}
+
+// bindPodCIDFromConfig reads the vsock_cid the host wrote into the
+// VM's config.json (the value the driver binds to the device) and
+// records it for pod_id name. Called at StartVM; the guest never
+// influences it.
+func (a *Adapter) bindPodCIDFromConfig(name, vmDir string) {
+	// A missing file reads as empty bytes, which fail to decode below.
+	b, _ := os.ReadFile(filepath.Join(vmDir, "config.json"))
+	var cfg struct {
+		VsockCID uint32 `json:"vsock_cid"`
+	}
+	if json.Unmarshal(b, &cfg) != nil || !IsVsockGuestCID(cfg.VsockCID) {
+		return
+	}
+	a.RegisterPodCID(name, cfg.VsockCID)
+}
+
+// IsVsockGuestCID reports whether cid is a real guest CID (not a
+// kernel-reserved value).
+func IsVsockGuestCID(cid uint32) bool { return cid > 2 && cid != 0xffffffff }
+
+// RegisterPodCID binds a pod_id to the CID the host assigned. Only the
+// host calls it (StartVM); there is no guest-driven path. Idempotent.
 func (a *Adapter) RegisterPodCID(podID string, cid uint32) {
 	if a.podCIDs == nil || podID == "" || cid == 0 {
 		return

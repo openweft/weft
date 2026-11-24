@@ -7,6 +7,20 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Security
+- **Guest pod plane: pod-to-CID binding is host-side only; the vsock
+  listener serves guest services only.** The agent now binds each pod
+  id to the vsock CID it assigned at StartVM (with a fallback to the VM
+  inventory after an agent restart). A Hello is answered only when the
+  pod id is bound and the caller's CID is that binding; an unbound pod,
+  a CID mismatch, a reserved CID (0 included) or a missing peer
+  identity is refused with PermissionDenied and no spec. The vsock
+  listener now runs a dedicated gRPC server registering GuestPodPlane
+  only; the admin services stay on the Unix/TCP/SSH listeners.
+  **Breaking** for guests that relied on being registered by their
+  first Hello: a VM must be started through the agent so the host binds
+  its CID. Advisory: see the repository's security advisories.
+
 ### Added
 - **etcdcoord HostLiveness self-heal** (commit d0342e280). When etcd
   closes the KeepAlive channel (network blip / leader change /

@@ -123,7 +123,17 @@ func TestGuestPodPlane_RejectsNonHelloFirstFrame(t *testing.T) {
 // net.Conn, no vsockAddr, so the guard trips with PermissionDenied.
 func TestGuestPodPlane_RejectsNonVsockCaller(t *testing.T) {
 	lis := bufconn.Listen(1 << 16)
-	srv := grpc.NewServer()
+	// A panicking handler (a missing guard) must surface as an
+	// assertion failure below, not kill the test binary.
+	recoverPanics := func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, h grpc.StreamHandler) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = status.Errorf(codes.Internal, "handler panicked: %v", r)
+			}
+		}()
+		return h(srv, ss)
+	}
+	srv := grpc.NewServer(grpc.StreamInterceptor(recoverPanics))
 	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{}) // production : guard ON
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
