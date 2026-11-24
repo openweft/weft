@@ -13,6 +13,19 @@ func kvAdapter() (*Adapter, *MemKVStorage) {
 
 func ckey(c uint32) string { return strconv.FormatUint(uint64(c), 10) }
 
+// First on purpose: a missing nil-registry guard must show up as an
+// assertion before any later test can take the binary down.
+func TestInventoryHolds_NilRegistry(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("inventoryHolds panicked without a registry: %v", r)
+		}
+	}()
+	if (&Adapter{}).inventoryHolds(70000, "p/vm") {
+		t.Fatal("held with no inventory")
+	}
+}
+
 func TestClaimVsockCID_KVCollisionProbesForward(t *testing.T) {
 	a, kv := kvAdapter()
 	start := AllocateVsockCID("p", "vm")
@@ -109,16 +122,19 @@ func TestClaimVsockCID_LocalFallback(t *testing.T) {
 type errKV struct {
 	*MemKVStorage
 	createErr, getErr error
+	creates, gets     int
 }
 
-func (e errKV) CreateOne(ctx context.Context, k string, b []byte) (bool, error) {
+func (e *errKV) CreateOne(ctx context.Context, k string, b []byte) (bool, error) {
+	e.creates++
 	if e.createErr != nil {
 		return false, e.createErr
 	}
 	return e.MemKVStorage.CreateOne(ctx, k, b)
 }
 
-func (e errKV) GetOne(ctx context.Context, k string) ([]byte, error) {
+func (e *errKV) GetOne(ctx context.Context, k string) ([]byte, error) {
+	e.gets++
 	if e.getErr != nil {
 		return nil, e.getErr
 	}
@@ -128,10 +144,13 @@ func (e errKV) GetOne(ctx context.Context, k string) ([]byte, error) {
 func TestClaimVsockCID_StoreErrorsFallBackToLocal(t *testing.T) {
 	start := AllocateVsockCID("p", "vm")
 	t.Run("create fails", func(t *testing.T) {
-		kv := errKV{MemKVStorage: NewMemKVStorage("x"), createErr: context.DeadlineExceeded}
+		kv := &errKV{MemKVStorage: NewMemKVStorage("x"), createErr: context.DeadlineExceeded}
 		a := &Adapter{kvStorageFactory: func(string) KVStorage { return kv }}
 		if got := a.claimVsockCID("p", "vm"); got != start {
 			t.Fatalf("got %d, want %d", got, start)
+		}
+		if kv.creates != 1 {
+			t.Fatalf("%d create attempts after a store error, want 1 (give up at once)", kv.creates)
 		}
 		if a.vsockLocal[start] != "p/vm" {
 			t.Fatal("not claimed locally after a store error")
@@ -140,7 +159,7 @@ func TestClaimVsockCID_StoreErrorsFallBackToLocal(t *testing.T) {
 	t.Run("get fails after a lost race", func(t *testing.T) {
 		mem := NewMemKVStorage("x")
 		_ = mem.PutOne(context.Background(), ckey(start), []byte("q/other"))
-		kv := errKV{MemKVStorage: mem, getErr: context.DeadlineExceeded}
+		kv := &errKV{MemKVStorage: mem, getErr: context.DeadlineExceeded}
 		a := &Adapter{kvStorageFactory: func(string) KVStorage { return kv }}
 		got := a.claimVsockCID("p", "vm")
 		if got == 0 || a.vsockLocal[got] != "p/vm" {
@@ -159,6 +178,17 @@ func TestClaimVsockCID_EmptyNameClaimsNothing(t *testing.T) {
 	}
 	if len(a.vsockLocal) != 0 {
 		t.Fatalf("local claims %v", a.vsockLocal)
+	}
+}
+
+func TestClaimVsockCID_CleanClaimIsOneCreate(t *testing.T) {
+	kv := &errKV{MemKVStorage: NewMemKVStorage("x")}
+	a := &Adapter{kvStorageFactory: func(string) KVStorage { return kv }}
+	if got := a.claimVsockCID("p", "vm"); got != AllocateVsockCID("p", "vm") {
+		t.Fatalf("got %d", got)
+	}
+	if kv.creates != 1 || kv.gets != 0 {
+		t.Fatalf("creates=%d gets=%d, want 1 and 0: a won create returns at once", kv.creates, kv.gets)
 	}
 }
 
