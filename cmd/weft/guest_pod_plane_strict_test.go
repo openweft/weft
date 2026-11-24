@@ -220,7 +220,7 @@ func TestGuestPodPlane_NoPeer_Refused(t *testing.T) {
 		specs: map[string]*guestv1.PodSpec{"pod-1": {PodId: "pod-1"}},
 	}}
 	stream := &noPeerStream{}
-	err := h.Attach(stream)
+	err := attachNoPanic(t, h, stream)
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("err=%v, want PermissionDenied", err)
 	}
@@ -241,7 +241,7 @@ func TestGuestPodPlane_PeerWithoutVsockIdentity_Refused(t *testing.T) {
 		"tcp addr": {Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}},
 	} {
 		stream := &noPeerStream{ctx: peer.NewContext(context.Background(), p)}
-		if err := h.Attach(stream); status.Code(err) != codes.PermissionDenied {
+		if err := attachNoPanic(t, h, stream); status.Code(err) != codes.PermissionDenied {
 			t.Errorf("%s: err=%v, want PermissionDenied", name, err)
 		}
 		if stream.sent != 0 {
@@ -275,10 +275,23 @@ func TestGuestPodPlane_BoundPodReportedMismatch_Refused(t *testing.T) {
 	}
 }
 
+// attachNoPanic runs the handler and turns a panic into a test
+// failure, so a missing guard is reported as an assertion.
+func attachNoPanic(t *testing.T, h *strictPodPlaneServer, s grpc.ServerStream) (err error) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("handler panicked: %v", r)
+		}
+	}()
+	return h.Attach(s.(guestv1.GuestPodPlane_AttachServer))
+}
+
 type noPeerStream struct {
 	grpc.ServerStream
-	sent int
-	ctx  context.Context
+	sent  int
+	ctx   context.Context
+	first *guestv1.GuestFrame
 }
 
 func (s *noPeerStream) Context() context.Context {
@@ -291,7 +304,13 @@ func (s *noPeerStream) Send(*guestv1.GuestFrame) error {
 	s.sent++
 	return nil
 }
-func (s *noPeerStream) Recv() (*guestv1.GuestFrame, error) { return nil, io.EOF }
+func (s *noPeerStream) Recv() (*guestv1.GuestFrame, error) {
+	if f := s.first; f != nil {
+		s.first = nil
+		return f, nil
+	}
+	return nil, io.EOF
+}
 
 // Only the guest services are reachable over the vsock server.
 func TestNewGuestServer_ExposesGuestServicesOnly(t *testing.T) {
@@ -387,5 +406,17 @@ func TestGuestPodPlane_ReportedCIDMismatchRejected(t *testing.T) {
 
 // A nil registry cannot vouch for anyone : refuse.
 func TestGuestPodPlane_NilAdapter_Refused(t *testing.T) {
-	helloDenied(t, &strictPodPlaneServer{adp: nil}, fakeVsockAddr{cid: 4242}, "anything")
+	stream := &noPeerStream{
+		ctx: peer.NewContext(context.Background(), &peer.Peer{Addr: fakeVsockAddr{cid: 4242}}),
+		first: &guestv1.GuestFrame{
+			Body: &guestv1.GuestFrame_Hello{Hello: &guestv1.GuestHello{PodId: "anything"}},
+		},
+	}
+	err := attachNoPanic(t, &strictPodPlaneServer{adp: nil}, stream)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("err=%v, want PermissionDenied", err)
+	}
+	if stream.sent != 0 {
+		t.Fatal("a frame was sent")
+	}
 }
