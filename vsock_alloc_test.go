@@ -81,6 +81,13 @@ func TestClaimVsockCID_LocalFallback(t *testing.T) {
 	a := &Adapter{}
 	start := AllocateVsockCID("p", "vm")
 	a.vsockLocal = map[uint32]string{start: "q/other"}
+	// A bare adapter has neither inventory nor store: a missing nil
+	// guard must fail as an assertion, not kill the test binary.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("panicked on an adapter without inventory/store: %v", r)
+		}
+	}()
 	got := a.claimVsockCID("p", "vm")
 	if got != start+1 {
 		t.Fatalf("claim = %d, want %d", got, start+1)
@@ -96,6 +103,102 @@ func TestClaimVsockCID_LocalFallback(t *testing.T) {
 	if a.vsockLocal[start] != "q/other" {
 		t.Fatal("non-owner release removed a local claim")
 	}
+}
+
+// errKV injects store failures on top of a MemKVStorage.
+type errKV struct {
+	*MemKVStorage
+	createErr, getErr error
+}
+
+func (e errKV) CreateOne(ctx context.Context, k string, b []byte) (bool, error) {
+	if e.createErr != nil {
+		return false, e.createErr
+	}
+	return e.MemKVStorage.CreateOne(ctx, k, b)
+}
+
+func (e errKV) GetOne(ctx context.Context, k string) ([]byte, error) {
+	if e.getErr != nil {
+		return nil, e.getErr
+	}
+	return e.MemKVStorage.GetOne(ctx, k)
+}
+
+func TestClaimVsockCID_StoreErrorsFallBackToLocal(t *testing.T) {
+	start := AllocateVsockCID("p", "vm")
+	t.Run("create fails", func(t *testing.T) {
+		kv := errKV{MemKVStorage: NewMemKVStorage("x"), createErr: context.DeadlineExceeded}
+		a := &Adapter{kvStorageFactory: func(string) KVStorage { return kv }}
+		if got := a.claimVsockCID("p", "vm"); got != start {
+			t.Fatalf("got %d, want %d", got, start)
+		}
+		if a.vsockLocal[start] != "p/vm" {
+			t.Fatal("not claimed locally after a store error")
+		}
+	})
+	t.Run("get fails after a lost race", func(t *testing.T) {
+		mem := NewMemKVStorage("x")
+		_ = mem.PutOne(context.Background(), ckey(start), []byte("q/other"))
+		kv := errKV{MemKVStorage: mem, getErr: context.DeadlineExceeded}
+		a := &Adapter{kvStorageFactory: func(string) KVStorage { return kv }}
+		got := a.claimVsockCID("p", "vm")
+		if got == 0 || a.vsockLocal[got] != "p/vm" {
+			t.Fatalf("got %d, local = %v", got, a.vsockLocal)
+		}
+	})
+}
+
+func TestClaimVsockCID_EmptyNameClaimsNothing(t *testing.T) {
+	a, kv := kvAdapter()
+	if got := a.claimVsockCID("p", ""); got != 0 {
+		t.Fatalf("got %d", got)
+	}
+	if m, _ := kv.List(context.Background()); len(m) != 0 {
+		t.Fatalf("claimed %v for an empty name", m)
+	}
+	if len(a.vsockLocal) != 0 {
+		t.Fatalf("local claims %v", a.vsockLocal)
+	}
+}
+
+func TestClaimVsockCID_KVHoldsTheClaim(t *testing.T) {
+	a, kv := kvAdapter()
+	got := a.claimVsockCID("p", "vm")
+	m, _ := kv.List(context.Background())
+	if len(m) != 1 || string(m[ckey(got)]) != "p/vm" {
+		t.Fatalf("store = %v, want only %d=p/vm", m, got)
+	}
+}
+
+func TestReleaseVsockCID_Guards(t *testing.T) {
+	ctx := context.Background()
+	t.Run("zero cid", func(t *testing.T) {
+		a, kv := kvAdapter()
+		_ = kv.PutOne(ctx, "0", []byte("p/vm"))
+		a.releaseVsockCID("p", "vm", 0)
+		if v, _ := kv.GetOne(ctx, "0"); v == nil {
+			t.Fatal("released CID 0")
+		}
+	})
+	t.Run("empty name", func(t *testing.T) {
+		a, kv := kvAdapter()
+		_ = kv.PutOne(ctx, "70000", []byte("p/"))
+		a.releaseVsockCID("p", "", 70000)
+		if v, _ := kv.GetOne(ctx, "70000"); v == nil {
+			t.Fatal("released a claim for an empty name")
+		}
+	})
+	t.Run("store without create-if-absent is left alone", func(t *testing.T) {
+		mem := NewMemKVStorage("x")
+		_ = mem.PutOne(ctx, "70000", []byte("p/vm"))
+		var plain KVStorage = struct{ KVStorage }{mem} // hides CreateOne
+		a := &Adapter{kvStorageFactory: func(string) KVStorage { return plain }}
+		a.releaseVsockCID("p", "vm", 70000)
+		if v, _ := mem.GetOne(ctx, "70000"); v == nil {
+			t.Fatal("deleted from a store that does not own the claims")
+		}
+	})
 }
 
 func TestClaimVsockCID_DistinctVMsNeverShare(t *testing.T) {
