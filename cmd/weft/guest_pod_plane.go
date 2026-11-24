@@ -29,6 +29,7 @@ import (
 	"errors"
 	"io"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -44,14 +45,18 @@ import (
 type podCIDLookup interface {
 	PodCID(podID string) (uint32, bool)
 	PodSpec(podID string) (*guestv1.PodSpec, bool)
-	// RegisterPodCID stamps a new (pod_id, cid) entry in the
-	// host's podCIDs registry. v0.4.51 wires the GuestPodPlane
-	// Hello handler to autoregister the peer's actual CID when
-	// the registry has no entry yet — closes the Apple-VZ readback
-	// gap by trusting the guest-reported CID after kernel-level
-	// peer.CID() agreement, and lets QEMU-backed VMs self-heal if
-	// the pre-allocated CID drifted from the kernel-bound one.
-	RegisterPodCID(podID string, cid uint32)
+}
+
+// newGuestServer builds the gRPC server bound to the AF_VSOCK listener.
+// It registers the guest-facing services ONLY (today GuestPodPlane);
+// the admin API lives on a different server that no guest can reach.
+func newGuestServer(adp podCIDLookup) *grpc.Server {
+	srv := grpc.NewServer(
+		grpc.MaxRecvMsgSize(1<<20),
+		grpc.MaxConcurrentStreams(8),
+	)
+	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{adp: adp})
+	return srv
 }
 
 type guestPodPlaneServer struct {
@@ -98,23 +103,26 @@ func (s *guestPodPlaneServer) Attach(stream guestv1.GuestPodPlane_AttachServer) 
 	// On non-vsock transports peer.Addr is a *net.TCPAddr / *net.UnixAddr
 	// instead of a vsockAddr ; the guard short-circuits with an error
 	// in that case too — GuestPodPlane is vsock-only by design.
+	var peerCID uint32
 	if s.allowNonGuestCallers {
 		// Test-only path : skip the guard so the protocol test can
 		// exercise Hello/Ack/drain over bufconn.
-	} else if pr, ok := peer.FromContext(stream.Context()); ok && pr.Addr != nil {
-		if va, ok := pr.Addr.(interface{ CID() uint32 }); ok {
-			if !IsGuestCID(va.CID()) {
-				return status.Errorf(codes.PermissionDenied,
-					"guest pod plane: reserved peer CID %d ; calls must originate from a guest microVM", va.CID())
-			}
-		} else {
-			// Non-vsock transport (Unix / TCP / SSH). Refuse —
-			// GuestPodPlane is vsock-only by design. Local
-			// integration tests that need to exercise the handler
-			// directly should call the server method itself rather
-			// than through the gRPC stack.
+	} else {
+		pr, ok := peer.FromContext(stream.Context())
+		if !ok || pr.Addr == nil {
+			return status.Error(codes.PermissionDenied, "guest pod plane: caller identity unavailable")
+		}
+		va, ok := pr.Addr.(interface{ CID() uint32 })
+		if !ok {
+			// Non-vsock transport (Unix / TCP / SSH). Refuse :
+			// GuestPodPlane is vsock-only by design.
 			return status.Errorf(codes.PermissionDenied,
 				"guest pod plane: caller is not on AF_VSOCK ; transport=%s", pr.Addr.Network())
+		}
+		peerCID = va.CID()
+		if !IsGuestCID(peerCID) {
+			return status.Errorf(codes.PermissionDenied,
+				"guest pod plane: reserved peer CID %d ; calls must originate from a guest microVM", peerCID)
 		}
 	}
 	first, err := stream.Recv()
@@ -128,7 +136,7 @@ func (s *guestPodPlaneServer) Attach(stream guestv1.GuestPodPlane_AttachServer) 
 	if !ok || hello.Hello == nil {
 		return status.Error(codes.InvalidArgument, "first frame must be GuestHello")
 	}
-	// CID enforcement on Hello. Three layers, in order :
+	// CID enforcement on Hello. Two layers, in order :
 	//
 	//   1. Guest-reported vs. peer-observed cross-check.
 	//      The guest reads its own CID via IOCTL_VM_SOCKETS_GET_LOCAL_CID
@@ -138,48 +146,29 @@ func (s *guestPodPlaneServer) Attach(stream guestv1.GuestPodPlane_AttachServer) 
 	//      MUST agree. Disagreement = spoofing attempt or a kernel bug ;
 	//      either way refuse the stream.
 	//
-	//   2. Registry strict-when-known.
-	//      If the host's podCIDs registry has an entry for pod_id (from
-	//      a previous Hello's autoregister, OR a future host-driven
-	//      pre-allocation), peer.CID() MUST match it. Different CID for
-	//      the same pod = a pod that's been recycled OR an impersonation.
-	//
-	//   3. Autoregister on first Hello.
-	//      If the registry has no entry and we have a valid guest-range
-	//      peer.CID(), stamp it now so future Hellos for the same pod_id
-	//      enforce strict-when-known. Closes the Apple-VZ readback gap :
-	//      the host couldn't pre-fill the registry (Apple's API doesn't
-	//      expose the assigned CID), but now learns it from the first
-	//      live stream and protects subsequent ones.
-	if !s.allowNonGuestCallers && s.adp != nil {
-		var peerCID uint32
-		if pr, ok := peer.FromContext(stream.Context()); ok && pr.Addr != nil {
-			if va, ok := pr.Addr.(interface{ CID() uint32 }); ok {
-				peerCID = va.CID()
-			}
+	//   2. Host-bound registry.
+	//      The pod_id must be bound by the host (at StartVM) and
+	//      peer.CID() MUST equal that binding. An unbound pod or a
+	//      different CID is refused with no ack and no spec. There is
+	//      no first-Hello registration : the guest never teaches the
+	//      host who it is.
+	if !s.allowNonGuestCallers {
+		if s.adp == nil {
+			return status.Error(codes.PermissionDenied, "guest pod plane: pod registry unavailable")
 		}
-		// (1) reported vs. peer cross-check. Skipped when either is
-		// zero (older guest builds didn't fill reported_cid, and the
-		// peer accessor returns 0 for non-vsock transports — already
-		// rejected by the reserved-CID guard above).
-		if reported := hello.Hello.GetReportedCid(); reported != 0 && peerCID != 0 && reported != peerCID {
+		// (1) reported vs. peer cross-check (older guests leave
+		// reported_cid at 0). peerCID is a valid guest CID here.
+		if reported := hello.Hello.GetReportedCid(); reported != 0 && reported != peerCID {
 			return status.Errorf(codes.PermissionDenied,
 				"guest pod plane: pod_id %q reported CID %d does not match peer CID %d",
 				hello.Hello.PodId, reported, peerCID)
 		}
-		// (2) registry strict-when-known.
-		if expected, known := s.adp.PodCID(hello.Hello.PodId); known {
-			if peerCID != 0 && peerCID != expected {
-				return status.Errorf(codes.PermissionDenied,
-					"guest pod plane: pod_id %q announced from CID %d but registered as %d",
-					hello.Hello.PodId, peerCID, expected)
-			}
-		} else if peerCID != 0 && IsGuestCID(peerCID) {
-			// (3) autoregister. peerCID has already passed the
-			// reserved-CID guard at function entry, so it's a valid
-			// guest CID. Stamping the registry here arms layer (2) for
-			// every subsequent Hello.
-			s.adp.RegisterPodCID(hello.Hello.PodId, peerCID)
+		// (2) the pod must be bound to a CID by the host (at StartVM),
+		// and the caller must be that CID. A pod the host never bound,
+		// or bound to another CID, gets no ack and no spec.
+		expected, known := s.adp.PodCID(hello.Hello.PodId)
+		if !known || expected != peerCID {
+			return status.Error(codes.PermissionDenied, "guest pod plane: pod not bound to this caller")
 		}
 	}
 	logger.Printf("GuestPodPlane attached : pod=%s init=%s kernel=%s",
