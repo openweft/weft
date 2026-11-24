@@ -505,6 +505,10 @@ type Adapter struct {
 	// VM.VsockCID ; this is a hot-path cache rebuilt on agent boot
 	// from the inventory.
 	podCIDs *podCIDRegistry
+	// vsockMu serialises CID allocation; vsockLocal is the host-local
+	// cid → owner map used when no KVCreator store is wired.
+	vsockMu    sync.Mutex
+	vsockLocal map[uint32]string
 	// podSpecs holds the operator-supplied GuestPodPlane PodSpec
 	// for each microVM. GuestPodPlane.Attach reads through it to
 	// populate HelloAck ; without an entry the guest receives an
@@ -1479,6 +1483,7 @@ func (a *Adapter) UnregisterVM(uuid string) error {
 	// inherit the previous incarnation's CID expectation.
 	if prev.Name != "" {
 		a.UnregisterPodCID(prev.Name)
+		a.releaseVsockCID(prev.ProjectUUID, prev.Name, prev.VsockCID)
 	}
 	a.bus.Publish(PlatformEvent{
 		Kind:        "vm.unregistered",
@@ -3768,7 +3773,7 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 	// it here. The downstream call to RegisterPodCID will store the
 	// same value on the registry, and setVsockCID persists it on the
 	// VM record. Three callers, one truth — guaranteed by the hash.
-	preCID := AllocateVsockCID(projectUUID, name)
+	preCID := a.claimVsockCID(projectUUID, name)
 	cfg := struct {
 		MicroVM  bool         `json:"microvm"`
 		Cmdline  string       `json:"cmdline,omitempty"`
@@ -3781,6 +3786,7 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
 		_ = os.RemoveAll(dir)
+		a.releaseVsockCID(projectUUID, name, preCID)
 		return fmt.Errorf("vz register-microvm: write config: %w", err)
 	}
 
@@ -3856,7 +3862,7 @@ func (a *Adapter) RegisterMicroVM(project, name string, boot MicroVMBoot, shares
 			//
 			// Note : the in-memory podCIDs registry is bound at
 			// StartVM from config.json, never from a guest Hello.
-			cid := AllocateVsockCID(projectUUID, name)
+			cid := preCID
 			if cid != 0 {
 				if err := a.vmReg.setVsockCID(registered.UUID, cid); err != nil {
 					fmt.Fprintf(os.Stderr, "weft: register-microvm: persist vsock_cid: %v\n", err)
