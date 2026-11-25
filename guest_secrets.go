@@ -92,10 +92,7 @@ func (a *Adapter) GrantGuestSecrets(podID string, grants map[string]GuestSecretG
 	a.guestSecretsMu.Lock()
 	defer a.guestSecretsMu.Unlock()
 	if kv := a.guestSecretsKV(); kv != nil {
-		blob, err := json.Marshal(rec)
-		if err != nil {
-			return err
-		}
+		blob, _ := json.Marshal(rec) // plain strings and integers: cannot fail
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return kv.PutOne(ctx, podID, blob)

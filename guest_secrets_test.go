@@ -1,6 +1,8 @@
 package weft
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -129,6 +131,75 @@ func TestGuestSecretsKVBacked(t *testing.T) {
 	a.RevokeGuestSecrets("pod")
 	if _, ok, _ := b.GuestSecretGrantFor("pod", "k"); ok {
 		t.Fatal("replica still allowed after revoke")
+	}
+}
+
+// failingKV answers every read with an error.
+type failingKV struct{ *MemKVStorage }
+
+func (failingKV) GetOne(context.Context, string) ([]byte, error) { return nil, errors.New("down") }
+
+func TestGuestSecretsKVReadErrorsFailClosed(t *testing.T) {
+	a := newSecretsAdapter()
+	a.kvStorageFactory = func(string) KVStorage { return failingKV{NewMemKVStorage("x")} }
+	if _, ok, err := a.GuestSecretGrantFor("pod", "k"); ok || err == nil {
+		t.Fatalf("read error: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestGuestSecretsKVMissingAndCorruptRecords(t *testing.T) {
+	kv := NewMemKVStorage("x")
+	a := newSecretsAdapter()
+	a.kvStorageFactory = func(string) KVStorage { return kv }
+	if _, ok, err := a.GuestSecretGrantFor("nobody", "k"); ok || err != nil {
+		t.Fatalf("missing record: ok=%v err=%v", ok, err)
+	}
+	if err := kv.PutOne(context.Background(), "bad", []byte("{not json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := a.GuestSecretGrantFor("bad", "k"); ok || err == nil {
+		t.Fatalf("corrupt record: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestGuestSecretsEmptyPodIDNeverMatches(t *testing.T) {
+	rec := []byte(`{"secrets":{"k":{"ref":"file:/x/k","version":1}}}`)
+	kv := NewMemKVStorage("x")
+	if err := kv.PutOne(context.Background(), "", rec); err != nil {
+		t.Fatal(err)
+	}
+	a := newSecretsAdapter()
+	a.kvStorageFactory = func(string) KVStorage { return kv }
+	if _, ok, _ := a.GuestSecretGrantFor("", "k"); ok {
+		t.Fatal("empty pod id read a table (kv)")
+	}
+	a.RevokeGuestSecrets("")
+	if b, _ := kv.GetOne(context.Background(), ""); len(b) == 0 {
+		t.Fatal("revoking the empty pod id deleted a record")
+	}
+	l := newSecretsAdapter()
+	l.guestSecretsLocal = map[string]guestSecretRecord{"": {Secrets: map[string]GuestSecretGrant{"k": {Ref: "file:/x/k"}}}}
+	if _, ok, _ := l.GuestSecretGrantFor("", "k"); ok {
+		t.Fatal("empty pod id read a table (local)")
+	}
+	l.RevokeGuestSecrets("")
+	if len(l.guestSecretsLocal) != 1 {
+		t.Fatal("revoking the empty pod id deleted a local table")
+	}
+}
+
+func TestPodForCIDRefusesReservedEvenIfRegistered(t *testing.T) {
+	a := newSecretsAdapter()
+	a.podCIDs.Set("x", 2)
+	if p, ok := a.PodForCID(2); ok {
+		t.Fatalf("reserved CID resolved to %q", p)
+	}
+}
+
+func TestInventoryPodForCIDNoHostNoMatch(t *testing.T) {
+	vms := []VM{{Name: "z", HostUUID: "", VsockCID: 105}}
+	if p, ok := inventoryPodForCID(vms, 105, ""); ok {
+		t.Fatalf("hostless VM matched %q", p)
 	}
 }
 
