@@ -131,6 +131,21 @@ Two distinct models, both driven by `weft <noun>`:
 - **`weft instance …`** — classic full VMs (boot disk + cloud-init, EFI boot via the Apple-VZ driver).
 - **`weft microvm …`** — Docker-style microVMs: `weft microvm pull <oci-image>` then `weft microvm run <oci-image>`; the rootfs is shared over virtio-fs and booted on a shared `weft-microvm-init` kernel (no per-VM boot.iso/cloud-init). Runtime logic lives in [`weft-microvm`](https://github.com/openweft/weft-microvm).
 
+## Guest secrets
+
+A microVM fetches its secrets (a CubeFS key pair, a WireGuard private key)
+over the guest-only vsock server with `weft.guest.v1.GuestSecrets/Fetch`,
+never from the pod spec. The caller is the CID the host bound at StartVM;
+a per-boot token is checked when the host holds one (KVM holds none yet,
+so identity there is CID-only). Each pod has a table in cluster state
+(`guestsecrets`) mapping the secret IDs it may fetch to a
+[`secretsource`](https://github.com/go-authn/secretsource) reference and a
+rotation version; the guest names an ID and the host resolves the
+reference at request time. Nothing is cached on disk, the response is
+wiped after send, everything not allowed is `PermissionDenied`, and each
+fetch writes one audit line (never the value). Limits: 64 KiB per value,
+10 fetches/s and 600/h per VM, 10 s per call.
+
 ## Contributing
 
 Project-wide conventions (cobra-only CLIs, `pkgx bash` shebangs, no auto-publish on `push: main`, plugin-framework-only terraform) are documented in [`docs/contributing/coding-conventions.md`](docs/contributing/coding-conventions.md) and machine-enforced by [`scripts/lint/check-conventions.sh`](scripts/lint/check-conventions.sh).
