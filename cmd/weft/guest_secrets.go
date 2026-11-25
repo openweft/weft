@@ -70,6 +70,16 @@ type BootTokens interface {
 	Held(podID string) (token []byte, ok bool)
 }
 
+// heldBootTokens is the adapter's boot-token store (Adapter.HeldBootToken).
+type heldBootTokens interface {
+	HeldBootToken(podID string) ([]byte, bool)
+}
+
+// bootTokensOf adapts a heldBootTokens to BootTokens.
+type bootTokensOf struct{ h heldBootTokens }
+
+func (b bootTokensOf) Held(podID string) ([]byte, bool) { return b.h.HeldBootToken(podID) }
+
 // secretOpener resolves a reference to a value the caller owns.
 type secretOpener func(ctx context.Context, ref string) ([]byte, error)
 

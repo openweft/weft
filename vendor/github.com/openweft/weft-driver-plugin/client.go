@@ -26,6 +26,7 @@ type DriverSet struct {
 // Compile-time proof the stubs satisfy the driver interfaces.
 var (
 	_ drivers.HypervisorDriver = (*hypervisorClient)(nil)
+	_ drivers.BootTokenStarter = (*hypervisorClient)(nil)
 	_ drivers.NetworkDriver    = (*networkClient)(nil)
 	_ drivers.VolumeDriver     = (*volumeClient)(nil)
 	_ drivers.ImageDriver      = (*imageClient)(nil)
@@ -50,6 +51,16 @@ func (h *hypervisorClient) CreateVM(ctx context.Context, spec drivers.VMSpec) er
 
 func (h *hypervisorClient) StartVM(ctx context.Context, vmUUID string) error {
 	_, err := h.c.StartVM(ctx, &driverpb.VMUUIDRequest{VmUuid: vmUUID})
+	return decodeErr(err)
+}
+
+// StartVMWithBootToken implements drivers.BootTokenStarter. The token is
+// validated before it leaves the process and is never included in an error.
+func (h *hypervisorClient) StartVMWithBootToken(ctx context.Context, vmUUID string, token []byte) error {
+	if err := drivers.ValidateBootToken(token); err != nil {
+		return err
+	}
+	_, err := h.c.StartVMWithBootToken(ctx, &driverpb.StartVMWithBootTokenRequest{VmUuid: vmUUID, BootToken: token})
 	return decodeErr(err)
 }
 

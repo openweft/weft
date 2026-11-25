@@ -208,9 +208,14 @@ func TestGuestSecretsRevokedWithThePod(t *testing.T) {
 	if err := a.GrantGuestSecrets("pod", map[string]GuestSecretGrant{"k": {Ref: "file:/x/k"}}); err != nil {
 		t.Fatal(err)
 	}
+	// Grants derive from the spec: one that names no secret ID leaves
+	// the pod nothing to fetch.
 	a.SetPodSpec("pod", &guestv1.PodSpec{})
-	if _, ok, _ := a.GuestSecretGrantFor("pod", "k"); !ok {
-		t.Fatal("setting a spec revoked the table")
+	if _, ok, _ := a.GuestSecretGrantFor("pod", "k"); ok {
+		t.Fatal("a spec naming no secret left a stale grant")
+	}
+	if err := a.GrantGuestSecrets("pod", map[string]GuestSecretGrant{"k": {Ref: "file:/x/k"}}); err != nil {
+		t.Fatal(err)
 	}
 	a.SetPodSpec("pod", nil)
 	if _, ok, _ := a.GuestSecretGrantFor("pod", "k"); ok {

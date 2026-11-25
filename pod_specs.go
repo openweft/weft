@@ -174,6 +174,20 @@ func (a *Adapter) SetPodSpec(podID string, spec *guestv1.PodSpec) {
 	if spec == nil {
 		// Dropping the spec ends the pod's right to its secrets.
 		a.RevokeGuestSecrets(podID)
+		a.setPodSpecKeepGrants(podID, nil)
+		return
+	}
+	// A spec is stored together with its grants or not at all.
+	if err := a.PublishPodSpec(podID, spec); err != nil {
+		fmt.Fprintf(os.Stderr, "weft: podspec of %s refused: %v\n", podID, err)
+	}
+}
+
+// setPodSpecKeepGrants stores (or, for nil, evicts) the spec without
+// touching the pod's grant table; PublishPodSpec and SetPodSpec own that.
+func (a *Adapter) setPodSpecKeepGrants(podID string, spec *guestv1.PodSpec) {
+	if a.podSpecs == nil || podID == "" {
+		return
 	}
 	a.podSpecs.mu.Lock()
 	defer a.podSpecs.mu.Unlock()

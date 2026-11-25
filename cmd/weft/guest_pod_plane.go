@@ -60,7 +60,13 @@ func newGuestServer(adp podCIDLookup) *grpc.Server {
 	// GuestSecrets is served only when the backend can answer for it
 	// (the real adapter); a plain pod-plane stub does not get it.
 	if b, ok := adp.(guestSecretsBackend); ok {
-		guestv1.RegisterGuestSecretsServer(srv, newGuestSecretsServer(b))
+		gs := newGuestSecretsServer(b)
+		// The per-boot token the driver delivered to this VM (QEMU
+		// fw_cfg) is required next to the CID whenever one is held.
+		if h, ok := adp.(heldBootTokens); ok {
+			gs.tokens = bootTokensOf{h}
+		}
+		guestv1.RegisterGuestSecretsServer(srv, gs)
 	}
 	return srv
 }

@@ -56,3 +56,31 @@ type HypervisorDriver interface {
 	AttachNIC(ctx context.Context, vmUUID string, nic NICHandle) error
 	DetachNIC(ctx context.Context, vmUUID, nicDevice string) error
 }
+
+// BootTokenLen is the exact length, in bytes, of a boot token.
+const BootTokenLen = 32
+
+// BootTokenStarter is an OPTIONAL interface a HypervisorDriver may
+// implement to start a VM while handing its guest a per-boot secret.
+// StartVM is unchanged; drivers that do not implement this interface
+// are unaffected.
+//
+// The token is exactly BootTokenLen bytes, generated per start by the
+// caller and held in memory only. A driver must deliver it over a
+// channel that never rests on disk (for QEMU: a fw_cfg blob fed from
+// an anonymous pipe), must not put it on a command line, and must
+// never log it, wrap it in an error, or write it into the VM's state
+// directory. Like StartVM it is idempotent: when the VM already runs
+// the call is a no-op and the token is ignored.
+type BootTokenStarter interface {
+	StartVMWithBootToken(ctx context.Context, vmUUID string, token []byte) error
+}
+
+// ValidateBootToken returns ErrInvalidBootToken unless token is
+// exactly BootTokenLen bytes. The error never includes the token.
+func ValidateBootToken(token []byte) error {
+	if len(token) != BootTokenLen {
+		return ErrInvalidBootToken
+	}
+	return nil
+}

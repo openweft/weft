@@ -81,6 +81,10 @@ type VZAdapter interface {
 	// persists the whole registry to <stateDir>/podspecs.hcl. Passing
 	// spec=nil evicts the entry. Backs the SetPodSpec WeftAgent RPC.
 	SetPodSpec(podID string, spec *guestv1.PodSpec)
+	PublishPodSpec(podID string, spec *guestv1.PodSpec) error
+	SetGuestSecretRef(id, ref string) (uint64, error)
+	DeleteGuestSecretRef(id string) error
+	ListGuestSecretRefs() (map[string]GuestSecretRefRecord, error)
 	SetVMUser(name, user string)
 	SetSSHKeyPath(path string)
 	SetChecksums(checksums map[string]string)
@@ -510,6 +514,14 @@ type Adapter struct {
 	// (guest_secrets.go).
 	guestSecretsMu    sync.RWMutex
 	guestSecretsLocal map[string]guestSecretRecord
+	// guestSecretRefsLocal is the ID -> reference map when there is no KV
+	// factory (guarded by guestSecretsMu).
+	guestSecretRefsLocal map[string]GuestSecretRefRecord
+	// kindOf resolves the driver kind of a VM for the guest-secrets vsock
+	// checks; nil means LookupKindForVM (a test seam, see driverKind).
+	kindOf func(name string) string
+	// bootTokens holds the per-boot tokens, in memory only.
+	bootTokens bootTokenStore
 	// vsockMu serialises CID allocation; vsockLocal is the host-local
 	// cid → owner map used when no KVCreator store is wired.
 	vsockMu    sync.Mutex
@@ -1489,6 +1501,7 @@ func (a *Adapter) UnregisterVM(uuid string) error {
 	if prev.Name != "" {
 		a.UnregisterPodCID(prev.Name)
 		a.RevokeGuestSecrets(prev.Name)
+		a.ForgetBootToken(prev.Name)
 		a.releaseVsockCID(prev.ProjectUUID, prev.Name, prev.VsockCID)
 	}
 	a.bus.Publish(PlatformEvent{
@@ -3935,7 +3948,14 @@ func (a *Adapter) StartVM(name, cloudInitISO string) error {
 	// Bind pod_id -> CID from the CID this host assigned (the one the
 	// driver will give the device), before the guest can say Hello.
 	a.bindPodCIDFromConfig(name, dir)
-	if err := hyp.StartVM(context.Background(), dir); err != nil {
+	// A pod carrying secrets must not boot on a kind with no vsock channel.
+	if spec, ok := a.PodSpec(name); ok && spec != nil && len(PodSecretIDs(spec)) > 0 {
+		if err := needVsockErr(a.driverKind(name)); err != nil {
+			RecordEvent(dir, "server.start_failed", map[string]string{"err": err.Error()})
+			return fmt.Errorf("vz start %s: %w", name, err)
+		}
+	}
+	if err := a.startHypervisor(context.Background(), hyp, name, dir); err != nil {
 		RecordEvent(dir, "server.start_failed", map[string]string{"err": err.Error()})
 		return fmt.Errorf("vz start %s: %w", name, err)
 	}
@@ -3973,6 +3993,7 @@ func (a *Adapter) StopVM(name string) error {
 	if err := hyp.StopVM(context.Background(), vmDir); err != nil {
 		return err
 	}
+	a.ForgetBootToken(name)
 	if pidStr == "" {
 		return nil // nothing was running, nothing to announce
 	}

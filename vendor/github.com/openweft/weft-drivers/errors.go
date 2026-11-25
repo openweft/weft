@@ -30,4 +30,8 @@ var (
 	// the volume is currently attached or otherwise in active use.
 	// The caller is expected to detach + retry.
 	ErrInUse = errors.New("driver: volume in use")
+
+	// ErrInvalidBootToken is returned when a boot token is not
+	// exactly BootTokenLen bytes.
+	ErrInvalidBootToken = errors.New("driver: boot token must be exactly 32 bytes")
 )

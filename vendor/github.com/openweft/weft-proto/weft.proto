@@ -1114,6 +1114,11 @@ message CubeFSMount {
   string access_key       = 4;
   string secret_key       = 5;
   string subdir           = 6;
+  // GuestSecrets secret IDs (guest.proto / secrets.proto), mutually
+  // exclusive with the inline key beside them.
+  string access_key_ref   = 7;
+  string secret_key_ref   = 8;
+  uint64 secret_version   = 9;
 }
 
 message ShareMount {
@@ -1278,6 +1283,27 @@ message GetPodSpecResponse {
   bytes  spec_json = 2;  // empty when found = false
   bool   found     = 3;
 }
+
+// --- Guest secret references (admin) ----------------------------------
+//
+// Cluster-state map from a GuestSecrets secret ID (the value of a
+// *_ref field in a PodSpec) to the secretsource reference the HOST
+// resolves. The map holds references only: no RPC here accepts, stores
+// or returns a secret value. Admin-gated.
+message GuestSecretRef {
+  string secret_id = 1;  // [a-z0-9][a-z0-9._-]{0,62}
+  string ref       = 2;  // secretsource reference; scheme allowlisted by the agent
+  uint64 version   = 3;  // rotation counter, bumped by every SetGuestSecretRef
+}
+message SetGuestSecretRefRequest {
+  string secret_id = 1;
+  string ref       = 2;
+}
+message SetGuestSecretRefResponse { uint64 version = 1; }
+message DeleteGuestSecretRefRequest  { string secret_id = 1; }
+message DeleteGuestSecretRefResponse {}
+message ListGuestSecretRefsRequest {}
+message ListGuestSecretRefsResponse { repeated GuestSecretRef refs = 1; }
 
 // --- MicroVM metrics --------------------------------------------------
 //
@@ -1684,6 +1710,13 @@ service WeftAgent {
   // GetPodSpec returns the currently-published PodSpec for a pod_id
   // (or found=false when no spec has been published yet).
   rpc GetPodSpec (GetPodSpecRequest) returns (GetPodSpecResponse);
+
+  // --- Guest secret references (admin; references only, never values) ---
+  // SetGuestSecretRef maps a secret ID to a secretsource reference and
+  // bumps the ID's version. DeleteGuestSecretRef removes the mapping.
+  rpc SetGuestSecretRef (SetGuestSecretRefRequest) returns (SetGuestSecretRefResponse);
+  rpc DeleteGuestSecretRef (DeleteGuestSecretRefRequest) returns (DeleteGuestSecretRefResponse);
+  rpc ListGuestSecretRefs (ListGuestSecretRefsRequest) returns (ListGuestSecretRefsResponse);
 
   // --- MicroVM metrics (per-VM telemetry snapshot) ---
   // Returns the latest per-VM sample : CPU/mem/net/disk + uptime.

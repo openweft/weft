@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"sort"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -46,9 +47,59 @@ func (s *weftServer) SetPodSpec(ctx context.Context, req *weftv1.SetPodSpecReque
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(req.SpecJson, spec); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "spec_json: protojson decode: %v", err)
 	}
-	s.adp.SetPodSpec(req.PodId, spec)
+	if err := s.adp.PublishPodSpec(req.PodId, spec); err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "pod spec refused: %v", err)
+	}
 	logger.Printf("SetPodSpec pod=%s containers=%d", req.PodId, len(spec.Containers))
 	return &weftv1.SetPodSpecResponse{}, nil
+}
+
+// SetGuestSecretRef points a guest-secret ID at a secretsource reference
+// (never a value) and returns the new version. Admin-gated.
+func (s *weftServer) SetGuestSecretRef(ctx context.Context, req *weftv1.SetGuestSecretRefRequest) (*weftv1.SetGuestSecretRefResponse, error) {
+	if err := weft.RequireAdmin(ctx, "set guest secret ref"); err != nil {
+		return nil, err
+	}
+	if err := weft.ValidateGuestSecretRef(req.GetRef()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "ref: %v", err)
+	}
+	v, err := s.adp.SetGuestSecretRef(req.GetSecretId(), req.GetRef())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "set guest secret ref: %v", err)
+	}
+	return &weftv1.SetGuestSecretRefResponse{Version: v}, nil
+}
+
+// DeleteGuestSecretRef removes the mapping; pods using it lose their grant.
+func (s *weftServer) DeleteGuestSecretRef(ctx context.Context, req *weftv1.DeleteGuestSecretRefRequest) (*weftv1.DeleteGuestSecretRefResponse, error) {
+	if err := weft.RequireAdmin(ctx, "delete guest secret ref"); err != nil {
+		return nil, err
+	}
+	if err := s.adp.DeleteGuestSecretRef(req.GetSecretId()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "delete guest secret ref: %v", err)
+	}
+	return &weftv1.DeleteGuestSecretRefResponse{}, nil
+}
+
+// ListGuestSecretRefs lists IDs, refs and versions, never a value.
+func (s *weftServer) ListGuestSecretRefs(ctx context.Context, _ *weftv1.ListGuestSecretRefsRequest) (*weftv1.ListGuestSecretRefsResponse, error) {
+	if err := weft.RequireAdmin(ctx, "list guest secret refs"); err != nil {
+		return nil, err
+	}
+	m, err := s.adp.ListGuestSecretRefs()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list guest secret refs: %v", err)
+	}
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := &weftv1.ListGuestSecretRefsResponse{}
+	for _, id := range ids {
+		out.Refs = append(out.Refs, &weftv1.GuestSecretRef{SecretId: id, Ref: m[id].Ref, Version: m[id].Version})
+	}
+	return out, nil
 }
 
 // GetPodSpec returns the currently-published PodSpec for pod_id, or

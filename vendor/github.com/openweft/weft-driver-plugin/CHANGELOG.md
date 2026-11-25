@@ -7,6 +7,16 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Added
+
+- RPC `Hypervisor.StartVMWithBootToken(StartVMWithBootTokenRequest{vm_uuid,
+  boot_token})`. The host-side `hypervisorClient` implements
+  `drivers.BootTokenStarter` by calling it; the server calls the driver
+  when it implements `BootTokenStarter`, else answers
+  `codes.Unimplemented`. The token must be exactly 32 bytes (checked on
+  both sides) and is never logged nor put in an error message.
+- Requires `weft-drivers` v0.7.0.
+
 ### Changed
 
 - `go.mod` pins `weft-drivers` v0.1.0 and drops the local

@@ -29,11 +29,11 @@ require (
 	github.com/openweft/weft-cidata v0.2.0
 	github.com/openweft/weft-client v0.0.0
 	github.com/openweft/weft-driver-plugin v0.0.0
-	github.com/openweft/weft-drivers v0.4.0
+	github.com/openweft/weft-drivers v0.7.0
 	github.com/openweft/weft-hcl v0.4.0
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
-	github.com/openweft/weft-proto v0.24.0
+	github.com/openweft/weft-proto v0.25.0
 	github.com/openweft/weft-slognats v0.2.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1

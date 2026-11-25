@@ -321,7 +321,7 @@ github.com/openweft/weft-client
 ## explicit; go 1.27.2
 github.com/openweft/weft-driver-plugin
 github.com/openweft/weft-driver-plugin/driverpb
-# github.com/openweft/weft-drivers v0.4.0 => ../weft-drivers
+# github.com/openweft/weft-drivers v0.7.0 => ../weft-drivers
 ## explicit; go 1.27.1
 github.com/openweft/weft-drivers
 # github.com/openweft/weft-hcl v0.4.0
@@ -335,7 +335,7 @@ github.com/openweft/weft-microvm/initbuild
 # github.com/openweft/weft-microvm-init v0.0.0 => ../weft-microvm-init
 ## explicit; go 1.27.2
 github.com/openweft/weft-microvm-init/pkg/pod
-# github.com/openweft/weft-proto v0.24.0 => ../weft-proto
+# github.com/openweft/weft-proto v0.25.0 => ../weft-proto
 ## explicit; go 1.27.2
 github.com/openweft/weft-proto
 github.com/openweft/weft-proto/agentv1
