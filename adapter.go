@@ -505,6 +505,11 @@ type Adapter struct {
 	// VM.VsockCID ; this is a hot-path cache rebuilt on agent boot
 	// from the inventory.
 	podCIDs *podCIDRegistry
+	// guestSecretsMu guards guestSecretsLocal, the in-memory
+	// authorization table used when no KV store is wired
+	// (guest_secrets.go).
+	guestSecretsMu    sync.RWMutex
+	guestSecretsLocal map[string]guestSecretRecord
 	// vsockMu serialises CID allocation; vsockLocal is the host-local
 	// cid → owner map used when no KVCreator store is wired.
 	vsockMu    sync.Mutex
@@ -1483,6 +1488,7 @@ func (a *Adapter) UnregisterVM(uuid string) error {
 	// inherit the previous incarnation's CID expectation.
 	if prev.Name != "" {
 		a.UnregisterPodCID(prev.Name)
+		a.RevokeGuestSecrets(prev.Name)
 		a.releaseVsockCID(prev.ProjectUUID, prev.Name, prev.VsockCID)
 	}
 	a.bus.Publish(PlatformEvent{

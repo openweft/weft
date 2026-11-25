@@ -324,6 +324,23 @@ func TestNewGuestServer_ExposesGuestServicesOnly(t *testing.T) {
 	}
 }
 
+// A backend that can answer for secrets gets GuestSecrets, and the
+// real adapter is such a backend.
+type secretsAdapter struct {
+	fakeAdapter
+	fakeSecretsBackend
+}
+
+func TestNewGuestServer_ServesGuestSecretsWhenBackendCan(t *testing.T) {
+	got := newGuestServer(&secretsAdapter{}).GetServiceInfo()
+	if len(got) != 2 {
+		t.Fatalf("services = %v, want GuestPodPlane + GuestSecrets", got)
+	}
+	if _, ok := got["weft.guest.v1.GuestSecrets"]; !ok {
+		t.Fatalf("services = %v, want GuestSecrets", got)
+	}
+}
+
 // TestGuestPodPlane_HelloAckCarriesPodSpec is the contract pin for
 // the operator-published-spec path : when the adapter has a PodSpec
 // recorded for the announced pod_id, the HelloAck frame echoes it
