@@ -1,9 +1,10 @@
 module github.com/openweft/weft
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/coreos/go-oidc/v3 v3.18.0
+	github.com/go-authn/secretsource v0.12.0
 	github.com/go-compressions/lzfse v0.1.1-0.20260620062248-135e417e8ead
 	github.com/go-diskimages/qcow2 v0.3.0
 	github.com/go-diskimages/tart-oci v0.0.0-00010101000000-000000000000
@@ -32,7 +33,7 @@ require (
 	github.com/openweft/weft-hcl v0.4.0
 	github.com/openweft/weft-microvm v0.2.0
 	github.com/openweft/weft-microvm-init v0.0.0
-	github.com/openweft/weft-proto v0.21.0
+	github.com/openweft/weft-proto v0.24.0
 	github.com/openweft/weft-slognats v0.2.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
@@ -42,8 +43,8 @@ require (
 	github.com/zclconf/go-cty v1.18.1
 	go.etcd.io/etcd/client/v3 v3.6.14
 	go.etcd.io/etcd/server/v3 v3.6.14
-	golang.org/x/crypto v0.57.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/crypto v0.59.0
+	golang.org/x/sys v0.50.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.11
 	oras.land/oras-go/v2 v2.6.2
@@ -62,7 +63,13 @@ require (
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
+	github.com/ebitengine/purego v0.11.2 // indirect
+	github.com/go-authn/harden v0.2.0 // indirect
 	github.com/go-compressions/lz4 v0.3.0 // indirect
+	github.com/go-freedesktop/secretservice v0.4.0 // indirect
+	github.com/go-macos/keychain v0.3.1 // indirect
+	github.com/go-macos/objc v0.11.2 // indirect
+	github.com/godbus/dbus/v5 v5.2.4 // indirect
 	github.com/go-filesystems/ext4 v0.0.0 // indirect
 	github.com/go-filesystems/interface v0.5.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect

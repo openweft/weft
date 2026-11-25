@@ -171,6 +171,10 @@ func (a *Adapter) SetPodSpec(podID string, spec *guestv1.PodSpec) {
 	if a.podSpecs == nil || podID == "" {
 		return
 	}
+	if spec == nil {
+		// Dropping the spec ends the pod's right to its secrets.
+		a.RevokeGuestSecrets(podID)
+	}
 	a.podSpecs.mu.Lock()
 	defer a.podSpecs.mu.Unlock()
 	if spec == nil {

@@ -31,6 +31,18 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
   its CID. Advisory: see the repository's security advisories.
 
 ### Added
+- **`GuestSecrets` service on the guest-only vsock server.** A guest
+  fetches a secret by ID (`weft.guest.v1.GuestSecrets/Fetch`). The caller
+  is the CID the host bound at StartVM, mapped to its pod; a per-boot
+  token slot (`BootTokens`) is checked in constant time when the host
+  holds one (none on KVM yet, so identity is CID-only there). What a pod
+  may fetch is a table in cluster state (`guestsecrets` KV store, written
+  by `Adapter.GrantGuestSecrets`, removed with the pod spec or VM); the
+  host maps the ID to a `secretsource` reference and resolves it per
+  request, never caching it on disk. Everything not allowed is
+  `PermissionDenied` with one constant message. Limits: 64 KiB value,
+  10 fetches/s and 600/h per VM, 10 s deadline; one audit line per
+  fetch, never the value. Needs `weft-proto` v0.24.0 and Go 1.27.4.
 - **etcdcoord HostLiveness self-heal** (commit d0342e280). When etcd
   closes the KeepAlive channel (network blip / leader change /
   server restart), the goroutine now retries Grant + Put + KeepAlive

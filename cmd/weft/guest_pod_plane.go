@@ -54,8 +54,14 @@ func newGuestServer(adp podCIDLookup) *grpc.Server {
 	srv := grpc.NewServer(
 		grpc.MaxRecvMsgSize(1<<20),
 		grpc.MaxConcurrentStreams(8),
+		grpc.StatsHandler(wipeSecretsStats{}),
 	)
 	guestv1.RegisterGuestPodPlaneServer(srv, &guestPodPlaneServer{adp: adp})
+	// GuestSecrets is served only when the backend can answer for it
+	// (the real adapter); a plain pod-plane stub does not get it.
+	if b, ok := adp.(guestSecretsBackend); ok {
+		guestv1.RegisterGuestSecretsServer(srv, newGuestSecretsServer(b))
+	}
 	return srv
 }
 
