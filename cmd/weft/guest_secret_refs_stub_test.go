@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -20,6 +21,18 @@ type nonValidatingAdapter struct {
 func (n *nonValidatingAdapter) SetGuestSecretRef(string, string) (uint64, error) {
 	n.calls++
 	return 7, nil
+}
+
+func (n *nonValidatingAdapter) ListGuestSecretRefs() (map[string]weft.GuestSecretRefRecord, error) {
+	return nil, errors.New("store down")
+}
+
+func TestListGuestSecretRefsHandlerReportsStoreFailure(t *testing.T) {
+	s := &weftServer{adp: &nonValidatingAdapter{}}
+	resp, err := s.ListGuestSecretRefs(devCtx(), &weftv1.ListGuestSecretRefsRequest{})
+	if status.Code(err) != codes.Internal || resp != nil {
+		t.Fatalf("a failed list: %v %v", resp, err)
+	}
 }
 
 func TestSetGuestSecretRefHandlerValidatesByItself(t *testing.T) {
