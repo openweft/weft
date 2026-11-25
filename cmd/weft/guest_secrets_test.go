@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/go-authn/secretsource"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 
@@ -156,6 +158,66 @@ func TestGuestSecretsUnboundOrReservedCID(t *testing.T) {
 		r.cid = cid
 		_, err := r.s.Fetch(context.Background(), &guestv1.FetchRequest{SecretId: "db-pass"})
 		wantCode(t, err, codes.PermissionDenied)
+	}
+}
+
+type cidAddr uint32
+
+func (cidAddr) Network() string { return "vsock" }
+func (cidAddr) String() string  { return "vsock" }
+func (c cidAddr) CID() uint32   { return uint32(c) }
+
+type plainAddr struct{}
+
+func (plainAddr) Network() string { return "tcp" }
+func (plainAddr) String() string  { return "127.0.0.1:1" }
+
+func TestVsockPeerCID(t *testing.T) {
+	ctxWith := func(a net.Addr) context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{Addr: a})
+	}
+	if _, ok := vsockPeerCID(context.Background()); ok {
+		t.Error("no peer accepted")
+	}
+	if _, ok := vsockPeerCID(ctxWith(nil)); ok {
+		t.Error("nil address accepted")
+	}
+	if _, ok := vsockPeerCID(ctxWith(plainAddr{})); ok {
+		t.Error("non-vsock transport accepted")
+	}
+	if _, ok := vsockPeerCID(ctxWith(cidAddr(2))); ok {
+		t.Error("reserved CID accepted")
+	}
+	if cid, ok := vsockPeerCID(ctxWith(cidAddr(100))); !ok || cid != 100 {
+		t.Errorf("guest CID = %d, %v", cid, ok)
+	}
+}
+
+func TestGuestSecretsDenyBeforeLookup(t *testing.T) {
+	r := newSecretsRig(t)
+	// The transport says "not a guest" for a CID that IS bound.
+	r.s.peerCID = func(context.Context) (uint32, bool) { return 100, false }
+	_, err := r.s.Fetch(context.Background(), &guestv1.FetchRequest{SecretId: "db-pass"})
+	wantCode(t, err, codes.PermissionDenied)
+	if r.opens != 0 {
+		t.Fatal("resolved for a non-guest caller")
+	}
+	// The binding says "unbound" while a table exists under the empty name.
+	r = newSecretsRig(t)
+	r.b.grants[""] = map[string]weft.GuestSecretGrant{"db-pass": {Ref: "file:/x/db", Version: 1}}
+	r.s.peerCID = func(context.Context) (uint32, bool) { return 999, true }
+	_, err = r.s.Fetch(context.Background(), &guestv1.FetchRequest{SecretId: "db-pass"})
+	wantCode(t, err, codes.PermissionDenied)
+	if r.opens != 0 {
+		t.Fatal("resolved for an unbound CID")
+	}
+}
+
+func TestGuestSecretsNilAuditWriter(t *testing.T) {
+	r := newSecretsRig(t)
+	r.s.audit = nil
+	if _, err := r.s.Fetch(context.Background(), &guestv1.FetchRequest{SecretId: "db-pass"}); err != nil {
+		t.Fatal(err)
 	}
 }
 
