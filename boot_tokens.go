@@ -57,10 +57,14 @@ type bootTokenStore struct {
 	m  map[string][]byte
 }
 
+// randRead fills b with random bytes (crypto/rand; a test seam for its
+// failure).
+var randRead = rand.Read
+
 // newBootToken returns 32 fresh random bytes.
 func newBootToken() ([]byte, error) {
 	t := make([]byte, BootTokenLen)
-	if _, err := rand.Read(t); err != nil {
+	if _, err := randRead(t); err != nil {
 		return nil, err
 	}
 	return t, nil

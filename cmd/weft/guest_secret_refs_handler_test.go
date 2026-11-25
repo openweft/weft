@@ -58,7 +58,7 @@ func TestGuestSecretRefHandlers(t *testing.T) {
 func TestSetPodSpecGrantsAndRefuses(t *testing.T) {
 	s, adp := newSnapshotTestServer(t)
 	ctx := devCtx()
-	if _, err := s.SetPodSpec(ctx, &weftv1.SetPodSpecRequest{});status.Code(err) != codes.InvalidArgument {
+	if _, err := s.SetPodSpec(ctx, &weftv1.SetPodSpecRequest{}); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("empty pod: %v", err)
 	}
 	if _, err := s.SetPodSpec(ctx, &weftv1.SetPodSpecRequest{PodId: "p", SpecJson: []byte("{nope")}); status.Code(err) != codes.InvalidArgument {

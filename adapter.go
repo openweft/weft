@@ -517,6 +517,9 @@ type Adapter struct {
 	// guestSecretRefsLocal is the ID -> reference map when there is no KV
 	// factory (guarded by guestSecretsMu).
 	guestSecretRefsLocal map[string]GuestSecretRefRecord
+	// kindOf resolves the driver kind of a VM for the guest-secrets vsock
+	// checks; nil means LookupKindForVM (a test seam, see driverKind).
+	kindOf func(name string) string
 	// bootTokens holds the per-boot tokens, in memory only.
 	bootTokens bootTokenStore
 	// vsockMu serialises CID allocation; vsockLocal is the host-local
@@ -3947,7 +3950,7 @@ func (a *Adapter) StartVM(name, cloudInitISO string) error {
 	a.bindPodCIDFromConfig(name, dir)
 	// A pod carrying secrets must not boot on a kind with no vsock channel.
 	if spec, ok := a.PodSpec(name); ok && spec != nil && len(PodSecretIDs(spec)) > 0 {
-		if err := needVsockErr(a.LookupKindForVM(name)); err != nil {
+		if err := needVsockErr(a.driverKind(name)); err != nil {
 			RecordEvent(dir, "server.start_failed", map[string]string{"err": err.Error()})
 			return fmt.Errorf("vz start %s: %w", name, err)
 		}

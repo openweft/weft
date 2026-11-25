@@ -66,6 +66,15 @@ func needVsockErr(kind string) error {
 	return nil
 }
 
+// driverKind is the driver kind of the VM named name (a.kindOf when a test
+// replaced it, the inventory lookup otherwise).
+func (a *Adapter) driverKind(name string) string {
+	if a.kindOf != nil {
+		return a.kindOf(name)
+	}
+	return a.LookupKindForVM(name)
+}
+
 // GuestSecretRefRecord is one entry of the map.
 type GuestSecretRefRecord struct {
 	Ref     string `json:"ref"`
@@ -76,6 +85,13 @@ type GuestSecretRefRecord struct {
 // printable, a parseable secretsource reference, an allowlisted scheme,
 // and for file: an absolute, clean path.
 func ValidateGuestSecretRef(ref string) error {
+	return validateGuestSecretRef(ref, GuestSecretRefSchemes)
+}
+
+// validateGuestSecretRef is ValidateGuestSecretRef with the scheme
+// allowlist as a parameter, so the allowlist check stays testable while the
+// shipped list covers every scheme secretsource.Parse knows.
+func validateGuestSecretRef(ref string, allowed map[string]bool) error {
 	if ref == "" || len(ref) > MaxGuestSecretRefLen {
 		return fmt.Errorf("guest secrets: reference must be 1..%d bytes", MaxGuestSecretRefLen)
 	}
@@ -88,7 +104,7 @@ func ValidateGuestSecretRef(ref string) error {
 	if err != nil {
 		return fmt.Errorf("guest secrets: %w", err)
 	}
-	if !GuestSecretRefSchemes[parsed.Scheme] {
+	if !allowed[parsed.Scheme] {
 		return fmt.Errorf("guest secrets: scheme %q is not allowed", parsed.Scheme)
 	}
 	if parsed.Scheme == "file" {
@@ -270,7 +286,7 @@ func (a *Adapter) checkPodSecrets(podID string, spec *guestv1.PodSpec) (map[stri
 	if len(ids) == 0 && !PodCarriesInlineSecret(spec) {
 		return nil, nil
 	}
-	if err := needVsockErr(a.LookupKindForVM(podID)); err != nil {
+	if err := needVsockErr(a.driverKind(podID)); err != nil {
 		return nil, err
 	}
 	if w := spec.GetWireguard(); w.GetPrivateKey() != "" && w.GetPrivateKeyRef() != "" {
