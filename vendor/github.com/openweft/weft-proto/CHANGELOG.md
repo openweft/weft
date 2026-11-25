@@ -8,6 +8,19 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 ## [Unreleased]
 
 ### Added
+- Admin RPCs `SetGuestSecretRef`, `DeleteGuestSecretRef` and
+  `ListGuestSecretRefs` (`GuestSecretRef{secret_id, ref, version}`): the
+  cluster-state map from a GuestSecrets ID to the secretsource reference the
+  host resolves. References only; no message accepts or returns a value.
+- `secrets.proto` (`weft.guest.v1`): `GuestSecrets.Fetch(FetchRequest) ->
+  FetchResponse`, how a micro-VM fetches a secret by ID over the guest-only
+  vsock server. Request carries `secret_id`, `boot_token` (slot for the
+  per-boot token) and `known_version`; the response carries `value` (at most
+  64 KiB), `version` and `unchanged`. Errors are gRPC codes only.
+- Secret references beside the inline secrets: `CubeFSMount.access_key_ref`,
+  `secret_key_ref`, `secret_version` (in `guest.proto` and `weft.proto`) and
+  `WireGuard.private_key_ref`. The values are GuestSecrets IDs, not
+  secretsource references. Additive; inline fields are unchanged.
 - `UninstallPlugin` RPC + `UninstallPluginRequest{name, instance_uuid}` /
   `UninstallPluginResponse` (commit ce47616). Counterpart to
   `InstallPlugin`. Reverses Network / SG / VM creation on the agent

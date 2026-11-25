@@ -37,6 +37,14 @@ ImageDriver). To add a new driver type:
 3. Add or extend a `Spec` struct in `types.go`.
 4. Document the contract in the package doc comment.
 
+## Per-boot token delivery
+
+A hypervisor driver may also implement the optional
+`BootTokenStarter` interface (`StartVMWithBootToken`) to boot a VM
+with a 32-byte (`BootTokenLen`) secret generated per start. The token
+is memory-only and must reach the guest over a channel, never at
+rest, on a command line or in a log. `StartVM` is unchanged.
+
 ## Compatibility contract
 
 - Patch / minor releases (v1.x.y) — backward-compatible: methods

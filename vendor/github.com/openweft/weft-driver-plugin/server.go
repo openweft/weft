@@ -10,6 +10,8 @@ import (
 
 	"github.com/openweft/weft-driver-plugin/driverpb"
 	drivers "github.com/openweft/weft-drivers"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -36,6 +38,20 @@ func (s *hypervisorServer) CreateVM(ctx context.Context, r *driverpb.CreateVMReq
 
 func (s *hypervisorServer) StartVM(ctx context.Context, r *driverpb.VMUUIDRequest) (*emptypb.Empty, error) {
 	return empty, encodeErr(s.impl.StartVM(ctx, r.VmUuid))
+}
+
+// StartVMWithBootToken forwards to the impl when it implements
+// drivers.BootTokenStarter, else answers codes.Unimplemented. The token is
+// validated here too, and is never included in an error.
+func (s *hypervisorServer) StartVMWithBootToken(ctx context.Context, r *driverpb.StartVMWithBootTokenRequest) (*emptypb.Empty, error) {
+	bts, ok := s.impl.(drivers.BootTokenStarter)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "driver does not implement StartVMWithBootToken")
+	}
+	if err := drivers.ValidateBootToken(r.BootToken); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	return empty, encodeErr(bts.StartVMWithBootToken(ctx, r.VmUuid, r.BootToken))
 }
 
 func (s *hypervisorServer) StopVM(ctx context.Context, r *driverpb.VMUUIDRequest) (*emptypb.Empty, error) {

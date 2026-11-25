@@ -66,6 +66,15 @@ message CubeFSMount {
   string access_key        = 4;
   string secret_key        = 5;
   string subdir            = 6;
+  // access_key_ref / secret_key_ref are GuestSecrets secret IDs (see
+  // secrets.proto), not secretsource references: the guest fetches the
+  // value over vsock, so no key rests in the spec or on the event bus.
+  // Setting a ref together with its inline field is invalid.
+  string access_key_ref    = 7;
+  string secret_key_ref    = 8;
+  // secret_version is the version of secret_key_ref the publisher expects;
+  // a higher value than the guest holds means "fetch again" (rotation).
+  uint64 secret_version    = 9;
 }
 
 // WireGuard is the optional kernel WireGuard overlay weft-init brings up
@@ -77,6 +86,10 @@ message WireGuard {
   uint32 listen_port = 3;   // UDP underlay port; 0 = ephemeral
   string address     = 4;   // overlay CIDR, e.g. "10.9.0.1/24"
   repeated WGPeer peers = 5;
+  // private_key_ref is a GuestSecrets secret ID (see secrets.proto) naming
+  // the private key, which the guest fetches over vsock. Mutually exclusive
+  // with private_key.
+  string private_key_ref = 6;
 }
 
 message WGPeer {

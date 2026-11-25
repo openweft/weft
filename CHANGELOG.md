@@ -7,6 +7,24 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Added
+- **Guest secret grants, admin RPCs and per-boot token.** `SetGuestSecretRef`,
+  `DeleteGuestSecretRef` and `ListGuestSecretRefs` (admin-gated, never a value)
+  map a secret id to a secretsource reference. `SetPodSpec` now derives each
+  pod's grants from the secret ids its spec names (WireGuard key, CubeFS keys,
+  share mounts) and refuses a spec that names an unmapped id or carries both an
+  inline key and its reference; rotating or deleting a mapping re-grants or
+  revokes the pods using it. On drivers implementing `BootTokenStarter` (qemu)
+  a 32-byte per-boot token is generated at StartVM, delivered through fw_cfg
+  (never argv, never at rest) and required by `Fetch` beside the CID; it is
+  wiped at StopVM/UnregisterVM. Old drivers fall back to CID-only with a
+  warning. vmd and wasm VMs with secrets are refused (no vsock).
+  Needs weft-proto v0.25.0, weft-drivers v0.7.0.
+
+### Changed
+- A PodSpec naming no secret id now revokes the pod's existing grants (grants
+  derive from the spec instead of being set out of band).
+
 ### Fixed
 - **Guest vsock CIDs no longer collide.** The CID hash is now the start of
   a probe: a CID is claimed with an etcd create-if-absent (new optional

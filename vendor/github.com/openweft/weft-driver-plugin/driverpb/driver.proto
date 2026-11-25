@@ -171,6 +171,9 @@ message Backup {
 
 message CreateVMRequest { VMSpec spec = 1; }
 message VMUUIDRequest { string vm_uuid = 1; }
+// StartVMWithBootTokenRequest carries a 32-byte per-boot secret. It is
+// secret material: never log it or put it in an error message.
+message StartVMWithBootTokenRequest { string vm_uuid = 1; bytes boot_token = 2; }
 message AttachDiskRequest { string vm_uuid = 1; DiskSpec disk = 2; }
 message DetachDiskRequest { string vm_uuid = 1; string volume_uuid = 2; }
 message AttachNICRequest { string vm_uuid = 1; NICHandle nic = 2; }
@@ -180,6 +183,7 @@ service Hypervisor {
   rpc HostInfo(google.protobuf.Empty) returns (HostInfoResponse);
   rpc CreateVM(CreateVMRequest) returns (google.protobuf.Empty);
   rpc StartVM(VMUUIDRequest) returns (google.protobuf.Empty);
+  rpc StartVMWithBootToken(StartVMWithBootTokenRequest) returns (google.protobuf.Empty);
   rpc StopVM(VMUUIDRequest) returns (google.protobuf.Empty);
   rpc DeleteVM(VMUUIDRequest) returns (google.protobuf.Empty);
   rpc AttachDisk(AttachDiskRequest) returns (google.protobuf.Empty);
