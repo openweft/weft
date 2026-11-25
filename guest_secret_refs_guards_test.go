@@ -268,6 +268,38 @@ func TestPublishPodSpecStoreErrors(t *testing.T) {
 	}
 }
 
+func TestNilPodSpecHandling(t *testing.T) {
+	a := newRefsAdapter()
+	a.kindOf = func(string) string { return "" }
+	// a check of no spec is refused, never read as "no secrets"
+	if g, err := a.checkPodSecrets("pod", nil); err == nil || g != nil {
+		t.Fatalf("checkPodSecrets(nil): %v %v", g, err)
+	}
+	// a nil spec published for a pod evicts the spec and revokes the grants
+	if _, err := a.SetGuestSecretRef("wg", "file:/x/wg"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PublishPodSpec("pod", wgSpec("wg", "")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := a.GuestSecretGrantFor("pod", "wg"); !ok {
+		t.Fatal("no grant after a publish")
+	}
+	if err := a.PublishPodSpec("pod", nil); err != nil {
+		t.Fatalf("nil spec: %v", err)
+	}
+	if _, ok := a.PodSpec("pod"); ok {
+		t.Fatal("a nil spec did not evict")
+	}
+	if _, ok, _ := a.GuestSecretGrantFor("pod", "wg"); ok {
+		t.Fatal("a nil spec left the grant")
+	}
+	// a nil spec carries no inline secret and names no id
+	if PodCarriesInlineSecret(nil) || len(PodSecretIDs(nil)) != 0 {
+		t.Fatal("nil spec reported as carrying a secret")
+	}
+}
+
 func TestBootTokenEntropyFailure(t *testing.T) {
 	boom := errors.New("no entropy")
 	old := randRead

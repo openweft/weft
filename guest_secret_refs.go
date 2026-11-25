@@ -269,7 +269,7 @@ func PodCarriesInlineSecret(spec *guestv1.PodSpec) bool {
 	if spec.GetWireguard().GetPrivateKey() != "" {
 		return true
 	}
-	for _, sm := range spec.GetShareMounts() {
+	for _, sm := range spec.ShareMounts { // field access: the nil guard above is load-bearing
 		if c := sm.GetCubefs(); c != nil && (c.GetAccessKey() != "" || c.GetSecretKey() != "") {
 			return true
 		}
@@ -282,6 +282,11 @@ func PodCarriesInlineSecret(spec *guestv1.PodSpec) bool {
 // a ref next to its inline field is refused; a pod on a driver without a
 // vsock channel may carry no secret at all.
 func (a *Adapter) checkPodSecrets(podID string, spec *guestv1.PodSpec) (map[string]GuestSecretGrant, error) {
+	if spec == nil {
+		// Removing a spec is PublishPodSpec's job; a check of nothing is a
+		// caller bug, never an implicit "no secrets".
+		return nil, errors.New("guest secrets: no pod spec to check")
+	}
 	ids := PodSecretIDs(spec)
 	if len(ids) == 0 && !PodCarriesInlineSecret(spec) {
 		return nil, nil
