@@ -79,7 +79,7 @@ func TestValidateGuestSecretRefBounds(t *testing.T) {
 
 	// control characters: 0x00..0x1f and 0x7f are refused, 0x20 and 0x7e are not
 	for _, c := range []string{"\x00", "\x01", "\x1f", "\x7f"} {
-		wantErrContains(t, ValidateGuestSecretRef("file:/a"+c+"b"), "control character")
+		wantErrContains(t, ValidateGuestSecretRef("file:/a"+c+"b"), "guest secrets: reference contains a control character")
 	}
 	for _, c := range []string{" ", "~"} {
 		if err := ValidateGuestSecretRef("file:/a" + c + "b"); err != nil {
