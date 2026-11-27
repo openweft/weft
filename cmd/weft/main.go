@@ -1913,6 +1913,11 @@ func (s *weftServer) DeprovisionVM(ctx context.Context, req *weftv1.DeprovisionV
 
 // PullImages pulls all images referenced in the HCL config directory.
 func (s *weftServer) PullImages(ctx context.Context, req *weftv1.PullImagesRequest) (*weftv1.PullImagesResponse, error) {
+	// The image cache is host-global and config_dir is a server-side path:
+	// platform admins only.
+	if err := weft.RequireAdmin(ctx, "pull images"); err != nil {
+		return nil, err
+	}
 	cfgDir := req.ConfigDir
 	if cfgDir == "" {
 		cfgDir = s.cfgDir
@@ -1954,6 +1959,9 @@ func (s *weftServer) PullImages(ctx context.Context, req *weftv1.PullImagesReque
 
 // PullImage pulls a single image by URL.
 func (s *weftServer) PullImage(ctx context.Context, req *weftv1.PullImageRequest) (*weftv1.PullImageResponse, error) {
+	if err := weft.RequireAdmin(ctx, "pull an image"); err != nil {
+		return nil, err
+	}
 	if req.Url == "" {
 		return nil, status.Error(codes.InvalidArgument, "url is required")
 	}
@@ -1968,7 +1976,11 @@ func (s *weftServer) PullImage(ctx context.Context, req *weftv1.PullImageRequest
 
 // PatchImage applies DiskFileOps to a cached image so that all VMs cloned
 // from it inherit the patches without needing per-instance copy blocks.
-func (s *weftServer) PatchImage(_ context.Context, req *weftv1.PatchImageRequest) (*weftv1.PatchImageResponse, error) {
+func (s *weftServer) PatchImage(ctx context.Context, req *weftv1.PatchImageRequest) (*weftv1.PatchImageResponse, error) {
+	// Patching rewrites a cached disk every VM clones from: admin only.
+	if err := weft.RequireAdmin(ctx, "patch an image"); err != nil {
+		return nil, err
+	}
 	if req.Url == "" {
 		return nil, status.Error(codes.InvalidArgument, "url is required")
 	}
@@ -2015,7 +2027,10 @@ func (s *weftServer) ListImages(_ context.Context, _ *weftv1.ListImagesRequest) 
 }
 
 // CleanImages removes cached images referenced in the HCL config.
-func (s *weftServer) CleanImages(_ context.Context, req *weftv1.CleanImagesRequest) (*weftv1.CleanImagesResponse, error) {
+func (s *weftServer) CleanImages(ctx context.Context, req *weftv1.CleanImagesRequest) (*weftv1.CleanImagesResponse, error) {
+	if err := weft.RequireAdmin(ctx, "clean images"); err != nil {
+		return nil, err
+	}
 	cfgDir := req.ConfigDir
 	if cfgDir == "" {
 		cfgDir = s.cfgDir
