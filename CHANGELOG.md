@@ -27,6 +27,11 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
   goes through a secretsource reference (`secret_access_key_ref`), not a
   plaintext field. The Go API `Adapter.CreateBucket` lost its `secretKey`
   parameter.
+- **The host-global image cache mutations now need an admin role.**
+  `PullImages`, `PullImage`, `PatchImage` and `CleanImages` had no role check:
+  any authenticated project-scoped caller could fetch into, patch or wipe the
+  cache shared by every project. They now answer PermissionDenied to a
+  project-scoped caller. `ListImages` (read-only) is unchanged.
 
 ### Changed
 - **The S3 bucket secret is write-only and now unstored.** No RPC returns
