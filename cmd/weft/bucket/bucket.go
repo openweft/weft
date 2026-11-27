@@ -120,7 +120,7 @@ func createCmd(socket, sshSocket, sshKey *string) *cobra.Command {
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "S3 endpoint (e.g. https://s3.example.com, required)")
 	cmd.Flags().StringVar(&region, "region", "", "S3 region (e.g. us-east-1)")
 	cmd.Flags().StringVar(&accessKey, "access-key-id", "", "S3 access key id")
-	cmd.Flags().StringVar(&secretKey, "secret-access-key", "", "S3 secret access key")
+	cmd.Flags().StringVar(&secretKey, "secret-access-key", "", "DEPRECATED, ignored: the secret is never stored")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("endpoint")

@@ -2968,7 +2968,22 @@ func toRackInfo(adp weft.VZAdapter, r weft.Rack) *weftv1.RackInfo {
 // caller ; mutations are admin-only (the Tier-3 noun set sits with
 // the network-plane build-out, no per-project ACL surface yet).
 
-func (s *weftServer) ListSubnets(_ context.Context, req *weftv1.ListSubnetsRequest) (*weftv1.ListSubnetsResponse, error) {
+func (s *weftServer) ListSubnets(ctx context.Context, req *weftv1.ListSubnetsRequest) (*weftv1.ListSubnetsResponse, error) {
+	// A network UUID is mandatory for a non-admin caller: an empty one
+	// would enumerate every project's subnets.
+	if req.NetworkUuid == "" {
+		if err := weft.RequireAdmin(ctx, "list every subnet"); err != nil {
+			return nil, err
+		}
+	} else {
+		net, ok := s.adp.NetworkByUUID(req.NetworkUuid)
+		if !ok {
+			return nil, status.Errorf(codes.PermissionDenied, "no access to network %s", req.NetworkUuid)
+		}
+		if _, err := s.adp.AuthorizeProject(ctx, net.ProjectUUID); err != nil {
+			return nil, err
+		}
+	}
 	subnets := s.adp.Subnets(req.NetworkUuid)
 	out := make([]*weftv1.SubnetInfo, 0, len(subnets))
 	for _, sn := range subnets {
@@ -2977,13 +2992,13 @@ func (s *weftServer) ListSubnets(_ context.Context, req *weftv1.ListSubnetsReque
 	return &weftv1.ListSubnetsResponse{Subnets: out}, nil
 }
 
-func (s *weftServer) GetSubnet(_ context.Context, req *weftv1.GetSubnetRequest) (*weftv1.GetSubnetResponse, error) {
+func (s *weftServer) GetSubnet(ctx context.Context, req *weftv1.GetSubnetRequest) (*weftv1.GetSubnetResponse, error) {
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
 	}
-	sn, ok := s.adp.SubnetByUUID(req.Uuid)
-	if !ok {
-		return nil, status.Errorf(codes.NotFound, "subnet not found")
+	sn, err := s.authSubnet(ctx, req.Uuid)
+	if err != nil {
+		return nil, err
 	}
 	return &weftv1.GetSubnetResponse{Subnet: toSubnetInfo(sn)}, nil
 }
@@ -3078,8 +3093,11 @@ func toSubnetInfo(sn weft.Subnet) *weftv1.SubnetInfo {
 // the backend list ; DeleteLoadBalancer refuses while a FloatingIP
 // still maps to the VIP.
 
-func (s *weftServer) ListLoadBalancers(_ context.Context, req *weftv1.ListLoadBalancersRequest) (*weftv1.ListLoadBalancersResponse, error) {
-	projectUUID := s.resolveProjectUUID(req.Project)
+func (s *weftServer) ListLoadBalancers(ctx context.Context, req *weftv1.ListLoadBalancersRequest) (*weftv1.ListLoadBalancersResponse, error) {
+	projectUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
 	lbs := s.adp.LoadBalancers(projectUUID)
 	out := make([]*weftv1.LoadBalancerInfo, 0, len(lbs))
 	for _, lb := range lbs {
@@ -3088,9 +3106,12 @@ func (s *weftServer) ListLoadBalancers(_ context.Context, req *weftv1.ListLoadBa
 	return &weftv1.ListLoadBalancersResponse{LoadBalancers: out}, nil
 }
 
-func (s *weftServer) GetLoadBalancer(_ context.Context, req *weftv1.GetLoadBalancerRequest) (*weftv1.GetLoadBalancerResponse, error) {
+func (s *weftServer) GetLoadBalancer(ctx context.Context, req *weftv1.GetLoadBalancerRequest) (*weftv1.GetLoadBalancerResponse, error) {
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := s.authLoadBalancer(ctx, req.Uuid); err != nil {
+		return nil, err
 	}
 	lb, ok := s.adp.LoadBalancerByUUID(req.Uuid)
 	if !ok {
@@ -3204,8 +3225,11 @@ func (s *weftServer) authLoadBalancer(ctx context.Context, uuid string) error {
 
 // ---- DNS Zones (proto v0.8.0) -------------------------------------
 
-func (s *weftServer) ListDNSZones(_ context.Context, req *weftv1.ListDNSZonesRequest) (*weftv1.ListDNSZonesResponse, error) {
-	projectUUID := s.resolveProjectUUID(req.Project)
+func (s *weftServer) ListDNSZones(ctx context.Context, req *weftv1.ListDNSZonesRequest) (*weftv1.ListDNSZonesResponse, error) {
+	projectUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
 	zones := s.adp.DNSZones(projectUUID)
 	out := make([]*weftv1.DNSZoneInfo, 0, len(zones))
 	for _, z := range zones {
@@ -3214,7 +3238,7 @@ func (s *weftServer) ListDNSZones(_ context.Context, req *weftv1.ListDNSZonesReq
 	return &weftv1.ListDNSZonesResponse{Zones: out}, nil
 }
 
-func (s *weftServer) GetDNSZone(_ context.Context, req *weftv1.GetDNSZoneRequest) (*weftv1.GetDNSZoneResponse, error) {
+func (s *weftServer) GetDNSZone(ctx context.Context, req *weftv1.GetDNSZoneRequest) (*weftv1.GetDNSZoneResponse, error) {
 	if req.Uuid == "" && req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid or name is required")
 	}
@@ -3228,7 +3252,10 @@ func (s *weftServer) GetDNSZone(_ context.Context, req *weftv1.GetDNSZoneRequest
 		z, ok = s.adp.DNSZoneByName(req.Name)
 	}
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "dns zone not found")
+		return nil, status.Errorf(codes.PermissionDenied, "no access to dns zone")
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, z.ProjectUUID); err != nil {
+		return nil, err
 	}
 	return &weftv1.GetDNSZoneResponse{Zone: toDNSZoneInfo(s.adp, z)}, nil
 }
@@ -3316,9 +3343,12 @@ func (s *weftServer) authDNSRecord(ctx context.Context, uuid string) error {
 
 // ---- DNS Records (proto v0.8.0) -----------------------------------
 
-func (s *weftServer) ListDNSRecords(_ context.Context, req *weftv1.ListDNSRecordsRequest) (*weftv1.ListDNSRecordsResponse, error) {
+func (s *weftServer) ListDNSRecords(ctx context.Context, req *weftv1.ListDNSRecordsRequest) (*weftv1.ListDNSRecordsResponse, error) {
 	if req.ZoneUuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "zone_uuid is required")
+	}
+	if err := s.authDNSZone(ctx, req.ZoneUuid); err != nil {
+		return nil, err
 	}
 	records := s.adp.DNSRecords(req.ZoneUuid)
 	out := make([]*weftv1.DNSRecordInfo, 0, len(records))
@@ -3387,9 +3417,12 @@ func toDNSRecordInfo(rec weft.DNSRecord) *weftv1.DNSRecordInfo {
 
 // ---- Volume properties (v0.9.0) -----------------------------------
 
-func (s *weftServer) GetVolumeProperty(_ context.Context, req *weftv1.GetVolumePropertyRequest) (*weftv1.GetVolumePropertyResponse, error) {
+func (s *weftServer) GetVolumeProperty(ctx context.Context, req *weftv1.GetVolumePropertyRequest) (*weftv1.GetVolumePropertyResponse, error) {
 	if req.VolumeUuid == "" || req.Key == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume_uuid and key are required")
+	}
+	if _, err := s.authVolume(ctx, req.VolumeUuid); err != nil {
+		return nil, err
 	}
 	p, ok := s.adp.GetVolumeProperty(req.VolumeUuid, req.Key)
 	if !ok {
@@ -3436,8 +3469,11 @@ func toVolumePropertyInfo(p weft.VolumeProperty) *weftv1.VolumePropertyInfo {
 
 // ---- Shares (v0.8 list/create/delete + v0.9 get/resize) ----------
 
-func (s *weftServer) ListShares(_ context.Context, req *weftv1.ListSharesRequest) (*weftv1.ListSharesResponse, error) {
-	projUUID := s.resolveProjectUUID(req.Project)
+func (s *weftServer) ListShares(ctx context.Context, req *weftv1.ListSharesRequest) (*weftv1.ListSharesResponse, error) {
+	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
 	shares := s.adp.Shares(projUUID)
 	out := make([]*weftv1.ShareInfo, 0, len(shares))
 	for _, sh := range shares {
@@ -3446,9 +3482,12 @@ func (s *weftServer) ListShares(_ context.Context, req *weftv1.ListSharesRequest
 	return &weftv1.ListSharesResponse{Shares: out}, nil
 }
 
-func (s *weftServer) GetShare(_ context.Context, req *weftv1.GetShareRequest) (*weftv1.GetShareResponse, error) {
+func (s *weftServer) GetShare(ctx context.Context, req *weftv1.GetShareRequest) (*weftv1.GetShareResponse, error) {
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := s.authShare(ctx, req.Uuid); err != nil {
+		return nil, err
 	}
 	sh, ok := s.adp.ShareByUUID(req.Uuid)
 	if !ok {
@@ -3533,8 +3572,11 @@ func (s *weftServer) authShare(ctx context.Context, uuid string) error {
 
 // ---- Buckets (v0.9.0) ---------------------------------------------
 
-func (s *weftServer) ListBuckets(_ context.Context, req *weftv1.ListBucketsRequest) (*weftv1.ListBucketsResponse, error) {
-	projUUID := s.resolveProjectUUID(req.Project)
+func (s *weftServer) ListBuckets(ctx context.Context, req *weftv1.ListBucketsRequest) (*weftv1.ListBucketsResponse, error) {
+	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
 	bks := s.adp.Buckets(projUUID)
 	out := make([]*weftv1.BucketInfo, 0, len(bks))
 	for _, b := range bks {
@@ -3543,9 +3585,12 @@ func (s *weftServer) ListBuckets(_ context.Context, req *weftv1.ListBucketsReque
 	return &weftv1.ListBucketsResponse{Buckets: out}, nil
 }
 
-func (s *weftServer) GetBucket(_ context.Context, req *weftv1.GetBucketRequest) (*weftv1.GetBucketResponse, error) {
+func (s *weftServer) GetBucket(ctx context.Context, req *weftv1.GetBucketRequest) (*weftv1.GetBucketResponse, error) {
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := s.authBucket(ctx, req.Uuid); err != nil {
+		return nil, err
 	}
 	b, ok := s.adp.BucketByUUID(req.Uuid)
 	if !ok {
@@ -3565,7 +3610,10 @@ func (s *weftServer) CreateBucket(ctx context.Context, req *weftv1.CreateBucketR
 	if err := s.adp.EnforceTenantQuotaForBucket(projUUID); err != nil {
 		return nil, err
 	}
-	b, created, err := s.adp.CreateBucket(projUUID, req.Name, req.Endpoint, req.Region, req.AccessKeyId, req.SecretAccessKey)
+	if req.SecretAccessKey != "" { //nolint:staticcheck // deprecated field: accepted, never stored
+		logger.Printf("CreateBucket project=%s name=%s: deprecated field secret_access_key ignored and NOT stored (a future need goes through a secretsource reference, secret_access_key_ref)", projUUID, req.Name)
+	}
+	b, created, err := s.adp.CreateBucket(projUUID, req.Name, req.Endpoint, req.Region, req.AccessKeyId)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create bucket: %v", err)
 	}
@@ -3587,9 +3635,12 @@ func (s *weftServer) DeleteBucket(ctx context.Context, req *weftv1.DeleteBucketR
 	return &weftv1.DeleteBucketResponse{DeletedUuid: req.Uuid}, nil
 }
 
-func (s *weftServer) GetBucketPolicy(_ context.Context, req *weftv1.GetBucketPolicyRequest) (*weftv1.GetBucketPolicyResponse, error) {
+func (s *weftServer) GetBucketPolicy(ctx context.Context, req *weftv1.GetBucketPolicyRequest) (*weftv1.GetBucketPolicyResponse, error) {
 	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "uuid is required")
+	}
+	if err := s.authBucket(ctx, req.Uuid); err != nil {
+		return nil, err
 	}
 	b, ok := s.adp.BucketByUUID(req.Uuid)
 	if !ok {
@@ -3613,8 +3664,8 @@ func (s *weftServer) SetBucketPolicy(ctx context.Context, req *weftv1.SetBucketP
 	return &weftv1.SetBucketPolicyResponse{Bucket: toBucketInfoFull(b)}, nil
 }
 
-// The S3 secret is write-only: it is accepted by CreateBucket and never
-// returned by any RPC (BucketInfo.secret_access_key is deprecated).
+// The S3 secret is never stored: CreateBucket accepts the deprecated
+// field, ignores it (with a warning) and no RPC returns it.
 //
 // toBucketInfoListView omits the policy from list responses (a bucket
 // list of N rows shouldn't drag N policy JSON blobs across the wire).
@@ -4223,12 +4274,15 @@ func (s *weftServer) vmPropsReady() error {
 	return nil
 }
 
-func (s *weftServer) ListVMProperties(_ context.Context, req *weftv1.ListVMPropertiesRequest) (*weftv1.ListVMPropertiesResponse, error) {
+func (s *weftServer) ListVMProperties(ctx context.Context, req *weftv1.ListVMPropertiesRequest) (*weftv1.ListVMPropertiesResponse, error) {
 	if err := s.vmPropsReady(); err != nil {
 		return nil, err
 	}
 	if req.VmName == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
+		return nil, err
 	}
 	all := s.vmProps.ListForVM(req.Project, req.VmName)
 	out := &weftv1.ListVMPropertiesResponse{Properties: make([]*weftv1.VMProperty, 0, len(all))}
@@ -4320,12 +4374,15 @@ func (s *weftServer) uefiVarsReady() error {
 	return nil
 }
 
-func (s *weftServer) ListUEFIVars(_ context.Context, req *weftv1.ListUEFIVarsRequest) (*weftv1.ListUEFIVarsResponse, error) {
+func (s *weftServer) ListUEFIVars(ctx context.Context, req *weftv1.ListUEFIVarsRequest) (*weftv1.ListUEFIVarsResponse, error) {
 	if err := s.uefiVarsReady(); err != nil {
 		return nil, err
 	}
 	if req.VmName == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
+		return nil, err
 	}
 	all := s.uefiVars.ListForVM(req.Project, req.VmName)
 	out := &weftv1.ListUEFIVarsResponse{Vars: make([]*weftv1.UEFIVar, 0, len(all))}
@@ -4412,12 +4469,15 @@ func (s *weftServer) vmKeysReady() error {
 	return nil
 }
 
-func (s *weftServer) ListVMSSHKeys(_ context.Context, req *weftv1.ListVMSSHKeysRequest) (*weftv1.ListVMSSHKeysResponse, error) {
+func (s *weftServer) ListVMSSHKeys(ctx context.Context, req *weftv1.ListVMSSHKeysRequest) (*weftv1.ListVMSSHKeysResponse, error) {
 	if err := s.vmKeysReady(); err != nil {
 		return nil, err
 	}
 	if req.VmName == "" {
 		return nil, status.Error(codes.InvalidArgument, "vm_name is required")
+	}
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
+		return nil, err
 	}
 	all := s.vmKeys.ListForVM(req.Project, req.VmName)
 	out := &weftv1.ListVMSSHKeysResponse{Keys: make([]*weftv1.VMSSHKey, 0, len(all))}

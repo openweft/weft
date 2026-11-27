@@ -20,6 +20,7 @@ package main
 import (
 	"context"
 
+	"github.com/openweft/weft"
 	drivers "github.com/openweft/weft-drivers"
 	weftv1 "github.com/openweft/weft-proto"
 	"google.golang.org/grpc/codes"
@@ -86,6 +87,10 @@ func (s *weftServer) ListVolumeBackups(ctx context.Context, req *weftv1.ListVolu
 		}
 		wantProject = projUUID
 	}
+	visible, all, err := s.adp.VisibleProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
 	backups, err := s.adp.ListVolumeBackups(ctx, req.Target, req.VolumeUuid)
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "list backups: %v", err)
@@ -96,9 +101,31 @@ func (s *weftServer) ListVolumeBackups(ctx context.Context, req *weftv1.ListVolu
 		if wantProject != "" && project != wantProject {
 			continue
 		}
+		if !all {
+			if _, ok := visible[project]; !ok {
+				continue
+			}
+		}
 		out = append(out, toVolumeBackupInfo(bk, project))
 	}
 	return &weftv1.ListVolumeBackupsResponse{Backups: out}, nil
+}
+
+// authBackup resolves a backup URL to its owning project (from the
+// backup's metadata label) and delegates to AuthorizeProject. A backup
+// that is unknown, unreadable or unlabelled is refused with the same
+// PermissionDenied as another project's, unless the caller is a
+// platform admin, so a URL cannot be probed.
+func (s *weftServer) authBackup(ctx context.Context, url string) error {
+	proj, found, err := s.adp.VolumeBackupProject(ctx, url)
+	if err == nil && found {
+		_, aerr := s.adp.AuthorizeProject(ctx, proj)
+		return aerr
+	}
+	if aerr := weft.RequireAdmin(ctx, "access an unlabelled backup"); aerr != nil {
+		return status.Error(codes.PermissionDenied, "no access to backup")
+	}
+	return nil
 }
 
 // DeleteVolumeBackup drops one backup from the target store. The URL
@@ -108,6 +135,9 @@ func (s *weftServer) ListVolumeBackups(ctx context.Context, req *weftv1.ListVolu
 func (s *weftServer) DeleteVolumeBackup(ctx context.Context, req *weftv1.DeleteVolumeBackupRequest) (*weftv1.DeleteVolumeBackupResponse, error) {
 	if req.Url == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "url is required")
+	}
+	if err := s.authBackup(ctx, req.Url); err != nil {
+		return nil, err
 	}
 	if err := s.adp.DeleteVolumeBackup(ctx, req.Url); err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "delete backup: %v", err)
@@ -132,6 +162,12 @@ func (s *weftServer) RestoreVolumeBackup(ctx context.Context, req *weftv1.Restor
 	}
 	projUUID, err := s.adp.AuthorizeProject(ctx, req.Project)
 	if err != nil {
+		return nil, err
+	}
+	// The destination project is authorised above; the SOURCE backup
+	// must be one the caller owns too, else a leaked URL copies another
+	// project's data into the caller's volume.
+	if err := s.authBackup(ctx, req.Url); err != nil {
 		return nil, err
 	}
 	v, err := s.adp.RestoreVolumeBackup(ctx, req.Url, req.NewVolumeName, projUUID)

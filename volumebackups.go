@@ -94,6 +94,32 @@ func (a *Adapter) ListVolumeBackups(ctx context.Context, target, volumeUUID stri
 	return vd.ListBackups(ctx, target, volumeUUID)
 }
 
+// VolumeBackupProject returns the owning project UUID stamped into the
+// backup's metadata (Labels["weft.project_uuid"]) for the backup at
+// backupURL. found is false when the backup does not exist on its
+// target or carries no project label; the gRPC layer then refuses the
+// caller unless it is a platform admin.
+func (a *Adapter) VolumeBackupProject(ctx context.Context, backupURL string) (project string, found bool, err error) {
+	if backupURL == "" {
+		return "", false, fmt.Errorf("empty backup url")
+	}
+	vd, err := a.blockVolumeDriver()
+	if err != nil {
+		return "", false, err
+	}
+	entries, err := vd.ListBackups(ctx, backupURL, "")
+	if err != nil {
+		return "", false, err
+	}
+	for _, e := range entries {
+		if e.URL == backupURL {
+			p := e.Labels["weft.project_uuid"]
+			return p, p != "", nil
+		}
+	}
+	return "", false, nil
+}
+
 // DeleteVolumeBackup removes one backup. The URL is the full
 // addressing key (as returned in drivers.Backup.URL). Idempotent —
 // deleting a missing backup is a no-op driver-side.

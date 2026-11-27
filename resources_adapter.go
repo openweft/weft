@@ -236,11 +236,11 @@ func (a *Adapter) BucketByUUID(uuid string) (Bucket, bool) {
 	return a.bucketReg.lookupByUUID(uuid)
 }
 
-func (a *Adapter) CreateBucket(projectUUID, name, endpoint, region, accessKey, secretKey string) (Bucket, bool, error) {
+func (a *Adapter) CreateBucket(projectUUID, name, endpoint, region, accessKey string) (Bucket, bool, error) {
 	if a.bucketReg == nil {
 		return Bucket{}, false, fmt.Errorf("bucket registry not initialised")
 	}
-	b, created, err := a.bucketReg.create(projectUUID, name, endpoint, region, accessKey, secretKey)
+	b, created, err := a.bucketReg.create(projectUUID, name, endpoint, region, accessKey)
 	if err == nil && created {
 		a.bus.Publish(PlatformEvent{
 			Kind:        "bucket.created",

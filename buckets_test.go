@@ -16,10 +16,41 @@ func TestBucketRegistry_EmptyStartsClean(t *testing.T) {
 	}
 }
 
+// An old record holding a plaintext secret is purged on load: the
+// registry rewrites the blob without it, and keeps the rest.
+func TestBucketRegistry_LoadPurgesStoredSecret(t *testing.T) {
+	const secret = "old-plaintext-secret"
+	old := `{"buckets":[{"uuid":"u-1","project_uuid":"p","name":"logs","endpoint":"https://s3","access_key_id":"AKID","secret_access_key":"` + secret + `","created_at":"2026-01-01T00:00:00Z"}]}`
+	storage := NewMemStorageWith([]byte(old))
+	reg, err := loadBucketRegistry(context.Background(), storage)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	blob, err := storage.Load(context.Background())
+	if err != nil {
+		t.Fatalf("reload blob: %v", err)
+	}
+	if strings.Contains(string(blob), secret) || strings.Contains(string(blob), "secret_access_key") {
+		t.Fatalf("secret still in the stored bytes: %s", blob)
+	}
+	b, ok := reg.lookupByUUID("u-1")
+	if !ok || b.AccessKeyID != "AKID" || b.Name != "logs" {
+		t.Fatalf("purge lost the record: %+v ok=%v", b, ok)
+	}
+	// A subsequent save never reintroduces it.
+	if _, err := reg.setPolicy("u-1", "{}"); err != nil {
+		t.Fatalf("setPolicy: %v", err)
+	}
+	blob, _ = storage.Load(context.Background())
+	if strings.Contains(string(blob), secret) {
+		t.Fatalf("secret reappeared: %s", blob)
+	}
+}
+
 func TestBucketRegistry_CreateRoundTrips(t *testing.T) {
 	storage := NewMemStorage()
 	reg, _ := loadBucketRegistry(context.Background(), storage)
-	b, created, err := reg.create("proj-1", "logs", "https://s3.example.com", "eu-west-1", "AKID", "SECRET")
+	b, created, err := reg.create("proj-1", "logs", "https://s3.example.com", "eu-west-1", "AKID")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -45,8 +76,8 @@ func TestBucketRegistry_CreateRoundTrips(t *testing.T) {
 
 func TestBucketRegistry_CreateIdempotent(t *testing.T) {
 	reg, _ := loadBucketRegistry(context.Background(), NewMemStorage())
-	b1, _, _ := reg.create("proj-1", "logs", "https://s3", "", "", "")
-	b2, created, err := reg.create("proj-1", "logs", "https://other", "", "", "")
+	b1, _, _ := reg.create("proj-1", "logs", "https://s3", "", "")
+	b2, created, err := reg.create("proj-1", "logs", "https://other", "", "")
 	if err != nil {
 		t.Fatalf("second create: %v", err)
 	}
@@ -74,7 +105,7 @@ func TestBucketRegistry_CreateValidation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, _, err := reg.create(tc.proj, tc.n, tc.endpoint, "", "", ""); err == nil {
+			if _, _, err := reg.create(tc.proj, tc.n, tc.endpoint, "", ""); err == nil {
 				t.Error("expected error")
 			} else if !strings.Contains(err.Error(), tc.wantErrContains) {
 				t.Errorf("error must mention %q, got: %v", tc.wantErrContains, err)
@@ -85,9 +116,9 @@ func TestBucketRegistry_CreateValidation(t *testing.T) {
 
 func TestBucketRegistry_ListFiltersByProject(t *testing.T) {
 	reg, _ := loadBucketRegistry(context.Background(), NewMemStorage())
-	_, _, _ = reg.create("proj-A", "a", "https://s3", "", "", "")
-	_, _, _ = reg.create("proj-A", "b", "https://s3", "", "", "")
-	_, _, _ = reg.create("proj-B", "c", "https://s3", "", "", "")
+	_, _, _ = reg.create("proj-A", "a", "https://s3", "", "")
+	_, _, _ = reg.create("proj-A", "b", "https://s3", "", "")
+	_, _, _ = reg.create("proj-B", "c", "https://s3", "", "")
 	if got := reg.list(""); len(got) != 3 {
 		t.Errorf("list(\"\") should return all 3, got %d", len(got))
 	}
@@ -111,7 +142,7 @@ func TestBucketRegistry_ListFiltersByProject(t *testing.T) {
 
 func TestBucketRegistry_SetPolicy(t *testing.T) {
 	reg, _ := loadBucketRegistry(context.Background(), NewMemStorage())
-	b, _, _ := reg.create("proj-1", "logs", "https://s3", "", "", "")
+	b, _, _ := reg.create("proj-1", "logs", "https://s3", "", "")
 	upd, err := reg.setPolicy(b.UUID, `{"Version":"2012-10-17"}`)
 	if err != nil {
 		t.Fatalf("setPolicy: %v", err)
@@ -127,7 +158,7 @@ func TestBucketRegistry_SetPolicy(t *testing.T) {
 
 func TestBucketRegistry_DeleteCleansIndex(t *testing.T) {
 	reg, _ := loadBucketRegistry(context.Background(), NewMemStorage())
-	b, _, _ := reg.create("proj-1", "logs", "https://s3", "", "", "")
+	b, _, _ := reg.create("proj-1", "logs", "https://s3", "", "")
 	if err := reg.delete(b.UUID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -135,7 +166,7 @@ func TestBucketRegistry_DeleteCleansIndex(t *testing.T) {
 		t.Error("deleted row still surfaces via UUID lookup")
 	}
 	// Recreate must succeed (name index was cleaned).
-	if _, _, err := reg.create("proj-1", "logs", "https://s3", "", "", ""); err != nil {
+	if _, _, err := reg.create("proj-1", "logs", "https://s3", "", ""); err != nil {
 		t.Errorf("recreate after delete failed: %v", err)
 	}
 	// Unknown UUID.

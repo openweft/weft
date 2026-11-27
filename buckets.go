@@ -15,21 +15,30 @@ import (
 	"time"
 )
 
-// Bucket is one entry in the registry.
+// Bucket is one entry in the registry. It carries no secret: the S3
+// secret access key is never stored (a future need goes through a
+// secretsource reference, not a plaintext field).
 type Bucket struct {
-	UUID            string    `json:"uuid"`
-	ProjectUUID     string    `json:"project_uuid"`
-	Name            string    `json:"name"`
-	Endpoint        string    `json:"endpoint"`
-	Region          string    `json:"region,omitempty"`
-	AccessKeyID     string    `json:"access_key_id,omitempty"`
-	SecretAccessKey string    `json:"secret_access_key,omitempty"`
-	Policy          string    `json:"policy,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
+	UUID        string    `json:"uuid"`
+	ProjectUUID string    `json:"project_uuid"`
+	Name        string    `json:"name"`
+	Endpoint    string    `json:"endpoint"`
+	Region      string    `json:"region,omitempty"`
+	AccessKeyID string    `json:"access_key_id,omitempty"`
+	Policy      string    `json:"policy,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type bucketsDoc struct {
 	Buckets []Bucket `json:"buckets"`
+}
+
+// legacyBucketsDoc decodes records written before the secret was
+// dropped, only to detect (never to keep) a stored secret.
+type legacyBucketsDoc struct {
+	Buckets []struct {
+		SecretAccessKey string `json:"secret_access_key"`
+	} `json:"buckets"`
 }
 
 const bucketRegistryFileName = "buckets"
@@ -62,6 +71,23 @@ func loadBucketRegistry(ctx context.Context, storage Storage) (*bucketRegistry, 
 	for _, b := range doc.Buckets {
 		reg.byUUID[b.UUID] = b
 		reg.nameIdx[b.ProjectUUID+"/"+b.Name] = b.UUID
+	}
+	// Purge: an old record holding a plaintext secret is rewritten
+	// without it (the Bucket type has no field for it, so saveLocked
+	// cannot carry it over), on whatever backend holds it (file, etcd).
+	var legacy legacyBucketsDoc
+	if err := json.Unmarshal(blob, &legacy); err == nil {
+		for _, lb := range legacy.Buckets {
+			if lb.SecretAccessKey != "" {
+				reg.mu.Lock()
+				err := reg.saveLocked()
+				reg.mu.Unlock()
+				if err != nil {
+					return nil, fmt.Errorf("purge stored bucket secrets: %w", err)
+				}
+				break
+			}
+		}
 	}
 	return reg, nil
 }
@@ -112,7 +138,7 @@ func (r *bucketRegistry) list(projectUUID string) []Bucket {
 	return out
 }
 
-func (r *bucketRegistry) create(projectUUID, name, endpoint, region, accessKey, secretKey string) (Bucket, bool, error) {
+func (r *bucketRegistry) create(projectUUID, name, endpoint, region, accessKey string) (Bucket, bool, error) {
 	if projectUUID == "" {
 		return Bucket{}, false, fmt.Errorf("project_uuid is required")
 	}
@@ -133,14 +159,13 @@ func (r *bucketRegistry) create(projectUUID, name, endpoint, region, accessKey, 
 		return Bucket{}, false, err
 	}
 	b := Bucket{
-		UUID:            uuid,
-		ProjectUUID:     projectUUID,
-		Name:            name,
-		Endpoint:        endpoint,
-		Region:          region,
-		AccessKeyID:     accessKey,
-		SecretAccessKey: secretKey,
-		CreatedAt:       time.Now().UTC(),
+		UUID:        uuid,
+		ProjectUUID: projectUUID,
+		Name:        name,
+		Endpoint:    endpoint,
+		Region:      region,
+		AccessKeyID: accessKey,
+		CreatedAt:   time.Now().UTC(),
 	}
 	r.byUUID[uuid] = b
 	r.nameIdx[key] = uuid
