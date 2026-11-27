@@ -57,9 +57,16 @@ func TestVolumeBackupProject(t *testing.T) {
 	if _, _, err := failing.VolumeBackupProject(ctx, "s3://x/mine"); !errors.Is(err, boom) {
 		t.Errorf("driver error not propagated: %v", err)
 	}
-	if _, _, err := (&Adapter{}).VolumeBackupProject(ctx, "s3://x/mine"); err == nil {
-		t.Error("no block driver: want an error")
-	}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("no block driver: panicked (%v) instead of returning an error", r)
+			}
+		}()
+		if _, _, err := (&Adapter{}).VolumeBackupProject(ctx, "s3://x/mine"); err == nil {
+			t.Error("no block driver: want an error")
+		}
+	}()
 }
 
 // failingSaveStorage loads a seed and refuses every Save.
