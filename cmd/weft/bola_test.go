@@ -226,11 +226,11 @@ func TestPluginAndBackupListErrorsSurface(t *testing.T) {
 		t.Errorf("UninstallPlugin with failing store: got %v, want Internal", err)
 	}
 	// No caller in the context: VisibleProjects fails and must be reported.
-	if _, err := s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{}); err == nil {
-		t.Error("ListInstalledPlugins without caller: want an error")
+	if _, err := s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{}); status.Code(err) != codes.Unauthenticated {
+		t.Errorf("ListInstalledPlugins without caller: got %v, want Unauthenticated", err)
 	}
-	if _, err := s.ListVolumeBackups(context.Background(), &weftv1.ListVolumeBackupsRequest{Target: "t"}); err == nil {
-		t.Error("ListVolumeBackups without caller: want an error")
+	if _, err := s.ListVolumeBackups(context.Background(), &weftv1.ListVolumeBackupsRequest{Target: "t"}); status.Code(err) != codes.Unauthenticated {
+		t.Errorf("ListVolumeBackups without caller: got %v, want Unauthenticated", err)
 	}
 }
 
