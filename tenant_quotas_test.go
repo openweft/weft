@@ -243,7 +243,7 @@ func TestEnforceBucket_CountTrips(t *testing.T) {
 	if err := f.a.EnforceTenantQuotaForBucket(f.projUUID); err != nil {
 		t.Fatalf("1st bucket : %v", err)
 	}
-	if _, _, err := f.a.CreateBucket(f.projUUID, "b1", "https://s3.example.com", "us-east-1", "ak", "sk"); err != nil {
+	if _, _, err := f.a.CreateBucket(f.projUUID, "b1", "https://s3.example.com", "us-east-1", "ak"); err != nil {
 		t.Fatalf("CreateBucket: %v", err)
 	}
 	err := f.a.EnforceTenantQuotaForBucket(f.projUUID)

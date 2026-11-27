@@ -7,13 +7,32 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Security
+- **Broken object-level authorization (OWASP API1:2023) fixed on 23 RPCs.**
+  A caller authorised on project A could read or act on project B's objects by
+  UUID. Now checked per object (`auth*`) or per project (`AuthorizeProject`,
+  `VisibleProjects`): `GetBucket`, `GetBucketPolicy`, `ListBuckets`,
+  `ListSubnets` (empty network now admin-only), `GetSubnet`, `ListLoadBalancers`,
+  `GetLoadBalancer`, `ListDNSZones`, `GetDNSZone`, `ListDNSRecords`,
+  `GetVolumeProperty`, `ListShares`, `GetShare`, `ListVMProperties`,
+  `ListUEFIVars`, `ListVMSSHKeys`, `InstallPlugin`, `UninstallPlugin`,
+  `EnablePlugin`, `DisablePlugin`, `DeleteVolumeBackup`, `RestoreVolumeBackup`,
+  `ListVolumeBackups`. An absent object answers PermissionDenied, like one that
+  is not yours. An empty `project` on the fixed List RPCs now means the
+  caller's default project (admin and dev callers keep "all").
+- **The S3 secret access key is no longer stored.** `Bucket` has no secret
+  field; on load, any record still holding one is rewritten without it (file
+  and etcd backends). `CreateBucket` ignores a non-empty `secret_access_key`
+  and logs a deprecation warning that never contains the value. A future need
+  goes through a secretsource reference (`secret_access_key_ref`), not a
+  plaintext field. The Go API `Adapter.CreateBucket` lost its `secretKey`
+  parameter.
+
 ### Changed
-- **The S3 bucket secret is write-only.** `CreateBucket` accepts
-  `secret_access_key`; no RPC returns it any more (`GetBucket`, `ListBuckets`,
-  `CreateBucket`, `SetBucketPolicy` leave `BucketInfo.secret_access_key`
-  empty) and `weft bucket list -o json` no longer prints it. weft-proto v0.26.0.
-  Note: the registry still stores the secret in clear (see `buckets.go`);
-  encryption at rest is a separate decision.
+- **The S3 bucket secret is write-only and now unstored.** No RPC returns
+  `BucketInfo.secret_access_key` (`GetBucket`, `ListBuckets`, `CreateBucket`,
+  `SetBucketPolicy`) and `weft bucket list -o json` no longer prints it.
+  weft-proto v0.26.0.
 
 ### Added
 - **Guest secret grants, admin RPCs and per-boot token.** `SetGuestSecretRef`,

@@ -186,7 +186,7 @@ type VZAdapter interface {
 	DeleteShare(uuid string) error
 	Buckets(projectUUID string) []Bucket
 	BucketByUUID(uuid string) (Bucket, bool)
-	CreateBucket(projectUUID, name, endpoint, region, accessKey, secretKey string) (Bucket, bool, error)
+	CreateBucket(projectUUID, name, endpoint, region, accessKey string) (Bucket, bool, error)
 	SetBucketPolicy(uuid, policy string) (Bucket, error)
 	DeleteBucket(uuid string) error
 	SSHKeyCatalogue() []SSHKeyCatalogueEntry
@@ -262,6 +262,7 @@ type VZAdapter interface {
 	CreateVolumeBackup(ctx context.Context, snapshotUUID, target string) (driversAPI.Backup, error)
 	ListVolumeBackups(ctx context.Context, target, volumeUUID string) ([]driversAPI.Backup, error)
 	DeleteVolumeBackup(ctx context.Context, backupURL string) error
+	VolumeBackupProject(ctx context.Context, backupURL string) (project string, found bool, err error)
 	RestoreVolumeBackup(ctx context.Context, backupURL, newVolumeName, projectUUID string) (Volume, error)
 
 	// Share fan-out surface. Used by PublishShareToProject /

@@ -1,9 +1,12 @@
 package main
 
 // bucket_secret_test.go pins the write-only contract of the S3 bucket
-// secret: CreateBucket stores it, no RPC ever returns it.
+// secret: CreateBucket accepts it (deprecated) but never stores it, and
+// no RPC ever returns it.
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	weftv1 "github.com/openweft/weft-proto"
@@ -38,9 +41,14 @@ func TestBucketSecretIsNeverReturned(t *testing.T) {
 	}
 	b := first.Bucket
 	check("CreateBucket (new)", b)
-	// The secret is stored: the write path works.
-	if got, _ := adp.BucketByUUID(b.Uuid); got.SecretAccessKey != bucketTestSecret {
-		t.Fatalf("secret not stored: %q", got.SecretAccessKey)
+	// The secret is accepted but never stored: the persisted record
+	// has no field for it and the registry bytes never contain it.
+	got, ok := adp.BucketByUUID(b.Uuid)
+	if !ok {
+		t.Fatal("bucket not registered")
+	}
+	if blob, err := json.Marshal(got); err != nil || strings.Contains(string(blob), bucketTestSecret) {
+		t.Fatalf("secret reachable from the stored record: %s err=%v", blob, err)
 	}
 
 	// CreateBucket on an existing name returns the existing row: it must

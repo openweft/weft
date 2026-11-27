@@ -91,8 +91,8 @@ func asStringMap(in map[string]any) map[string]string {
 // ── ListInstalledPlugins : empty store ──────────────────────────────────
 
 func TestListInstalledPlugins_Empty(t *testing.T) {
-	s := &weftServer{plugins: &fakePluginManager{}}
-	resp, err := s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{})
+	s := &weftServer{adp: pluginTestAdapter(t), plugins: &fakePluginManager{}}
+	resp, err := s.ListInstalledPlugins(devCtx(), &weftv1.ListInstalledPluginsRequest{})
 	if err != nil {
 		t.Fatalf("ListInstalledPlugins: %v", err)
 	}
@@ -108,10 +108,10 @@ func TestListInstalledPlugins_AfterInstall(t *testing.T) {
 		"valkey-cache": {Name: "valkey-cache", Version: "v1", Kind: "cache"},
 	}
 	fm := &fakePluginManager{catalogue: cat}
-	s := &weftServer{plugins: fm}
+	s := &weftServer{adp: pluginTestAdapter(t), plugins: fm}
 
 	// Install — server-side handler should return a non-empty UUID.
-	installResp, err := s.InstallPlugin(context.Background(), &weftv1.InstallPluginRequest{
+	installResp, err := s.InstallPlugin(devCtx(), &weftv1.InstallPluginRequest{
 		Name:    "valkey-cache",
 		Project: "platform",
 		Inputs:  map[string]string{"memory_mb": "512"},
@@ -124,7 +124,7 @@ func TestListInstalledPlugins_AfterInstall(t *testing.T) {
 	}
 
 	// Re-list — the freshly installed instance must appear.
-	listResp, err := s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{})
+	listResp, err := s.ListInstalledPlugins(devCtx(), &weftv1.ListInstalledPluginsRequest{})
 	if err != nil {
 		t.Fatalf("ListInstalledPlugins: %v", err)
 	}
@@ -154,9 +154,9 @@ func TestInstallPlugin_RejectsUnknownName(t *testing.T) {
 			"valkey-cache": {Name: "valkey-cache", Version: "v1", Kind: "cache"},
 		},
 	}
-	s := &weftServer{plugins: fm}
+	s := &weftServer{adp: pluginTestAdapter(t), plugins: fm}
 
-	_, err := s.InstallPlugin(context.Background(), &weftv1.InstallPluginRequest{
+	_, err := s.InstallPlugin(devCtx(), &weftv1.InstallPluginRequest{
 		Name:    "ghost-plugin", // not in catalogue
 		Project: "platform",
 	})
@@ -172,23 +172,23 @@ func TestUninstallPlugin_RemovesInstance(t *testing.T) {
 		"valkey-cache": {Name: "valkey-cache", Version: "v1", Kind: "cache"},
 	}
 	fm := &fakePluginManager{catalogue: cat}
-	s := &weftServer{plugins: fm}
+	s := &weftServer{adp: pluginTestAdapter(t), plugins: fm}
 
 	// Install first so there's something to uninstall.
-	inst, err := s.InstallPlugin(context.Background(), &weftv1.InstallPluginRequest{
+	inst, err := s.InstallPlugin(devCtx(), &weftv1.InstallPluginRequest{
 		Name: "valkey-cache", Project: "platform",
 	})
 	if err != nil {
 		t.Fatalf("InstallPlugin: %v", err)
 	}
 	// Uninstall by (name, uuid) — handler should clear the slot.
-	if _, err := s.UninstallPlugin(context.Background(), &weftv1.UninstallPluginRequest{
+	if _, err := s.UninstallPlugin(devCtx(), &weftv1.UninstallPluginRequest{
 		Name:         "valkey-cache",
 		InstanceUuid: inst.InstanceUuid,
 	}); err != nil {
 		t.Fatalf("UninstallPlugin: %v", err)
 	}
-	listResp, err := s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{})
+	listResp, err := s.ListInstalledPlugins(devCtx(), &weftv1.ListInstalledPluginsRequest{})
 	if err != nil {
 		t.Fatalf("ListInstalledPlugins after uninstall: %v", err)
 	}
@@ -199,11 +199,11 @@ func TestUninstallPlugin_RemovesInstance(t *testing.T) {
 
 func TestUninstallPlugin_RejectsMissingArgs(t *testing.T) {
 	fm := &fakePluginManager{catalogue: map[string]*pluginstore.Manifest{}}
-	s := &weftServer{plugins: fm}
-	if _, err := s.UninstallPlugin(context.Background(), &weftv1.UninstallPluginRequest{InstanceUuid: "u"}); err == nil {
+	s := &weftServer{adp: pluginTestAdapter(t), plugins: fm}
+	if _, err := s.UninstallPlugin(devCtx(), &weftv1.UninstallPluginRequest{InstanceUuid: "u"}); err == nil {
 		t.Error("missing name : expected InvalidArgument")
 	}
-	if _, err := s.UninstallPlugin(context.Background(), &weftv1.UninstallPluginRequest{Name: "x"}); err == nil {
+	if _, err := s.UninstallPlugin(devCtx(), &weftv1.UninstallPluginRequest{Name: "x"}); err == nil {
 		t.Error("missing instance_uuid : expected InvalidArgument")
 	}
 }
@@ -215,9 +215,9 @@ func TestDisableEnablePlugin_RoundTrip(t *testing.T) {
 		"valkey-cache": {Name: "valkey-cache", Version: "v1", Kind: "cache"},
 	}
 	fm := &fakePluginManager{catalogue: cat}
-	s := &weftServer{plugins: fm}
+	s := &weftServer{adp: pluginTestAdapter(t), plugins: fm}
 
-	inst, err := s.InstallPlugin(context.Background(), &weftv1.InstallPluginRequest{
+	inst, err := s.InstallPlugin(devCtx(), &weftv1.InstallPluginRequest{
 		Name: "valkey-cache", Project: "platform",
 	})
 	if err != nil {
@@ -225,30 +225,30 @@ func TestDisableEnablePlugin_RoundTrip(t *testing.T) {
 	}
 
 	// Disable + verify status flips + disabled flag surfaces.
-	if _, err := s.DisablePlugin(context.Background(), &weftv1.DisablePluginRequest{
+	if _, err := s.DisablePlugin(devCtx(), &weftv1.DisablePluginRequest{
 		Name: "valkey-cache", InstanceUuid: inst.InstanceUuid,
 	}); err != nil {
 		t.Fatalf("DisablePlugin: %v", err)
 	}
-	listResp, _ := s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{})
+	listResp, _ := s.ListInstalledPlugins(devCtx(), &weftv1.ListInstalledPluginsRequest{})
 	if got := listResp.Instances[0]; !got.Disabled || got.Status != "disabled" {
 		t.Fatalf("after disable : disabled=%v status=%q ; want true/disabled", got.Disabled, got.Status)
 	}
 
 	// Re-disable is a no-op (idempotency).
-	if _, err := s.DisablePlugin(context.Background(), &weftv1.DisablePluginRequest{
+	if _, err := s.DisablePlugin(devCtx(), &weftv1.DisablePluginRequest{
 		Name: "valkey-cache", InstanceUuid: inst.InstanceUuid,
 	}); err != nil {
 		t.Fatalf("Disable re-apply: %v", err)
 	}
 
 	// Enable flips back to running + disabled=false.
-	if _, err := s.EnablePlugin(context.Background(), &weftv1.EnablePluginRequest{
+	if _, err := s.EnablePlugin(devCtx(), &weftv1.EnablePluginRequest{
 		Name: "valkey-cache", InstanceUuid: inst.InstanceUuid,
 	}); err != nil {
 		t.Fatalf("EnablePlugin: %v", err)
 	}
-	listResp, _ = s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{})
+	listResp, _ = s.ListInstalledPlugins(devCtx(), &weftv1.ListInstalledPluginsRequest{})
 	if got := listResp.Instances[0]; got.Disabled || got.Status != "running" {
 		t.Fatalf("after enable : disabled=%v status=%q ; want false/running", got.Disabled, got.Status)
 	}

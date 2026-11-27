@@ -149,9 +149,31 @@ func (s *weftServer) ListPluginCatalogue(_ context.Context, _ *weftv1.ListPlugin
 	return out, nil
 }
 
-func (s *weftServer) ListInstalledPlugins(_ context.Context, _ *weftv1.ListInstalledPluginsRequest) (*weftv1.ListInstalledPluginsResponse, error) {
+// authPluginInstance resolves a plugin instance UUID to its owning
+// project and delegates to AuthorizeProject. An unknown instance and
+// an instance of another project both answer PermissionDenied, so an
+// instance UUID cannot be probed.
+func (s *weftServer) authPluginInstance(ctx context.Context, name, instanceUUID string) error {
+	items, err := s.plugins.ListInstalled()
+	if err != nil {
+		return status.Errorf(codes.Internal, "list installed plugins: %v", err)
+	}
+	for _, i := range items {
+		if i.UUID == instanceUUID && i.Name == name {
+			_, err := s.adp.AuthorizeProject(ctx, i.Project)
+			return err
+		}
+	}
+	return status.Errorf(codes.PermissionDenied, "no access to plugin instance %s", instanceUUID)
+}
+
+func (s *weftServer) ListInstalledPlugins(ctx context.Context, _ *weftv1.ListInstalledPluginsRequest) (*weftv1.ListInstalledPluginsResponse, error) {
 	if s.plugins == nil {
 		return &weftv1.ListInstalledPluginsResponse{}, nil
+	}
+	visible, all, err := s.adp.VisibleProjects(ctx)
+	if err != nil {
+		return nil, err
 	}
 	items, err := s.plugins.ListInstalled()
 	if err != nil {
@@ -161,6 +183,11 @@ func (s *weftServer) ListInstalledPlugins(_ context.Context, _ *weftv1.ListInsta
 		Instances: make([]*weftv1.PluginInstance, 0, len(items)),
 	}
 	for _, i := range items {
+		if !all {
+			if _, ok := visible[s.resolveProjectUUID(i.Project)]; !ok {
+				continue
+			}
+		}
 		// Status doubles as an admin-state hint : "running" for an
 		// enabled install, "disabled" when the operator paused it
 		// via DisablePlugin. The TUI's sidebar gate reads disabled
@@ -196,6 +223,9 @@ func (s *weftServer) InstallPlugin(ctx context.Context, req *weftv1.InstallPlugi
 	if s.plugins == nil {
 		return nil, status.Error(codes.Unavailable, "plugin manager not configured")
 	}
+	if _, err := s.adp.AuthorizeProject(ctx, req.Project); err != nil {
+		return nil, err
+	}
 	// Promote map[string]string → map[string]any since pluginstore.Manager
 	// validates against `any` (resolved inputs go through cty / strconv
 	// inside ValidateInputs).
@@ -226,6 +256,9 @@ func (s *weftServer) UninstallPlugin(ctx context.Context, req *weftv1.UninstallP
 	}
 	if s.plugins == nil {
 		return nil, status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	if err := s.authPluginInstance(ctx, req.Name, req.InstanceUuid); err != nil {
+		return nil, err
 	}
 	if err := s.plugins.Uninstall(ctx, req.Name, req.InstanceUuid); err != nil {
 		if st, ok := status.FromError(err); ok {
@@ -267,6 +300,9 @@ func (s *weftServer) setPluginDisabled(ctx context.Context, name, instanceUUID s
 	}
 	if s.plugins == nil {
 		return status.Error(codes.Unavailable, "plugin manager not configured")
+	}
+	if err := s.authPluginInstance(ctx, name, instanceUUID); err != nil {
+		return err
 	}
 	if err := s.plugins.SetDisabled(ctx, name, instanceUUID, disabled); err != nil {
 		if st, ok := status.FromError(err); ok {
