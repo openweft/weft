@@ -25,6 +25,7 @@ import (
 type fakePluginManager struct {
 	catalogue map[string]*pluginstore.Manifest
 	installed []pluginstore.Instance
+	listErr   error
 	installFn func(ctx context.Context, name, project string, inputs map[string]any) (pluginstore.Instance, error)
 }
 
@@ -33,6 +34,9 @@ func (f *fakePluginManager) LoadCatalogue() (map[string]*pluginstore.Manifest, e
 }
 
 func (f *fakePluginManager) ListInstalled() ([]pluginstore.Instance, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	return f.installed, nil
 }
 

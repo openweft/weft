@@ -9,9 +9,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/openweft/weft"
+	drivers "github.com/openweft/weft-drivers"
 	weftv1 "github.com/openweft/weft-proto"
 	"github.com/openweft/weft/pluginstore"
 	"google.golang.org/grpc/codes"
@@ -202,6 +204,112 @@ func TestReadRPCsAbsentEqualsNotYours(t *testing.T) {
 		if status.Code(err) != codes.PermissionDenied {
 			t.Errorf("probe %d: got %v, want PermissionDenied", i, err)
 		}
+	}
+}
+
+// An unknown network answers PermissionDenied, never an empty list.
+func TestListSubnetsUnknownNetworkDenied(t *testing.T) {
+	s, adp := newSnapshotTestServer(t)
+	projA, _, _ := adp.CreateProject("bola-sn2")
+	_, err := s.ListSubnets(scopedCtx(projA.UUID), &weftv1.ListSubnetsRequest{NetworkUuid: "00000000-0000-0000-0000-000000000000"})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Errorf("unknown network: got %v, want PermissionDenied", err)
+	}
+}
+
+// Dependency failures surface as errors, never as an empty (or
+// unfiltered) answer.
+func TestPluginAndBackupListErrorsSurface(t *testing.T) {
+	s, _ := newSnapshotTestServer(t)
+	s.plugins = &fakePluginManager{listErr: errors.New("store down")}
+	if _, err := s.UninstallPlugin(devCtx(), &weftv1.UninstallPluginRequest{Name: "p", InstanceUuid: "i"}); status.Code(err) != codes.Internal {
+		t.Errorf("UninstallPlugin with failing store: got %v, want Internal", err)
+	}
+	// No caller in the context: VisibleProjects fails and must be reported.
+	if _, err := s.ListInstalledPlugins(context.Background(), &weftv1.ListInstalledPluginsRequest{}); err == nil {
+		t.Error("ListInstalledPlugins without caller: want an error")
+	}
+	if _, err := s.ListVolumeBackups(context.Background(), &weftv1.ListVolumeBackupsRequest{Target: "t"}); err == nil {
+		t.Error("ListVolumeBackups without caller: want an error")
+	}
+}
+
+// fakeBlockVolume is a "block" VolumeDriver serving canned backups and
+// recording deletes and restores.
+type fakeBlockVolume struct {
+	drivers.VolumeDriver
+	backups  []drivers.Backup
+	deleted  []string
+	restored []string
+}
+
+func (*fakeBlockVolume) Name() string { return "block" }
+func (f *fakeBlockVolume) ListBackups(context.Context, string, string) ([]drivers.Backup, error) {
+	return f.backups, nil
+}
+func (f *fakeBlockVolume) DeleteBackup(_ context.Context, u string) error {
+	f.deleted = append(f.deleted, u)
+	return nil
+}
+func (f *fakeBlockVolume) RestoreBackup(_ context.Context, u string, _ drivers.VolumeSpec) error {
+	f.restored = append(f.restored, u)
+	return nil
+}
+
+// Backups are owned by the project stamped in their label: another
+// project (or a caller with no right to an unlabelled one) can neither
+// delete nor restore them; the owner can.
+func TestBackupOwnership(t *testing.T) {
+	s, adp := newSnapshotTestServer(t)
+	projA, _, _ := adp.CreateProject("bk-a")
+	projB, _, _ := adp.CreateProject("bk-b")
+	fb := &fakeBlockVolume{backups: []drivers.Backup{
+		{URL: "fs:///b/owned", Labels: map[string]string{"weft.project_uuid": projB.UUID}},
+		{URL: "fs:///b/bare"},
+	}}
+	if err := adp.RegisterHostHandle("h1", &weft.HostHandle{Volume: fb}); err != nil {
+		t.Fatal(err)
+	}
+	a, b := scopedCtx(projA.UUID), scopedCtx(projB.UUID)
+
+	del := func(ctx context.Context, u string) error {
+		_, err := s.DeleteVolumeBackup(ctx, &weftv1.DeleteVolumeBackupRequest{Url: u})
+		return err
+	}
+	if err := del(a, "fs:///b/owned"); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("A deletes B's backup: got %v, want PermissionDenied", err)
+	}
+	if err := del(b, "fs:///b/bare"); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("non-admin deletes unlabelled backup: got %v, want PermissionDenied", err)
+	}
+	if err := del(a, "fs:///b/missing"); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("non-admin deletes unknown backup: got %v, want PermissionDenied", err)
+	}
+	if len(fb.deleted) != 0 {
+		t.Fatalf("refused deletes reached the driver: %v", fb.deleted)
+	}
+	if err := del(b, "fs:///b/owned"); err != nil {
+		t.Errorf("owner deletes own backup: %v", err)
+	}
+	if err := del(devCtx(), "fs:///b/bare"); err != nil {
+		t.Errorf("admin deletes unlabelled backup: %v", err)
+	}
+	if len(fb.deleted) != 2 {
+		t.Errorf("driver deletes = %v, want 2", fb.deleted)
+	}
+
+	restore := func(ctx context.Context, proj string) error {
+		_, err := s.RestoreVolumeBackup(ctx, &weftv1.RestoreVolumeBackupRequest{Url: "fs:///b/owned", NewVolumeName: "r", Project: proj})
+		return err
+	}
+	if err := restore(a, projA.UUID); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("A restores B's backup into A: got %v, want PermissionDenied", err)
+	}
+	if len(fb.restored) != 0 {
+		t.Fatalf("refused restore reached the driver: %v", fb.restored)
+	}
+	if err := restore(b, projB.UUID); status.Code(err) == codes.PermissionDenied {
+		t.Errorf("owner restores own backup: got %v", err)
 	}
 }
 
