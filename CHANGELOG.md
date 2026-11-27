@@ -7,6 +7,14 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Changed
+- **The S3 bucket secret is write-only.** `CreateBucket` accepts
+  `secret_access_key`; no RPC returns it any more (`GetBucket`, `ListBuckets`,
+  `CreateBucket`, `SetBucketPolicy` leave `BucketInfo.secret_access_key`
+  empty) and `weft bucket list -o json` no longer prints it. weft-proto v0.26.0.
+  Note: the registry still stores the secret in clear (see `buckets.go`);
+  encryption at rest is a separate decision.
+
 ### Added
 - **Guest secret grants, admin RPCs and per-boot token.** `SetGuestSecretRef`,
   `DeleteGuestSecretRef` and `ListGuestSecretRefs` (admin-gated, never a value)

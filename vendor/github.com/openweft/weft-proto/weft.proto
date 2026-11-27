@@ -2918,10 +2918,12 @@ message BucketInfo {
   string endpoint           = 4;  // e.g. "https://s3.example.com"
   string region             = 5;  // e.g. "us-east-1"
   string access_key_id      = 6;
-  // secret_access_key is omitted from list responses ; only GetBucket
-  // returns it (and only to admins). Field tag reserved so the wire
-  // stays stable when a future redaction policy lands.
-  string secret_access_key  = 7;
+  // DEPRECATED: the secret is write-only. Servers never fill this field
+  // on any response (ListBuckets, GetBucket, CreateBucket,
+  // SetBucketPolicy), as with the reference S3 providers: the secret
+  // is supplied once through CreateBucketRequest.secret_access_key.
+  // Tag 7 stays allocated and must never be reused.
+  string secret_access_key  = 7 [deprecated = true];
   // policy JSON ; mutable via SetBucketPolicy. List responses omit it
   // to keep the list lightweight ; GetBucket + Get/SetBucketPolicy
   // round-trip the full blob.

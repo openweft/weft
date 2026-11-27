@@ -22576,9 +22576,13 @@ type BucketInfo struct {
 	Endpoint    string                 `protobuf:"bytes,4,opt,name=endpoint,proto3" json:"endpoint,omitempty"` // e.g. "https://s3.example.com"
 	Region      string                 `protobuf:"bytes,5,opt,name=region,proto3" json:"region,omitempty"`     // e.g. "us-east-1"
 	AccessKeyId string                 `protobuf:"bytes,6,opt,name=access_key_id,json=accessKeyId,proto3" json:"access_key_id,omitempty"`
-	// secret_access_key is omitted from list responses ; only GetBucket
-	// returns it (and only to admins). Field tag reserved so the wire
-	// stays stable when a future redaction policy lands.
+	// DEPRECATED: the secret is write-only. Servers never fill this field
+	// on any response (ListBuckets, GetBucket, CreateBucket,
+	// SetBucketPolicy), as with the reference S3 providers: the secret
+	// is supplied once through CreateBucketRequest.secret_access_key.
+	// Tag 7 stays allocated and must never be reused.
+	//
+	// Deprecated: Marked as deprecated in weft.proto.
 	SecretAccessKey string `protobuf:"bytes,7,opt,name=secret_access_key,json=secretAccessKey,proto3" json:"secret_access_key,omitempty"`
 	// policy JSON ; mutable via SetBucketPolicy. List responses omit it
 	// to keep the list lightweight ; GetBucket + Get/SetBucketPolicy
@@ -22661,6 +22665,7 @@ func (x *BucketInfo) GetAccessKeyId() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in weft.proto.
 func (x *BucketInfo) GetSecretAccessKey() string {
 	if x != nil {
 		return x.SecretAccessKey
@@ -26843,7 +26848,7 @@ const file_weft_proto_rawDesc = "" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1e\n" +
 	"\vnew_size_gb\x18\x02 \x01(\x03R\tnewSizeGb\"?\n" +
 	"\x13ResizeShareResponse\x12(\n" +
-	"\x05share\x18\x01 \x01(\v2\x12.weft.v1.ShareInfoR\x05share\"\xa0\x02\n" +
+	"\x05share\x18\x01 \x01(\v2\x12.weft.v1.ShareInfoR\x05share\"\xa4\x02\n" +
 	"\n" +
 	"BucketInfo\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12!\n" +
@@ -26851,8 +26856,8 @@ const file_weft_proto_rawDesc = "" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1a\n" +
 	"\bendpoint\x18\x04 \x01(\tR\bendpoint\x12\x16\n" +
 	"\x06region\x18\x05 \x01(\tR\x06region\x12\"\n" +
-	"\raccess_key_id\x18\x06 \x01(\tR\vaccessKeyId\x12*\n" +
-	"\x11secret_access_key\x18\a \x01(\tR\x0fsecretAccessKey\x12\x16\n" +
+	"\raccess_key_id\x18\x06 \x01(\tR\vaccessKeyId\x12.\n" +
+	"\x11secret_access_key\x18\a \x01(\tB\x02\x18\x01R\x0fsecretAccessKey\x12\x16\n" +
 	"\x06policy\x18\b \x01(\tR\x06policy\x12+\n" +
 	"\x12created_at_unix_ns\x18\t \x01(\x03R\x0fcreatedAtUnixNs\"c\n" +
 	"\x12ListBucketsRequest\x12\x18\n" +
