@@ -222,15 +222,14 @@ func dashIf(s string) string {
 
 func dumpJSON(buckets []*weftv1.BucketInfo) error {
 	type out struct {
-		UUID            string `json:"uuid"`
-		ProjectUUID     string `json:"project_uuid"`
-		Name            string `json:"name"`
-		Endpoint        string `json:"endpoint"`
-		Region          string `json:"region,omitempty"`
-		AccessKeyID     string `json:"access_key_id,omitempty"`
-		SecretAccessKey string `json:"secret_access_key,omitempty"`
-		Policy          string `json:"policy,omitempty"`
-		CreatedAt       string `json:"created_at,omitempty"`
+		UUID        string `json:"uuid"`
+		ProjectUUID string `json:"project_uuid"`
+		Name        string `json:"name"`
+		Endpoint    string `json:"endpoint"`
+		Region      string `json:"region,omitempty"`
+		AccessKeyID string `json:"access_key_id,omitempty"`
+		Policy      string `json:"policy,omitempty"`
+		CreatedAt   string `json:"created_at,omitempty"`
 	}
 	flat := make([]out, len(buckets))
 	for i, b := range buckets {
@@ -238,7 +237,7 @@ func dumpJSON(buckets []*weftv1.BucketInfo) error {
 		if b.CreatedAtUnixNs != 0 {
 			created = time.Unix(0, b.CreatedAtUnixNs).UTC().Format(time.RFC3339Nano)
 		}
-		flat[i] = out{b.Uuid, b.ProjectUuid, b.Name, b.Endpoint, b.Region, b.AccessKeyId, b.SecretAccessKey, b.Policy, created}
+		flat[i] = out{b.Uuid, b.ProjectUuid, b.Name, b.Endpoint, b.Region, b.AccessKeyId, b.Policy, created}
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

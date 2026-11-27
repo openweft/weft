@@ -3613,10 +3613,12 @@ func (s *weftServer) SetBucketPolicy(ctx context.Context, req *weftv1.SetBucketP
 	return &weftv1.SetBucketPolicyResponse{Bucket: toBucketInfoFull(b)}, nil
 }
 
-// toBucketInfoListView omits the secret_access_key + policy from
-// list responses (a bucket list of N rows shouldn't drag N policy
-// JSON blobs across the wire). GetBucket + Get/SetBucketPolicy
-// round-trip the full blob.
+// The S3 secret is write-only: it is accepted by CreateBucket and never
+// returned by any RPC (BucketInfo.secret_access_key is deprecated).
+//
+// toBucketInfoListView omits the policy from list responses (a bucket
+// list of N rows shouldn't drag N policy JSON blobs across the wire).
+// GetBucket + Get/SetBucketPolicy round-trip the full policy blob.
 func toBucketInfoListView(b weft.Bucket) *weftv1.BucketInfo {
 	return &weftv1.BucketInfo{
 		Uuid:            b.UUID,
@@ -3637,7 +3639,6 @@ func toBucketInfoFull(b weft.Bucket) *weftv1.BucketInfo {
 		Endpoint:        b.Endpoint,
 		Region:          b.Region,
 		AccessKeyId:     b.AccessKeyID,
-		SecretAccessKey: b.SecretAccessKey,
 		Policy:          b.Policy,
 		CreatedAtUnixNs: b.CreatedAt.UnixNano(),
 	}

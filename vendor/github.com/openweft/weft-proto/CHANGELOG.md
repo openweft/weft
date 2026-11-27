@@ -7,6 +7,11 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+### Deprecated
+- `BucketInfo.secret_access_key` (tag 7, kept, never to be reused): the S3
+  bucket secret is write-only. Servers never fill it on any response; it is
+  supplied once through `CreateBucketRequest.secret_access_key`.
+
 ### Added
 - Admin RPCs `SetGuestSecretRef`, `DeleteGuestSecretRef` and
   `ListGuestSecretRefs` (`GuestSecretRef{secret_id, ref, version}`): the
